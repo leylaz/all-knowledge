@@ -21,7 +21,21 @@ section({
 <li>Out-of-order execution, register renaming, and the sizes of the ROB and queues.</li>
 <li>How many cycles any instruction takes.</li>
 </ul>
-<p>That's why Apple's M-series cores and Arm's Cortex cores both run the same Arm binaries while being completely different designs, and why two chips with the same ISA can differ greatly in performance. The rest of this site's Pipeline stages and Out-of-order core sections are about these implementation choices.</p>`
+<p>That's why Apple's M-series cores and Arm's Cortex cores both run the same Arm binaries while being completely different designs, and why two chips with the same ISA can differ greatly in performance. The rest of this site's Pipeline stages and Out-of-order core sections are about these implementation choices.</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Sort each into ISA or microarchitecture: (a) RISC-V has 32 integer registers, with x0 always zero; (b) Zen 4's ROB has 320 entries; (c) whether a misaligned load is allowed or faults; (d) Golden Cove's L1 data cache hits in 5 cycles; (e) x86 keeps stores in program order as seen by other cores.</p>`,
+        a: `<ol start="0"><li>(a) <strong>ISA</strong>: software names those registers directly.</li><li>(b) <strong>Microarchitecture</strong>: invisible to software except through speed.</li><li>(c) <strong>ISA</strong>: it changes what a program does.</li><li>(d) <strong>Microarchitecture</strong>: a latency, which the ISA never specifies.</li><li>(e) <strong>ISA</strong>: the memory model (x86's TSO) is part of the contract, because correct multithreaded programs depend on it.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Apple's Rosetta 2 translates x86-64 binaries to Arm ahead of time, yet Apple's cores also include a hardware TSO mode used only for translated code. Why does memory ordering need hardware help when instruction translation doesn't?</p>`,
+        a: `<p>Instructions translate one to one or one to a few: an x86 add becomes an Arm add. Memory ordering doesn't translate locally. x86 programs assume TSO (stores become visible in order, loads aren't reordered with each other), while Arm allows much more reordering. To get TSO from plain Arm code, the translator would have to make almost every load an acquire and every store a release, or insert barriers, on nearly every memory access, because it can't tell which accesses are to shared data. That costs a lot of performance. A per-thread hardware mode that enforces TSO ordering lets translated code use ordinary loads and stores at close to native speed.</p>`
+      }
+    ]
+  }
 }, [
 {
   id: "isa-defines",

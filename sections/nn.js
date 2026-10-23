@@ -12,7 +12,21 @@ section({
 <ul>
 <li><a href="#/nn-basics">Neural network basics: neurons, layers, and weights</a>: neurons, layers, weights, biases, sigmoid, and why the whole thing is just matrix math. Based on 3Blue1Brown's lesson.</li>
 <li>Then: <a href="#/gen-discriminative">Discriminative models</a> for softmax and training with cross-entropy, and <a href="#/llm-block">The rest of the block</a> to see the same layers at LLM scale.</li>
-</ul>`
+</ul>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>The digit-reading network has layers of 784, 16, 16, and 10 neurons, fully connected. How many weights and biases does it have?</p>`,
+        a: `<ol start="0"><li>Weights between layers: 784 × 16 = 12,544; 16 × 16 = 256; 16 × 10 = 160. Total: <strong>12,960</strong>.</li><li>Biases: one per neuron outside the input layer: 16 + 16 + 10 = <strong>42</strong>.</li><li>Parameters: 12,960 + 42 = <strong>13,002</strong>.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Run that network on one image at a time with FP32 weights on a desktop CPU. How many multiply-accumulates is one image, and is the work compute-bound or memory-bound? What changes with a batch of 64 images?</p>`,
+        a: `<p>One image is 12,960 multiply-accumulates (one per weight), about 26K floating-point operations. The weights are 12,960 × 4 B ≈ 52 KB, which fits in the L2 cache of any recent core (1 MB on Zen 4, 1.25 to 2 MB on recent Intel cores), so after the first image they come from L2, not DRAM. Each weight is used once per image: 2 FLOPs per 4 bytes, an arithmetic intensity of 0.5 FLOP/byte, so even from L2 it's bandwidth-bound rather than limited by the FMA units. With a batch of 64, each weight is loaded once and used 64 times (64 FLOP/byte at the cache), the work becomes a matrix-matrix multiply, and it becomes compute-bound. That's the same reason LLM decode is memory-bound and prefill is compute-bound.</p>`
+      }
+    ]
+  }
 }, [
 {
   id: "nn-basics",

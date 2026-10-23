@@ -8,7 +8,21 @@ section({
   cap: "From performance model to tapeout, stage by stage",
   body: `
 <p>The EDA (electronic design automation) stack is the chain of tools and steps that takes a chip from an idea to the data a factory manufactures: performance modeling, RTL design, verification, emulation, synthesis, design for test, physical design, signoff, and tapeout.</p>
-<p>Start with <a href="#/eda-why">Why EDA matters</a> for the big picture, or jump straight to any stage below.</p>`
+<p>Start with <a href="#/eda-why">Why EDA matters</a> for the big picture, or jump straight to any stage below.</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Name what each stage of the stack hands to the next: performance modeling → RTL design → logic synthesis → design for test → physical design → signoff → tapeout.</p>`,
+        a: `<ol start="0"><li>Performance modeling → RTL design: a <strong>microarchitecture specification</strong> (structure sizes, widths, latencies) backed by model results.</li><li>RTL design → synthesis: <strong>RTL</strong> (SystemVerilog), verified against the spec.</li><li>Synthesis → design for test: a <strong>gate-level netlist</strong> mapped to the standard-cell library.</li><li>Design for test → physical design: the netlist with <strong>scan chains and test logic</strong> inserted.</li><li>Physical design → signoff: a placed and routed <strong>layout</strong>.</li><li>Signoff → tapeout: the layout once it passes timing, power, and physical checks, written out as <strong>GDSII or OASIS</strong> for mask making.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Why do teams spend so much effort finding bugs early, in the performance model and RTL simulation, rather than relying on emulation or silicon? Give rough costs.</p>`,
+        a: `<p>A bug's cost grows at every stage. In the performance model or early RTL, a fix is an edit and a rerun: hours. Late in physical design it may need an ECO that patches the netlist and reruns parts of signoff: days to weeks. After tapeout, a fix needs new masks; for a leading-edge node, a full mask set is commonly estimated at well over ten million dollars, plus several months of fab time, plus the lost market window. Silicon also gives the least visibility: no waveforms, only a few debug signals. So each earlier stage is worth heavy investment: the cost per bug found is far lower and debug is far faster.</p>`
+      }
+    ]
+  }
 }, [
 {
   id: "eda-why",
