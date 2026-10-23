@@ -68,7 +68,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "core core core ctr ctr ctr"
     "coh coh coh icx icx icx"
     "os os os comp comp comp"
-    "conc conc conc . . ."; }
+    "conc conc conc perf perf perf"; }
 .block { background: var(--surface); border: 1px solid var(--rule); border-top: 3px solid var(--trace); border-radius: 3px; padding: 16px 18px 18px; transition: opacity .2s; }
 .block.dim { opacity: .35; }
 .floor .block:nth-child(4n+2) { border-top-color: var(--accent-green); }
@@ -179,7 +179,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .theme-btn:hover { border-color: var(--trace); color: var(--trace); }
 .theme-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 @media (max-width: 860px) {
-  .floor { grid-template-columns: 1fr; grid-template-areas: "fab" "circ" "isa" "pipe" "core" "mem" "ctr" "coh" "icx" "os" "comp" "conc"; }
+  .floor { grid-template-columns: 1fr; grid-template-areas: "fab" "circ" "isa" "pipe" "core" "mem" "ctr" "coh" "icx" "os" "comp" "conc" "perf"; }
   .intro { padding-top: 32px; }
   .page { grid-template-columns: 1fr; gap: 0; padding-top: 16px; }
   .menu-btn.show { display: inline-block; }
@@ -227,6 +227,7 @@ window.MathJax = {
 <script src="sections/os.js"></script>
 <script src="sections/comp.js"></script>
 <script src="sections/conc.js"></script>
+<script src="sections/perf.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/app.js"></script>
 </body>
