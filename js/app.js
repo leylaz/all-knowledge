@@ -66,7 +66,7 @@ function renderHome() {
   <div class="wrap">
     <section class="intro">
       <h1>All Knowledge</h1>
-      <p>From transistors to workloads, laid out like a die. Every page ends with practice problems.</p>
+      <p>From transistors to workloads, laid out like a die.</p>
     </section>
     ${typeof floorplanSVG === "function" ? floorplanSVG() : ""}
     <div class="die"><div class="floor">
