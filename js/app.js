@@ -7,8 +7,8 @@ function typesetMath() {
   const M = window.MathJax;
   if (!M || !M.typesetPromise) return;
   const root = document.getElementById("app");
-  try { if (M.typesetClear) M.typesetClear([root]); } catch (e) {}
-  M.typesetPromise([root]).catch(() => {});
+  try { if (M.typesetClear) M.typesetClear([root]); } catch (e) { console.error("MathJax typesetClear failed:", e); }
+  M.typesetPromise([root]).catch(e => console.error("MathJax typeset failed:", e));
 }
 window.typesetMath = typesetMath;
 
