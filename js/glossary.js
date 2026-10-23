@@ -1,0 +1,39 @@
+/* Glossary for hover cards. The first use of each term on a page gets a
+   dotted underline; hovering or focusing it shows the definition and a
+   link to the page that covers it. Keys are matched case-sensitively as
+   whole words. `page` is a page id, optionally "/<section id>". */
+const GLOSSARY = {
+  "AMAT": { def: "Average memory access time: hit time + miss rate × miss penalty, applied level by level.", page: "cache-size" },
+  "BTB": { def: "Branch target buffer: a cache from branch PC to predicted target, so fetch can redirect before the branch is decoded.", page: "branch-hazards/btb" },
+  "CPI": { def: "Cycles per instruction, the inverse of IPC. A CPI stack splits it into a base plus a stall component per cause.", page: "pipelining" },
+  "CPI stack": { def: "CPI split into a base component plus one stall component per cause (branch mispredicts, L2 misses, …), so the components add up to total CPI.", page: "perf-stage-stalls/accounting" },
+  "DRAM": { def: "Dynamic RAM: one transistor and one capacitor per bit. Dense and cheap, but slow and needs refresh; used for main memory.", page: "sram-dram" },
+  "SRAM": { def: "Static RAM: six transistors per bit, fast and needs no refresh; used for caches, register files, and queues.", page: "sram-dram" },
+  "ECO": { def: "Engineering change order: a small patch to the netlist late in the flow, avoiding a full rerun of synthesis and layout.", page: "verif-debug/debug-flow" },
+  "EUV": { def: "Extreme ultraviolet lithography (13.5 nm light). Prints about a 33 nm pitch in one exposure, replacing several DUV multipatterning steps.", page: "fab-nodes" },
+  "FinFET": { def: "A transistor whose gate wraps three sides of a vertical silicon fin, for better control of leakage than a planar transistor.", page: "fab-nodes" },
+  "FMA": { def: "Fused multiply-add: a × b + c with a single rounding, the basic operation of floating-point units.", page: "fp-units" },
+  "ILP": { def: "Instruction-level parallelism: how many instructions from one thread can run at the same time.", page: "ooo-tradeoffs" },
+  "IPC": { def: "Instructions per cycle: retired instructions divided by cycles. The basic throughput metric for a core.", page: "ipc-spec" },
+  "ISA": { def: "Instruction set architecture: the contract between hardware and software (instructions, registers, memory model).", page: "r/isa" },
+  "KV cache": { def: "The keys and values of every earlier token, stored so each new token's attention reuses them instead of recomputing them.", page: "llm-kvcache" },
+  "LLC": { def: "Last-level cache: the cache closest to memory, usually shared by all cores (the L3 on most CPUs).", page: "l2-banks" },
+  "LSQ": { def: "Load and store queues: hold in-flight memory operations in program order for forwarding, ordering checks, and commit.", page: "lsq" },
+  "MESI": { def: "A coherence protocol with four line states: Modified, Exclusive, Shared, Invalid.", page: "mesi" },
+  "MLP": { def: "Memory-level parallelism: the average number of cache misses outstanding at once. Higher MLP hides more of the memory latency.", page: "latency-tolerance" },
+  "MPKI": { def: "Misses (or mispredictions) per thousand instructions: an event rate that can be compared across programs.", page: "perf-stats" },
+  "MSHR": { def: "Miss status holding register: tracks one outstanding cache miss, so the cache can keep serving hits while misses are pending.", page: "dcache" },
+  "PEBS": { def: "Precise event-based sampling (Intel): tags a counter sample with the exact instruction that caused it.", page: "perf-stage-stalls/silicon" },
+  "PRF": { def: "Physical register file: holds every renamed register value; architectural registers map onto its entries.", page: "prf-sizing" },
+  "RAS": { def: "Return address stack: predicts return targets by pushing on calls and popping on returns.", page: "branch-hazards" },
+  "ROB": { def: "Reorder buffer: holds every in-flight instruction in program order so they retire in order, giving precise exceptions.", page: "rob" },
+  "RTL": { def: "Register-transfer level: the hardware description (SystemVerilog or VHDL) of registers and the logic between them.", page: "eda-rtl" },
+  "SIMD": { def: "Single instruction, multiple data: one instruction operates on a vector of elements (SSE, AVX, NEON, SVE).", page: "exec-units" },
+  "SMT": { def: "Simultaneous multithreading: two or more hardware threads share one core's pipeline in the same cycles." },
+  "TLB": { def: "Translation lookaside buffer: a cache of virtual-to-physical page translations.", page: "virtual-memory" },
+  "TSO": { def: "Total store order, x86's memory model: a load may pass an earlier store to a different address; nothing else is reordered.", page: "c11-ordering" },
+  "UVM": { def: "Universal Verification Methodology: the standard SystemVerilog class library for building reusable testbenches.", page: "verif-testbench" },
+  "store-to-load forwarding": { def: "A load gets its data straight from an older, not-yet-committed store to the same address in the store queue.", page: "lsq" },
+  "memory-level parallelism": { def: "The average number of cache misses outstanding at once. Higher MLP hides more of the memory latency.", page: "latency-tolerance" },
+  "Little's law": { def: "Average occupancy = throughput × average time in the system. Sizes queues: entries needed = rate × residency.", page: "perf-stage-stalls/bounds" }
+};

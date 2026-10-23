@@ -110,6 +110,13 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .results mark { background: var(--pad-soft); color: var(--ink); border-radius: 2px; padding: 0 1px; }
 .results .more { color: var(--muted); font-size: .88rem; }
 
+/* Glossary hover cards */
+.gl { position: relative; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
+.gl-card { display: none; position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; width: min(300px, calc(100vw - 32px)); background: var(--surface); color: var(--ink); border: 1px solid var(--rule); border-left: 3px solid var(--trace); border-radius: 4px; padding: 8px 12px; font-family: var(--sans); font-size: .86rem; font-weight: 400; line-height: 1.45; text-align: left; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
+.gl-card::before { content: ""; position: absolute; left: 0; right: 0; top: -8px; height: 8px; }
+.gl:hover .gl-card, .gl:focus .gl-card, .gl:focus-within .gl-card { display: block; }
+.gl-card a { white-space: nowrap; }
+
 /* Page layout with side menu */
 .page { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 40px; padding-top: 28px; padding-bottom: 64px; }
 .side { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow-y: auto; font-size: .92rem; padding-right: 4px; }
@@ -452,6 +459,7 @@ window.MathJax = {
 <script src="sections/intv.js"></script>
 <script src="sections/private.js"></script>
 <script src="js/diagrams.js"></script>
+<script src="js/glossary.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/app.js"></script>
 </body>

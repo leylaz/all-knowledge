@@ -137,7 +137,59 @@ function layout(curId, curSec, inner) {
   const cur = document.querySelector(".side .cur");
   if (cur && window.innerWidth > 860) cur.scrollIntoView({ block: "nearest" });
   decorateFlags();
+  decorateGlossary(curId);
   typesetMath();
+}
+
+/* ---------- Glossary hover cards (terms in js/glossary.js) ----------
+   Wraps the first use of each term on a page; skips code, links,
+   headings, and math. */
+const GL_SKIP = "a, code, pre, h1, h2, h3, h4, th, summary, sup, sub, .qn, .math, .eq, mjx-container, svg, .gl";
+let GL_RE = null;
+function decorateGlossary(curId) {
+  if (typeof GLOSSARY !== "object") return;
+  if (!GL_RE) {
+    const terms = Object.keys(GLOSSARY).sort((a, b) => b.length - a.length)
+      .map(t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    GL_RE = new RegExp("(?<![\\w-])(" + terms.join("|") + ")(?![\\w-])");
+  }
+  const used = new Set();
+  const walker = document.createTreeWalker(app.querySelector(".note") || app, NodeFilter.SHOW_TEXT, {
+    acceptNode: t => t.parentElement.closest(GL_SKIP) || !t.parentElement.closest(".body, .prob") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (let t of nodes) {
+    let m;
+    while (t && (m = t.data.match(GL_RE))) {
+      const term = m[1];
+      if (used.has(term)) { t = t.splitText(m.index + term.length); continue; }
+      used.add(term);
+      const g = GLOSSARY[term];
+      const word = t.splitText(m.index);
+      t = word.splitText(term.length);
+      const span = document.createElement("span");
+      span.className = "gl"; span.tabIndex = 0;
+      const link = g.page && g.page.split("/")[0] !== curId
+        ? ` <a href="#/${g.page}">Read more</a>` : "";
+      span.innerHTML = `<span class="gl-card" role="tooltip"><strong></strong> ${g.def.replace(/</g, "&lt;")}${link}</span>`;
+      span.querySelector("strong").textContent = term;
+      span.insertBefore(document.createTextNode(term), span.firstChild);
+      word.replaceWith(span);
+    }
+  }
+}
+/* Keep a card inside the viewport. */
+app.addEventListener("mouseover", e => {
+  const gl = e.target.closest && e.target.closest(".gl");
+  if (gl) placeCard(gl);
+});
+app.addEventListener("focusin", e => { if (e.target.classList && e.target.classList.contains("gl")) placeCard(e.target); });
+function placeCard(gl) {
+  const card = gl.querySelector(".gl-card");
+  card.style.left = "0px";
+  const r = card.getBoundingClientRect(), over = r.right - (document.documentElement.clientWidth - 12);
+  if (over > 0) card.style.left = -Math.min(over, gl.getBoundingClientRect().left - 12) + "px";
 }
 
 /* ---------- Flagged interview questions ----------
