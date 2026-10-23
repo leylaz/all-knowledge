@@ -222,5 +222,77 @@ section({
       }
     ]
   }
+},
+
+{
+  id: "consistency",
+  region: "coh",
+  title: "Memory Consistency Models in Hardware",
+  sections: [
+    { id: "sc", label: "Sequential Consistency" },
+    { id: "litmus", label: "Litmus Tests" },
+    { id: "tso", label: "TSO and the Store Buffer" },
+    { id: "weak", label: "Weak Models: Arm and RISC-V" },
+    { id: "impl", label: "Speculating Past the Model" },
+    { id: "cost", label: "What Fences Cost" }
+  ],
+  body: `
+<p>Coherence says every core agrees on the order of writes to <em>one</em> address. The consistency model says what orders a program can observe across <em>different</em> addresses. It is part of the ISA, and it decides which hardware optimizations are visible to software. The C11 view of the same problem is on <a href="#/c11-ordering">C11 Memory Ordering</a>; this page covers what the hardware guarantees and how it keeps those guarantees while executing out of order.</p>
+
+<h3 id="sec-sc">Sequential Consistency</h3>
+<p>Lamport's <strong>sequential consistency (SC)</strong>: the result is as if all cores' memory operations ran in some single interleaving that respects each core's program order. It is the model programmers assume by default. No major ISA requires it, because enforcing it naively forbids the most valuable optimization a core has: letting a load complete while an older store waits in the store buffer.</p>
+
+<h3 id="sec-litmus">Litmus Tests</h3>
+<p>Models are compared with small two- or four-thread programs and the outcomes they allow. All locations start at 0:</p>
+<div class="tbl"><table>
+<tr><th>Test</th><th>Threads</th><th>Outcome in question</th><th>SC</th><th>x86 (TSO)</th><th>Arm, RISC-V</th></tr>
+<tr><td>Store buffering (SB)</td><td>T0: x = 1; r0 = y<br>T1: y = 1; r1 = x</td><td>r0 = 0 and r1 = 0</td><td>Forbidden</td><td><strong>Allowed</strong></td><td>Allowed</td></tr>
+<tr><td>Message passing (MP)</td><td>T0: x = 1; y = 1<br>T1: r0 = y; r1 = x</td><td>r0 = 1 and r1 = 0</td><td>Forbidden</td><td>Forbidden</td><td><strong>Allowed</strong> without barriers</td></tr>
+<tr><td>Load buffering (LB)</td><td>T0: r0 = x; y = 1<br>T1: r1 = y; x = 1</td><td>r0 = 1 and r1 = 1</td><td>Forbidden</td><td>Forbidden</td><td>Allowed by the model (rare in practice)</td></tr>
+<tr><td>IRIW</td><td>T0: x = 1. T1: y = 1.<br>T2: r0 = x; r1 = y. T3: r2 = y; r3 = x</td><td>T2 sees x before y, T3 sees y before x</td><td>Forbidden</td><td>Forbidden</td><td>Forbidden with ordered loads (Arm and RISC-V are multi-copy atomic); allowed on POWER</td></tr>
+</table></div>
+
+<h3 id="sec-tso">TSO and the Store Buffer</h3>
+<p><strong>Total store order</strong> (x86, SPARC) is exactly SC plus a FIFO store buffer per core: a store retires into the buffer and becomes visible to other cores later, in program order, while the core's own later loads may complete first (forwarding from the buffer if they match). That one relaxation is what allows the SB outcome. To forbid it, the program needs a fence (<code>mfence</code>) or a locked instruction between the store and the load; both wait for the store buffer to drain.</p>
+
+<h3 id="sec-weak">Weak Models: Arm and RISC-V</h3>
+<p>Arm (Armv8 onward) and RISC-V (RVWMO) allow almost any reordering of independent memory operations, then give software tools to restore order where it matters:</p>
+<ul>
+<li><strong>Barriers:</strong> <code>dmb</code> on Arm, <code>fence</code> on RISC-V, with variants that order only loads, only stores, or both.</li>
+<li><strong>Acquire and release accesses:</strong> Arm's <code>ldar</code> and <code>stlr</code>, RISC-V's <code>.aq</code> and <code>.rl</code> annotations on atomics. They order only what they need to, which is cheaper than a full barrier.</li>
+<li><strong>Dependencies:</strong> a load whose address depends on an earlier load's value is ordered after it, at no cost.</li>
+</ul>
+<p>Both models are <strong>multi-copy atomic</strong>: a store becomes visible to all other cores at the same time. That forbids IRIW once each reader's loads are ordered, and it greatly simplifies reasoning. IBM POWER is not multi-copy atomic, and is harder to program for that reason.</p>
+
+<h3 id="sec-impl">Speculating Past the Model</h3>
+<p>An out-of-order x86 core executes loads early and out of order, which looks like it would break TSO's load-to-load ordering. It doesn't, because the core checks after the fact (Gharachorloo, Gupta, and Hennessy, 1991):</p>
+<ol start="0">
+<li>A load executes speculatively as soon as its address is ready, possibly before older loads.</li>
+<li>The load queue keeps its address until it retires.</li>
+<li>If the line is invalidated (another core wrote it) or evicted before the load retires, the core can't prove that no one saw the reordering, so it squashes the load and everything after it and re-executes (a memory-ordering machine clear).</li>
+</ol>
+<p>The same technique can make SC nearly as fast as TSO or weaker models (Gniady, Falsafi, and Vijaykumar, 1999): what costs performance is not ordering itself, but waiting for it instead of speculating and checking.</p>
+
+<h3 id="sec-cost">What Fences Cost</h3>
+<ul>
+<li>A full fence waits for the store buffer to drain. If the buffer holds stores that miss in the cache, that can take hundreds of cycles.</li>
+<li>Even with a near-empty buffer, a full fence costs tens of cycles on recent x86 cores, which is why locks use locked read-modify-write instructions and why lock-free code prefers acquire/release orderings.</li>
+<li>Machine clears from memory-ordering violations show up in counters (Intel's <code>MACHINE_CLEARS.MEMORY_ORDERING</code>) and are a sign of true sharing on hot lines.</li>
+</ul>
+<p class="refs">References: Sorin, Hill, and Wood, <em>A Primer on Memory Consistency and Cache Coherence</em>, 2nd ed. (2020), Chapters 3 to 5 · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 5 (models of memory consistency) · Lamport, "How to Make a Multiprocessor Computer That Correctly Executes Multiprocess Programs," IEEE Trans. Computers, 1979 · Gharachorloo, Gupta, and Hennessy, "Two Techniques to Enhance the Performance of Memory Consistency Models," ICPP 1991 · Gniady, Falsafi, and Vijaykumar, "Is SC + ILP = RC?," ISCA 1999 · Alglave, Maranget, and Tautschnig, "Herding Cats," TOPLAS 2014</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>In the store-buffering test (T0: x = 1; r0 = y. T1: y = 1; r1 = x), list every outcome (r0, r1) that SC allows, then show how a store buffer produces the one SC forbids.</p>`,
+        a: `<ol start="0"><li>Under SC, some store goes first in the single interleaving. If x = 1 is first, T1's later load of x returns 1, so r1 = 1; symmetrically, if y = 1 is first, r0 = 1.</li><li>SC allows <strong>(0, 1), (1, 0), and (1, 1)</strong>, but not (0, 0).</li><li>With store buffers: T0 puts x = 1 in its buffer and loads y from the cache (still 0); T1 puts y = 1 in its buffer and loads x (still 0). Both buffers drain afterward.</li><li>Result: <strong>(0, 0)</strong>, allowed by TSO. An <code>mfence</code> after each store forces the buffer to drain before the load, restoring SC for this test.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Profiling shows a high rate of memory-ordering machine clears on an x86 server running a work-stealing scheduler. What's happening, and how would you reduce it?</p>`,
+        a: `<p>Loads in a core's window executed early, then another core wrote one of those lines before they retired. To preserve TSO, the core squashed and re-executed them. In a work-stealing scheduler, the likely lines are the deque's top and bottom indices and nearby task slots: thieves and the owner read and write them constantly. Each clear throws away the whole window, so the cost scales with ROB size. Reductions: separate frequently written fields onto their own cache lines (the owner's bottom index away from the thieves' top index); have thieves back off after a failed steal instead of spinning on the shared index; spin with <code>pause</code>, which also limits how many speculative loads are in flight; and avoid polling shared lines with plain loads in tight loops. Confirm by attributing the clears to PCs (precise sampling) and checking that they fall on the deque's code.</p>`
+      }
+    ]
+  }
 }
 ]);
