@@ -82,6 +82,22 @@ const CALCS = {
         <p>Miss penalty seen from L2 = ${fmt(v.h2)} + ${fmt(v.m2)} × ${fmt(v.mem)} = ${fmt(p2)}; from L1 = ${fmt(v.h1)} + ${fmt(v.m1)} × ${fmt(p2)} = ${fmt(p1)}.</p>
         <p class="calc-out">AMAT = ${fmt(v.h0)} + ${fmt(v.m0)} × ${fmt(p1)} = <strong>${fmt(amat)} cycles</strong>. Global DRAM miss rate: ${fmt(reach[3] * 1000, 3)} per thousand accesses.</p>`;
     }
+  },
+
+  little: {
+    title: "Little's Law: Misses in Flight",
+    intro: "How many outstanding misses a bandwidth target needs, and what bandwidth a given number of miss buffers allows. Defaults: one core streaming from DDR5 with Golden Cove's 16 L1 fill buffers.",
+    inputs: [
+      ["Target", [["bw", "Bandwidth (GB/s)", 30, 1], ["lat", "Miss latency (ns)", 80, 5], ["line", "Line size (bytes)", 64, 64]]],
+      ["Hardware", [["mshr", "Outstanding misses allowed", 16, 1]]]
+    ],
+    run(v) {
+      const need = v.bw * v.lat / v.line;           /* GB/s × ns = bytes */
+      const get = v.mshr * v.line / v.lat;            /* bytes per ns = GB/s */
+      return `<p>Lines in flight = bandwidth × latency / line size = ${fmt(v.bw)} GB/s × ${fmt(v.lat)} ns / ${fmt(v.line)} B = <strong>${fmt(need, 1)}</strong>.</p>
+        <p>With ${fmt(v.mshr)} outstanding misses: bandwidth ≤ ${fmt(v.mshr)} × ${fmt(v.line)} B / ${fmt(v.lat)} ns = <strong>${fmt(get, 1)} GB/s</strong>.</p>
+        <p class="calc-out">${need <= v.mshr ? `Enough: the target needs ${fmt(need, 1)} of ${fmt(v.mshr)} buffers.` : `Short by ${fmt(need - v.mshr, 1)} buffers: the core tops out at ${fmt(get, 1)} GB/s, ${fmt(get / v.bw * 100, 0)}% of the target. Prefetching into L2, which tracks more misses, is how real cores get past this.`}</p>`;
+    }
   }
 };
 

@@ -200,6 +200,7 @@ section({
 </ul>
 <p>Data cache <em>ports</em> are a different thing: they set how many hits can be served per cycle (bandwidth), not how many misses can overlap.</p>
 <p><strong>Why the window matters even without dependents:</strong> instructions retire in order, so the ROB fills up behind a stuck load. A 4-wide core with a 128-entry ROB fills it in about 32 cycles and then stalls, so a 200-cycle DRAM miss is mostly exposed unless the work behind it contains other misses that overlap with it.</p>
+<div class="calc" data-calc="little"></div>
 <h3>The Limit</h3>
 <p>Dependent misses (pointer chasing) serialize regardless of window size. Only prediction, prefetching that understands the data structure, or software changes help there.</p>`,
   practice: {
