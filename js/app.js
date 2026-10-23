@@ -168,4 +168,5 @@ q.addEventListener("input", () => {
 });
 
 window.addEventListener("hashchange", route);
+if (typeof initThemeToggle === "function") initThemeToggle();
 route();

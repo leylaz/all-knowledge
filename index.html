@@ -7,6 +7,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Literata:opsz,wght@7..72,400;7..72,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+  /* Dark by default; a saved choice from the header switch wins. */
+  (function () { var t = "dark"; try { t = localStorage.getItem("theme") || "dark"; } catch (e) {}
+    document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark"); })();
+</script>
 <style>
 :root {
   --paper: #F3F5F9; --surface: #FFFFFF; --ink: #121A27; --muted: #566278;
@@ -19,6 +24,20 @@
   color-scheme: light; box-sizing: border-box;
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #080D14; --surface: #0F1723; --ink: #E4EBF4; --muted: #95A4B8;
+    --rule: #223249; --trace: #7FA8F0; --trace-soft: #16243B; --pad: #D1AE55;
+    --pad-soft: #1B1810; --code-bg: #0C1420; --code-comment: #6FCB98; --redirect: #EE6B6B;
+    --accent-red: #EE6B6B; --accent-green: #4FC28F; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #080D14; --surface: #0F1723; --ink: #E4EBF4; --muted: #95A4B8;
+  --rule: #223249; --trace: #7FA8F0; --trace-soft: #16243B; --pad: #D1AE55;
+  --pad-soft: #1B1810; --code-bg: #0C1420; --code-comment: #6FCB98; --redirect: #EE6B6B;
+  --accent-red: #EE6B6B; --accent-green: #4FC28F; color-scheme: dark;
 }
 *, *::before, *::after { box-sizing: inherit; }
 html { scroll-padding-top: env(safe-area-inset-top, 0px); }
@@ -134,6 +153,10 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .sublist a { display: inline-block; text-decoration: none; color: var(--ink); background: var(--trace-soft); border-radius: 3px; padding: 5px 10px; font-size: .92rem; font-family: var(--sans); }
 
 
+/* Header theme switch */
+.theme-btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: .88rem; font-weight: 600; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 11px; cursor: pointer; }
+.theme-btn:hover { border-color: var(--trace); color: var(--trace); }
+.theme-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 @media (max-width: 860px) {
   .floor { grid-template-columns: 1fr; grid-template-areas: none; }
   .intro { padding-top: 32px; }
@@ -157,6 +180,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     <a class="brand" href="#/">All Knowledge</a>
     <button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="side">All sections</button>
     <div class="search"><input id="q" type="search" placeholder="Search notes" aria-label="Search notes"></div>
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="Switch theme"></button>
   </div>
 </header>
 <main id="app"></main>
@@ -170,6 +194,7 @@ window.MathJax = {
 </script>
 <script async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js"></script>
 <script src="js/site.js"></script>
+<script src="js/theme.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
