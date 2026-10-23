@@ -2,6 +2,23 @@
    One region of the die plus its pages, in display order.
    To add a page, append an object to the list below (region: "core"). */
 
+/* Bit-field bars for the Floating-Point Units page, drawn to scale. */
+function fpBar(name, segs, of) {
+  const w = segs.reduce((a, s) => a + s[1], 0) / of * 100;
+  return '<div class="bfrow"><b>' + name + '</b><div class="bf" style="width:' + w + '%">' +
+    segs.map(s => '<span class="' + s[0] + '" style="flex-grow:' + s[1] + '">' + (s[2] || s[1]) + '</span>').join("") +
+    '</div></div>';
+}
+const FP_BARS = '<div class="bfs">' +
+  fpBar("FP32", [["s", 1], ["e", 8], ["f", 23]], 32) +
+  fpBar("TF32", [["s", 1], ["e", 8], ["f", 10], ["x", 13, "unused 13"]], 32) +
+  fpBar("BF16", [["s", 1], ["e", 8], ["f", 7]], 32) +
+  fpBar("FP16", [["s", 1], ["e", 5], ["f", 10]], 32) +
+  fpBar("FP8 E5M2", [["s", 1], ["e", 5], ["f", 2]], 32) +
+  fpBar("FP8 E4M3", [["s", 1], ["e", 4], ["f", 3]], 32) +
+  fpBar("FP4 E2M1", [["s", 1], ["e", 2], ["f", 1]], 32) +
+  '</div><p class="bfkey">Widths to scale (32 bits = full width).<i style="background:var(--pad-soft);border:1px solid var(--pad)"></i>sign<i style="background:var(--trace-soft);border:1px solid var(--trace)"></i>exponent<i style="background:var(--code-bg);border:1px solid var(--rule)"></i>fraction (stored mantissa bits)</p>';
+
 section({
   id: "core",
   name: "Out-of-Order Core",
@@ -282,12 +299,13 @@ I3: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
 <tr><td>Branch unit</td><td>Resolves branches, triggers recovery</td><td>1 cycle</td><td>Often shares a port with an ALU</td></tr>
 <tr><td>Integer multiplier</td><td>Multiply</td><td>3–4 cycles</td><td>Pipelined</td></tr>
 <tr><td>Integer divider</td><td>Divide</td><td>~10–40 cycles</td><td>Iterative, usually not pipelined</td></tr>
-<tr><td>FPU / FMA</td><td>FP add, multiply, fused multiply-add</td><td>3–5 cycles</td><td>Pipelined; large area</td></tr>
+<tr><td><a href="#/fp-units">FPU / FMA</a></td><td>FP add, multiply, fused multiply-add</td><td>3–5 cycles</td><td>Pipelined; large area</td></tr>
 <tr><td>FP divide/sqrt</td><td>Division, square root</td><td>~10–30 cycles</td><td>Iterative</td></tr>
 <tr><td>Vector / SIMD</td><td>Same op on many lanes</td><td>Like scalar FP</td><td>Area and power scale with width</td></tr>
 <tr><td>Load unit (LDU)</td><td>Address generation + L1D access</td><td>~4–5 cycles load-to-use</td><td>Also searches the SQ</td></tr>
 <tr><td>Store unit (STU)</td><td>Store address and store data</td><td>Writes the SQ</td><td>Address and data often split into separate ports</td></tr>
 </table></div>
+<p>For number formats (FP64 down to FP4, the mantissa, BF16, TF32) and the inside of the FMA pipeline, see <a href="#/fp-units">Floating-Point Units</a>.</p>
 <h3>The Math</h3>
 <ul>
 <li><strong>Port demand:</strong> ops per cycle of a type = IPC × fraction of that type. Keep utilization well below 100% to avoid queueing.</li>
@@ -316,6 +334,187 @@ I3: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
       {
         q: `<p>Why is the integer divider usually not pipelined, while the multiplier is?</p>`,
         a: `<p>Division is rare, and a pipelined divider would need many copies of its iterative hardware: a large area cost for little throughput gain. Multiplication is common (address arithmetic, hashing, crypto), so a pipelined multiplier that accepts one operation per cycle pays for itself.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "fp-units",
+  region: "core",
+  title: "Floating-Point Units",
+  book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Appendix J, Computer Arithmetic (floating-point representation, multiplication and addition, rounding); Chapter 7, Domain-Specific Architectures, for bfloat16 on Google’s TPU. Patterson &amp; Hennessy, <em>Computer Organization and Design</em>, Section 3.5, Floating Point.`,
+  sections: [
+    { id: "role", label: "What the FPU Does" },
+    { id: "anatomy", label: "Anatomy of a Float: Sign, Exponent, Mantissa" },
+    { id: "formats", label: "Every Format, Side by Side" },
+    { id: "bf16", label: "BF16 (bfloat16)" },
+    { id: "tf32", label: "TF32 and “BF32”" },
+    { id: "fp8", label: "FP8, FP6, FP4 and Block Scaling" },
+    { id: "fma", label: "Inside the FMA Pipeline" },
+    { id: "hw", label: "Area, Throughput and ISA Support" }
+  ],
+  body: `
+<h3 id="sec-role">What the FPU Does</h3>
+<p>The floating-point unit executes FP add, multiply, fused multiply-add (FMA), compare, convert, and (in a separate iterative unit) divide and square root. In a modern core the scalar FPU and the SIMD units are the same hardware: a scalar FP add is just one lane of a vector pipe. The format a number uses decides almost everything about the unit: how wide the multiplier is, how far the aligner shifts, how many lanes fit in a vector register, and how many bytes cross the memory system per operation.</p>
+
+<h3 id="sec-anatomy">Anatomy of a Float: Sign, Exponent, Mantissa</h3>
+<p>Every binary floating-point format has the same three fields. For FP32, bit 31 is the sign, bits 30–23 are the exponent, and bits 22–0 are the fraction.</p>
+<ul>
+<li><strong>Sign (S):</strong> 1 bit. 0 is positive.</li>
+<li><strong>Exponent (E):</strong> <em>e</em> bits, stored with a <strong>bias</strong> of 2<sup>e−1</sup> − 1 (127 for 8 bits, 15 for 5 bits) so that negative exponents need no separate sign.</li>
+<li><strong>Fraction (F):</strong> <em>f</em> bits, the digits after the binary point.</li>
+</ul>
+<p class="eq">Normal value = (−1)<sup>S</sup> × 1.F × 2<sup>E − bias</sup></p>
+<p><strong>Mantissa vs. significand vs. fraction.</strong> IEEE 754 calls the full number 1.F the <em>significand</em>; the stored field F is the <em>fraction</em>; “mantissa” is the older word and people use it for either. The leading 1 is not stored (the <strong>hidden bit</strong>): any normalized binary number starts with 1, so storing it would waste a bit. So the <strong>precision</strong> is <em>p</em> = <em>f</em> + 1 bits. FP32 stores 23 fraction bits but has 24 bits of precision. Hardware re-inserts the hidden bit when it unpacks an operand, so an FP32 multiplier is 24 × 24 bits, not 23 × 23.</p>
+<p><strong>The exponent field’s two reserved values:</strong></p>
+<div class="tbl"><table>
+<tr><th>Exponent field</th><th>Fraction</th><th>Meaning</th></tr>
+<tr><td>All zeros</td><td>0</td><td>±0 (two zeros: they compare equal, but 1/−0 = −∞)</td></tr>
+<tr><td>All zeros</td><td>≠ 0</td><td>Subnormal: (−1)<sup>S</sup> × 0.F × 2<sup>1 − bias</sup>. Hidden bit is 0, so precision drops gradually toward zero</td></tr>
+<tr><td>1 to all-ones − 1</td><td>Any</td><td>Normal number</td></tr>
+<tr><td>All ones</td><td>0</td><td>±∞</td></tr>
+<tr><td>All ones</td><td>≠ 0</td><td>NaN (on most ISAs, fraction bit <em>f</em>−1 set = quiet NaN)</td></tr>
+</table></div>
+<p>The small ML formats bend these rules (FP8 E4M3 has no infinity; FP6 and FP4 have neither infinity nor NaN) to spend every encoding on numbers. The x87 80-bit format is the odd one out the other way: it stores the integer bit explicitly.</p>
+<p><strong>What the mantissa width buys you:</strong></p>
+<ul>
+<li><strong>Spacing (ULP).</strong> Between 2<sup>k</sup> and 2<sup>k+1</sup> the representable numbers are evenly spaced, one <em>unit in the last place</em> apart: ULP = 2<sup>k − f</sup>. The spacing doubles at every power of two, so <em>absolute</em> error grows with magnitude while <em>relative</em> error stays roughly constant.</li>
+<li><strong>Machine epsilon</strong> ε = 2<sup>−f</sup>, the gap between 1.0 and the next number. Round to nearest makes each operation’s relative error at most ε/2 (the <em>unit roundoff</em>).</li>
+<li><strong>Decimal digits</strong> ≈ <em>p</em> × log<sub>10</sub>2 ≈ 0.301 <em>p</em>.</li>
+<li><strong>Exact integers.</strong> Every integer from 0 to 2<sup>p</sup> is exact; past that, odd integers start to disappear. FP32: up to 16,777,216 (2<sup>24</sup>). FP16: 2,048. BF16: only 256. FP64: 2<sup>53</sup> ≈ 9.0 × 10<sup>15</sup>.</li>
+</ul>
+<p><strong>Worked example: −6.5 in three formats.</strong> 6.5 = 110.1<sub>2</sub> = 1.101<sub>2</sub> × 2<sup>2</sup>, so S = 1 and the fraction starts 101.</p>
+<div class="tbl"><table>
+<tr><th>Format</th><th>Exponent field</th><th>Bits (S | E | F)</th><th>Hex</th></tr>
+<tr><td>FP32</td><td>2 + 127 = 129</td><td><code>1 | 10000001 | 10100000000000000000000</code></td><td><code>0xC0D00000</code></td></tr>
+<tr><td>BF16</td><td>2 + 127 = 129</td><td><code>1 | 10000001 | 1010000</code></td><td><code>0xC0D0</code></td></tr>
+<tr><td>FP16</td><td>2 + 15 = 17</td><td><code>1 | 10001 | 1010000000</code></td><td><code>0xC680</code></td></tr>
+</table></div>
+<p>BF16 is literally the top 16 bits of the FP32 pattern. FP16 needs a re-biased exponent.</p>
+
+<h3 id="sec-formats">Every Format, Side by Side</h3>
+${FP_BARS}
+<div class="tbl"><table>
+<tr><th>Format</th><th>S / E / F bits</th><th>Bias</th><th>Precision <em>p</em></th><th>ε = 2<sup>−f</sup></th><th>≈ Digits</th><th>Max normal</th><th>Min normal</th><th>Main use</th></tr>
+<tr><td>FP128 (quad, binary128)</td><td>1 / 15 / 112</td><td>16383</td><td>113</td><td>1.9 × 10<sup>−34</sup></td><td>34</td><td>1.19 × 10<sup>4932</sup></td><td>3.36 × 10<sup>−4932</sup></td><td>Error-sensitive science; hardware only on IBM POWER9 and later, software elsewhere</td></tr>
+<tr><td>x87 extended (80-bit)</td><td>1 / 15 / 64*</td><td>16383</td><td>64</td><td>1.1 × 10<sup>−19</sup></td><td>19</td><td>1.19 × 10<sup>4932</sup></td><td>3.36 × 10<sup>−4932</sup></td><td><code>long double</code> on x86 Linux; *includes an explicit integer bit</td></tr>
+<tr><td>FP64 (double, binary64)</td><td>1 / 11 / 52</td><td>1023</td><td>53</td><td>2.2 × 10<sup>−16</sup></td><td>15.9</td><td>1.80 × 10<sup>308</sup></td><td>2.23 × 10<sup>−308</sup></td><td>HPC, simulation, finance</td></tr>
+<tr><td>FP32 (single, binary32)</td><td>1 / 8 / 23</td><td>127</td><td>24</td><td>1.19 × 10<sup>−7</sup></td><td>7.2</td><td>3.40 × 10<sup>38</sup></td><td>1.18 × 10<sup>−38</sup></td><td>General compute; ML master weights and accumulators</td></tr>
+<tr><td>TF32 (TensorFloat-32)</td><td>1 / 8 / 10 (19 of 32 bits)</td><td>127</td><td>11</td><td>9.8 × 10<sup>−4</sup></td><td>3.3</td><td>≈ 3.40 × 10<sup>38</sup></td><td>1.18 × 10<sup>−38</sup></td><td>NVIDIA tensor-core matmul input (A100 onward); never stored</td></tr>
+<tr><td>FP16 (half, binary16)</td><td>1 / 5 / 10</td><td>15</td><td>11</td><td>9.8 × 10<sup>−4</sup></td><td>3.3</td><td>65,504</td><td>6.1 × 10<sup>−5</sup></td><td>Graphics, inference, mixed-precision training with loss scaling</td></tr>
+<tr><td>BF16 (bfloat16)</td><td>1 / 8 / 7</td><td>127</td><td>8</td><td>7.8 × 10<sup>−3</sup></td><td>2.4</td><td>3.39 × 10<sup>38</sup></td><td>1.18 × 10<sup>−38</sup></td><td>ML training and inference</td></tr>
+<tr><td>FP8 E5M2</td><td>1 / 5 / 2</td><td>15</td><td>3</td><td>0.25</td><td>0.9</td><td>57,344</td><td>6.1 × 10<sup>−5</sup></td><td>Gradients (range matters more than precision)</td></tr>
+<tr><td>FP8 E4M3</td><td>1 / 4 / 3</td><td>7</td><td>4</td><td>0.125</td><td>1.2</td><td>448</td><td>0.015625</td><td>Weights and activations; no ∞, one NaN pattern per sign</td></tr>
+<tr><td>FP6 E3M2</td><td>1 / 3 / 2</td><td>3</td><td>3</td><td>0.25</td><td>0.9</td><td>28</td><td>0.25</td><td>OCP MX block formats; no ∞ or NaN</td></tr>
+<tr><td>FP6 E2M3</td><td>1 / 2 / 3</td><td>1</td><td>4</td><td>0.125</td><td>1.2</td><td>7.5</td><td>1</td><td>OCP MX block formats; no ∞ or NaN</td></tr>
+<tr><td>FP4 E2M1</td><td>1 / 2 / 1</td><td>1</td><td>2</td><td>0.5</td><td>0.6</td><td>6</td><td>1</td><td>Inference weights (MXFP4, NVFP4); no ∞ or NaN</td></tr>
+</table></div>
+<p><strong>How to read the table:</strong> exponent bits set the range (FP32, TF32, and BF16 share 8 exponent bits and so share FP32’s range); fraction bits set the precision (TF32 and FP16 share 10 fraction bits and so share FP16’s precision). TF32 is literally “FP32 range, FP16 precision,” and BF16 is “FP32 range, less precision than FP16.” FP16’s 5-bit exponent is why it overflows at 65,504.</p>
+<p>FP4 is small enough to list every value: ±{0, 0.5, 1, 1.5, 2, 3, 4, 6}. Its 16 bit patterns encode 15 distinct values (+0 and −0 are both zero).</p>
+
+<h3 id="sec-bf16">BF16 (bfloat16)</h3>
+<p>Google Brain designed bfloat16 for the TPU (the “b” is for Brain). The design rule: keep FP32’s 8-bit exponent, cut the fraction from 23 to 7 bits. Three consequences make it the default ML training format:</p>
+<ul>
+<li><strong>Same range as FP32.</strong> Tiny gradients don’t underflow and big activations don’t overflow, so training needs no loss scaling (FP16 does).</li>
+<li><strong>Conversion is almost free.</strong> BF16 → FP32 appends 16 zero bits. FP32 → BF16 rounds and keeps the top 16 bits. No exponent re-biasing, no range checks.</li>
+<li><strong>The multiplier is tiny.</strong> An 8 × 8-bit significand multiplier versus 24 × 24 for FP32 (see the area table below).</li>
+</ul>
+<p>The cost is precision: 8 bits, about 2.4 decimal digits. Neural networks tolerate that in individual multiplies, but not in long sums or in small weight updates. Two consequences:</p>
+<ul>
+<li><strong>Accumulate in FP32.</strong> Every BF16 matrix unit (AVX-512 <code>VDPBF16PS</code>, Arm <code>BFMMLA</code>, Intel AMX, GPU tensor cores) multiplies BF16 pairs but adds into FP32.</li>
+<li><strong>Keep FP32 master weights.</strong> A weight near 1.0 has a BF16 ULP of 2<sup>−7</sup>, so any update smaller than half of that (2<sup>−8</sup> ≈ 0.0039) rounds away completely. Optimizers keep an FP32 copy (or use stochastic rounding) and cast to BF16 for the forward and backward passes.</li>
+</ul>
+<p><strong>FP32 → BF16 in C,</strong> with round to nearest, ties to even:</p>
+<pre><code>uint16_t fp32_to_bf16(float f) {
+    uint32_t x;
+    memcpy(&amp;x, &amp;f, sizeof x);
+    if ((x &amp; 0x7FFFFFFF) &gt; 0x7F800000)    <span class="cm">// NaN: keep it NaN (force quiet bit)</span>
+        return (uint16_t)((x &gt;&gt; 16) | 0x0040);
+    x += 0x7FFF + ((x &gt;&gt; 16) &amp; 1);        <span class="cm">// add just under half an ULP, plus 1 if the kept LSB is odd</span>
+    return (uint16_t)(x &gt;&gt; 16);           <span class="cm">// a carry out of the fraction bumps the exponent, as it should</span>
+}</code></pre>
+<p><strong>Example:</strong> 1/3 in FP32 is <code>0x3EAAAAAB</code>. The dropped half <code>0xAAAB</code> is above <code>0x8000</code>, so it rounds up to <code>0x3EAB</code> = 0.333984375. Plain truncation would give <code>0x3EAA</code> = 0.33203125, more than twice the error, and always biased toward zero, which adds up in training.</p>
+<p><strong>Subnormals:</strong> the format has them, but many BF16 instructions flush subnormal inputs and outputs to zero and always round to nearest even, ignoring the FP control register. That’s cheap and rarely matters given the 10<sup>−38</sup> range.</p>
+
+<h3 id="sec-tf32">TF32 and “BF32”</h3>
+<p><strong>TF32 is a compute mode, not a storage format.</strong> NVIDIA introduced it with the A100’s tensor cores: tensors stay FP32 in memory and registers, the tensor core reads only the sign, 8 exponent bits, and the top 10 fraction bits of each input, multiplies at that precision, and accumulates in FP32. Code written for FP32 gets several times the throughput with no changes. The price is FP16-level precision in the products. Frameworks make it opt-in for matmuls (in PyTorch, <code>torch.set_float32_matmul_precision("high")</code>).</p>
+<p><strong>“BF32” is not an IEEE or industry storage format.</strong> The name shows up as the same trick on Intel CPUs: Intel’s PyTorch extension offers a BF32 FP32-math mode, and oneDNN has an equivalent “fpmath mode” of bf16. Tensors stay FP32, but matmul and convolution inputs are converted to BF16 and run on AMX or AVX-512 BF16 units with FP32 accumulation. It’s Intel’s counterpart to TF32, with 8 bits of precision instead of 11.</p>
+<p><strong>Getting FP32 accuracy from BF16 hardware.</strong> Split each FP32 value into a sum of BF16 pieces, x ≈ x<sub>0</sub> + x<sub>1</sub> + x<sub>2</sub>, where x<sub>0</sub> is x rounded to BF16, x<sub>1</sub> is the remainder rounded to BF16, and so on. Then multiply the pieces and drop the smallest cross terms: three BF16 products (“bf16x3”) give close to FP32 accuracy, six give about full FP32. On Google TPUs, JAX exposes these as precision levels. It trades matmul throughput for accuracy without needing FP32 multipliers.</p>
+
+<h3 id="sec-fp8">FP8, FP6, FP4 and Block Scaling</h3>
+<p>Below 16 bits the range is too small to use the raw numbers directly, so every low-precision format comes with <strong>scale factors</strong>: store x / s in FP8 or FP4 and keep s separately.</p>
+<ul>
+<li><strong>FP8 comes in two flavors</strong> (NVIDIA, Arm, and Intel’s 2022 proposal, first in hardware on the H100). E4M3 has more precision and is used for weights and activations; E5M2 has more range and is used for gradients. Hopper-style FP8 training uses one FP32 scale per tensor, chosen from recent maximum values.</li>
+<li><strong>Finer scaling helps.</strong> One outlier forces a per-tensor scale to squash everything else toward zero. Fine-grained schemes give each small block its own scale: DeepSeek-V3 trained in FP8 with one scale per 1 × 128 tile of activations and per 128 × 128 block of weights.</li>
+<li><strong>OCP Microscaling (MX) formats</strong> standardize this: a block of 32 elements (FP8, FP6, FP4, or INT8) shares one 8-bit power-of-two scale (E8M0: exponent only, no sign or fraction). MXFP4 therefore costs 4 + 8/32 = 4.25 bits per value.</li>
+<li><strong>NVFP4</strong> (Blackwell) uses 16-element blocks with an FP8 E4M3 scale (finer than a power of two), plus one FP32 scale per tensor: 4 + 8/16 = 4.5 bits per value.</li>
+</ul>
+<p>Hardware handles the scale cheaply: power-of-two scales just add to the exponent, and per-block scales are applied once per block of products inside the dot product, not per element.</p>
+
+<h3 id="sec-fma">Inside the FMA Pipeline</h3>
+<p>A fused multiply-add computes a × b + c with <strong>one</strong> rounding at the end, which is both more accurate and faster than a separate multiply and add. It counts as two FLOPs, which is why peak-FLOPS figures assume FMAs. Most FPUs build add and multiply out of the FMA datapath (a + b = a × 1 + b). The stages:</p>
+<ol start="0">
+<li><strong>Unpack:</strong> split the fields, insert the hidden bit (1 for normals, 0 for subnormals), detect zero, ∞, and NaN.</li>
+<li><strong>Multiply significands:</strong> a <em>p</em> × <em>p</em> partial-product array (Booth recoding plus a Wallace or Dadda compressor tree), leaving the 2<em>p</em>-bit product in carry-save form. In parallel, add the exponents (E<sub>a</sub> + E<sub>b</sub> − bias) and compute how far to shift c.</li>
+<li><strong>Align c:</strong> shift c’s significand to line up with the product. The aligner is about 3<em>p</em> bits wide, because c can sit far above or below the product.</li>
+<li><strong>Add:</strong> a 3-input carry-save step, then a carry-propagate adder about 3<em>p</em> bits wide. A leading-zero anticipator (LZA) predicts the normalization shift in parallel with the add.</li>
+<li><strong>Normalize:</strong> shift left by the LZA count (cancellation when a × b ≈ −c can remove many leading bits), or right by one on carry-out.</li>
+<li><strong>Round:</strong> using the guard, round, and sticky bits and the current rounding mode (round to nearest even by default); handle overflow to ∞, underflow to subnormal or zero, and set the exception flags.</li>
+</ol>
+<p>These steps pipeline into about 4 cycles at high frequency: Intel Skylake runs FP add, multiply, and FMA all at 4 cycles; AMD Zen 4 runs add and multiply at 3 and FMA at 4. Divide and square root use a separate iterative unit (radix-4 SRT or Newton–Raphson style), which is why they take 10–30 cycles and usually aren’t fully pipelined.</p>
+
+<h3 id="sec-hw">Area, Throughput and ISA Support</h3>
+<p>The significand multiplier dominates FMA area, and it grows roughly with <em>p</em><sup>2</sup>. The aligner, adder, and normalizer grow roughly linearly with <em>p</em>, and the exponent logic is small.</p>
+<div class="tbl"><table>
+<tr><th>Format</th><th>Multiplier (<em>p</em> × <em>p</em>)</th><th>Partial-product bits</th><th>Relative to FP32</th></tr>
+<tr><td>FP64</td><td>53 × 53</td><td>2,809</td><td>4.9×</td></tr>
+<tr><td>FP32</td><td>24 × 24</td><td>576</td><td>1×</td></tr>
+<tr><td>TF32, FP16</td><td>11 × 11</td><td>121</td><td>0.21×</td></tr>
+<tr><td>BF16</td><td>8 × 8</td><td>64</td><td>0.11×</td></tr>
+<tr><td>FP8 E4M3</td><td>4 × 4</td><td>16</td><td>0.028×</td></tr>
+<tr><td>FP8 E5M2</td><td>3 × 3</td><td>9</td><td>0.016×</td></tr>
+<tr><td>FP4 E2M1</td><td>2 × 2</td><td>4</td><td>0.007×</td></tr>
+</table></div>
+<ul>
+<li><strong>Why GPUs cut FP64:</strong> a 53 × 53 multiplier is about 5 FP32 multipliers’ worth of area. Data-center GPUs pay for it; consumer GPUs run FP64 at a small fraction of FP32 speed (1/64 on recent NVIDIA GeForce parts).</li>
+<li><strong>Multi-precision datapaths:</strong> one 24 × 24 array can be partitioned into several smaller multipliers, so the same FMA hardware runs one FP32 lane, two FP16 lanes, or more BF16 or FP8 lanes. In SIMD units, halving the width doubles the lanes in a fixed-width register, so throughput doubles per halving even though the multiplier shrinks about 4×. Register-file and operand bandwidth, not multiplier area, sets the pace.</li>
+<li><strong>Bandwidth is the other half:</strong> halving the bits also halves the bytes per value, doubling effective memory bandwidth and cache capacity (see <a href="#/gen-gpus/roofline">the roofline model</a>). For memory-bound inference, that matters more than the FLOPs.</li>
+</ul>
+<p><strong>Who supports what:</strong></p>
+<div class="tbl"><table>
+<tr><th>Platform</th><th>Formats beyond FP32 / FP64</th></tr>
+<tr><td>x86</td><td>x87 80-bit; F16C (FP16 ↔ FP32 conversion only); AVX-512 BF16 (<code>VDPBF16PS</code> dot product into FP32; Cooper Lake, Zen 4); AVX-512 FP16 full arithmetic (Sapphire Rapids); AMX tiles with BF16 (Sapphire Rapids) and FP16 (Granite Rapids)</td></tr>
+<tr><td>Arm</td><td>FP16 arithmetic (Armv8.2); BF16 <code>BFDOT</code>, <code>BFMMLA</code>, <code>BFCVT</code> (Armv8.6); FP8 in recent Armv9 extensions</td></tr>
+<tr><td>RISC-V</td><td>Q (quad), Zfh (half), Zfbfmin and Zvfbfmin (BF16 conversions), Zvfbfwma (vector BF16 widening multiply-add into FP32)</td></tr>
+<tr><td>IBM POWER</td><td>Hardware binary128 (POWER9 onward)</td></tr>
+<tr><td>NVIDIA GPUs</td><td>FP16 tensor cores (Volta); TF32 and BF16 (Ampere); FP8 E4M3 and E5M2 (Hopper); FP6, FP4, MX formats, and NVFP4 (Blackwell)</td></tr>
+<tr><td>Google TPU</td><td>BF16 matrix units with FP32 accumulation (TPU v2 onward); INT8 and FP8 on later generations</td></tr>
+</table></div>
+<p class="refs">Further reading: IEEE 754-2019, the standard; David Goldberg, “What Every Computer Scientist Should Know About Floating-Point Arithmetic” (ACM Computing Surveys, 1991); Kalamkar et al., “A Study of BFLOAT16 for Deep Learning Training” (2019); Micikevicius et al., “Mixed Precision Training” (ICLR 2018) and “FP8 Formats for Deep Learning” (2022); Open Compute Project, “OCP Microscaling Formats (MX) v1.0 Specification” (2023); NVIDIA, “NVIDIA A100 Tensor Core GPU Architecture” whitepaper, for TF32; DeepSeek-AI, “DeepSeek-V3 Technical Report” (2024), for fine-grained FP8 training.</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Llama 3 sets its RoPE base frequency <code>rope_theta</code> to 500,000. What value does that constant actually have if it’s stored in FP16? In BF16? In FP32?</p>`,
+        a: `<ol start="0"><li><strong>FP16:</strong> the largest finite value is 65,504, so 500,000 overflows to <strong>+∞</strong>. Every frequency computed from it is garbage.</li><li><strong>BF16:</strong> 2<sup>18</sup> = 262,144 ≤ 500,000 &lt; 2<sup>19</sup>, so the exponent is 18 and the spacing is 2<sup>18 − 7</sup> = 2,048. 500,000 / 2,048 = 244.14, which rounds to 244, so BF16 stores 244 × 2,048 = <strong>499,712</strong> (0.06% low).</li><li><strong>FP32:</strong> 500,000 &lt; 2<sup>24</sup>, and every integer below 2<sup>24</sup> is exact, so it is stored <strong>exactly</strong>.</li><li>Takeaway: this is why position-encoding frequencies are computed in FP32 even when the model runs in BF16. BF16’s range was fine, but its precision wasn’t.</li></ol>`
+      },
+      {
+        q: `<p>DeepSeek-V3 has 671 billion parameters and was released with FP8 weights that carry one FP32 scale per 128 × 128 block. Can the weights fit on one 8 × H200 server (141 GB of HBM per GPU) in FP8? In BF16? How much memory is left for the KV cache and activations?</p>`,
+        a: `<ol start="0"><li>Server memory: 8 × 141 = 1,128 GB.</li><li>BF16: 671 × 10<sup>9</sup> × 2 bytes = 1,342 GB. <strong>Doesn’t fit</strong>; it needs two servers or more aggressive quantization.</li><li>FP8: 671 GB for the values. The scales add 4 bytes per 128 × 128 = 16,384 values, about 0.02%, so roughly 671 GB total. <strong>Fits.</strong></li><li>Left over: about 1,128 − 671 ≈ <strong>457 GB</strong> for the KV cache, activations, and runtime buffers (in practice somewhat less after framework overhead).</li><li>Takeaway: the number format decides how many GPUs a deployment needs, which matters more for cost than the FLOPs it saves.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Mixed-precision training in FP16 needs loss scaling, but BF16 training usually doesn’t. Explain why, using a gradient value of 2 × 10<sup>−8</sup>.</p>`,
+        a: `<p>FP16 has a 5-bit exponent: its smallest normal is 6.1 × 10<sup>−5</sup> and its smallest subnormal is 2<sup>−24</sup> ≈ 5.96 × 10<sup>−8</sup>. A gradient of 2 × 10<sup>−8</sup> is less than half the smallest subnormal, so it rounds to <strong>zero</strong>, and many small gradients vanish the same way. Loss scaling multiplies the loss by a large factor (for example 2<sup>16</sup>) before the backward pass, which lifts the gradient to about 1.3 × 10<sup>−3</sup>, comfortably representable; the optimizer divides the factor back out in FP32, and dynamic schemes lower the factor whenever a gradient overflows to ∞.</p><p>BF16 has FP32’s 8-bit exponent, with normals down to 1.18 × 10<sup>−38</sup>, so 2 × 10<sup>−8</sup> is an ordinary normal number. It loses precision (8 bits) but not the value. The trade-off: FP16 has 3 more bits of precision, so with loss scaling it can be slightly more accurate per operation.</p>`
+      },
+      {
+        q: `<p>A naive kernel computes a dot product over K = 8,192 (Llama 3 70B’s hidden size) where every product is about 1.0, but it keeps the running sum in BF16. What does it return, and how do real matrix units avoid this?</p>`,
+        a: `<p>It returns about <strong>256</strong>, not 8,192. From 128 to 256 the BF16 spacing is 2<sup>7 − 7</sup> = 1, so adding 1 is exact. At 256 the spacing becomes 2<sup>8 − 7</sup> = 2. 256 + 1 = 257 is exactly halfway between 256 and 258, and ties go to the even significand, which is 256. Every later addition rounds back to 256, so the sum stalls (this is called swamping).</p><p>Real hardware multiplies in BF16 (or FP8) but accumulates in FP32, where the stall point is 2<sup>24</sup>. Long reductions also sum in blocks or trees (for example per tile, then across tiles), which keeps the partial sums similar in size and reduces rounding error further.</p>`
+      },
+      {
+        q: `<p>H100 SXM dense tensor-core peaks are about 67 TFLOPS for FP64, 495 for TF32, 989 for BF16, and 1,979 for FP8. A BF16 multiplier is about 9× smaller than an FP32 one and an FP8 E4M3 multiplier about 4× smaller than BF16. Why does throughput only double per format step instead of tracking multiplier area? And why is the FP64 gap so large?</p>`,
+        a: `<p>Throughput is set by how many operands per cycle the tensor core can be fed, not by multiplier area. Register-file and shared-memory bandwidth is fixed in bytes per cycle, so halving the bytes per value doubles the values delivered, and so the multiplies performed. The datapath is also built as partitionable arrays: the wide multiplier array splits into 2× as many narrower multipliers per step, keeping the same wiring, accumulators, and operand routing. The spare area from smaller multipliers is spent on wider accumulators, scaling logic, and more formats, not on more lanes that couldn’t be fed.</p><p>FP64 goes the other way: a 53 × 53 multiplier is about 5× an FP32 one and about 23× a TF32 or FP16 one (2,809 vs. 121 partial-product bits), so NVIDIA provides far fewer FP64 lanes. That’s where the roughly 7× gap to TF32 comes from. A performance model of a new tensor unit should therefore model operand bandwidth per cycle first and multiplier count second.</p>`
       }
     ]
   }

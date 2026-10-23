@@ -72,6 +72,7 @@ section({
 <li><strong>Scientific computing</strong> usually needs double precision; <strong>graphics and AI</strong> tolerate much less.</li>
 <li><strong>Newer ISAs add smaller formats:</strong> half precision (FP16: 1/5/10 bits); bfloat16 (1/8/7 bits: the same range as single precision with less precision, popular for AI training); and 8-bit formats for AI inference. Halving the bits doubles how many numbers fit through the same memory bandwidth and vector units, which matters for bandwidth-bound AI workloads (see <a href="#/gen-gpus/roofline">the roofline model</a>).</li>
 </ul>
+<p>Every format from FP128 down to FP4, how the mantissa sets precision, BF16, TF32, and how the hardware computes with them: <a href="#/fp-units">Floating-Point Units</a>.</p>
 <h3 id="sec-abi">ISA vs. ABI</h3>
 <p>The ISA defines only some register roles, such as the zero register and the PC. Conventions like "the first function argument goes in a0," "the return value goes in a0," or "these registers must be preserved across a call" come from the <strong>ABI</strong> (application binary interface), a separate agreement between compilers, libraries, and operating systems. Two programs compiled for the same ISA but different ABIs can't call each other's functions correctly.</p>
 <h3 id="sec-semantics">Instruction Semantics</h3>

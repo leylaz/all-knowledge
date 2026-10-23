@@ -158,6 +158,19 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .sublist a { display: inline-block; text-decoration: none; color: var(--ink); background: var(--trace-soft); border-radius: 3px; padding: 5px 10px; font-size: .92rem; font-family: var(--sans); }
 
 
+/* Bit-field bars for the Floating-Point Units page */
+.bfs { margin: 4px 0 18px; }
+.bfrow { display: grid; grid-template-columns: 74px minmax(0, 1fr); align-items: center; gap: 8px; margin: 0 0 6px; }
+.bfrow b { font-family: var(--mono); font-size: .78rem; font-weight: 500; color: var(--muted); }
+.bf { display: flex; min-width: min-content; font-family: var(--mono); font-size: .74rem; border-radius: 3px; overflow: hidden; border: 1px solid var(--rule); }
+.bf span { flex-basis: 0; min-width: 16px; padding: 3px 2px; text-align: center; white-space: nowrap; overflow: hidden; color: var(--ink); }
+.bf .s { background: var(--pad-soft); color: var(--pad); font-weight: 600; }
+.bf .e { background: var(--trace-soft); color: var(--trace); font-weight: 600; border-left: 1px solid var(--rule); }
+.bf .f { background: var(--code-bg); border-left: 1px solid var(--rule); }
+.bf .x { background: repeating-linear-gradient(135deg, var(--surface) 0 4px, var(--code-bg) 4px 8px); color: var(--muted); border-left: 1px dashed var(--rule); }
+.bfkey { font-size: .82rem; color: var(--muted); margin: 0 0 18px; }
+.bfkey i { font-style: normal; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 10px; vertical-align: -1px; }
+
 /* Header theme switch */
 .theme-btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: .88rem; font-weight: 600; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 11px; cursor: pointer; }
 .theme-btn:hover { border-color: var(--trace); color: var(--trace); }
