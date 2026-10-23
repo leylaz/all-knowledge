@@ -230,5 +230,82 @@ section({
       }
     ]
   }
+},
+
+{
+  id: "fe-decode",
+  region: "fe",
+  title: "Decoders and the Micro-op Cache",
+  sections: [
+    { id: "decode", label: "What Decode Does" },
+    { id: "x86", label: "Variable-Length Decode on x86" },
+    { id: "uop-cache", label: "The Micro-op Cache" },
+    { id: "fusion", label: "Fusion and Cracking" },
+    { id: "arm", label: "Fixed-Length ISAs" },
+    { id: "model", label: "Modeling Decode" }
+  ],
+  body: `
+<p>Decode turns instruction bytes into the micro-ops the back end schedules. On a fixed-length ISA it's simple and wide; on x86 it's one of the hardest parts of the core, which is why x86 cores cache decoded micro-ops and bypass the decoders whenever they can.</p>
+
+<h3 id="sec-decode">What Decode Does</h3>
+<ul>
+<li><strong>Find instruction boundaries</strong> in the fetched bytes (trivial for fixed-length encodings).</li>
+<li><strong>Translate</strong> each instruction into one or more micro-ops: opcode, source and destination registers, immediate, and the port class it needs.</li>
+<li><strong>Detect branches</strong> the predictor didn't know about and redirect fetch (see <a href="#/fe-targets/misses">BTB misses and decode redirects</a>).</li>
+<li><strong>Handle complex instructions</strong> by sending them to a microcode sequencer that emits a longer micro-op sequence from a ROM.</li>
+</ul>
+
+<h3 id="sec-x86">Variable-Length Decode on x86</h3>
+<p>x86 instructions are 1 to 15 bytes, and the length depends on prefixes, the opcode, the ModRM and SIB bytes, and the immediate size. Finding where instruction <em>n</em> + 1 starts requires knowing the length of instruction <em>n</em>, so decoding several instructions per cycle needs either a serial chain of length decoders or speculative decoding at every byte offset. Cores combine two tricks:</p>
+<ul>
+<li><strong>Predecode bits:</strong> when a line is filled into the instruction cache, it is scanned once and start-of-instruction bits are stored alongside it, so later fetches find boundaries immediately.</li>
+<li><strong>Asymmetric decoders:</strong> a few simple decoders handle instructions that produce one micro-op, and one complex decoder handles those that produce several; anything longer goes to microcode. Intel's Golden Cove has 6 decoders fed by 32 bytes per cycle.</li>
+</ul>
+<p>Some encodings defeat the shortcuts. A <strong>length-changing prefix</strong> (the 0x66 operand-size prefix on an instruction with a 16-bit immediate) changes how long the instruction is after the predecoder has guessed, and Intel cores stall decode for a few cycles each time one appears.</p>
+
+<h3 id="sec-uop-cache">The Micro-op Cache</h3>
+<p>The <strong>micro-op cache</strong> (Intel's decoded stream buffer, AMD's op cache) stores the micro-ops for recently decoded code, indexed by instruction address. When fetch hits in it, the decoders are skipped entirely:</p>
+<ul>
+<li><strong>More bandwidth:</strong> Golden Cove delivers 8 micro-ops per cycle from its 4K-entry micro-op cache versus 6 from the decoders; Zen 4 delivers 9 from a 6.75K-entry op cache versus 4 instructions from its decoders.</li>
+<li><strong>Fewer hazards:</strong> length decoding, prefix penalties, and decoder asymmetry don't apply on a hit.</li>
+<li><strong>Less power:</strong> the decoders are among the most power-hungry parts of an x86 front end, and they idle on hits.</li>
+<li><strong>A shorter pipeline:</strong> skipping decode stages shortens the mispredict refill path when the correct target is in the micro-op cache.</li>
+</ul>
+<p>The cost: it's organized by code region (Intel's maps 32- or 64-byte code windows to a few ways of micro-op lines), so some code shapes fit poorly (many micro-ops in one window, long immediates that take two slots), and switching between it and the legacy decoders costs a cycle or more. Microcoded instructions are typically stored as a pointer into the microcode ROM rather than as micro-ops.</p>
+<p>A smaller relative is the <strong>loop buffer</strong> (Intel's loop stream detector): a short queue after decode that replays a small loop's micro-ops without fetching or decoding them again.</p>
+
+<h3 id="sec-fusion">Fusion and Cracking</h3>
+<p>Decode is where the micro-op count is decided, and the count is what rename width is measured in:</p>
+<ul>
+<li><strong>Macro-fusion:</strong> a compare or test followed by a conditional branch becomes one micro-op (x86 cores; some Arm cores fuse similar pairs).</li>
+<li><strong>Micro-fusion:</strong> a load combined with an ALU operation (<code>add rax, [rbx]</code>) travels as one micro-op through rename and retire but issues as two to the ports.</li>
+<li><strong>Cracking:</strong> a read-modify-write to memory (<code>add [rbx], rax</code>) becomes a load, an add, and a store address and store data pair.</li>
+</ul>
+<p>That is why a performance model must count fused micro-ops for rename and retire bounds and unfused ones for port bounds (see <a href="#/perf-stage-stalls/be-bounds">Back-End Bounds</a>).</p>
+
+<h3 id="sec-arm">Fixed-Length ISAs</h3>
+<p>With every AArch64 instruction 4 bytes long, boundaries are known in advance, so wide decode is cheap: Apple's Firestorm cores decode 8 instructions per cycle with no micro-op cache. Arm went further on its own cores: when the Cortex-A715 dropped 32-bit (AArch32) support, Arm removed its macro-op cache and widened the decoders instead, because decode had become cheap enough that the cache no longer paid for its area and power. RISC-V's compressed extension brings back 2-byte instructions, so wide RISC-V decoders need some of the same boundary-finding logic as x86, though only for two lengths.</p>
+
+<h3 id="sec-model">Modeling Decode</h3>
+<ul>
+<li>Model the micro-op cache as a real cache with the design's indexing and capacity rules, not a hit rate, because its misses cluster on exactly the large-footprint code where the front end matters.</li>
+<li>Model the switch penalty between the micro-op cache and legacy decode; code that bounces between them loses more than either path alone.</li>
+<li>Track micro-ops per instruction by instruction class (fusion, cracking, microcode), since it changes every downstream width limit.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3 · Intel, <em>Intel 64 and IA-32 Architectures Optimization Reference Manual</em> (decoded ICache, length-changing prefixes, macro-fusion) · AMD, <em>Software Optimization Guide for the AMD Zen 4 Microarchitecture</em> (op cache) · Arm, Cortex-A715 announcement (2022)</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A hot loop on a Golden Cove-like core has 24 instructions averaging 5 bytes, which become 30 fused micro-ops. Rename is 6 wide. Compare cycles per iteration from the micro-op cache (8 micro-ops per cycle) and from the legacy path (32 bytes fetched and 6 instructions or 6 micro-ops decoded per cycle).</p>`,
+        a: `<ol start="0"><li>Micro-op cache: 30 / 8 = 3.75 cycles.</li><li>Legacy path: fetch 24 × 5 = 120 bytes / 32 = 3.75 → 4 cycles; decoders 24 instructions / 6 = 4 cycles, but they deliver at most 6 micro-ops per cycle, so 30 / 6 = 5 cycles.</li><li>Rename: 30 / 6 = <strong>5 cycles</strong> either way.</li><li>So throughput is the same, 5 cycles per iteration, because rename binds. The micro-op cache still helps: it saves decode power, avoids prefix and length-decode stalls, and refills faster after a mispredict. It raises throughput only when the legacy path is the narrowest stage.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>On an Intel core, adding one unrelated instruction elsewhere in a function makes a hot loop 2.5× slower. The loop uses 16-bit arithmetic with immediates (<code>add ax, 0x1234</code>). What's the likely mechanism, and how would you confirm and fix it?</p>`,
+        a: `<p>The loop probably moved: the new instruction shifted its alignment so it no longer fits the micro-op cache's per-window limits (or now straddles windows it can't hold), and it runs from the legacy decoders. There, every 16-bit-immediate instruction carries a length-changing prefix, and each one stalls predecode for a few cycles, so a loop full of them slows down several-fold. Confirm with counters: micro-ops delivered from the decoded cache versus the legacy decoders (Intel's <code>IDQ.DSB_UOPS</code> and <code>IDQ.MITE_UOPS</code>) and the length-changing-prefix stall counter (<code>ILD_STALL.LCP</code>). Fixes: use 32-bit operations and registers (no 0x66 prefix), load the constant into a register first, or align the loop (<code>-falign-loops</code>) so it stays in the micro-op cache.</p>`
+      }
+    ]
+  }
 }
 ]);
