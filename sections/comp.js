@@ -336,6 +336,7 @@ f:
     { id: "loops", label: "Loop Optimizations" },
     { id: "branches", label: "Branches and Calls" },
     { id: "back-end-opts", label: "Back-End Optimizations" },
+    { id: "static-sched", label: "Static Scheduling and Compute Kernels" },
     { id: "limits", label: "What Limits the Optimizer" },
     { id: "perf-angle", label: "The Performance Angle" }
   ],
@@ -371,7 +372,26 @@ f:
 <ul>
 <li><strong>Register allocation:</strong> keeping values in registers instead of memory is one of the biggest wins. At <code>-O0</code>, by contrast, every variable lives on the stack: each statement loads its inputs and stores its results, so even <code>y = x * 2</code> becomes a load, a multiply, and a store.</li>
 <li><strong>Instruction scheduling:</strong> reorders instructions to hide latency and avoid stalls. Essential for in-order cores; less critical, but still useful, for out-of-order cores.</li>
+<li><strong>Software pipelining:</strong> overlaps iterations in the static schedule. Iteration <em>i</em> issues the loads for iteration <em>i</em> + 2 while it computes on data loaded earlier, so no instruction waits on a result produced just before it. A prologue fills the pipeline and an epilogue drains it.</li>
 <li><strong>Peephole optimizations:</strong> small local rewrites of instruction sequences, such as <code>xor eax, eax</code> instead of <code>mov eax, 0</code> on x86.</li>
+</ul>
+<h3 id="sec-static-sched">Static Scheduling and Compute Kernels</h3>
+<p>A <strong>compute kernel</strong> is a small, hot loop that does dense arithmetic over arrays, with few branches and regular memory access. Examples are a dot product, the inner loop of a matrix multiply, an FIR filter, a stencil update, and an AES round. Programs often spend most of their time in a few of these, so compilers and hand-tuned libraries (BLAS, FFTW, oneDNN) schedule them carefully.</p>
+<p>When a kernel's data sits in L1, every latency is fixed and known at compile time. That's the case where static scheduling does as well as an out-of-order core. Take a dot product on a core with a 4-cycle FMA and 2 FMA pipes (Golden Cove, Zen 4):</p>
+<pre><code>// 8 independent accumulators: 2 pipes × 4 cycles of latency
+for (i = 0; i &lt; n; i += 8) {
+    acc[0] += a[i+0] * b[i+0];
+    acc[1] += a[i+1] * b[i+1];
+    ...
+    acc[7] += a[i+7] * b[i+7];
+}</code></pre>
+<p>Each <code>acc[k]</code> depends only on its own value from the previous iteration. With 8 chains, 2 FMAs issue per cycle, and <code>acc[0]</code>'s previous result is ready just as the core comes back around to it, 4 cycles later. An in-order core runs this without a single stall, at the port limit of 2 FMAs per cycle. An out-of-order core would find exactly the same schedule, so both hit the same ceiling: execution-port throughput. (In practice each <code>acc[k]</code> is a SIMD register holding 8 or 16 lanes, but the scheduling argument is the same.)</p>
+<p>The static schedule stops being enough when any of its assumptions break:</p>
+<ul>
+<li><strong>Unknown latency:</strong> a load that misses L1 takes 15 to 400+ cycles instead of 5. The compiler can't know which, so an in-order core stalls at the first use while an out-of-order core keeps going (see <a href="#/ooo-tradeoffs">When Out-of-Order Execution Pays Off</a>).</li>
+<li><strong>Register count:</strong> the number of accumulators the compiler can unroll to is capped by the architectural registers (16 YMM with AVX2, 32 ZMM with AVX-512). Register renaming lets hardware overlap iterations past that cap.</li>
+<li><strong>Tuned for one core:</strong> the schedule bakes in one microarchitecture's latencies and port counts. Run the binary on a core with a longer FMA latency and the in-order core starts stalling.</li>
+<li><strong>Aliasing and branches:</strong> if the compiler can't prove that stores don't overlap later loads, or the loop has data-dependent branches, it can't move work freely. Hardware checks these at run time.</li>
 </ul>
 <h3 id="sec-limits">What Limits the Optimizer</h3>
 <ul>
@@ -405,6 +425,10 @@ f:
       {
         q: `<p>Why can a change in compiler version or flags make a microarchitecture comparison misleading?</p>`,
         a: `<p>The compiler determines the instruction count and strongly affects CPI: instruction selection, vectorization, unrolling, inlining, if-conversion, and code layout all change the instruction mix, branch behavior, and cache footprint. If two hardware designs are measured with different binaries, the difference mixes compiler effects with hardware effects. Fair comparisons use identical binaries, and when the compiler itself is being evaluated, the hardware is held fixed instead.</p>`
+      },
+      {
+        q: `<p>A BLAS kernel was tuned for Haswell (FMA latency 5 cycles, 2 FMA ports) with 10 independent accumulators. A new core raises the FMA latency to 6 cycles to reach a higher clock, still with 2 ports. What FMA throughput does the unchanged binary get on an in-order version of the new core, and on an out-of-order version? What's the fix?</p>`,
+        a: `<p>Each accumulator is a loop-carried chain, so the kernel can't do better than chains / latency = 10 / 6 ≈ <strong>1.67 FMAs per cycle</strong>, against a peak of 2 (about 83%). That bound holds for <em>both</em> cores. The out-of-order core can overlap independent work, but every FMA here sits on one of the 10 chains, and no window size shortens a chain. The in-order core settles into the same steady state: it issues the 10 FMAs, then waits for the oldest chain.</p><p>The fix is in software: recompile with at least 2 × 6 = 12 accumulators, if the register file allows it. On AVX2's 16 YMM registers that leaves 4 for operands, which is tight but workable. This is a case where out-of-order hardware doesn't save a stale static schedule, because the limit is a true dependence, not a scheduling order.</p>`
       }
     ]
   }
