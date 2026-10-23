@@ -89,7 +89,8 @@ function pipelineSVG() {
    Die proportions come from AMD's published areas (66.3 mm2 CCD, about
    3.84 mm2 per core, about 25 mm2 of L3). Dashed blocks are not labeled in
    the annotation, so their placement inside a partition is inferred.
-   Colors are fixed (a chip is dark in both themes). */
+   Colors are fixed in the dark and light themes (a chip is dark in both);
+   the pink theme swaps in pastels via the g-<group> classes. */
 
 const Z4_GROUPS = {
   fe:   { name: "Front end",                  fill: "#1D3F7A", stroke: "#4F7FD6" },
@@ -152,7 +153,7 @@ function dieBlock(x, y, w, h, g, href, lines, tip, inferred) {
   const tex = g === "sram" ? `<rect class="tex" x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#sram)"/>` : "";
   const dash = inferred ? ` stroke-dasharray="4 2.5"` : "";
   return `<a href="#/${href}" class="dblk" aria-label="${svgEsc(label)}"><title>${svgEsc(label)}</title>
-    <rect class="b" x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${G.fill}" stroke="${G.stroke}"${dash}/>${tex}${t}</a>`;
+    <rect class="b g-${g}" x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${G.fill}" stroke="${G.stroke}"${dash}/>${tex}${t}</a>`;
 }
 
 /* Core 0 in full detail. */
@@ -165,7 +166,7 @@ function coreDetail(ox, oy) {
 function coreGhost(n, ox, oy, flipX, flipY) {
   const tf = `translate(${ox + (flipX ? Z4_W : 0)},${oy + (flipY ? Z4_H : 0)}) scale(${flipX ? -1 : 1},${flipY ? -1 : 1})`;
   const rects = Z4_LAYOUT.map(([x, y, w, h, g]) =>
-    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${Z4_GROUPS[g].fill}" stroke="${Z4_GROUPS[g].stroke}" stroke-opacity=".5"/>`).join("");
+    `<rect class="g-${g}" x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${Z4_GROUPS[g].fill}" stroke="${Z4_GROUPS[g].stroke}" stroke-opacity=".5"/>`).join("");
   const lx = ox + (flipX ? Z4_W - 10 : 10), ly = oy + (flipY ? 14 : Z4_H - 8);
   return `<a href="#/r/core" class="dghost" aria-label="Core ${n}: same design as core 0"><title>Core ${n}: same design as core 0 (opens Out-of-order core)</title>
     <rect class="core-edge" x="${ox}" y="${oy}" width="${Z4_W}" height="${Z4_H}" rx="3"/>
@@ -199,12 +200,12 @@ function floorplanSVG() {
     <span>or pinch / Ctrl + scroll over the chip</span></div>
   <div class="fp-scroll"><svg class="fp chip zoomed" viewBox="${Z4_CORE.join(" ")}" role="group" aria-label="Zen 4 core complex die floorplan, 8 cores. Each block links to its notes.">
     <defs>
-      <pattern id="sram" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M6 0H0V6" fill="none" stroke="#FFFFFF" stroke-opacity=".08" stroke-width="1"/></pattern>
-      <marker id="ah-chip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#C2503F"/></marker>
+      <pattern id="sram" width="6" height="6" patternUnits="userSpaceOnUse"><path class="sram-ln" d="M6 0H0V6" fill="none" stroke="#FFFFFF" stroke-opacity=".08" stroke-width="1"/></pattern>
+      <marker id="ah-chip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-chip-p" d="M0,0 L10,5 L0,10 z" fill="#C2503F"/></marker>
     </defs>
 
     <text class="ext-t sm" x="820" y="26">Zen 4 CCD · 8 cores · 32 MB shared L3</text>
-    <rect x="40" y="40" width="1560" height="1000" rx="3" fill="#080D13" stroke="#3A5068"/>
+    <rect class="die-bg" x="40" y="40" width="1560" height="1000" rx="3" fill="#080D13" stroke="#3A5068"/>
     <text class="gname" x="${DIE_L + 2}" y="60" text-anchor="start">Core 0</text>
 
     ${cores}
@@ -220,7 +221,7 @@ function floorplanSVG() {
       <text class="ext-t" x="305" y="1080">To the I/O die: DDR5, PCIe 5</text></a>
   </svg></div>
   <figcaption class="fp-legend chip-legend">
-    ${Object.values(Z4_GROUPS).map(g => `<span><i class="sw" style="background:${g.fill};border-color:${g.stroke}"></i>${g.name}</span>`).join("")}
+    ${Object.entries(Z4_GROUPS).map(([k, g]) => `<span><i class="sw g-${k}" style="background:${g.fill};border-color:${g.stroke}"></i>${g.name}</span>`).join("")}
     <span><i class="sw" style="border-style:dashed;border-color:var(--muted)"></i>Placement inferred</span>
     <span class="hint">Core 0 is traced from SemiAnalysis's annotation of AMD's Zen 4 core; cores 1-7 are copies. Click any block to open its notes.</span>
   </figcaption></figure>`;

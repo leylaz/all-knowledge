@@ -10,7 +10,7 @@
 <script>
   /* Dark by default; a saved choice from the header switch wins. */
   (function () { var t = "dark"; try { t = localStorage.getItem("theme") || "dark"; } catch (e) {}
-    document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark"); })();
+    document.documentElement.setAttribute("data-theme", t === "light" || t === "pink" ? t : "dark"); })();
 </script>
 <style>
 :root {
@@ -26,7 +26,7 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme="light"]):not([data-theme="pink"]) {
     --paper: #080D14; --surface: #0F1723; --ink: #E4EBF4; --muted: #95A4B8;
     --rule: #223249; --trace: #7FA8F0; --trace-soft: #16243B; --pad: #D1AE55;
     --pad-soft: #1B1810; --code-bg: #0C1420; --code-comment: #6FCB98; --redirect: #EE6B6B;
@@ -38,6 +38,18 @@
   --rule: #223249; --trace: #7FA8F0; --trace-soft: #16243B; --pad: #D1AE55;
   --pad-soft: #1B1810; --code-bg: #0C1420; --code-comment: #6FCB98; --redirect: #EE6B6B;
   --accent-red: #EE6B6B; --accent-green: #4FC28F; color-scheme: dark;
+}
+:root[data-theme="pink"] {
+  /* Pastel palette after a Notion "pastel dashboard": blush, lavender, sky,
+     sage, aqua, peach, and cream on white, with Notion's warm ink. Text
+     colors are a shade darker than the swatches to keep 4.5:1 contrast. */
+  --paper: #FFFAFB; --surface: #FFFFFF; --ink: #37352F; --muted: #6B6964;
+  --rule: #EFE3E8; --trace: #B03F7C; --trace-soft: #FFDFE3; --pad: #7E55A0;
+  --pad-soft: #F6F3F8; --code-bg: #F7F5E6; --code-comment: #3B7556; --redirect: #C23A55;
+  --accent-red: #C23A55; --accent-green: #3B7556; color-scheme: light;
+  --p-blush: #FFDFE3; --p-heart: #FF6A7E; --p-lav: #DFDDFB; --p-lilac: #E7E7F7; --p-sky: #D2E9F9;
+  --p-ice: #E6F5FF; --p-aqua: #DFF8FA; --p-sage: #EDF3EC; --p-mint: #A5D6A7; --p-peach: #FBE8E3;
+  --p-cream: #F4F2DF; --p-orchid: #D1B7EC;
 }
 *, *::before, *::after { box-sizing: inherit; }
 html { scroll-padding-top: env(safe-area-inset-top, 0px); }
@@ -279,6 +291,61 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .chip-zoom:hover { border-color: var(--trace); color: var(--trace); }
 .chip-zoom[aria-pressed="true"] { background: var(--trace-soft); border-color: var(--trace); }
 svg.chip { touch-action: pan-x pan-y; }
+/* Pink theme: pastel dashboard look */
+[data-theme="pink"] .intro h1, [data-theme="pink"] .note h1, [data-theme="pink"] .block h2,
+[data-theme="pink"] .stack-fig h2, [data-theme="pink"] .practice > h2 { font-family: var(--mono); font-weight: 500; letter-spacing: -0.02em; }
+[data-theme="pink"] .die { border: 0; background: var(--p-blush); border-radius: 14px; }
+[data-theme="pink"] .block, [data-theme="pink"] .floor .block:nth-child(n) { border: 1px solid var(--rule); border-radius: 10px; }
+[data-theme="pink"] .floor .block:nth-child(7n+1) { background: var(--p-cream); }
+[data-theme="pink"] .floor .block:nth-child(7n+2) { background: var(--p-lav); }
+[data-theme="pink"] .floor .block:nth-child(7n+3) { background: var(--p-sky); }
+[data-theme="pink"] .floor .block:nth-child(7n+4) { background: var(--p-ice); }
+[data-theme="pink"] .floor .block:nth-child(7n+5) { background: var(--p-aqua); }
+[data-theme="pink"] .floor .block:nth-child(7n+6) { background: var(--p-peach); }
+[data-theme="pink"] .floor .block:nth-child(7n+7) { background: var(--p-lilac); }
+[data-theme="pink"] .block li a { background: rgba(255, 255, 255, .75); }
+[data-theme="pink"] .block li a:hover { background: var(--trace); color: #FFFFFF; }
+[data-theme="pink"] .block .cap { color: #5F5D58; }
+[data-theme="pink"] .practice { border: 0; background: var(--pad-soft); border-radius: 10px; }
+[data-theme="pink"] .prob, [data-theme="pink"] .layer { border-radius: 8px; }
+[data-theme="pink"] .layer { --edge: var(--p-mint); }
+[data-theme="pink"] .layer.sys { --edge: var(--p-heart); }
+[data-theme="pink"] .layer.design { --edge: #A99BE0; }
+[data-theme="pink"] .layer:not(.nolink):hover, [data-theme="pink"] .layer:focus-within { background: var(--p-blush); }
+[data-theme="pink"] .lyr-size { color: var(--ink); }
+[data-theme="pink"] .stack-key i { background: var(--p-mint); }
+[data-theme="pink"] .stack-key i.sys { background: var(--p-heart); }
+[data-theme="pink"] .stack-key i.design { background: #A99BE0; }
+[data-theme="pink"] .fpb.preg .b { fill: var(--p-orchid); stroke: var(--p-orchid); }
+[data-theme="pink"] .pl-key .k-reg { fill: var(--p-orchid); }
+/* Pink theme: the chip in pastels */
+[data-theme="pink"] .chip .die-bg { fill: #FFFFFF; stroke: #EADDE3; }
+[data-theme="pink"] .chip .core-edge { fill: #FFF7F9; stroke: #EADDE3; }
+[data-theme="pink"] .chip .g-fe { fill: #D2E9F9; stroke: #7FB3DE; }
+[data-theme="pink"] .chip .g-ooo { fill: #E3F2E3; stroke: #8CC690; }
+[data-theme="pink"] .chip .g-fp { fill: #FFDFE3; stroke: #F28A9B; }
+[data-theme="pink"] .chip .g-lsu { fill: #DFF8FA; stroke: #7ACAD2; }
+[data-theme="pink"] .chip .g-sram { fill: #DFDDFB; stroke: #A99BE0; }
+[data-theme="pink"] .chip .g-coh { fill: #EBDDF5; stroke: #B58BD6; }
+[data-theme="pink"] .chip .g-io { fill: #FBE8E3; stroke: #E9A48F; }
+[data-theme="pink"] .chip .g-misc { fill: #F4F2DF; stroke: #CBC28E; }
+[data-theme="pink"] .chip .sram-ln { stroke: #7E55A0; stroke-opacity: .1; }
+[data-theme="pink"] .chip .dl { fill: #37352F; }
+[data-theme="pink"] .chip .ds, [data-theme="pink"] .chip .gname { fill: #6B6964; }
+[data-theme="pink"] .chip .dblk:hover .b, [data-theme="pink"] .chip .dblk:focus-visible .b { filter: saturate(1.9) brightness(.97); }
+[data-theme="pink"] .chip .dblk:focus-visible .b, [data-theme="pink"] .chip .dghost:focus-visible .core-edge { stroke: #37352F; }
+[data-theme="pink"] .chip .ext-ln { stroke: var(--trace); }
+[data-theme="pink"] .chip .ah-chip-p { fill: var(--trace); }
+[data-theme="pink"] .chip .ext:hover .ext-t { fill: var(--trace); }
+[data-theme="pink"] .chip-legend .sw.g-fe { background: #D2E9F9 !important; border-color: #7FB3DE !important; }
+[data-theme="pink"] .chip-legend .sw.g-ooo { background: #E3F2E3 !important; border-color: #8CC690 !important; }
+[data-theme="pink"] .chip-legend .sw.g-fp { background: #FFDFE3 !important; border-color: #F28A9B !important; }
+[data-theme="pink"] .chip-legend .sw.g-lsu { background: #DFF8FA !important; border-color: #7ACAD2 !important; }
+[data-theme="pink"] .chip-legend .sw.g-sram { background: #DFDDFB !important; border-color: #A99BE0 !important; }
+[data-theme="pink"] .chip-legend .sw.g-coh { background: #EBDDF5 !important; border-color: #B58BD6 !important; }
+[data-theme="pink"] .chip-legend .sw.g-io { background: #FBE8E3 !important; border-color: #E9A48F !important; }
+[data-theme="pink"] .chip-legend .sw.g-misc { background: #F4F2DF !important; border-color: #CBC28E !important; }
+
 /* Semiconductor industry stack (bottom of the home page) */
 .stack-fig { margin: 0 0 56px; }
 .stack-fig h2 { margin: 0 0 4px; font-size: 1.35rem; letter-spacing: -0.01em; }
