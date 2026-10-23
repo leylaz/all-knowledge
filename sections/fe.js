@@ -85,5 +85,85 @@ section({
       }
     ]
   }
+},
+
+{
+  id: "fe-direction",
+  region: "fe",
+  title: "Branch Direction Predictors",
+  sections: [
+    { id: "counters", label: "Counters and Bimodal Tables" },
+    { id: "history", label: "Global History and gshare" },
+    { id: "perceptron", label: "Perceptron Predictors" },
+    { id: "tage", label: "TAGE" },
+    { id: "extras", label: "Loop and Statistical Correctors" },
+    { id: "update", label: "Speculative History and Repair" },
+    { id: "model", label: "Modeling a Predictor" }
+  ],
+  body: `
+<p>A direction predictor answers one question per conditional branch: taken or not taken. Every design since the 1980s is built from the same pieces: small saturating counters, tables indexed by the branch address and by history, and a rule for which table to trust. This page goes from the simplest table to TAGE, the basis of most high-end predictors today.</p>
+
+<h3 id="sec-counters">Counters and Bimodal Tables</h3>
+<p>A <strong>2-bit saturating counter</strong> counts up when the branch is taken and down when it isn't, between 0 and 3; it predicts taken at 2 or 3. It needs two wrong outcomes in a row to flip, so a loop branch that is taken many times and falls through once mispredicts only at the exit, not again at re-entry.</p>
+<p>A <strong>bimodal</strong> predictor is a table of these counters indexed by low bits of the branch PC. It learns each branch's bias and nothing else. Two branches that share an entry <em>alias</em>; when their biases differ, they fight. A 16K-entry table of 2-bit counters is 4 KB.</p>
+
+<h3 id="sec-history">Global History and gshare</h3>
+<p>Many branches are predictable only from what happened before them: <code>if (x &gt; 0)</code> followed by <code>if (x &gt; 5)</code> is correlated. A <strong>global history register</strong> records the outcomes of the last h branches as h bits. <strong>gshare</strong> (McFarling, 1993) indexes the counter table with PC XOR history, so the same branch gets a different counter for each recent path.</p>
+<p>The trade-off is the history length. Short histories train fast but miss long-range correlation; long histories capture it but spread each branch over many entries (more aliasing, slower training). A single table forces one choice, which is the problem the next two designs solve.</p>
+<p>Tournament predictors (the Alpha 21264's, for example) ran a local-history and a global-history predictor side by side and used a third table of counters to choose between them per branch.</p>
+
+<h3 id="sec-perceptron">Perceptron Predictors</h3>
+<p>A perceptron predictor (Jiménez and Lin, 2001) keeps a small vector of signed weights per branch, one per history bit. The prediction is the sign of the dot product of the weights with the history (taken = +1, not taken = −1), plus a bias weight. Training adds or subtracts 1 from each weight when the prediction was wrong or the sum was below a threshold.</p>
+<ul>
+<li><strong>Strength:</strong> storage grows linearly with history length, not exponentially, so it can use long histories; it learns which history bits matter.</li>
+<li><strong>Weakness:</strong> it can only learn linearly separable functions of the history (an XOR of two earlier outcomes defeats it), and the adder tree adds latency.</li>
+</ul>
+<p><strong>Hashed perceptrons</strong> index several weight tables with hashes of different history segments and sum the selected weights. AMD has described its Zen predictors as perceptron-based.</p>
+
+<h3 id="sec-tage">TAGE</h3>
+<p><strong>TAGE</strong> (TAgged GEometric history length, Seznec and Michaud, 2006) uses many history lengths at once and picks the longest one that has seen this situation before.</p>
+<ul>
+<li><strong>Tables:</strong> a bimodal base table T<sub>0</sub>, plus tagged tables T<sub>1</sub> … T<sub>N</sub>. Table T<sub>i</sub> is indexed and tagged with a hash of the PC and the most recent L(i) history bits.</li>
+<li><strong>Geometric lengths:</strong> L(i) = L(1) × α<sup>i−1</sup>, so a dozen tables can cover histories from a few branches to several hundred.</li>
+<li><strong>Entries:</strong> a 3-bit prediction counter, a partial tag (8 to 12 bits), and a "useful" bit or counter.</li>
+<li><strong>Prediction:</strong> the matching table with the longest history is the <em>provider</em>; the next-longest match is the <em>alternate</em>. Use the provider's counter, except when the provider entry is newly allocated and weak, where the alternate is often more reliable.</li>
+<li><strong>Update:</strong> train the provider's counter. On a mispredict, allocate an entry in a table with longer history than the provider, choosing one whose useful bit is clear. Useful bits are set when the provider was right and the alternate was wrong, and are decayed periodically so stale entries can be replaced.</li>
+</ul>
+<p>Why it works: most branches are captured by short histories and never consume long-history entries; only the hard ones climb to longer tables. The partial tags cut aliasing, which is what makes long histories usable.</p>
+
+<h3 id="sec-extras">Loop Predictors and Statistical Correctors</h3>
+<p>TAGE handles most patterns but has blind spots, so championship predictors add small side predictors:</p>
+<ul>
+<li><strong>Loop predictor:</strong> learns a branch's exact trip count (taken 63 times, then not taken) and overrides TAGE when confident. Long trip counts would otherwise need history longer than any table.</li>
+<li><strong>Statistical corrector (SC):</strong> a perceptron-like adder over several tables that catches branches with a statistical bias TAGE predicts poorly, and reverts TAGE's prediction when it disagrees strongly.</li>
+</ul>
+<p>The combination, <strong>TAGE-SC-L</strong>, won the 2014 and 2016 Championship Branch Prediction contests, and descendants of it are in many shipping cores. Intel and Apple don't publish their predictor designs.</p>
+
+<h3 id="sec-update">Speculative History and Repair</h3>
+<p>The predictor runs far ahead of execution, so the global history must be updated with <em>predicted</em> outcomes; waiting for real outcomes would leave it many branches stale. On a mispredict, the history must be restored to its value at the branch and the correct outcome shifted in. Cores keep a checkpoint of the history pointer per in-flight branch (the history itself is a circular buffer, so a pointer is enough).</p>
+<p>Counter and table updates, by contrast, usually happen at retire or at branch resolution, with the indices saved at prediction time. Updating counters speculatively helps a little on tight loops but risks training on wrong-path branches.</p>
+
+<h3 id="sec-model">Modeling a Predictor</h3>
+<ul>
+<li><strong>Measure MPKI, not accuracy.</strong> 97% accuracy can be 3 MPKI or 15 MPKI depending on how many branches the code has; MPKI is what multiplies the penalty.</li>
+<li><strong>Use the update timing of the real design.</strong> A trace-driven predictor study that updates instantly after each branch overstates accuracy on tight loops, where several instances of the same branch are in flight before the first resolves.</li>
+<li><strong>Count storage honestly.</strong> Championship predictors are compared at a fixed budget (64 KB in recent contests), including tags and useful bits.</li>
+<li><strong>Remember latency.</strong> A predictor that needs 3 cycles is paired with a fast one, and its overrides cost bubbles (see <a href="#/fe-decoupled/overriding">Fast and Slow Predictors</a>).</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3 (correlating and tournament predictors, and the tagged hybrid predictors section) · McFarling, "Combining Branch Predictors," DEC WRL TN-36, 1993 · Jiménez and Lin, "Dynamic Branch Prediction with Perceptrons," HPCA 2001 · Seznec and Michaud, "A Case for (Partially) TAgged GEometric History Length Branch Prediction," JILP 2006 · Seznec, "TAGE-SC-L Branch Predictors," CBP-4, 2014</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A TAGE predictor has 12 tagged tables with history lengths from 4 to 640 branches, spaced geometrically. Find α and the 12 lengths, rounded to whole branches.</p>`,
+        a: `<ol start="0"><li>L(12) = L(1) × α<sup>11</sup>, so α = (640 / 4)<sup>1/11</sup> = 160<sup>1/11</sup>.</li><li>ln 160 ≈ 5.075, divided by 11 ≈ 0.461, so α ≈ e<sup>0.461</sup> ≈ <strong>1.586</strong>.</li><li>Lengths: 4, 6, 10, 16, 25, 40, 64, 101, 160, 254, 403, 640.</li><li>Half the tables cover histories up to 40 branches, where most correlation lives; the rest reach far back for the rare branches that need it, at no more storage per table.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A branch is taken when exactly one of two earlier branches (12 and 30 branches back) was taken. Which predictors can learn it: bimodal, gshare with 16 history bits, a perceptron with 64 history bits, TAGE with lengths up to 640?</p>`,
+        a: `<p><strong>Bimodal:</strong> no; it sees only the PC, and the branch is 50/50 overall. <strong>gshare with 16 bits:</strong> no; the outcome 30 branches back isn't in its history. <strong>Perceptron:</strong> no, even though both bits are in its history: the outcome is the XOR of two history bits, which isn't linearly separable, so no weight vector predicts it. <strong>TAGE:</strong> yes, in a table with history of at least 30 branches. Each distinct history pattern gets its own tagged entry and counter, so it can learn any function of the history, at the cost of an entry per pattern that actually occurs. If the 18 branches in between vary a lot, the number of distinct patterns explodes and TAGE also struggles; in practice, combining TAGE with a perceptron-style corrector covers both cases.</p>`
+      }
+    ]
+  }
 }
 ]);
