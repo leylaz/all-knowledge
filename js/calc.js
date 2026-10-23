@@ -98,6 +98,22 @@ const CALCS = {
         <p>With ${fmt(v.mshr)} outstanding misses: bandwidth ≤ ${fmt(v.mshr)} × ${fmt(v.line)} B / ${fmt(v.lat)} ns = <strong>${fmt(get, 1)} GB/s</strong>.</p>
         <p class="calc-out">${need <= v.mshr ? `Enough: the target needs ${fmt(need, 1)} of ${fmt(v.mshr)} buffers.` : `Short by ${fmt(need - v.mshr, 1)} buffers: the core tops out at ${fmt(get, 1)} GB/s, ${fmt(get / v.bw * 100, 0)}% of the target. Prefetching into L2, which tracks more misses, is how real cores get past this.`}</p>`;
     }
+  },
+
+  yield: {
+    title: "Die Cost Calculator",
+    intro: "Dies per wafer, Poisson yield, and cost per good die, using the formulas above. Defaults match the worked example.",
+    inputs: [
+      ["Wafer", [["d", "Diameter (mm)", 300, 50], ["cost", "Wafer cost ($)", 17000, 500], ["d0", "Defects per cm² D<sub>0</sub>", 0.1, 0.01]]],
+      ["Die", [["area", "Die area (mm²)", 100, 5]]]
+    ],
+    run(v) {
+      const dies = Math.floor(Math.PI * (v.d / 2) ** 2 / v.area - Math.PI * v.d / Math.sqrt(2 * v.area));
+      const y = Math.exp(-(v.area / 100) * v.d0), good = Math.floor(dies * y);
+      return `<p>Dies per wafer ≈ π × ${fmt(v.d / 2)}² / ${fmt(v.area)} − π × ${fmt(v.d)} / √(2 × ${fmt(v.area)}) ≈ <strong>${fmt(Math.max(dies, 0), 0)}</strong>.</p>
+        <p>Yield = e<sup>−${fmt(v.area / 100, 3)} × ${fmt(v.d0)}</sup> = <strong>${fmt(y * 100, 1)}%</strong>, so about ${fmt(Math.max(good, 0), 0)} good dies.</p>
+        <p class="calc-out">${good > 0 ? `Cost per good die ≈ $${fmt(v.cost)} / ${fmt(good, 0)} = <strong>$${fmt(v.cost / good)}</strong>, before test and packaging.` : "No good dies: the die is too large for this wafer or defect density."}</p>`;
+    }
   }
 };
 

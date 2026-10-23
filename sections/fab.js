@@ -98,6 +98,7 @@ section({
 <li>Yield: e<sup>−0.1</sup> ≈ 0.905, so about 579 good dies.</li>
 <li>Cost: $17,000 / 579 ≈ <strong>$29 per good die</strong>, before test and packaging.</li>
 </ol>
+<div class="calc" data-calc="yield"></div>
 <h3>What Designers Do About It</h3>
 <ul>
 <li><strong>Redundancy:</strong> spare rows and columns in SRAM arrays are fused in to replace defective ones, so a defect in a cache doesn't kill the die.</li>
