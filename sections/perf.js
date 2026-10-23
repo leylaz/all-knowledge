@@ -789,5 +789,78 @@ One instruction cache miss:
       }
     ]
   }
+},
+
+{
+  id: "perf-power",
+  region: "perf",
+  title: "Power and Energy Modeling",
+  sections: [
+    { id: "basics", label: "Where Power Goes" },
+    { id: "events", label: "Event-Based Energy Models" },
+    { id: "costs", label: "What Operations Cost" },
+    { id: "dvfs", label: "Voltage and Frequency" },
+    { id: "metrics", label: "Metrics and Power Limits" }
+  ],
+  body: `
+<p>Every modern chip is power-limited: a phone by its battery and skin temperature, a server by its socket power and cooling. A feature that adds 2% IPC and 3% power can make the chip slower once the power limit forces a lower clock. So performance models are paired with power models, and design decisions are made on performance per watt.</p>
+
+<h3 id="sec-basics">Where Power Goes</h3>
+<div class="math">\\[ P = \\underbrace{\\alpha \\, C \\, V^2 f}_{\\text{dynamic}} + \\underbrace{V \\, I_{leak}}_{\\text{static}} \\]</div>
+<ul>
+<li><strong>Dynamic power</strong> is spent charging and discharging capacitance C when signals switch, at activity factor α (the fraction of capacitance switched per cycle), supply voltage V, and frequency f.</li>
+<li><strong>Static (leakage) power</strong> flows whenever a block is powered, switching or not. It grows steeply with temperature and with lower threshold voltages, which is why idle blocks are clock-gated (stops dynamic power) and, for longer idle periods, power-gated (stops leakage too, at the cost of wake-up time and lost state).</li>
+</ul>
+<p>The circuit side of these terms is on <a href="#/transistors">Transistor Physics and Energy</a>.</p>
+
+<h3 id="sec-events">Event-Based Energy Models</h3>
+<p>Architects estimate dynamic energy from the same event counts the performance model already produces:</p>
+<div class="math">\\[ E = \\sum_{\\text{events } e} N_e \\, E_e \\; + \\; P_{static} \\, T \\]</div>
+<p>Each structure has an energy per access (a cache read, a register file write, a scheduler wake-up, an ALU operation), estimated from its size, ports, and technology. Wattch (Brooks, Tiwari, and Martonosi, 2000) attached such estimates to a cycle-level simulator; McPAT (Li et al., 2009) added area, timing, and leakage models for full multicore chips and is still the common academic choice. In industry, the per-event energies are calibrated from RTL power analysis of the actual blocks (gate-level simulation with switching activity), then from silicon.</p>
+<p>The accuracy rules are the same as for performance: absolute numbers from analytical tools can be off by a lot, but trends between design points are more trustworthy when the model has been calibrated on the blocks that change.</p>
+
+<h3 id="sec-costs">What Operations Cost</h3>
+<p>Horowitz's widely used 45 nm estimates (ISSCC 2014) show where the energy actually goes:</p>
+<div class="tbl"><table>
+<tr><th>Operation</th><th>Energy</th></tr>
+<tr><td>32-bit integer add</td><td>0.1 pJ</td></tr>
+<tr><td>32-bit floating-point add</td><td>0.9 pJ</td></tr>
+<tr><td>32-bit floating-point multiply</td><td>3.7 pJ</td></tr>
+<tr><td>64-bit read from an 8 KB SRAM</td><td>10 pJ</td></tr>
+<tr><td>64-bit read from a 32 KB SRAM</td><td>20 pJ</td></tr>
+<tr><td>64-bit read from a 1 MB SRAM</td><td>100 pJ</td></tr>
+<tr><td>64-bit read from DRAM</td><td>1.3 to 2.6 nJ</td></tr>
+</table></div>
+<p>Newer nodes lower every number, but the ratios hold: moving data costs far more than computing on it, and a DRAM access costs as much as thousands of additions. In an out-of-order core, the arithmetic itself is a small fraction of the energy per instruction; fetch, decode, rename, scheduling, register file, and data movement take most of it. That is the overhead SIMD, accelerators, and caches near compute all attack.</p>
+
+<h3 id="sec-dvfs">Voltage and Frequency</h3>
+<p>Within the usable range, the maximum frequency rises roughly linearly with voltage. So dynamic power grows roughly with f<sup>3</sup> (V<sup>2</sup> × f with V ∝ f), while dynamic energy per operation grows with V<sup>2</sup>, roughly f<sup>2</sup>. That is why:</p>
+<ul>
+<li>the last few hundred MHz of turbo cost a disproportionate amount of power;</li>
+<li>a chip at a fixed power limit gets more total throughput from more cores at a lower clock (if the work is parallel);</li>
+<li>below a certain voltage, leakage and the minimum operating voltage stop the savings, and racing to finish then sleeping becomes better.</li>
+</ul>
+
+<h3 id="sec-metrics">Metrics and Power Limits</h3>
+<ul>
+<li><strong>Performance per watt</strong> (equivalently, operations per joule): the main efficiency metric.</li>
+<li><strong>Energy-delay product (EDP)</strong> and <strong>ED²P</strong>: weight energy against speed; ED²P is roughly independent of voltage scaling, so it compares designs fairly when either can be retuned in voltage.</li>
+<li><strong>Performance at a power limit:</strong> the decision metric for a power-capped part. Model the change, recompute power, and let the frequency drop until power is back at the cap; then compare performance.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 1 (trends in power and energy) · Brooks, Tiwari, and Martonosi, "Wattch: A Framework for Architectural-Level Power Analysis and Optimizations," ISCA 2000 · Li et al., "McPAT: An Integrated Power, Area, and Timing Modeling Framework for Multicore and Manycore Architectures," MICRO 2009 · Horowitz, "Computing's Energy Problem (and What We Can Do About It)," ISSCC 2014</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A CPU-bound task runs on a core that drops its clock by 20% and its voltage by 10%. Ignoring leakage, how do dynamic power, run time, and dynamic energy for the task change?</p>`,
+        a: `<ol start="0"><li>Power ∝ V<sup>2</sup> f: 0.9<sup>2</sup> × 0.8 = 0.81 × 0.8 = <strong>0.648</strong>, a 35% cut.</li><li>Time: a CPU-bound task scales with 1 / f, so 1 / 0.8 = <strong>1.25×</strong> as long.</li><li>Energy = power × time: 0.648 × 1.25 = <strong>0.81</strong>, a 19% saving. It equals the V<sup>2</sup> ratio, as expected: energy per operation depends on voltage, not frequency.</li><li>If the task were memory-bound, its time would grow less than 25%, and the energy saving would be larger.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A larger branch predictor raises IPC by 2% and core power by 1.5%. The part always runs at its power limit, and power scales roughly with f<sup>3</sup>. Is the predictor worth it? At what power increase would it break even?</p>`,
+        a: `<p>At the cap, the frequency must drop until power returns to the limit: 1.015 × f<sup>3</sup> = 1, so f falls by a factor of 1.015<sup>−1/3</sup> ≈ 0.995. Performance ∝ IPC × f = 1.02 × 0.995 ≈ <strong>1.015</strong>, so the gain shrinks from 2% to about 1.5%: still worth it.</p><p>Break-even: 1.02 × (1 + p)<sup>−1/3</sup> = 1, so 1 + p = 1.02<sup>3</sup> ≈ 1.061. A feature costing more than about <strong>6% power</strong> for 2% IPC makes a power-capped part slower. In general, with P ∝ f<sup>3</sup>, a feature pays off at the cap when its IPC gain exceeds a third of its power cost. The caveat: if the part is limited by temperature or current rather than average power, or isn't at its limit, the rule changes.</p>`
+      }
+    ]
+  }
 }
 ]);
