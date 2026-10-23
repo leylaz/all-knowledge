@@ -69,6 +69,7 @@ function renderHome() {
       <h1>All Knowledge</h1>
       <p>From transistors to workloads, laid out like a die.</p>
     </section>
+    <section class="results" id="results" aria-live="polite" hidden></section>
     ${typeof floorplanSVG === "function" ? floorplanSVG() : ""}
     <div class="die"><div class="floor">
       ${visibleRegions().map(r => `
@@ -277,6 +278,50 @@ function applySearch() {
   });
   const e = document.getElementById("empty");
   if (e) e.hidden = any;
+  showResults(term);
+}
+
+/* ---------- Section-level search results ----------
+   Each page is split at its <h3 id="sec-..."> headings, so a hit links
+   straight to the section that contains it. */
+let SEARCH_INDEX = null;
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const plain = s => strip(s).replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ").trim();
+function searchIndex() {
+  if (SEARCH_INDEX) return SEARCH_INDEX;
+  SEARCH_INDEX = [];
+  const pages = [...visibleRegions().filter(r => !r.private).map(r => ({ base: "r/" + r.id, title: r.name, p: r })),
+    ...visibleNotes().filter(x => !x.private).map(x => ({ base: x.id, title: x.title, p: x }))];
+  for (const { base, title, p: n } of pages) {
+    const labels = new Map((n.sections || []).map(s => [s.id, s.label]));
+    const parts = (n.body || "").split(/(?=<h3 id="sec-)/);
+    for (const part of parts) {
+      const m = part.match(/^<h3 id="sec-([^"]+)"/);
+      const sec = m ? m[1] : null;
+      SEARCH_INDEX.push({ base, title, sec, label: sec ? (labels.get(sec) || plain(part.match(/<h3[^>]*>(.*?)<\/h3>/)[1])) : "", text: plain(part) });
+    }
+    if (n.practice) SEARCH_INDEX.push({ base, title, sec: "practice", label: "Practice Problems",
+      text: plain([...(n.practice.guided || []), ...(n.practice.interview || [])].map(x => x.q + " " + x.a).join(" ")) });
+  }
+  return SEARCH_INDEX;
+}
+function snippet(text, term) {
+  const i = text.toLowerCase().indexOf(term);
+  const start = Math.max(0, i - 60), end = Math.min(text.length, i + term.length + 80);
+  return (start ? "…" : "") + esc(text.slice(start, i)) + "<mark>" + esc(text.slice(i, i + term.length)) + "</mark>" +
+    esc(text.slice(i + term.length, end)) + (end < text.length ? "…" : "");
+}
+function showResults(term) {
+  const box = document.getElementById("results");
+  if (!box) return;
+  if (term.length < 2) { box.hidden = true; box.innerHTML = ""; return; }
+  const hits = searchIndex().filter(c => (c.title + " " + c.label + " " + c.text).toLowerCase().includes(term));
+  const MAX = 40;
+  box.hidden = false;
+  box.innerHTML = `<h2>${hits.length} match${hits.length === 1 ? "" : "es"}</h2>` + (hits.length ? `<ol start="0">${hits.slice(0, MAX).map(c => `
+    <li><a href="#/${c.base}${c.sec ? "/" + c.sec : ""}">${c.title}${c.label ? " › " + c.label : ""}</a>
+      <p>${c.text.toLowerCase().includes(term) ? snippet(c.text, term) : esc(c.text.slice(0, 140)) + "…"}</p></li>`).join("")}</ol>` : "") +
+    (hits.length > MAX ? `<p class="more">Showing the first ${MAX}. Add a word to narrow it down.</p>` : "");
 }
 
 function goToSection(sec) {
