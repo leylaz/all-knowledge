@@ -287,5 +287,91 @@ bits 11..0   page offset</code></pre>
       }
     ]
   }
+},
+
+{
+  id: "dram-ctrl",
+  region: "mem",
+  title: "DRAM Controllers and Scheduling",
+  sections: [
+    { id: "structure", label: "Channels, Ranks, Banks, Rows" },
+    { id: "timing", label: "Row Hits, Misses, and Conflicts" },
+    { id: "mapping", label: "Address Mapping" },
+    { id: "scheduling", label: "Scheduling: FR-FCFS and Fairness" },
+    { id: "writes", label: "Writes and Refresh" },
+    { id: "loaded", label: "Loaded Latency" },
+    { id: "model", label: "Modeling DRAM" }
+  ],
+  body: `
+<p>Main memory latency isn't one number. It depends on whether the needed row is already open, how many other requests are queued, whether the bus is busy with writes or refresh, and how the controller orders requests. <a href="#/icx-memory">Memory Interfaces</a> introduces DDR5, LPDDR, and HBM; this page goes inside the controller.</p>
+
+<h3 id="sec-structure">Channels, Ranks, Banks, Rows</h3>
+<ul>
+<li><strong>Channel:</strong> an independent bus with its own controller queue. A DDR5 DIMM has two 32-bit subchannels, each delivering a 64-byte line in one burst of 16 transfers.</li>
+<li><strong>Rank:</strong> a set of DRAM chips that respond together; ranks on a channel share its bus.</li>
+<li><strong>Bank:</strong> an independent array inside each chip. A 16 Gb DDR5 x8 chip has 32 banks in 8 bank groups. Different banks can work on different requests at the same time: this is bank-level parallelism.</li>
+<li><strong>Row:</strong> a bank reads a whole row (a few KB across the rank) into its <strong>row buffer</strong> before any column can be accessed. Reads from the open row are fast; anything else means closing it first.</li>
+</ul>
+
+<h3 id="sec-timing">Row Hits, Misses, and Conflicts</h3>
+<p>Three timing parameters, given in clock cycles of the DRAM bus, decide the latency of one access:</p>
+<ul>
+<li><strong>tCL</strong> (CAS latency): column read to first data.</li>
+<li><strong>tRCD:</strong> activate a row (open it) to column read.</li>
+<li><strong>tRP:</strong> precharge (close the open row).</li>
+</ul>
+<p>For DDR5-4800B (40-39-39, with a clock period of 1 / 2400 MHz ≈ 0.417 ns):</p>
+<div class="tbl"><table>
+<tr><th>Case</th><th>Commands</th><th>Device latency</th></tr>
+<tr><td>Row hit</td><td>Read</td><td>tCL ≈ 16.7 ns</td></tr>
+<tr><td>Row closed (empty)</td><td>Activate, read</td><td>tRCD + tCL ≈ 32.9 ns</td></tr>
+<tr><td>Row conflict</td><td>Precharge, activate, read</td><td>tRP + tRCD + tCL ≈ 49.2 ns</td></tr>
+</table></div>
+<p>The core sees much more: the trip through the cache hierarchy, the on-chip network, and the controller's queues, so idle load-to-use latency on desktop and server chips is typically 70 to 120 ns. The row-buffer outcome is still a large part of the variation.</p>
+<p>Other constraints shape throughput: tRAS (minimum time a row stays open), tRC (activate to activate in one bank), tFAW (at most four activates per rank in a rolling window, for power), and tCCD_L versus tCCD_S (back-to-back reads are slower within one bank group than across groups).</p>
+
+<h3 id="sec-mapping">Address Mapping</h3>
+<p>The controller decides which physical address bits pick the channel, bank group, bank, row, and column. The goals pull against each other:</p>
+<ul>
+<li>Consecutive lines in the <em>same</em> row give row hits for streaming access.</li>
+<li>Consecutive lines in <em>different</em> channels and banks give parallelism.</li>
+</ul>
+<p>Typical mappings put a few low line-address bits in the column (a short run of row hits), then channel and bank bits, then the row, and XOR bank bits with row bits so that strided access patterns don't all land in one bank.</p>
+
+<h3 id="sec-scheduling">Scheduling: FR-FCFS and Fairness</h3>
+<p>The controller holds dozens of requests and chooses which to issue each cycle, subject to every timing constraint. The baseline policy, <strong>FR-FCFS</strong> (Rixner et al., 2000), is: first ready (row hits first), then first come, first served. Serving row hits first maximizes throughput.</p>
+<p>The problem is fairness: a streaming thread with a high row-hit rate can keep a bank's row open indefinitely while a random-access thread's requests to other rows wait. Controllers add age caps (any request older than a threshold goes next) and research schedulers group or rank threads: PAR-BS batches requests so every thread gets served each batch (Mutlu and Moscibroda, 2008), and ATLAS prioritizes threads that have received the least service (Kim et al., 2010).</p>
+
+<h3 id="sec-writes">Writes and Refresh</h3>
+<ul>
+<li><strong>Write drain:</strong> switching the bus from reads to writes and back costs turnaround time (tWTR, tRTW). Controllers buffer writes and drain them in batches when the write queue passes a high watermark, stopping at a low watermark. During a drain, reads wait, which shows up as latency spikes.</li>
+<li><strong>Refresh:</strong> every row must be refreshed within the retention period. In DDR5, a refresh command comes every tREFI = 3.9 µs and blocks for tRFC (about 295 ns for 16 Gb chips) when all banks refresh at once, about 7.6% of the time. DDR5's same-bank refresh lets other banks keep working.</li>
+</ul>
+
+<h3 id="sec-loaded">Loaded Latency</h3>
+<p>As bandwidth use rises, requests queue behind each other and bank conflicts multiply, so latency rises sharply as utilization approaches the practical peak, usually 70 to 90% of the theoretical bandwidth. The shape is the classic queueing curve: flat at low load, then a steep knee. Tools like Intel's Memory Latency Checker measure it by running a latency probe while other threads generate controlled bandwidth.</p>
+<p>The consequence for modeling: a fixed DRAM latency is right for latency-bound code at low load and badly wrong for bandwidth-heavy code, which sees both the bandwidth ceiling and the inflated latency at the same time.</p>
+
+<h3 id="sec-model">Modeling DRAM</h3>
+<ul>
+<li>Use a DRAM model with banks, row buffers, and timing constraints (DRAMSim3 and Ramulator are common open-source choices) rather than a fixed latency, at least for any study near the bandwidth limit.</li>
+<li>Match the address mapping and scheduling policy of the real controller; row-hit rate is very sensitive to both.</li>
+<li>Validate the latency versus bandwidth curve against the real system, not just the idle latency.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 2 (memory technology) · Jacob, Ng, and Wang, <em>Memory Systems: Cache, DRAM, Disk</em> (2007) · Rixner, Dally, Kapasi, Mattson, and Owens, "Memory Access Scheduling," ISCA 2000 · Mutlu and Moscibroda, "Parallelism-Aware Batch Scheduling," ISCA 2008 · Kim, Han, Mutlu, and Harchol-Balter, "ATLAS: A Scalable and High-Performance Scheduling Algorithm for Multiple Memory Controllers," HPCA 2010 · JEDEC JESD79-5 (DDR5 SDRAM)</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>DDR4-3200AA has timings 22-22-22 (tCL-tRCD-tRP) on a 1600 MHz clock. A workload's accesses are 60% row hits, 10% to closed rows, and 30% row conflicts. What is the average device latency?</p>`,
+        a: `<ol start="0"><li>Clock period: 1 / 1600 MHz = 0.625 ns, so each timing is 22 × 0.625 = 13.75 ns.</li><li>Row hit: 13.75 ns. Closed row: 2 × 13.75 = 27.5 ns. Conflict: 3 × 13.75 = 41.25 ns.</li><li>Average: 0.6 × 13.75 + 0.1 × 27.5 + 0.3 × 41.25 = 8.25 + 2.75 + 12.375 ≈ <strong>23.4 ns</strong>.</li><li>Turning every conflict into a hit (by better mapping or scheduling) would save 0.3 × 27.5 ≈ 8.3 ns per access: a large share of the device time, though a small share of the 80 ns or so the core sees.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Two programs share a memory channel: a streaming copy with a 90% row-hit rate and a pointer-chasing graph traversal with almost no row hits. Under FR-FCFS, the graph program slows down 3× while the copy barely notices. Explain, and say how you'd fix it in the controller and how you'd show it in a model.</p>`,
+        a: `<p>FR-FCFS serves row hits first. The copy keeps generating hits to the open rows, so in any bank they share, the graph program's request (a conflict) keeps losing to newer hits from the copy; its latency, which it can't hide because each miss depends on the last, stretches far beyond the normal conflict latency. The copy loses little because its requests are almost always hits.</p><p>Fixes: cap how many younger row hits can bypass an older request, or how long any request can wait; batch requests (PAR-BS) so each thread's oldest requests are served every batch; or rank threads by attained service (ATLAS), which favors the light, latency-sensitive graph program. In a model: run each program alone and together, report per-thread slowdown (shared time divided by alone time) and the maximum slowdown as a fairness metric, and show the latency distribution of the graph program's requests, whose tail is where the problem lives.</p>`
+      }
+    ]
+  }
 }
 ]);
