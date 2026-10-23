@@ -14,6 +14,7 @@ async function checkPrivate() {
     if (!db) return;
     PRIVATE_UID = uid; PRIVATE_DB = db; PRIVATE_OK = true;
     await loadDbFlags();
+    await loadDbSolved();
     try {
       const meta = await db.doc("data/users/" + uid + "/p-meta").get();
       const m = meta.exists ? (meta.data() || {}) : {};
@@ -67,7 +68,7 @@ function renderHome() {
   <div class="wrap">
     <section class="intro">
       <h1>All Knowledge</h1>
-      <p>From transistors to workloads, laid out like a die.</p>
+      <p>From transistors to workloads, laid out like a die. <a href="#/drill">Drill a random question</a>.</p>
     </section>
     <section class="results" id="results" aria-live="polite" hidden></section>
     ${typeof floorplanSVG === "function" ? floorplanSVG() : ""}
@@ -105,7 +106,7 @@ function sideNav(curId, curSec) {
       return `<div class="grp">
       <a class="rg ${isCurR && !curSec ? "cur" : ""}" href="#/r/${r.id}">${r.name}</a>
       ${isCurR ? subFor(r, "r/" + r.id) : ""}
-      <ul>${r.id === "intv" ? `<li><a class="${curId === "flagged" ? "cur" : ""}" href="#/flagged">Flagged Questions</a></li>` : ""}${visibleNotes().filter(n => n.region === r.id).map(n =>
+      <ul>${r.id === "intv" ? `<li><a class="${curId === "flagged" ? "cur" : ""}" href="#/flagged">Flagged Questions</a></li><li><a class="${curId === "drill" ? "cur" : ""}" href="#/drill">Random Drill</a></li>` : ""}${visibleNotes().filter(n => n.region === r.id).map(n =>
         `<li><a class="${curId === n.id && !curSec ? "cur" : ""}" href="#/${n.id}">${n.title}</a>${curId === n.id ? subFor(n, n.id) : ""}</li>`).join("")}</ul>
     </div>`; }).join("")}
   </nav>`;
@@ -137,6 +138,7 @@ function layout(curId, curSec, inner) {
   const cur = document.querySelector(".side .cur");
   if (cur && window.innerWidth > 860) cur.scrollIntoView({ block: "nearest" });
   decorateFlags();
+  decorateSolved();
   decorateGlossary(curId);
   typesetMath();
 }
@@ -266,6 +268,104 @@ function flagIndex() {
   return FLAG_INDEX;
 }
 
+/* ---------- Solved problems and the random drill ----------
+   Any practice or interview card can be marked solved. Like flags, a
+   card is matched by its opening text; the owner's marks live in the
+   private db, everyone else's in this browser. */
+const SOLVED_KEY = "practice-solved";
+let SOLVED = {}, SOLVED_SAVE = Promise.resolve(), DRILL_POOL = null;
+try { SOLVED = JSON.parse(localStorage.getItem(SOLVED_KEY) || "{}"); } catch (e) { SOLVED = {}; }
+if (!SOLVED || typeof SOLVED !== "object" || Array.isArray(SOLVED)) SOLVED = {};
+const solvedDoc = () => PRIVATE_DB.doc("data/users/" + PRIVATE_UID + "/" + SOLVED_KEY);
+async function loadDbSolved() {
+  try {
+    const snap = await solvedDoc().get();
+    const d = snap.exists ? (snap.data() || {}).solved : null;
+    SOLVED = d && typeof d === "object" ? Object.assign({}, d) : {};
+  } catch (e) { console.error("Solved marks failed to load; using this browser's copy:", e); }
+}
+function saveSolved() {
+  const copy = Object.assign({}, SOLVED);
+  if (PRIVATE_OK) {
+    SOLVED_SAVE = SOLVED_SAVE.then(() => solvedDoc().set({ solved: copy })).catch(e => console.error("Saving solved marks failed:", e));
+    return;
+  }
+  try { localStorage.setItem(SOLVED_KEY, JSON.stringify(copy)); } catch (e) {}
+}
+function setSolveBtn(btn, on) {
+  btn.setAttribute("aria-pressed", String(on));
+  btn.textContent = on ? "✓ Solved" : "Mark solved";
+}
+function decorateSolved() {
+  app.querySelectorAll(".prob").forEach(card => {
+    if (card.querySelector(".solve-btn")) return;
+    const btn = document.createElement("button");
+    btn.type = "button"; btn.className = "solve-btn";
+    setSolveBtn(btn, !!SOLVED[cardSnip(card)]);
+    card.appendChild(btn);
+  });
+}
+app.addEventListener("click", e => {
+  const btn = e.target.closest(".solve-btn");
+  if (!btn) return;
+  const snip = cardSnip(btn.closest(".prob"));
+  if (SOLVED[snip]) delete SOLVED[snip]; else SOLVED[snip] = Date.now();
+  saveSolved();
+  setSolveBtn(btn, !!SOLVED[snip]);
+  const count = document.getElementById("solvedCount");
+  if (count) count.textContent = String(drillPool().filter(c => SOLVED[c.snip]).length);
+});
+
+/* Every practice and interview card on the site, parsed once. */
+function drillPool() {
+  if (DRILL_POOL) return DRILL_POOL;
+  DRILL_POOL = [];
+  const t = document.createElement("template");
+  const add = (base, title, region, html, level) => {
+    t.innerHTML = html;
+    DRILL_POOL.push({ base, title, region, html, level, snip: cardSnip(t.content.firstElementChild) });
+  };
+  const fromPractice = (base, title, region, p) => {
+    if (!p) return;
+    for (const [list, label] of [[p.guided || [], "Walk through the solution"], [p.interview || [], "Show solution"]])
+      for (const x of list) add(base, title, region, `<div class="prob"><div class="q">${x.q}</div><details><summary>${label}</summary><div class="a">${x.a}</div></details></div>`, "");
+  };
+  for (const r of visibleRegions().filter(r => !r.private)) fromPractice("r/" + r.id, r.name, r.id, r.practice);
+  for (const n of visibleNotes().filter(n => !n.private)) fromPractice(n.id, n.title, n.region, n.practice);
+  for (const c of flagIndex()) {
+    const lvl = (c.html.match(/class="lvl (easy|medium|hard)"/) || [])[1] || "";
+    add(c.note.id, c.note.title, "intv", c.html, lvl);
+  }
+  return DRILL_POOL;
+}
+
+let DRILL = { region: "", level: "", unsolved: true };
+function renderDrill() {
+  const pool = drillPool();
+  const regions = visibleRegions().filter(r => pool.some(c => c.region === r.id));
+  const pick = pool.filter(c => (!DRILL.region || c.region === DRILL.region) && (!DRILL.level || c.level === DRILL.level) && !(DRILL.unsolved && SOLVED[c.snip]));
+  const c = pick[Math.floor(Math.random() * pick.length)];
+  const opt = (v, label, cur) => `<option value="${v}"${v === cur ? " selected" : ""}>${label}</option>`;
+  layout("drill", null, `
+    <p class="region"><a href="#/r/intv" style="text-decoration:none">${REGIONS.find(r => r.id === "intv").name}</a></p>
+    <h1>Random Drill</h1>
+    <p class="flag-note"><span id="solvedCount">${pool.filter(c => SOLVED[c.snip]).length}</span> of ${pool.length} questions solved. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."}</p>
+    <form class="drill-bar" id="drillForm">
+      <label>Section <select name="region">${opt("", "All sections", DRILL.region)}${regions.map(r => opt(r.id, r.name, DRILL.region)).join("")}</select></label>
+      <label>Difficulty <select name="level">${opt("", "Any", DRILL.level)}${opt("easy", "Easy (interview pages)", DRILL.level)}${opt("medium", "Medium (interview pages)", DRILL.level)}${opt("hard", "Hard (interview pages)", DRILL.level)}</select></label>
+      <label class="chk"><input type="checkbox" name="unsolved"${DRILL.unsolved ? " checked" : ""}> Skip solved</label>
+      <button type="submit" class="chip-zoom">Next question</button>
+    </form>
+    <div class="body">${c ? `<p class="drill-src">From <a href="#/${c.base}">${c.title}</a> · ${pick.length} to choose from</p>${c.html}` : "<p>Nothing left with these filters. Clear “Skip solved” or pick another section.</p>"}</div>`);
+  const form = document.getElementById("drillForm");
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    DRILL = { region: form.region.value, level: form.level.value, unsolved: form.unsolved.checked };
+    renderDrill();
+  });
+  form.addEventListener("change", () => form.requestSubmit());
+}
+
 function renderFlagged() {
   const idx = flagIndex();
   const flagged = new Set(FLAGS.map(f => f.snip));
@@ -295,7 +395,7 @@ function renderRegion(r, sec) {
     ${tocHTML(r, "r/" + r.id)}
     <ul class="sublist">${notes.map(n => `<li><a href="#/${n.id}">${n.title}</a></li>`).join("")}</ul>
     ${r.id === "pipe" && typeof pipelineSVG === "function" ? pipelineSVG() : ""}
-    ${r.id === "intv" ? `<p class="flag-note"><a href="#/flagged">★ Flagged Questions</a> (<span id="flagCount">${FLAGS.length}</span>)</p>` : ""}
+    ${r.id === "intv" ? `<p class="flag-note"><a href="#/flagged">★ Flagged Questions</a> (<span id="flagCount">${FLAGS.length}</span>) · <a href="#/drill">Random Drill</a></p>` : ""}
     ${r.private ? '<div id="privbody"><p>Loading…</p></div>' : `<div class="body">${r.body}</div>${practiceHTML(r.practice)}`}`);
 }
 
@@ -387,6 +487,7 @@ function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/");
   menuBtn.setAttribute("aria-expanded", "false");
   if (parts[0] === "flagged") { renderFlagged(); window.scrollTo(0, 0); return; }
+  if (parts[0] === "drill") { renderDrill(); window.scrollTo(0, 0); return; }
   if (parts[0] === "r") {
     const r = REGIONS.find(x => x.id === parts[1]);
     if (r && r.private) { renderRegion(r, parts[2]); window.scrollTo(0, 0); loadPrivate({ id: r.doc }, parts[2], "r/" + r.id); return; }

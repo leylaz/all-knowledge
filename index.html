@@ -185,6 +185,14 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .flag-btn:hover { color: var(--pad); border-color: var(--pad); }
 .flag-btn[aria-pressed="true"] { color: var(--pad); border-color: var(--pad); background: var(--pad-soft); }
 .flag-note { color: var(--muted); font-size: .92rem; margin: -12px 0 24px; }
+.solve-btn { display: block; margin: 8px 0 0 auto; font: inherit; font-family: var(--sans); font-size: .78rem; font-weight: 600; color: var(--muted); background: none; border: 1px solid var(--rule); border-radius: 10px; padding: 1px 9px; cursor: pointer; }
+.solve-btn:hover { color: var(--accent-green); border-color: var(--accent-green); }
+.solve-btn[aria-pressed="true"] { color: var(--accent-green); border-color: var(--accent-green); }
+.drill-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 16px; margin: 0 0 20px; font-size: .9rem; }
+.drill-bar label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+.drill-bar label.chk { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 7px; }
+.drill-bar select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; max-width: 100%; }
+.drill-src { font-family: var(--sans); font-size: .9rem; color: var(--muted); }
 .prob .lvl { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 10px; font-size: .72rem; font-weight: 600; letter-spacing: 0; border: 1px solid currentColor; vertical-align: 1px; }
 .prob .lvl.easy { color: var(--accent-green); }
 .prob .lvl.medium { color: var(--trace); }
