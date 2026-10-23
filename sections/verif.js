@@ -7,7 +7,21 @@ section({
   name: "Verification",
   cap: "Testbenches, reference models, coverage, and debug",
   body: `
-<p>Functional verification checks that the RTL does what the specification says. It is one stage of the <a href="#/r/eda">EDA stack</a>, summarized in <a href="#/eda-verif">Functional verification</a>; these pages go into the details: the tools, how testbenches are built, how a CPU is checked against a reference model, how coverage decides when testing is done, and how failures are debugged.</p>`
+<p>Functional verification checks that the RTL does what the specification says. It is one stage of the <a href="#/r/eda">EDA stack</a>, summarized in <a href="#/eda-verif">Functional verification</a>; these pages go into the details: the tools, how testbenches are built, how a CPU is checked against a reference model, how coverage decides when testing is done, and how failures are debugged.</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Put these verification activities in the order a CPU project can first start them, and say what each one needs to exist first: (a) lockstep comparison of the core against the ISA reference model; (b) formal proofs on the load/store queue's ordering logic; (c) booting Linux on an emulator; (d) post-silicon validation.</p>`,
+        a: `<ol start="0"><li><strong>(b) Formal on a block:</strong> needs only that block's RTL and its properties, so it can start as soon as the block compiles.</li><li><strong>(a) Lockstep against the reference model:</strong> needs a core that fetches, executes, and retires instructions end to end, plus the reference model.</li><li><strong>(c) Linux on an emulator:</strong> needs the full SoC (core, caches, interconnect, devices) to be stable enough that an OS boot gets somewhere, plus firmware.</li><li><strong>(d) Post-silicon:</strong> needs real chips back from the fab, months after tapeout.</li></ol><p>Each later method costs more per bug found and gives less visibility, which is why the early ones are pushed as hard as possible.</p>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A CPU team has an ISA reference model and a cycle-level performance model. A manager proposes using the performance model as the reference model to save effort. What's wrong with that?</p>`,
+        a: `<p>They answer different questions. The reference model must be the source of correct architectural results, simple enough to trust, and written independently of the RTL. A performance model is built to predict timing; it often skips or approximates functional behavior (it may be trace-driven, ignore rare exceptions, or lean on a functional model for values), and it shares the microarchitecture team's assumptions with the RTL, so the same misreading of the spec can land in both and go unnoticed. Making it the checker would either slow it down with full functional detail or weaken checking. The usual split: one trusted functional model, which both the testbench and the performance model can link against for values.</p>`
+      }
+    ]
+  }
 }, [
 {
   id: "verif-overview",
@@ -72,7 +86,21 @@ section({
 <li><strong>Hardware-software co-verification:</strong> real firmware and drivers run against the RTL, usually on <a href="#/eda-emu">emulation</a>, because full-chip simulation is too slow.</li>
 </ul>
 <p>Pre-verified IP and matching verification IP let teams spend their effort on these integration problems and on the blocks that make their chip unique.</p>
-`
+`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A block has a 4-requester round-robin arbiter with an AXI4 port to the rest of the SoC. Pick the main tool for each goal: (a) prove the grant vector is one-hot or zero for every possible input sequence; (b) check the AXI4 port follows the protocol under realistic traffic; (c) run the real boot firmware through the block; (d) show that every requester was granted while the AXI port was back-pressured.</p>`,
+        a: `<ol start="0"><li>(a) <strong>Formal tool</strong> with an assertion: the property is small and control-heavy, and "every possible input" is exactly what formal proves and simulation can't.</li><li>(b) <strong>AXI verification IP</strong>: it generates legal traffic and checks the block's side of the protocol.</li><li>(c) <strong>Emulation</strong> (or an FPGA prototype): firmware runs billions of cycles, far too slow for RTL simulation.</li><li>(d) <strong>Functional coverage</strong>: a cross of "which requester was granted" with "AXI READY low," collected across the regression.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Three weeks before RTL freeze, your block shows 98% line coverage but only 60% on a functional cross of coherence state × incoming snoop type. Where do you spend the time, and what do you tell the project lead?</p>`,
+        a: `<p>On the cross. Line coverage near 100% only says each line ran at least once; the bugs in coherence logic live in combinations (a snoop arriving while the line is mid-upgrade), and 40% of those combinations have never been exercised. Steps: list the unhit bins; mark any that are unreachable by design as excluded, with a written reason; steer constraints toward the rest (more sharing, smaller address ranges so lines collide); write directed tests for the stubborn ones; and use formal on the state machine if the space is small enough. Tell the lead the block is not ready on functional coverage regardless of the line number, give the count of reachable unhit bins and a burn-down estimate, and flag the risk if the date can't move.</p>`
+      }
+    ]
+  }
 },
 
 {
@@ -198,7 +226,21 @@ assert property (@(posedge clk) disable iff (!rst_n)
 <tr><td>Coherence legality</td><td>Two caches never hold the same line in a writable state at once</td></tr>
 <tr><td>Clock-domain crossings</td><td>Signals between different clocks pass through proper synchronizers</td></tr>
 </table></div>
-`
+`,
+  practice: {
+    guided: [
+      {
+        q: `<p>You're building a UVM testbench for an AXI4-Lite register block. Say which UVM component does each job: (a) choose random write addresses within the register map; (b) raise AWVALID and hold it until AWREADY; (c) rebuild "write 0x5 to offset 0x10" from pin activity; (d) check that a read returns the last value written; (e) record whether every register was written while BREADY was held low.</p>`,
+        a: `<ol start="0"><li>(a) <strong>Sequence</strong>, randomizing sequence items within constraints. It says what to do, not when.</li><li>(b) <strong>Driver</strong>: the only component that knows the handshake timing.</li><li>(c) <strong>Monitor</strong>: it watches pins and publishes transactions on an analysis port.</li><li>(d) <strong>Scoreboard</strong>, holding a register-map model that the monitor's write transactions update.</li><li>(e) <strong>Coverage collector</strong>: a covergroup crossing register offset with "BREADY was low."</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>At core level, the passive LSU–cache agent's protocol check fires: the LSU dropped VALID before the cache raised READY. Both block-level testbenches passed for weeks. How did the bug get through, and what do you change?</p>`,
+        a: `<p>At block level, the LSU only ever talked to the agent acting as the cache, and that responder probably raised READY within a cycle or two. The real cache holds READY low much longer (during a miss or a fill), and only then does the LSU's other behavior show up, for example cancelling a request on a pipeline flush by dropping VALID. First check the spec: if cancelling is legal, the agent's check is wrong; if not, the LSU is wrong. Either way, fix the block-level gap: randomize the responder's READY delay over a wide range (including very long stalls) and inject flushes while a request is waiting, and add a coverage bin for "flush while VALID and not READY" so the hole is visible if it appears again.</p>`
+      }
+    ]
+  }
 },
 
 {
@@ -388,7 +430,21 @@ endmodule</code></pre>
 <li>Running self-checking tests and ISA compliance suites whose expected results are written down independently of either implementation.</li>
 <li>Using other methods with different blind spots: formal verification of properties, booting real operating systems on emulation, and post-silicon validation.</li>
 </ul>
-`
+`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A 4-wide core runs in lockstep with a reference model. It retires 3 instructions in cycle 0, none in cycle 1, and 4 in cycle 2. Numbering retired instructions from 0, how many times is the model stepped in each cycle, and if the second instruction retired in cycle 2 mismatches, which instruction does the report name?</p>`,
+        a: `<ol start="0"><li>The model is stepped once per retired instruction: 3 times in cycle 0, 0 in cycle 1, 4 in cycle 2.</li><li>Cycle 0 retires instructions 0, 1, and 2. Cycle 2 retires 3, 4, 5, and 6.</li><li>The second one in cycle 2 is <strong>instruction 4</strong>. The simulation stops there, with cycle 2 as the time to open the waveform at; instructions 5 and 6 are never compared.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A two-core RISC-V SoC runs a lock-free queue test in lockstep. Core 1's load returns a value different from what the reference model, which runs the cores one after the other, predicts. Is this an RTL bug?</p>`,
+        a: `<p>Not necessarily. Under RISC-V's weak memory model (RVWMO), a load to shared memory can legally return any of several values depending on how the cores' accesses interleave, and a reference model that runs the cores sequentially picks just one interleaving. The fix is in the checking, not the RTL: let the model take the RTL's value for loads to shared data, and check those values separately with a memory-consistency checker that confirms each one is allowed by the model's rules (it came from some store that was visible under RVWMO's ordering rules). Litmus tests (message passing, store buffering) then confirm the RTL never shows a forbidden outcome. It is an RTL bug only if the observed value is impossible under every legal ordering.</p>`
+      }
+    ]
+  }
 },
 
 {
@@ -448,7 +504,21 @@ endgroup</code></pre>
 <tr><td><strong>Covergroup</strong></td><td>Average of the three</td><td>(100 + 100 + 75) / 3 ≈ <strong>91.7%</strong></td></tr>
 </table></div>
 <p>This is why crosses matter: every size and every outcome appeared somewhere, yet three combinations never happened together. The report names exactly which three, so the team knows where to steer the tests next.</p>
-`
+`,
+  practice: {
+    guided: [
+      {
+        q: `<p>An ALU covergroup has <code>cp_op</code> with 5 bins (ADD, SUB, AND, OR, XOR), <code>cp_carry</code> with 2 bins (carry out 0 or 1), and their cross (10 bins). After the regression, every op and both carry values were hit, but the cross bins (AND, 1), (OR, 1), and (XOR, 1) never were. What's the covergroup coverage, and what should the team do?</p>`,
+        a: `<ol start="0"><li>cp_op: 5 of 5 = 100%. cp_carry: 2 of 2 = 100%. Cross: 7 of 10 = 70%.</li><li>Covergroup: (100 + 100 + 70) / 3 = <strong>90%</strong>.</li><li>The three missing bins can't happen: logic ops never produce a carry out. They aren't test holes, so more random runs won't help.</li><li>Mark them as <code>ignore_bins</code> with a written reason. The cross becomes 7 of 7, and the covergroup reaches <strong>100%</strong>.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A core reached 100% line and branch coverage, yet silicon shows a bug: misaligned atomic memory operations should raise an exception, and the core silently performs them. Why didn't coverage catch it, and what would have?</p>`,
+        a: `<p>Code coverage only measures code that exists. The core has no logic for that case, so there's no line or branch left unhit. Two things would have caught it: functional coverage written from the spec (a bin for "AMO with a misaligned address"), which would have shown the case was never generated; and stimulus that does generate it, so the reference model, which raises the exception, would have mismatched the RTL at the first such instruction. The lesson is that coverage completeness depends on the coverage model being built from the spec, not from the RTL.</p>`
+      }
+    ]
+  }
 },
 
 {
@@ -516,6 +586,20 @@ hit       ____________|‾‾‾‾‾|_______</code></pre>
 </ul>
 <p><strong>3c. If the test is wrong:</strong> the testbench or its constraints are fixed, and the test is rerun.</p>
 <p><strong>Tracking progress.</strong> Teams track how many bugs are found each week. A falling rate of new bugs, together with coverage goals being met, is one of the main signals that a design is ready to sign off for tapeout.</p>
-`
+`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A nightly regression has 20,000 runs averaging 45 minutes each, on a farm with 2,000 simulator licenses. How long does it take? The team then turns on coverage collection, which slows simulation by 30%. Does it still finish within a 10-hour night?</p>`,
+        a: `<ol start="0"><li>Total work: 20,000 × 45 = 900,000 license-minutes.</li><li>Spread over 2,000 licenses: 900,000 / 2,000 = 450 minutes = <strong>7.5 hours</strong>.</li><li>With coverage: 7.5 × 1.3 = <strong>9.75 hours</strong>. It fits, but only barely, and the longest single tests or a busy farm will push it over. Options: collect coverage on a graded subset each night and on everything weekly.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>The nightly regression goes from 0 to 37 failures, all on different seeds, after a day with 6 RTL commits and 1 reference-model commit. How do you triage efficiently?</p>`,
+        a: `<ol start="0"><li><strong>Cluster by signature:</strong> group failures by the first error (mismatch type, PC or instruction class, assertion name). 37 failures are often 1 to 3 bugs.</li><li><strong>Pick the shortest failing seed</strong> in each cluster, so reruns are fast.</li><li><strong>Bisect the commits:</strong> rerun that seed at points in the 7 commits; a binary search needs at most 3 reruns.</li><li><strong>Check the model commit first</strong> if the failures are mismatches in the area it touched: a model bug fails tests the same way an RTL bug does.</li><li>Rerun the guilty seed with waveforms, find the root cause, and file one bug per cluster, not 37.</li></ol>`
+      }
+    ]
+  }
 }
 ]);
