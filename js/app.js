@@ -1,6 +1,47 @@
-/* Rendering, routing, and search. No note content lives here. */
-function visibleNotes() { return NOTES; }
-function visibleRegions() { return REGIONS; }
+/* Rendering, routing, search, and private pages. No note content lives here. */
+let PRIVATE_CHECKED = false, PRIVATE_OK = false, PRIVATE_UID = null, PRIVATE_DB = null;
+function visibleNotes() { return NOTES.filter(n => !n.private || PRIVATE_OK); }
+function visibleRegions() { return REGIONS.filter(r => !r.private || PRIVATE_OK); }
+async function checkPrivate() {
+  try {
+    if (!window.claude || !window.claude.use) return;
+    const user = await window.claude.use("user");
+    if (!user) return;
+    const owner = await user.isOwner();
+    const uid = await user.id();
+    if (!owner || !uid) return;
+    const db = await window.claude.use("db");
+    if (!db) return;
+    PRIVATE_UID = uid; PRIVATE_DB = db; PRIVATE_OK = true;
+    try {
+      const meta = await db.doc("data/users/" + uid + "/p-meta").get();
+      const m = meta.exists ? (meta.data() || {}) : {};
+      for (const r of REGIONS) if (m.regions && m.regions[r.id]) Object.assign(r, m.regions[r.id]);
+      for (const n of NOTES) if (m.notes && m.notes[n.id]) Object.assign(n, m.notes[n.id]);
+    } catch (e) { console.error("Private titles failed to load; keeping placeholders:", e); }
+  } catch (e) { console.error("Private access check failed; showing public pages only:", e); }
+  finally { PRIVATE_CHECKED = true; if (typeof route === "function") route(); }
+}
+async function loadPrivate(n, sec, hashKey) {
+  const box = document.getElementById("privbody");
+  if (!box || !PRIVATE_CHECKED) return;
+  if (!PRIVATE_OK) { box.innerHTML = "<p>This page is private.</p>"; return; }
+  try {
+    const snap = await PRIVATE_DB.doc("data/users/" + PRIVATE_UID + "/" + n.id).get();
+    if (location.hash.replace(/^#\/?/, "").split("/").slice(0, hashKey ? 2 : 1).join("/") !== (hashKey || n.id)) return;
+    const el = document.getElementById("privbody");
+    if (!el) return;
+    if (!snap.exists) { el.innerHTML = "<p>No content has been saved for this page yet.</p>"; return; }
+    const d = snap.data() || {};
+    el.innerHTML = '<div class="body">' + (d.body || "") + "</div>" + practiceHTML(d.practice);
+    typesetMath();
+    if (sec) goToSection(sec);
+  } catch (e) {
+    console.error("Private page " + n.id + " failed to load:", e);
+    const el = document.getElementById("privbody");
+    if (el) el.innerHTML = "<p>This page couldn't be loaded.</p>";
+  }
+}
 
 /* ---------- Math (MathJax, loaded async from index.html) ---------- */
 function typesetMath() {
@@ -100,7 +141,7 @@ function renderRegion(r, sec) {
     <h1>${r.name}</h1>
     ${tocHTML(r, "r/" + r.id)}
     <ul class="sublist">${notes.map(n => `<li><a href="#/${n.id}">${n.title}</a></li>`).join("")}</ul>
-    <div class="body">${r.body}</div>${practiceHTML(r.practice)}`);
+    ${r.private ? '<div id="privbody"><p>Loading…</p></div>' : `<div class="body">${r.body}</div>${practiceHTML(r.practice)}`}`);
 }
 
 function renderNote(n, sec) {
@@ -111,7 +152,7 @@ function renderNote(n, sec) {
     <h1>${n.title}</h1>
     ${n.book ? '<p class="bookref">' + n.book + '</p>' : ''}
     ${tocHTML(n, n.id)}
-    <div class="body">${n.body}</div>${practiceHTML(n.practice)}
+    ${n.private ? '<div id="privbody"><p>Loading…</p></div>' : '<div class="body">' + n.body + '</div>' + practiceHTML(n.practice)}
     <nav class="pager">
       ${prev ? `<a href="#/${prev.id}"><small>Previous</small>${prev.title}</a>` : ""}
       ${next ? `<a class="next" href="#/${next.id}"><small>Next</small>${next.title}</a>` : ""}
@@ -148,10 +189,11 @@ function route() {
   menuBtn.setAttribute("aria-expanded", "false");
   if (parts[0] === "r") {
     const r = REGIONS.find(x => x.id === parts[1]);
+    if (r && r.private) { renderRegion(r, parts[2]); window.scrollTo(0, 0); loadPrivate({ id: r.doc }, parts[2], "r/" + r.id); return; }
     if (r) { renderRegion(r, parts[2]); goToSection(parts[2]); return; }
   }
   const n = NOTES.find(x => x.id === parts[0]);
-  if (n) { renderNote(n, parts[1]); goToSection(parts[1]); return; }
+  if (n) { renderNote(n, parts[1]); if (n.private) { window.scrollTo(0, 0); loadPrivate(n, parts[1]); } else goToSection(parts[1]); return; }
   renderHome();
   window.scrollTo(0, 0);
 }
@@ -170,3 +212,4 @@ q.addEventListener("input", () => {
 window.addEventListener("hashchange", route);
 if (typeof initThemeToggle === "function") initThemeToggle();
 route();
+checkPrivate();
