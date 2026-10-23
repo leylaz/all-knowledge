@@ -143,6 +143,12 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
   .side.open { display: block; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* LaTeX-style math (MathJax SVG) */
+.body .math { margin: 4px 0 18px; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+.body .math mjx-container[display="true"] { margin: 0 !important; }
+.body mjx-container { color: var(--ink); }
+.prob .math { margin: 6px 0 12px; overflow-x: auto; overflow-y: hidden; }
 </style>
 </head>
 <body>
@@ -155,6 +161,14 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 </header>
 <main id="app"></main>
 
+<script>
+window.MathJax = {
+  tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
+  svg: { fontCache: "global" },
+  startup: { typeset: false, ready: function () { MathJax.startup.defaultReady(); MathJax.startup.promise.then(function () { if (window.typesetMath) window.typesetMath(); }); } }
+};
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js"></script>
 <script src="js/site.js"></script>
 <script src="js/app.js"></script>
 </body>
