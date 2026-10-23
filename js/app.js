@@ -13,6 +13,7 @@ async function checkPrivate() {
     const db = await window.claude.use("db");
     if (!db) return;
     PRIVATE_UID = uid; PRIVATE_DB = db; PRIVATE_OK = true;
+    await loadDbFlags();
     try {
       const meta = await db.doc("data/users/" + uid + "/p-meta").get();
       const m = meta.exists ? (meta.data() || {}) : {};
@@ -103,7 +104,7 @@ function sideNav(curId, curSec) {
       return `<div class="grp">
       <a class="rg ${isCurR && !curSec ? "cur" : ""}" href="#/r/${r.id}">${r.name}</a>
       ${isCurR ? subFor(r, "r/" + r.id) : ""}
-      <ul>${visibleNotes().filter(n => n.region === r.id).map(n =>
+      <ul>${r.id === "intv" ? `<li><a class="${curId === "flagged" ? "cur" : ""}" href="#/flagged">Flagged Questions</a></li>` : ""}${visibleNotes().filter(n => n.region === r.id).map(n =>
         `<li><a class="${curId === n.id && !curSec ? "cur" : ""}" href="#/${n.id}">${n.title}</a>${curId === n.id ? subFor(n, n.id) : ""}</li>`).join("")}</ul>
     </div>`; }).join("")}
   </nav>`;
@@ -134,7 +135,103 @@ function layout(curId, curSec, inner) {
   app.innerHTML = `<div class="wrap page">${sideNav(curId, curSec)}<article class="note">${inner}</article></div>`;
   const cur = document.querySelector(".side .cur");
   if (cur && window.innerWidth > 860) cur.scrollIntoView({ block: "nearest" });
+  decorateFlags();
   typesetMath();
+}
+
+/* ---------- Flagged interview questions ----------
+   Cards with a data-qid (sections/intv.js) get a flag button. A flag is
+   matched by the question's opening text, not its number, so inserting a
+   question doesn't move flags. The owner's flags live in the private db;
+   everyone else (and GitHub Pages) keeps them in this browser. */
+const FLAG_KEY = "intv-flags";
+let FLAGS = [], FLAG_SAVE = Promise.resolve(), FLAG_INDEX = null;
+try { FLAGS = JSON.parse(localStorage.getItem(FLAG_KEY) || "[]"); } catch (e) { FLAGS = []; }
+if (!Array.isArray(FLAGS)) FLAGS = [];
+const flagDoc = () => PRIVATE_DB.doc("data/users/" + PRIVATE_UID + "/" + FLAG_KEY);
+async function loadDbFlags() {
+  try {
+    const snap = await flagDoc().get();
+    const f = snap.exists ? (snap.data() || {}).flags : null;
+    FLAGS = Array.isArray(f) ? f.slice() : [];
+  } catch (e) { console.error("Flags failed to load; using this browser's copy:", e); }
+}
+function saveFlags() {
+  const copy = FLAGS.map(f => Object.assign({}, f));
+  if (PRIVATE_OK) {
+    FLAG_SAVE = FLAG_SAVE.then(() => flagDoc().set({ flags: copy })).catch(e => console.error("Saving flags failed:", e));
+    return;
+  }
+  try { localStorage.setItem(FLAG_KEY, JSON.stringify(copy)); } catch (e) {}
+}
+function cardSnip(card) {
+  const qEl = card.querySelector(".q").cloneNode(true);
+  const qn = qEl.querySelector(".qn");
+  if (qn) qn.remove();
+  return qEl.textContent.replace(/\s+/g, " ").trim().slice(0, 160);
+}
+const isFlagged = snip => FLAGS.some(f => f.snip === snip);
+function setFlagBtn(btn, on) {
+  btn.setAttribute("aria-pressed", String(on));
+  btn.textContent = on ? "★ Flagged" : "☆ Flag";
+}
+function decorateFlags() {
+  app.querySelectorAll(".prob[data-qid]").forEach(card => {
+    const qn = card.querySelector(".qn");
+    if (!qn || qn.querySelector(".flag-btn")) return;
+    const btn = document.createElement("button");
+    btn.type = "button"; btn.className = "flag-btn";
+    btn.setAttribute("aria-label", "Flag this question");
+    setFlagBtn(btn, isFlagged(cardSnip(card)));
+    qn.appendChild(btn);
+  });
+}
+app.addEventListener("click", e => {
+  const btn = e.target.closest(".flag-btn");
+  if (!btn) return;
+  const card = btn.closest(".prob");
+  const snip = cardSnip(card);
+  const i = FLAGS.findIndex(f => f.snip === snip);
+  if (i >= 0) FLAGS.splice(i, 1);
+  else FLAGS.push({ qid: card.dataset.qid, snip, at: Date.now() });
+  saveFlags();
+  setFlagBtn(btn, i < 0);
+  const count = document.getElementById("flagCount");
+  if (count) count.textContent = String(FLAGS.length);
+});
+
+/* Every interview card in page order, parsed once from the page bodies. */
+function flagIndex() {
+  if (FLAG_INDEX) return FLAG_INDEX;
+  FLAG_INDEX = [];
+  const t = document.createElement("template");
+  for (const n of visibleNotes().filter(x => x.region === "intv" && !x.private)) {
+    t.innerHTML = n.body;
+    t.content.querySelectorAll(".prob[data-qid]").forEach(card =>
+      FLAG_INDEX.push({ note: n, snip: cardSnip(card), html: card.outerHTML }));
+  }
+  return FLAG_INDEX;
+}
+
+function renderFlagged() {
+  const idx = flagIndex();
+  const flagged = new Set(FLAGS.map(f => f.snip));
+  const found = new Set();
+  let html = "";
+  for (const n of visibleNotes().filter(x => x.region === "intv")) {
+    const cards = idx.filter(c => c.note === n && flagged.has(c.snip));
+    if (!cards.length) continue;
+    cards.forEach(c => found.add(c.snip));
+    html += `<h3><a href="#/${n.id}">${n.title}</a></h3>` + cards.map(c => c.html).join("");
+  }
+  const missing = FLAGS.filter(f => !found.has(f.snip));
+  if (missing.length) html += `<h3>No Longer Found</h3><p>These questions were edited or removed after you flagged them.</p><ul>${missing.map(f => {
+    const li = document.createElement("li"); li.textContent = f.snip + "…"; return li.outerHTML; }).join("")}</ul>`;
+  layout("flagged", null, `
+    <p class="region"><a href="#/r/intv" style="text-decoration:none">${REGIONS.find(r => r.id === "intv").name}</a></p>
+    <h1>Flagged Questions</h1>
+    <p class="flag-note"><span id="flagCount">${FLAGS.length}</span> flagged. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."} Unflagged questions stay listed until you leave the page.</p>
+    <div class="body">${html || "<p>No questions flagged yet. Use ☆ Flag on any interview question.</p>"}</div>`);
 }
 
 function renderRegion(r, sec) {
@@ -145,6 +242,7 @@ function renderRegion(r, sec) {
     ${tocHTML(r, "r/" + r.id)}
     <ul class="sublist">${notes.map(n => `<li><a href="#/${n.id}">${n.title}</a></li>`).join("")}</ul>
     ${r.id === "pipe" && typeof pipelineSVG === "function" ? pipelineSVG() : ""}
+    ${r.id === "intv" ? `<p class="flag-note"><a href="#/flagged">★ Flagged Questions</a> (<span id="flagCount">${FLAGS.length}</span>)</p>` : ""}
     ${r.private ? '<div id="privbody"><p>Loading…</p></div>' : `<div class="body">${r.body}</div>${practiceHTML(r.practice)}`}`);
 }
 
@@ -191,6 +289,7 @@ function goToSection(sec) {
 function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/");
   menuBtn.setAttribute("aria-expanded", "false");
+  if (parts[0] === "flagged") { renderFlagged(); window.scrollTo(0, 0); return; }
   if (parts[0] === "r") {
     const r = REGIONS.find(x => x.id === parts[1]);
     if (r && r.private) { renderRegion(r, parts[2]); window.scrollTo(0, 0); loadPrivate({ id: r.doc }, parts[2], "r/" + r.id); return; }
