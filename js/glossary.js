@@ -4,7 +4,7 @@
    whole words. `page` is a page id, optionally "/<section id>". */
 const GLOSSARY = {
   "AMAT": { def: "Average memory access time: hit time + miss rate × miss penalty, applied level by level.", page: "cache-size" },
-  "BTB": { def: "Branch target buffer: a cache from branch PC to predicted target, so fetch can redirect before the branch is decoded.", page: "branch-hazards/btb" },
+  "BTB": { def: "Branch target buffer: a cache from branch PC to predicted target, so fetch can redirect before the branch is decoded.", page: "fe-targets/btb" },
   "CPI": { def: "Cycles per instruction, the inverse of IPC. A CPI stack splits it into a base plus a stall component per cause.", page: "pipelining" },
   "CPI stack": { def: "CPI split into a base component plus one stall component per cause (branch mispredicts, L2 misses, …), so the components add up to total CPI.", page: "perf-stage-stalls/accounting" },
   "DRAM": { def: "Dynamic RAM: one transistor and one capacitor per bit. Dense and cheap, but slow and needs refresh; used for main memory.", page: "sram-dram" },
@@ -25,7 +25,7 @@ const GLOSSARY = {
   "MSHR": { def: "Miss status holding register: tracks one outstanding cache miss, so the cache can keep serving hits while misses are pending.", page: "dcache" },
   "PEBS": { def: "Precise event-based sampling (Intel): tags a counter sample with the exact instruction that caused it.", page: "perf-stage-stalls/silicon" },
   "PRF": { def: "Physical register file: holds every renamed register value; architectural registers map onto its entries.", page: "prf-sizing" },
-  "RAS": { def: "Return address stack: predicts return targets by pushing on calls and popping on returns.", page: "branch-hazards" },
+  "RAS": { def: "Return address stack: predicts return targets by pushing on calls and popping on returns.", page: "fe-targets/ras" },
   "ROB": { def: "Reorder buffer: holds every in-flight instruction in program order so they retire in order, giving precise exceptions.", page: "rob" },
   "RTL": { def: "Register-transfer level: the hardware description (SystemVerilog or VHDL) of registers and the logic between them.", page: "eda-rtl" },
   "SIMD": { def: "Single instruction, multiple data: one instruction operates on a vector of elements (SSE, AVX, NEON, SVE).", page: "exec-units" },

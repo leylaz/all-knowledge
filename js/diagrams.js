@@ -106,18 +106,18 @@ const Z4_GROUPS = {
 /* Core 0, traced in the annotation image's pixel space (the core spans
    x 50-1135, y 505-1015 there): [x0, y0, x1, y1, group, href, lines, tip, inferred]. */
 const CORE_TRACE = [
-  [70, 515, 325, 575, "sram", "isa-encoding/fixed-variable", ["uCode ROM"], "Microcode ROM (no page of its own yet: opens Instruction encoding)"],
+  [70, 515, 325, 575, "sram", "fe-decode/decode", ["uCode ROM"], "Microcode ROM"],
   [70, 575, 215, 745, "fp", "fp-units", ["FP/SIMD", "pipes"], "FP and SIMD execution pipes, 4 × 256-bit in total"],
   [215, 575, 325, 745, "fp", "prf-sizing", ["FP PRF"], "FP/vector physical register file, first half"],
   [70, 745, 325, 830, "fp", "scheduler", ["FP rename, sched"], "FP rename and FP scheduler (placement inferred)", true],
   [70, 830, 215, 1005, "fp", "fp-units", ["FP/SIMD", "pipes"], "FP and SIMD execution pipes, 4 × 256-bit in total"],
   [215, 830, 325, 1005, "fp", "prf-sizing", ["FP PRF"], "FP/vector physical register file, second half"],
 
-  [330, 520, 510, 610, "fe", "stage-id", ["Decode"], "Instruction decode"],
+  [330, 520, 510, 610, "fe", "fe-decode", ["Decode"], "Instruction decode"],
   [510, 520, 640, 610, "sram", "stage-if", ["L1I", "+ iTLB"], "L1 instruction cache and iTLB"],
-  [640, 520, 830, 715, "fe", "branch-hazards/dynamic", ["Branch", "predictor", "BTBs"], "Branch predictor and BTBs"],
+  [640, 520, 830, 715, "fe", "fe-direction", ["Branch", "predictor", "BTBs"], "Branch predictor and BTBs"],
   [330, 610, 450, 715, "ooo", "renaming", ["Disp.", "rename"], "Dispatch and register renaming"],
-  [450, 610, 640, 715, "sram", "isa-encoding/fixed-variable", ["Op cache", "6.75K ops"], "Op cache, decoded ops (no page of its own yet: opens Instruction encoding)"],
+  [450, 610, 640, 715, "sram", "fe-decode/uop-cache", ["Op cache", "6.75K ops"], "Op cache, decoded ops"],
   [330, 715, 600, 775, "ooo", "scheduler", ["Int scheduler"], "Integer scheduler: 4 queues shared by ALUs and AGUs"],
   [600, 715, 830, 775, "ooo", "rob", ["ROB"], "Reorder buffer / retire queue (placement inferred)", true],
 
