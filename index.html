@@ -279,6 +279,41 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .chip-zoom:hover { border-color: var(--trace); color: var(--trace); }
 .chip-zoom[aria-pressed="true"] { background: var(--trace-soft); border-color: var(--trace); }
 svg.chip { touch-action: pan-x pan-y; }
+/* Semiconductor industry stack (bottom of the home page) */
+.stack-fig { margin: 0 0 56px; }
+.stack-fig h2 { margin: 0 0 4px; font-size: 1.35rem; letter-spacing: -0.01em; }
+.stack-cap { margin: 0 0 16px; color: var(--muted); font-size: .95rem; }
+.stack { list-style: none; margin: 0 auto; padding: 0; max-width: 940px; }
+.layer { --edge: var(--pad); position: relative; display: grid; grid-template-columns: 1.6em minmax(0, 1fr) auto; align-items: center; gap: 6px 14px;
+  margin: 0 calc((var(--n) - var(--d)) * 1.6%) 4px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--rule); border-left: 5px solid var(--edge);
+  border-radius: 4px; box-shadow: 0 3px 0 -1px var(--rule); transition: background .15s, transform .15s; }
+.layer.sys { --edge: var(--accent-red); }
+.layer.design { --edge: var(--trace); }
+.layer:not(.nolink):hover, .layer:focus-within { background: var(--trace-soft); transform: translateY(-1px); }
+.layer .lvl { font-family: var(--mono); font-size: .85rem; color: var(--muted); text-align: right; }
+.lyr-name { font-weight: 600; color: var(--ink); text-decoration: none; }
+a.lyr-name::after { content: ""; position: absolute; inset: 0; border-radius: 4px; }
+.lyr-name:focus-visible { outline: none; }
+.layer:has(.lyr-name:focus-visible) { outline: 2px solid var(--pad); outline-offset: 2px; }
+.lyr-cap { display: block; color: var(--muted); font-size: .86rem; }
+.lyr-cos { display: block; color: var(--ink); font-size: .8rem; opacity: .8; margin-top: 2px; }
+.lyr-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.lyr-size { font-family: var(--mono); font-size: 1rem; font-weight: 500; color: var(--edge); }
+.lyr-more { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.lyr-more:empty { display: none; }
+.lyr-more a { position: relative; z-index: 1; text-decoration: none; color: var(--ink); background: var(--trace-soft); border-radius: 3px; padding: 3px 9px; font-size: .84rem; }
+.lyr-more a:hover { background: var(--trace); color: var(--surface); }
+.stack-key { display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center; margin: 12px 0 0; font-size: .86rem; color: var(--muted); }
+.stack-key i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--pad); }
+.stack-key i.sys { background: var(--accent-red); }
+.stack-key i.design { background: var(--trace); }
+.stack-src { max-width: 940px; margin: 10px auto 0; font-size: .8rem; color: var(--muted); text-align: center; }
+@media (max-width: 640px) {
+  .layer { grid-template-columns: 1.4em minmax(0, 1fr); margin-inline: calc((var(--n) - var(--d)) * .8%); }
+  .lyr-side { grid-column: 2; align-items: flex-start; }
+  .lyr-more { justify-content: flex-start; }
+}
+
 @media (max-width: 860px) {
   .floor { grid-template-columns: 1fr; grid-template-areas: "fab" "circ" "isa" "pipe" "core" "mem" "ctr" "coh" "icx" "os" "comp" "conc" "perf" "eda" "verif" "nn" "gen" "llm" "intv" "p1" "p2"; }
   .intro { padding-top: 32px; }

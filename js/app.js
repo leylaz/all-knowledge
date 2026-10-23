@@ -79,6 +79,7 @@ function renderHome() {
         </section>`).join("")}
     </div></div>
     <p class="empty" id="empty" hidden>No notes match that search. Try a shorter term.</p>
+    ${typeof stackHTML === "function" ? stackHTML() : ""}
   </div>`;
   applySearch();
   if (typeof initChipZoom === "function") initChipZoom();

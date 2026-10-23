@@ -282,3 +282,46 @@ function initChipZoom() {
     if (e.key === "Escape" && zoomed) go(false);
   });
 }
+
+/* ---------- The semiconductor industry stack (bottom of the home page) ----------
+   Eight layers from TestFlow's "8 Layers of the Semiconductor Industry",
+   numbered from 0 here (the article counts 1-8). Top of the stack first.
+   [kind, name, description, companies, 2024 market size, main link, extra links]
+   kind: sys | mfg | design. A null main link means no notes yet: the layer
+   shows but isn't clickable. Links whose target doesn't exist are dropped. */
+const STACK_SRC = "https://testflowinc.com/blog/8-layers-semiconductor-industry-trillion-dollar-breakdown";
+const STACK_LAYERS = [
+  ["sys", "System Companies", "Build the final products and drive chip demand", "Apple, Dell, Sony, Cisco", "$3.2T", null, []],
+  ["mfg", "Packaging and Testing (OSAT)", "Assemble, package, and test chips before they ship", "ASE Group, Amkor, JCET, SPIL", "$35B", "icx-chiplets", [["eda-dft", "Design for Test"]]],
+  ["mfg", "Equipment Vendors", "Build the machines that pattern, etch, and inspect wafers", "ASML, Applied Materials, Lam Research, KLA", "$109B", "fab-nodes", []],
+  ["mfg", "Foundries and IDMs", "Manufacture chips for others (foundries) or for themselves (IDMs)", "TSMC, Samsung, GlobalFoundries, Intel", "$574B", "r/fab", [["fab-yield", "Yield and Die Cost"]]],
+  ["design", "EDA Tools", "Software to design, simulate, and verify chips", "Synopsys, Cadence, Siemens EDA", "$15B", "r/eda", [["r/verif", "Verification"]]],
+  ["design", "IP Cores", "Licensed processor cores, interfaces, and logic blocks", "Arm, Imagination, Rambus, CEVA", "$8B", "r/isa", [["icx-onchip", "On-Chip Buses"]]],
+  ["design", "Fabless Design Companies", "Design chips and outsource the manufacturing", "Qualcomm, NVIDIA, AMD, Broadcom", "$385B", "eda-arch", [["r/core", "Out-of-Order Core"], ["r/mem", "Memory Hierarchy"]]],
+  ["mfg", "Raw Materials", "Silicon wafers, chemicals, and process gases", "Shin-Etsu, SUMCO, BASF, Air Liquide", "$28B", "r/fab", []]
+];
+
+function stackTargetExists(href) {
+  const [a, b] = href.split("/");
+  return a === "r" ? REGIONS.some(r => r.id === b && !r.private) : NOTES.some(n => n.id === a && !n.private);
+}
+
+function stackHTML() {
+  const layers = STACK_LAYERS.filter(l => !l[5] || stackTargetExists(l[5]));
+  const top = layers.length - 1;
+  return `<section class="stack-fig" aria-labelledby="stackTitle">
+    <h2 id="stackTitle">The Semiconductor Industry Stack</h2>
+    <p class="stack-cap">Eight layers, from the sand to the finished product. Click a layer to open the related notes.</p>
+    <ol class="stack" style="--n:${top}">${layers.map(([kind, name, desc, cos, size, href, more], i) => `
+      <li class="layer ${kind}${href ? "" : " nolink"}" style="--d:${i}">
+        <span class="lvl" aria-hidden="true">${top - i}</span>
+        <div class="lyr-main">${href ? `<a class="lyr-name" href="#/${href}">${name}</a>` : `<span class="lyr-name">${name}</span>`}<span class="lyr-cap">${desc}</span>
+          <span class="lyr-cos">${cos}</span></div>
+        <div class="lyr-side"><span class="lyr-size" title="2024 market size">${size}</span>
+          <div class="lyr-more">${more.filter(m => stackTargetExists(m[0])).map(([h, t]) => `<a href="#/${h}">${t}</a>`).join("")}</div></div>
+      </li>`).join("")}
+    </ol>
+    <p class="stack-key"><span><i class="sys"></i>Products</span><span><i class="design"></i>Design</span><span><i class="mfg"></i>Manufacturing and supply</span></p>
+    <p class="stack-src">Layers, companies, and 2024 market sizes from <a href="${STACK_SRC}" target="_blank" rel="noopener">8 Layers of the Semiconductor Industry (TestFlow)</a>. The article bills the industry as a $1 trillion ecosystem; the System Companies figure counts finished products, so the layers don't sum to that.</p>
+  </section>`;
+}
