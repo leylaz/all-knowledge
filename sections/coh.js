@@ -151,5 +151,76 @@ section({
       }
     ]
   }
+},
+
+{
+  id: "coh-transient",
+  region: "coh",
+  title: "Transient States and Protocol Races",
+  sections: [
+    { id: "why", label: "Why Stable States Aren't Enough" },
+    { id: "naming", label: "Naming Transient States" },
+    { id: "flows", label: "The Basic Flows" },
+    { id: "races", label: "Races" },
+    { id: "deadlock", label: "Deadlock and Virtual Networks" },
+    { id: "verify", label: "Verifying a Protocol" }
+  ],
+  body: `
+<p>MESI and its relatives are described as a handful of stable states, as if every transition happened instantly. In a real system, a transition is a conversation of several messages over a network that delivers them with variable delay, and other requests for the same line arrive in the middle. The states a line passes through during that conversation, the <strong>transient states</strong>, are where most of a protocol's complexity, and most of its bugs, live. The examples here follow the MSI directory protocol in Sorin, Hill, and Wood's primer.</p>
+
+<h3 id="sec-why">Why Stable States Aren't Enough</h3>
+<p>When a cache in I issues a GetM to the directory, it can't be in M yet: it has no data, and other caches may still hold copies. It also can't stay in I, because if another request for the line arrives, the cache must know it has one outstanding. It needs a state meaning "on my way from I to M."</p>
+
+<h3 id="sec-naming">Naming Transient States</h3>
+<p>The primer's convention: <strong>XY<sup>Z</sup></strong> means "was in X, going to Y, waiting for Z," where Z is D (data), A (acknowledgments), or both:</p>
+<ul>
+<li><strong>IS<sup>D</sup>:</strong> sent GetS, waiting for data.</li>
+<li><strong>IM<sup>AD</sup>:</strong> sent GetM, waiting for data and invalidation acks.</li>
+<li><strong>IM<sup>A</sup>:</strong> has the data, still waiting for acks.</li>
+<li><strong>SM<sup>AD</sup>:</strong> had a shared copy, sent GetM to upgrade.</li>
+<li><strong>MI<sup>A</sup>:</strong> evicting a dirty line, sent PutM with the data, waiting for the directory's ack.</li>
+</ul>
+
+<h3 id="sec-flows">The Basic Flows</h3>
+<ol start="0">
+<li><strong>Load miss:</strong> I → IS<sup>D</sup> (send GetS) → S when data arrives.</li>
+<li><strong>Store miss:</strong> I → IM<sup>AD</sup> (send GetM). The directory sends data with the number of sharers to wait for, and invalidates the sharers, which ack directly to the requester. Data with zero acks expected → M; otherwise → IM<sup>A</sup> → M at the last ack.</li>
+<li><strong>Upgrade:</strong> S → SM<sup>AD</sup> → SM<sup>A</sup> → M, the same way, keeping the old data readable meanwhile.</li>
+<li><strong>Dirty eviction:</strong> M → MI<sup>A</sup> (send PutM with data) → I on the Put-Ack.</li>
+</ol>
+
+<h3 id="sec-races">Races</h3>
+<p>Races happen because the directory orders requests, but caches see the consequences in a different order:</p>
+<ul>
+<li><strong>Upgrade loses the race:</strong> a cache in SM<sup>AD</sup> receives an Inv, because another core's GetM reached the directory first. Its shared copy is gone, so it acks the invalidation and moves to IM<sup>AD</sup>: it now needs data, not just permission.</li>
+<li><strong>Invalidated before the data arrives:</strong> a cache in IS<sup>D</sup> receives an Inv for a newer writer before its own data arrives (the directory handled its GetS first, but the messages took different paths). It must still use the data once, for the load that missed, then drop to I: the primer's IS<sup>D</sup>I state.</li>
+<li><strong>Forwarded request to an evicting owner:</strong> a cache in MI<sup>A</sup> receives Fwd-GetS or Fwd-GetM, because the directory still thinks it owns the line. It sends the data to the requester, moves to SI<sup>A</sup> or II<sup>A</sup>, and finishes when the Put-Ack arrives.</li>
+<li><strong>Request to a line not yet owned:</strong> a cache in IM<sup>A</sup> receives a Fwd-GetM for a later writer. It can't answer until its own store completes, so it stalls the forwarded message (or buffers it) until it reaches M, performs its store, and then hands the line on.</li>
+</ul>
+
+<h3 id="sec-deadlock">Deadlock and Virtual Networks</h3>
+<p>If a stalled forwarded request blocks a queue that the acks it is waiting for also travel through, the system deadlocks. Protocols prevent this by putting each message class on its own <strong>virtual network</strong> (separate buffers): requests, forwarded requests, and responses. Responses always sink (they never generate further messages that could block), so the response network always drains, and everything waiting on it eventually proceeds.</p>
+
+<h3 id="sec-verify">Verifying a Protocol</h3>
+<ul>
+<li><strong>Protocol tables:</strong> every (state, event) pair has an entry: an action, a stall, or "impossible." Writing out the full table, rather than describing flows, is how missing races are found.</li>
+<li><strong>Model checking:</strong> tools such as Murphi or TLA+ explore every interleaving for a small configuration (2 or 3 caches, one or two addresses) and check the invariants: single writer or multiple readers, data values, and no deadlock.</li>
+<li><strong>RTL stress testing:</strong> random traffic concentrated on a few lines with many cores, to make races frequent, with coherence checkers in the testbench (see <a href="#/verif-testbench/interfaces">Checking Interfaces</a>).</li>
+</ul>
+<p class="refs">References: Sorin, Hill, and Wood, <em>A Primer on Memory Consistency and Cache Coherence</em>, 2nd ed. (2020), Chapters 6 to 8 · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 5 · Dill, "The Murphi Verification System," CAV 1996</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Cores C0 and C1 both hold line X in S. Both store to it at nearly the same time, and C1's GetM reaches the directory first. Trace each cache's states and the messages until both stores complete.</p>`,
+        a: `<ol start="0"><li>Both issue GetM: C0 and C1 move S → SM<sup>AD</sup>.</li><li>The directory handles C1's GetM: it sends C1 data with "expect 1 ack" and sends Inv to C0. Directory: M, owner C1.</li><li>C0, in SM<sup>AD</sup>, receives the Inv: it lost the race. It sends Inv-Ack to C1 and moves to <strong>IM<sup>AD</sup></strong>.</li><li>C1 receives data (1 ack expected) → SM<sup>A</sup>, then C0's Inv-Ack → <strong>M</strong>; its store completes.</li><li>The directory handles C0's GetM: the line is owned by C1, so it forwards Fwd-GetM to C1 and records owner C0.</li><li>C1 sends the data to C0 and goes M → I. (Had the Fwd-GetM arrived while C1 was still in SM<sup>A</sup>, C1 would stall it until its own store finished.)</li><li>C0 receives the data with 0 acks expected → <strong>M</strong>; its store completes. Final: C0 = M, C1 = I.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Should a cycle-level performance model implement every transient state of the coherence protocol? Argue both sides and say what you'd do.</p>`,
+        a: `<p>Against: transient states mostly matter for correctness, which the RTL and protocol verification cover; implementing them makes the model slower and introduces its own protocol bugs, and most workloads rarely race on the same line.</p><p>For: performance under contention depends on them. Lock handoffs, contended atomics, and producer-consumer queues are races by design, and their latency includes stalled forwarded requests, retried requests, and extra hops that an "atomic transaction" model never charges. Those patterns dominate scaling of many multithreaded programs.</p><p>A practical middle: model transactions as message sequences with real latencies and a per-line busy state at the directory and the cache (so a second request for a busy line waits), which captures most contention cost without the full state table. Then validate with microbenchmarks that hammer one line from many cores against RTL or silicon, and add detail only where they disagree.</p>`
+      }
+    ]
+  }
 }
 ]);
