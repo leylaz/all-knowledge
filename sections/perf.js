@@ -302,6 +302,8 @@ One instruction cache miss:
 </table></div>
 <p>Notation, all per iteration: \\(N_i\\) and \\(N_u\\) instructions and micro-ops; \\(N_{ld}\\), \\(N_{st}\\), \\(N_{br}\\), \\(N_{tk}\\) loads, stores, branches, and taken branches; \\(N_k\\) micro-ops that can only run on port class k; \\(W_x\\) the width of stage x; \\(P_k\\) the number of ports or units of class k; \\(C_s\\) the entries in structure s, \\(E_s\\) the entries one iteration uses, and \\(R_s\\) the cycles each entry stays; \\(L_x\\) a latency and \\(m_x\\) a miss rate per access.</p>
 <p><strong>Latency vs. throughput.</strong> Latency is how long one iteration takes from start to finish; throughput is how often iterations finish. Out-of-order execution hides latency by overlapping iterations, until a capacity bound (kind 1) or a dependency (kind 2) stops the overlap. The tables below give the bounds for each part of the pipeline, matching the stages above.</p>
+<p>Try it: the calculator below takes the main bound from each table that follows and adds the serialized penalties. Change one number at a time and watch which row becomes the bottleneck.</p>
+<div class="calc" data-calc="bounds"></div>
 
 <h3 id="sec-fe-bounds">Front-End Bounds</h3>
 <p>The front end limits how fast micro-ops enter the machine; when it binds, the back end sits idle however wide it is.</p>

@@ -110,6 +110,21 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .results mark { background: var(--pad-soft); color: var(--ink); border-radius: 2px; padding: 0 1px; }
 .results .more { color: var(--muted); font-size: .88rem; }
 
+/* Calculators */
+.calc { font-family: var(--sans); font-size: .9rem; line-height: 1.45; background: var(--surface); border: 1px solid var(--rule); border-top: 3px solid var(--pad); border-radius: 4px; padding: 14px 16px 6px; margin: 4px 0 20px; }
+.calc .calc-title { font-weight: 700; font-size: 1rem; margin: 0 0 2px; }
+.calc .calc-intro { color: var(--muted); margin: 0 0 10px; }
+.calc-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 16px; margin: 0 0 12px; }
+.calc fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.calc legend { font-weight: 600; color: var(--pad); padding: 0; margin-bottom: 4px; }
+.calc label { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.calc label span { color: var(--muted); }
+.calc input { width: 84px; flex: none; font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 3px 6px; text-align: right; }
+.calc table { margin: 0 0 10px; }
+.calc tr.hot td { background: var(--pad-soft); font-weight: 600; }
+.calc p { margin: 0 0 8px; }
+.calc .calc-out { font-size: .95rem; }
+
 /* Glossary hover cards */
 .gl { position: relative; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
 .gl-card { display: none; position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; width: min(300px, calc(100vw - 32px)); background: var(--surface); color: var(--ink); border: 1px solid var(--rule); border-left: 3px solid var(--trace); border-radius: 4px; padding: 8px 12px; font-family: var(--sans); font-size: .86rem; font-weight: 400; line-height: 1.45; text-align: left; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
@@ -468,6 +483,7 @@ window.MathJax = {
 <script src="sections/private.js"></script>
 <script src="js/diagrams.js"></script>
 <script src="js/glossary.js"></script>
+<script src="js/calc.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/app.js"></script>
 </body>
