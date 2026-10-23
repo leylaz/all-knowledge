@@ -61,7 +61,8 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .die { border: 2px dashed var(--pad); padding: 14px; border-radius: 4px; margin-bottom: 56px; }
 .floor { display: grid; gap: 10px; grid-template-columns: repeat(6, 1fr);
   grid-template-areas:
-    "fab fab fab fab fab fab"; }
+    "fab fab fab fab fab fab"
+    "circ circ circ . . ."; }
 .block { background: var(--surface); border: 1px solid var(--rule); border-top: 3px solid var(--trace); border-radius: 3px; padding: 16px 18px 18px; transition: opacity .2s; }
 .block.dim { opacity: .35; }
 .floor .block:nth-child(4n+2) { border-top-color: var(--accent-green); }
@@ -159,7 +160,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .theme-btn:hover { border-color: var(--trace); color: var(--trace); }
 .theme-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 @media (max-width: 860px) {
-  .floor { grid-template-columns: 1fr; grid-template-areas: "fab"; }
+  .floor { grid-template-columns: 1fr; grid-template-areas: "fab" "circ"; }
   .intro { padding-top: 32px; }
   .page { grid-template-columns: 1fr; gap: 0; padding-top: 16px; }
   .menu-btn.show { display: inline-block; }
@@ -196,6 +197,7 @@ window.MathJax = {
 <script async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js"></script>
 <script src="js/site.js"></script>
 <script src="sections/fab.js"></script>
+<script src="sections/circ.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/app.js"></script>
 </body>
