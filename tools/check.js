@@ -21,11 +21,13 @@ for (const dir of ["js", "sections"])
 
 /* Only data files run here; js/app.js and the widget scripts need a DOM. */
 const DATA = new Set(["js/site.js", "js/diagrams.js", "js/glossary.js"]);
+/* Top-level consts aren't properties of the context, so copy them out. */
+const EXPOSE = "\n;" + ["REGIONS", "NOTES", "GLOSSARY", "CALCS"].map(k => `if (typeof ${k} !== "undefined") globalThis.${k} = ${k};`).join(" ");
 const ctx = vm.createContext({ console, window: {}, document: undefined });
 for (const s of scripts) {
   if (!(DATA.has(s) || s.startsWith("sections/"))) continue;
   const code = fs.readFileSync(path.join(ROOT, s), "utf8");
-  try { vm.runInContext(code + "\n;globalThis.REGIONS = REGIONS; globalThis.NOTES = NOTES;", ctx, { filename: s }); }
+  try { vm.runInContext(code + EXPOSE, ctx, { filename: s }); }
   catch (e) { err(s, `failed to load: ${e.message}`); }
 }
 for (const s of scripts.filter(s => !DATA.has(s) && !s.startsWith("sections/") && s.endsWith(".js"))) {
