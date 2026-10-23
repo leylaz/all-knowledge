@@ -141,6 +141,7 @@ function renderRegion(r, sec) {
     <h1>${r.name}</h1>
     ${tocHTML(r, "r/" + r.id)}
     <ul class="sublist">${notes.map(n => `<li><a href="#/${n.id}">${n.title}</a></li>`).join("")}</ul>
+    ${r.id === "pipe" && typeof pipelineSVG === "function" ? pipelineSVG() : ""}
     ${r.private ? '<div id="privbody"><p>Loading…</p></div>' : `<div class="body">${r.body}</div>${practiceHTML(r.practice)}`}`);
 }
 

@@ -180,6 +180,67 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .bfkey { font-size: .82rem; color: var(--muted); margin: 0 0 18px; }
 .bfkey i { font-style: normal; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 10px; vertical-align: -1px; }
 
+/* Clickable diagrams */
+.fp-fig { margin: 0 0 28px; }
+.fp-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.fp { display: block; width: 100%; min-width: 680px; height: auto; font-family: var(--sans); }
+.pl { min-width: 600px; }
+.fp text { pointer-events: none; }
+.fp text:not([text-anchor]) { text-anchor: middle; }
+.fp .die-edge { fill: none; stroke: var(--pad); stroke-width: 2; stroke-dasharray: 7 5; }
+.fp .core0 { fill: none; stroke: var(--rule); stroke-width: 1.5; }
+.fp .fp-title text { text-anchor: start; font-size: 14px; font-weight: 600; fill: var(--trace); pointer-events: auto; }
+.fp .fp-title:hover text { text-decoration: underline; }
+.fp .slice { stroke: var(--pad); stroke-width: 1; stroke-dasharray: 3 4; opacity: .6; pointer-events: none; }
+.fpb { cursor: pointer; }
+.fpb .b { stroke-width: 1.5; transition: fill .15s; }
+.fpb .l { font-size: 14px; font-weight: 600; fill: var(--ink); }
+.fpb .s { font-size: 11.5px; fill: var(--muted); }
+.fpb .p { font-size: 11.5px; fill: var(--ink); }
+.fpb .big { font-size: 22px; font-weight: 700; fill: var(--trace); letter-spacing: -.02em; }
+.fpb .g { fill: var(--trace-soft); stroke: none; }
+.fpb.core .b { fill: var(--trace-soft); stroke: var(--trace); }
+.fpb.mem .b { fill: var(--pad-soft); stroke: var(--pad); }
+.fpb.io .b, .fpb.ghost .b { fill: var(--surface); stroke: var(--muted); }
+.fpb.preg .b { fill: var(--pad); stroke: var(--pad); }
+.fpb.core:hover .b, .fpb.core:focus-visible .b { fill: var(--trace); }
+.fpb.mem:hover .b, .fpb.mem:focus-visible .b { fill: var(--pad); }
+.fpb.io:hover .b, .fpb.io:focus-visible .b, .fpb.ghost:hover .b, .fpb.ghost:focus-visible .b { fill: var(--muted); }
+.fpb:hover text, .fpb:focus-visible text { fill: var(--surface); }
+.fpb.preg:hover .b { fill: var(--ink); stroke: var(--ink); }
+.fpb.preg:hover text { fill: var(--ink); }
+.fpb.ghost:hover .g { fill: var(--surface); opacity: .25; }
+.fpb:focus-visible { outline: none; }
+.fpb:focus-visible .b { stroke: var(--ink); stroke-width: 2.5; }
+.plp { cursor: pointer; }
+.plp .hit { fill: none; stroke: transparent; stroke-width: 16; }
+.plp .ln { fill: none; stroke-width: 2.5; stroke-linejoin: round; }
+.plp.fwd .ln { stroke: var(--trace); }
+.plp.redir .ln { stroke: var(--redirect); stroke-dasharray: 7 4; }
+.plp:hover .ln, .plp:focus-visible .ln { stroke-width: 4; }
+.plp:focus-visible { outline: none; }
+.pl-lab { font-size: 12px; font-weight: 600; }
+.pl-lab.fwd { fill: var(--trace); }
+.pl-lab.redir { fill: var(--redirect); }
+.plp:hover .pl-lab { text-decoration: underline; }
+.ah.fwd { fill: var(--trace); } .ah.redir { fill: var(--redirect); } .ah.aux { fill: var(--muted); }
+.aux-ln { fill: none; stroke: var(--muted); stroke-width: 1.5; pointer-events: none; }
+.fp .pl-key text:not([text-anchor]) { text-anchor: start; }
+.pl-key text { font-size: 11.5px; fill: var(--muted); }
+.pl-key .hint { text-anchor: end; }
+.pl-key .k-stage { fill: var(--trace-soft); stroke: var(--trace); }
+.pl-key .k-reg { fill: var(--pad); }
+.pl-key .k-fwd { stroke: var(--trace); stroke-width: 2.5; }
+.pl-key .k-redir { stroke: var(--redirect); stroke-width: 2.5; stroke-dasharray: 5 3; }
+.fp-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; margin-top: 10px; font-size: .86rem; color: var(--muted); }
+.fp-legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid; }
+.fp-legend .sw.core { background: var(--trace-soft); border-color: var(--trace); }
+.fp-legend .sw.mem { background: var(--pad-soft); border-color: var(--pad); }
+.fp-legend .sw.io { background: var(--surface); border-color: var(--muted); }
+.fp-legend .hint { margin-left: auto; }
+@media (max-width: 860px) { .fp-legend .hint { margin-left: 0; flex-basis: 100%; } }
+
+
 /* Header theme switch */
 .theme-btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: .88rem; font-weight: 600; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 11px; cursor: pointer; }
 .theme-btn:hover { border-color: var(--trace); color: var(--trace); }
@@ -241,6 +302,7 @@ window.MathJax = {
 <script src="sections/llm.js"></script>
 <script src="sections/intv.js"></script>
 <script src="sections/private.js"></script>
+<script src="js/diagrams.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/app.js"></script>
 </body>
