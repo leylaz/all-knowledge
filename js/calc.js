@@ -64,6 +64,24 @@ const CALCS = {
         `<p><strong>Serialized penalties:</strong> mispredicts N<sub>br</sub> m<sub>br</sub> × penalty = ${fmt(tmp)}${overlap ? "" : `; isolated misses N<sub>ld</sub> m<sub>L1</sub> × (L<sub>below</sub> − C<sub>ROB</sub> / W<sub>ren</sub>) = ${fmt(tiso)}`} cycles/iteration.</p>` +
         `<p class="calc-out">T ≈ ${fmt(tmax)} + ${fmt(tmp + tiso)} = <strong>${fmt(t)} cycles/iteration</strong>, ${fmt(v.nu / t)} micro-ops per cycle. Bottleneck: <strong>${top}</strong>${tmp + tiso > tmax ? ", though the serialized penalties cost more" : ""}.</p>`;
     }
+  },
+
+  amat: {
+    title: "AMAT Calculator",
+    intro: "Hit times in cycles and local miss rates (misses at that level ÷ accesses reaching it). Defaults: Zen 4-like latencies at 5 GHz with illustrative miss rates.",
+    inputs: [
+      ["Hit time (cycles)", [["h0", "L1", 4, 1], ["h1", "L2", 14, 1], ["h2", "L3", 50, 1], ["mem", "DRAM", 400, 10]]],
+      ["Local miss rate", [["m0", "L1", 0.05, 0.01], ["m1", "L2", 0.3, 0.05], ["m2", "L3", 0.4, 0.05]]]
+    ],
+    run(v) {
+      const p2 = v.h2 + v.m2 * v.mem, p1 = v.h1 + v.m1 * p2, amat = v.h0 + v.m0 * p1;
+      const reach = [1, v.m0, v.m0 * v.m1, v.m0 * v.m1 * v.m2];
+      const parts = [["L1", v.h0], ["L2", reach[1] * v.h1], ["L3", reach[2] * v.h2], ["DRAM", reach[3] * v.mem]];
+      return `<table><tr><th>Level</th><th>Accesses reaching it</th><th>Cycles it adds per access</th><th>Share of AMAT</th></tr>${parts.map(([name, c], i) =>
+        `<tr><td>${name}</td><td>${fmt(reach[i] * 100, 3)}%</td><td>${fmt(c, 3)}</td><td>${fmt(c / amat * 100, 1)}%</td></tr>`).join("")}</table>
+        <p>Miss penalty seen from L2 = ${fmt(v.h2)} + ${fmt(v.m2)} × ${fmt(v.mem)} = ${fmt(p2)}; from L1 = ${fmt(v.h1)} + ${fmt(v.m1)} × ${fmt(p2)} = ${fmt(p1)}.</p>
+        <p class="calc-out">AMAT = ${fmt(v.h0)} + ${fmt(v.m0)} × ${fmt(p1)} = <strong>${fmt(amat)} cycles</strong>. Global DRAM miss rate: ${fmt(reach[3] * 1000, 3)} per thousand accesses.</p>`;
+    }
   }
 };
 
