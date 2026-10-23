@@ -239,6 +239,11 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .prob .lvl.medium { color: var(--trace); }
 .prob .lvl.hard { color: var(--accent-red); }
 .body .prob { margin-bottom: 14px; }
+.ex { background: var(--surface); border: 1px solid var(--rule); border-left: 3px solid var(--trace); border-radius: 4px; padding: 10px 14px; margin: 4px 0 20px; }
+.ex > summary { cursor: pointer; color: var(--trace); font-family: var(--sans); font-weight: 600; font-size: .95rem; }
+.ex[open] > summary { margin-bottom: 10px; }
+.ex > :last-child { margin-bottom: 4px; }
+.ex .tbl { margin: 6px 0 10px; }
 
 .pager { display: flex; justify-content: space-between; gap: 16px; border-top: 1px solid var(--rule); margin-top: 40px; padding-top: 18px; font-size: .95rem; }
 .pager a { text-decoration: none; }
@@ -376,7 +381,7 @@ svg.chip { touch-action: pan-x pan-y; }
 [data-theme="pink"] .block li a:hover { background: var(--trace); color: #FFFFFF; }
 [data-theme="pink"] .block .cap { color: #5F5D58; }
 [data-theme="pink"] .practice { border: 0; background: var(--pad-soft); border-radius: 10px; }
-[data-theme="pink"] .prob, [data-theme="pink"] .layer { border-radius: 8px; }
+[data-theme="pink"] .prob, [data-theme="pink"] .layer, [data-theme="pink"] .ex { border-radius: 8px; }
 [data-theme="pink"] .layer { --edge: var(--p-mint); }
 [data-theme="pink"] .layer.sys { --edge: var(--p-heart); }
 [data-theme="pink"] .layer.design { --edge: #A99BE0; }
