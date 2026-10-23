@@ -30,7 +30,7 @@ const GLOSSARY = {
   "RTL": { def: "Register-transfer level: the hardware description (SystemVerilog or VHDL) of registers and the logic between them.", page: "eda-rtl" },
   "SIMD": { def: "Single instruction, multiple data: one instruction operates on a vector of elements (SSE, AVX, NEON, SVE).", page: "exec-units" },
   "SMT": { def: "Simultaneous multithreading: two or more hardware threads share one core's pipeline in the same cycles." },
-  "TLB": { def: "Translation lookaside buffer: a cache of virtual-to-physical page translations.", page: "virtual-memory" },
+  "TLB": { def: "Translation lookaside buffer: a cache of virtual-to-physical page translations.", page: "tlb" },
   "TSO": { def: "Total store order, x86's memory model: a load may pass an earlier store to a different address; nothing else is reordered.", page: "c11-ordering" },
   "UVM": { def: "Universal Verification Methodology: the standard SystemVerilog class library for building reusable testbenches.", page: "verif-testbench" },
   "store-to-load forwarding": { def: "A load gets its data straight from an older, not-yet-committed store to the same address in the store queue.", page: "lsq" },
