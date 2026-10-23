@@ -83,5 +83,73 @@ section({
       }
     ]
   }
+},
+
+{
+  id: "moesi",
+  region: "coh",
+  title: "MOESI, MESIF, and Snoop Filters",
+  sections: [
+    { id: "owned", label: "MOESI: The Owned State" },
+    { id: "forward", label: "MESIF: The Forward State" },
+    { id: "chi", label: "The Same States in CHI" },
+    { id: "filters", label: "Snoop Filters and Inclusion" },
+    { id: "model", label: "What to Model" }
+  ],
+  body: `
+<p><a href="#/mesi">MESI</a> leaves two inefficiencies: a dirty line must be written back to memory before it can be shared, and when several caches share a clean line, it isn't clear which one should supply it. Two extensions each add one state to fix one of these. Separately, every protocol needs a way to avoid asking every cache about every miss, which is the job of snoop filters.</p>
+
+<h3 id="sec-owned">MOESI: The Owned State</h3>
+<p>In MESI, when another core reads a Modified line, the owner supplies the data, drops to Shared, and the line must also be written back, because Shared means "memory is up to date." MOESI adds <strong>Owned</strong>: dirty and possibly shared. The previous owner keeps the line in O, supplies data to readers, and stays responsible for the eventual writeback; the readers hold it in S.</p>
+<ul>
+<li><strong>Saves:</strong> a memory write each time a dirty line is first shared, which matters for producer-consumer patterns where one core writes and others read repeatedly.</li>
+<li><strong>Costs:</strong> one more state, and the owner must answer reads instead of memory, so its cache sees the traffic.</li>
+</ul>
+<p>AMD's processors have used MOESI since the Opteron.</p>
+
+<h3 id="sec-forward">MESIF: The Forward State</h3>
+<p>With a clean line shared by several caches, a new reader could get the data from memory (slow) or from a sharer (fast), but if every sharer answers, the replies are redundant. MESIF, used by Intel since the QuickPath Interconnect, designates one sharer as <strong>Forward</strong>: it alone answers requests for the line, while the others stay in S and stay silent. The newest requester usually receives the F state, since it is the least likely to evict the line soon.</p>
+
+<h3 id="sec-chi">The Same States in CHI</h3>
+<p>Arm's AMBA CHI names states by two properties, uniqueness and dirtiness, which maps neatly onto MOESI:</p>
+<div class="tbl"><table>
+<tr><th>CHI state</th><th>MOESI equivalent</th></tr>
+<tr><td>UniqueDirty (UD)</td><td>Modified</td></tr>
+<tr><td>UniqueClean (UC)</td><td>Exclusive</td></tr>
+<tr><td>SharedDirty (SD)</td><td>Owned</td></tr>
+<tr><td>SharedClean (SC)</td><td>Shared</td></tr>
+<tr><td>Invalid (I)</td><td>Invalid</td></tr>
+</table></div>
+<p>CHI also adds partial states for lines with only some bytes valid. See <a href="#/icx-coherent">Coherent Interconnects</a> for how CHI transactions flow.</p>
+
+<h3 id="sec-filters">Snoop Filters and Inclusion</h3>
+<p>Broadcasting every miss to every core doesn't scale. A <strong>snoop filter</strong> tracks which private caches might hold each line, so a request probes only those caches, or none.</p>
+<ul>
+<li><strong>Inclusive LLC as the filter:</strong> if the last-level cache holds a copy of every line in the private caches, a tag in the LLC plus a few "core valid" bits is the filter. The cost: LLC capacity spent on duplicates, and evicting an LLC line must invalidate the private copies (back-invalidation), even if a core is actively using it.</li>
+<li><strong>Separate snoop filter with a non-inclusive LLC:</strong> Intel's Skylake server cores moved to this, along with a larger private L2. The filter holds only tags and presence bits, so it is cheaper per tracked line than duplicating the data. AMD's Zen L3 keeps shadow tags of the L2s it serves for the same purpose.</li>
+<li><strong>Coverage:</strong> the filter must track at least as many lines as the private caches hold. If it is undersized or poorly associative, its evictions back-invalidate lines that cores are still using, which shows up as unexplained L2 misses.</li>
+</ul>
+
+<h3 id="sec-model">What to Model</h3>
+<ul>
+<li>Which agent supplies data for each request type (memory, owner, forwarder) and the latency of each path.</li>
+<li>Writebacks caused by sharing in MESI versus their absence in MOESI, for producer-consumer workloads.</li>
+<li>Snoop filter capacity, associativity, and back-invalidations; a model with an ideal filter hides a real source of misses.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 5 (extensions to the basic coherence protocol) · Sorin, Hill, and Wood, <em>A Primer on Memory Consistency and Cache Coherence</em>, 2nd ed. (2020), Chapters 7 and 8 · Arm, <em>AMBA CHI Architecture Specification</em></p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Three cores and MOESI; line X starts Invalid everywhere and clean in memory. Trace the states and count memory writes for: C0 writes, C1 reads, C2 reads, C0 writes. How many memory writes would MESI need for the same sequence?</p>`,
+        a: `<ol start="0"><li>C0 writes: C0 = M. Memory writes: 0.</li><li>C1 reads: C0 supplies the data and goes M → <strong>O</strong>; C1 = S. No writeback.</li><li>C2 reads: C0 (the owner) supplies again; C0 = O, C1 = S, C2 = S.</li><li>C0 writes: it invalidates C1 and C2 and goes O → M. Still no memory writes: <strong>0</strong> so far (the line is written back only when C0 eventually evicts it).</li><li>MESI: at step 1, C0 goes M → S and the dirty line is written back: <strong>1 memory write</strong>, and it would repeat every time the line is written and then shared again.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A 60-core server chip has a 2 MB private L2 per core and a non-inclusive L3 with a snoop filter. How many lines must the filter be able to track, and what happens if it is built at half that size?</p>`,
+        a: `<p>Private capacity: 60 × 2 MB = 120 MB. In 64-byte lines: 120 MB / 64 B ≈ 1.97 million lines, and in practice more, because set-associativity conflicts mean the filter can't be 100% full. If it is built at half that size, then whenever cores' working sets fill their L2s, the filter must evict entries, and each eviction back-invalidates a line in some L2 that may be in active use. Those lines then miss in L2, refill from L3 or memory, and re-enter the filter, evicting something else. In a model, it shows up as L2 misses that a private-cache simulation can't explain; on silicon, as L2 miss rates that rise with core count even for per-core-private data. That's why filters are sized to cover all private capacity with associativity to spare.</p>`
+      }
+    ]
+  }
 }
 ]);
