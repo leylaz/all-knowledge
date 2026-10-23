@@ -642,5 +642,73 @@ One instruction cache miss:
       }
     ]
   }
+},
+
+{
+  id: "perf-analytical",
+  region: "perf",
+  title: "Analytical Performance Models",
+  sections: [
+    { id: "why", label: "Why Model on Paper" },
+    { id: "cpi-stack", label: "First-Order CPI Stacks" },
+    { id: "interval", label: "Interval Analysis" },
+    { id: "roofline", label: "The Roofline Model" },
+    { id: "limits", label: "Where They Break" }
+  ],
+  body: `
+<p>A cycle-level simulator answers "what is the IPC?" after hours of simulation. An analytical model answers "roughly what, and why?" in seconds, from a handful of event counts. They are how architects sanity-check simulator results, explore a design space before building anything, and explain a result in one sentence.</p>
+
+<h3 id="sec-why">Why Model on Paper</h3>
+<ul>
+<li><strong>Speed:</strong> sweep thousands of design points (ROB sizes, cache sizes, widths) from one set of profiled event counts.</li>
+<li><strong>Insight:</strong> each term names a cause, so the model says <em>why</em> IPC changed.</li>
+<li><strong>A check on the simulator:</strong> when the detailed model and the first-order model disagree by a lot, one of them has a bug or a missing effect, and finding which is usually instructive.</li>
+</ul>
+
+<h3 id="sec-cpi-stack">First-Order CPI Stacks</h3>
+<p>The simplest model adds a penalty per event to a base CPI:</p>
+<div class="math">\\[ CPI = CPI_{base} + \\sum_e \\frac{N_e}{N_i} \\, P_e \\]</div>
+<p>where \\(N_e / N_i\\) is event e's rate per instruction (MPKI / 1000) and \\(P_e\\) its penalty in cycles. For an in-order pipeline this is nearly exact (see <a href="#/stall-perf">Performance of Pipelines with Stalls</a>). For an out-of-order core it overcounts, because the core overlaps misses with each other and with useful work; the useful refinements below are about how much to subtract.</p>
+
+<h3 id="sec-interval">Interval Analysis</h3>
+<p>Interval analysis (Karkhanis and Smith, 2004; Eyerman, Eeckhout, Karkhanis, and Smith, 2009) models an out-of-order core as running at a steady dispatch rate, interrupted by <strong>miss events</strong>. Execution splits into intervals, each a stretch of steady dispatch followed by one miss event:</p>
+<div class="math">\\[ C \\approx \\frac{N_i}{D_{eff}} + \\sum_{\\text{mispredicts}} (c_{res} + c_{fe}) + \\sum_{\\text{I-misses}} L_{I} + \\sum_{\\text{isolated long D-misses}} L_{mem} \\]</div>
+<ul>
+<li><strong>Steady state:</strong> \\(D_{eff}\\) is the dispatch rate the window sustains given the code's ILP, at most the dispatch width.</li>
+<li><strong>Branch mispredict:</strong> the branch resolution time \\(c_{res}\\) (how long the branch waits in the window, which grows with the dependence chain feeding it) plus the front-end refill \\(c_{fe}\\). The resolution term is why mispredicts cost more than the pipeline depth.</li>
+<li><strong>Instruction cache miss:</strong> about its full latency \\(L_I\\); the fetch queue hides only a few cycles.</li>
+<li><strong>Long data cache miss:</strong> to first order, the full memory latency \\(L_{mem}\\): the cycles spent filling the ROB behind the miss are useful, but they are offset by the ramp back to steady state after it returns.</li>
+<li><strong>Overlap:</strong> long misses that fall within one ROB's worth of instructions of an earlier long miss overlap with it and cost almost nothing extra. Counting only the first miss of each such group is what turns the naive sum into a usable out-of-order model.</li>
+</ul>
+<p>Short data cache misses (L1 misses that hit L2) are mostly hidden by the window and are folded into \\(D_{eff}\\). The Sniper simulator uses this model in place of a cycle-level core, running roughly 10× faster than a detailed simulator with modest error on many workloads.</p>
+
+<h3 id="sec-roofline">The Roofline Model</h3>
+<p>For loops limited by arithmetic or memory bandwidth, the roofline model (Williams, Waterman, and Patterson, 2009) bounds attainable throughput by the lower of two ceilings:</p>
+<div class="math">\\[ \\text{Attainable FLOP/s} = \\min(\\text{Peak FLOP/s}, \\; AI \\times BW) \\]</div>
+<p>Arithmetic intensity AI is FLOPs per byte moved from the memory level in question. Plotted on log-log axes, the bandwidth line rises until it meets the flat compute ceiling at the <strong>ridge point</strong>, Peak / BW. Kernels left of the ridge are memory-bound, right of it compute-bound. Extra ceilings model lower roofs: no FMA, no SIMD, L2 or L3 bandwidth instead of DRAM.</p>
+<p>Example, a Ryzen 9 7950X (16 Zen 4 cores): each core does two 256-bit FMAs per cycle, 16 double-precision FLOPs, so about 1.2 TFLOP/s at an all-core clock near 4.8 GHz. Two DDR5-6000 channels give 96 GB/s. The ridge is near 13 FLOP/byte. A <code>daxpy</code> (y = a·x + y) does 2 FLOPs per 24 bytes (two loads, one store): AI ≈ 0.083, so it is capped at about 8 GFLOP/s from DRAM, under 1% of peak.</p>
+
+<h3 id="sec-limits">Where They Break</h3>
+<ul>
+<li><strong>Interactions:</strong> a mispredicted branch that depends on a long miss resolves only when the miss returns, so the two penalties overlap in ways a sum of independent terms misses.</li>
+<li><strong>Prefetching:</strong> it turns misses into hits or partial hits; event counts must come from the configuration being modeled.</li>
+<li><strong>Bandwidth and queueing:</strong> interval analysis treats memory latency as fixed; near peak bandwidth, latency rises (see <a href="#/icx-memory">Memory Interfaces</a>).</li>
+<li><strong>Resource stalls without misses:</strong> port pressure or a small scheduler can cap \\(D_{eff}\\); the bounds on <a href="#/perf-stage-stalls/bounds">Stalls by Pipeline Stage</a> estimate it.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapters 1 and 3, and Chapter 4 (the roofline model) · Karkhanis and Smith, "A First-Order Superscalar Processor Model," ISCA 2004 · Eyerman, Eeckhout, Karkhanis, and Smith, "A Mechanistic Performance Model for Superscalar Out-of-Order Processors," ACM TOCS 2009 · Carlson, Heirman, and Eeckhout, "Sniper: Exploring the Level of Abstraction for Scalable and Accurate Parallel Multi-Core Simulation," SC 2011 · Williams, Waterman, and Patterson, "Roofline: An Insightful Visual Performance Model for Multicore Architectures," CACM 2009</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A 4-wide core with a 256-entry ROB runs 1,000 instructions at a steady dispatch rate of 4 when nothing goes wrong. In that stretch there are 5 mispredicts (resolution 10 cycles, front-end refill 12), 2 instruction cache misses to L2 (16 cycles each), and 3 DRAM misses (300 cycles each); the second and third are 60 instructions apart, the first is 600 instructions before them. Estimate the cycles and IPC with interval analysis.</p>`,
+        a: `<ol start="0"><li>Steady state: 1,000 / 4 = 250 cycles.</li><li>Mispredicts: 5 × (10 + 12) = 110 cycles.</li><li>Instruction cache misses: 2 × 16 = 32 cycles.</li><li>DRAM misses: the second and third are within one ROB (60 &lt; 256 instructions), so they overlap and count once; the first is 600 instructions away, so it is isolated. Two groups: 2 × 300 = 600 cycles.</li><li>Total ≈ 250 + 110 + 32 + 600 = <strong>992 cycles</strong>, IPC ≈ <strong>1.0</strong>. Memory is 60% of the time; doubling the ROB to 512 wouldn't merge the first miss (600 apart), but a prefetcher that covered it would save 300 cycles.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Your interval model predicts that doubling the ROB from 256 to 512 entries gains 3% IPC on a database workload. Cycle-level simulation says 15%. What could the interval model be missing?</p>`,
+        a: `<p>Most likely the overlap term. If the model computes miss overlap from a fixed window or from average miss distance, it misses the distribution: on databases, many long misses sit 256 to 512 instructions apart, so a 512-entry window merges them while a 256-entry one doesn't. Recompute the groups from the actual distance between consecutive long misses at each window size. Other candidates: mispredicted branches that depend on misses resolve only after the miss, and a larger window lets the core find and overlap more of those misses before the flush; the larger window can also expose more prefetch-triggering accesses earlier. And check the simulator: a 512-entry ROB with unchanged load queue, store queue, and register file would hit those limits first, so if the simulation scaled them too, the comparison isn't like for like.</p>`
+      }
+    ]
+  }
 }
 ]);
