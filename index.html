@@ -241,10 +241,44 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 @media (max-width: 860px) { .fp-legend .hint { margin-left: 0; flex-basis: 100%; } }
 
 
+/* Chip floorplan (fixed dark palette) */
+.chip { min-width: 760px; }
+.chip .core-edge { fill: #0D141D; stroke: #2E4257; stroke-width: 1; }
+.chip .dblk { cursor: pointer; }
+.chip .dblk .b { stroke-width: 1.2; transition: filter .15s; }
+.chip .tex { pointer-events: none; }
+.chip .dl { font-size: 12.5px; font-weight: 600; fill: #EEF3F9; }
+.chip .dl.sm { font-size: 11px; }
+.chip .ds { font-size: 10.5px; fill: #B9C6D6; }
+.chip .dblk:hover .b, .chip .dblk:focus-visible .b { filter: brightness(1.45) saturate(1.1); }
+.chip .dblk:focus-visible .b { stroke: #FFFFFF; stroke-width: 2; }
+.chip .dblk:focus-visible, .chip .dghost:focus-visible, .chip a:focus-visible { outline: none; }
+.chip .dghost { cursor: pointer; }
+.chip .dghost .gl { opacity: .5; transition: opacity .15s; }
+.chip .dghost:hover .gl, .chip .dghost:focus-visible .gl { opacity: .85; }
+.chip .dghost:focus-visible .core-edge { stroke: #FFFFFF; }
+.chip .gname { font-size: 12px; font-weight: 700; fill: #DCE5EF; letter-spacing: .04em; }
+.chip .core-tag text { font-size: 10.5px; font-weight: 700; fill: #8FB4E8; letter-spacing: .08em; pointer-events: auto; }
+.chip .core-tag:hover text { fill: #FFFFFF; }
+.chip .pins rect { fill: #C9A54A; stroke: #8A6E25; stroke-width: .8; }
+.chip .ext { cursor: pointer; }
+.chip .ext-ln { stroke: #C2503F; stroke-width: 2.5; fill: none; }
+.chip .ext-t { font-size: 15px; font-weight: 600; fill: var(--ink); }
+.chip .ext-t.sm { font-size: 13px; fill: var(--muted); }
+.chip .ext:hover .ext-t { fill: #C2503F; }
+.chip-legend .sw { border-width: 1.5px; }
+
+
 /* Header theme switch */
 .theme-btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: .88rem; font-weight: 600; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 11px; cursor: pointer; }
 .theme-btn:hover { border-color: var(--trace); color: var(--trace); }
 .theme-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* Chip zoom bar */
+.chip-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 10px; font-size: .86rem; color: var(--muted); }
+.chip-zoom { font: inherit; font-size: .88rem; font-weight: 600; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.chip-zoom:hover { border-color: var(--trace); color: var(--trace); }
+.chip-zoom[aria-pressed="true"] { background: var(--trace-soft); border-color: var(--trace); }
+svg.chip { touch-action: pan-x pan-y; }
 @media (max-width: 860px) {
   .floor { grid-template-columns: 1fr; grid-template-areas: "fab" "circ" "isa" "pipe" "core" "mem" "ctr" "coh" "icx" "os" "comp" "conc" "perf" "eda" "verif" "nn" "gen" "llm" "intv" "p1" "p2"; }
   .intro { padding-top: 32px; }

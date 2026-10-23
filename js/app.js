@@ -68,6 +68,7 @@ function renderHome() {
       <h1>All Knowledge</h1>
       <p>From transistors to workloads, laid out like a die. Every page ends with practice problems.</p>
     </section>
+    ${typeof floorplanSVG === "function" ? floorplanSVG() : ""}
     <div class="die"><div class="floor">
       ${visibleRegions().map(r => `
         <section class="block" style="grid-area:${r.id}" data-region="${r.id}">
@@ -80,6 +81,7 @@ function renderHome() {
     <p class="empty" id="empty" hidden>No notes match that search. Try a shorter term.</p>
   </div>`;
   applySearch();
+  if (typeof initChipZoom === "function") initChipZoom();
 }
 
 function pageSections(page) {
