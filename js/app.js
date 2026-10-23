@@ -140,6 +140,7 @@ function layout(curId, curSec, inner) {
   decorateFlags();
   decorateSolved();
   if (typeof initCalcs === "function") initCalcs(app);
+  if (typeof initTraces === "function") initTraces(app);
   decorateGlossary(curId);
   typesetMath();
 }
@@ -147,7 +148,7 @@ function layout(curId, curSec, inner) {
 /* ---------- Glossary hover cards (terms in js/glossary.js) ----------
    Wraps the first use of each term on a page; skips code, links,
    headings, and math. */
-const GL_SKIP = "a, code, pre, h1, h2, h3, h4, th, summary, sup, sub, .qn, .math, .eq, mjx-container, svg, .gl, .calc";
+const GL_SKIP = "a, code, pre, h1, h2, h3, h4, th, summary, sup, sub, .qn, .math, .eq, mjx-container, svg, .gl, .calc, .trace";
 let GL_RE = null;
 function decorateGlossary(curId) {
   if (typeof GLOSSARY !== "object") return;

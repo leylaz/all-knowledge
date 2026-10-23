@@ -247,6 +247,8 @@ One instruction cache miss:
 
   I-cache miss  -&gt;  fetch queue empty  -&gt;  decode idle  -&gt;  rename idle  -&gt;  issue idle
   (cause: front end)  (symptom)            (symptom)       (symptom)        (symptom)</code></pre>
+<p>Step through the first case below. Rename reports "ROB full" for about twenty cycles, but the cause is the load at the head; raise the ROB size until it no longer fills and only then does rename stop stalling.</p>
+<div class="trace" data-trace="rob-fill"></div>
 
 <h3 id="sec-stages">Stage by Stage</h3>
 <div class="tbl"><table>

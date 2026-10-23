@@ -125,6 +125,31 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .calc p { margin: 0 0 8px; }
 .calc .calc-out { font-size: .95rem; }
 
+/* Pipeline trace viewer */
+.trace { font-family: var(--sans); font-size: .9rem; line-height: 1.45; background: var(--surface); border: 1px solid var(--rule); border-top: 3px solid var(--trace); border-radius: 4px; padding: 14px 16px 6px; margin: 4px 0 20px; }
+.trace p { margin: 0 0 8px; }
+.trace .calc-title { font-weight: 700; font-size: 1rem; margin: 0 0 2px; }
+.trace .calc-intro { color: var(--muted); }
+.trace .calc-form { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0 0 8px; }
+.trace .calc-form label { display: flex; align-items: center; gap: 8px; }
+.trace .calc-form span { color: var(--muted); }
+.trace .calc-form input { width: 64px; font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 3px 6px; text-align: right; }
+.trace-step { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+.trace-step span { flex: none; min-width: 6.5em; }
+.trace-step input { flex: 1; min-width: 0; accent-color: var(--trace); }
+.trace-scroll { overflow-x: auto; margin: 0 0 8px; }
+.body .trace table { width: auto; border-collapse: collapse; font-family: var(--mono); font-size: .74rem; }
+.body .trace th, .body .trace td { padding: 2px 0; min-width: 16px; text-align: center; border-bottom: 1px solid var(--rule); }
+.body .trace td:nth-child(-n+2), .body .trace th:nth-child(-n+2) { text-align: left; padding-right: 8px; white-space: nowrap; }
+.body .trace td code { background: none; padding: 0; font-size: inherit; }
+.trace .f { color: var(--muted); } .trace .r { color: var(--trace); font-weight: 700; } .trace .w { color: var(--muted); }
+.trace .x { background: var(--trace-soft); color: var(--trace); font-weight: 700; }
+.trace .m { background: var(--pad-soft); color: var(--pad); font-weight: 700; }
+.trace .d { color: var(--muted); } .trace .c { color: var(--accent-green); font-weight: 700; }
+.body .trace .now { outline: 1px solid var(--pad); outline-offset: -1px; }
+.trace-key { color: var(--muted); font-size: .82rem; }
+.trace-key b { font-family: var(--mono); margin-left: 8px; padding: 0 3px; border-radius: 2px; }
+
 /* Glossary hover cards */
 .gl { position: relative; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
 .gl-card { display: none; position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; width: min(300px, calc(100vw - 32px)); background: var(--surface); color: var(--ink); border: 1px solid var(--rule); border-left: 3px solid var(--trace); border-radius: 4px; padding: 8px 12px; font-family: var(--sans); font-size: .86rem; font-weight: 400; line-height: 1.45; text-align: left; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
@@ -484,6 +509,7 @@ window.MathJax = {
 <script src="js/diagrams.js"></script>
 <script src="js/glossary.js"></script>
 <script src="js/calc.js"></script>
+<script src="js/trace.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/app.js"></script>
 </body>

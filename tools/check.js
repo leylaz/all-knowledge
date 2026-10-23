@@ -20,9 +20,9 @@ for (const dir of ["js", "sections"])
     if (f.endsWith(".js") && !scripts.includes(`${dir}/${f}`)) err("index.html", `${dir}/${f} is never loaded`);
 
 /* Only data files run here; js/app.js and the widget scripts need a DOM. */
-const DATA = new Set(["js/site.js", "js/diagrams.js", "js/glossary.js", "js/calc.js"]);
+const DATA = new Set(["js/site.js", "js/diagrams.js", "js/glossary.js", "js/calc.js", "js/trace.js"]);
 /* Top-level consts aren't properties of the context, so copy them out. */
-const EXPOSE = "\n;" + ["REGIONS", "NOTES", "GLOSSARY", "CALCS"].map(k => `if (typeof ${k} !== "undefined") globalThis.${k} = ${k};`).join(" ");
+const EXPOSE = "\n;" + ["REGIONS", "NOTES", "GLOSSARY", "CALCS", "TRACES"].map(k => `if (typeof ${k} !== "undefined") globalThis.${k} = ${k};`).join(" ");
 const ctx = vm.createContext({ console, window: {}, document: undefined });
 for (const s of scripts) {
   if (!(DATA.has(s) || s.startsWith("sections/"))) continue;
@@ -86,6 +86,9 @@ if (ctx.GLOSSARY) for (const [term, g] of Object.entries(ctx.GLOSSARY)) {
 for (const p of [...REGIONS.map(r => ["r/" + r.id, r]), ...NOTES.map(n => [n.id, n])])
   for (const m of String(p[1].body || "").matchAll(/data-calc="([^"]+)"/g))
     if (!ctx.CALCS || !ctx.CALCS[m[1]]) err(p[0], `calculator "${m[1]}" is not defined in js/calc.js`);
+for (const p of [...REGIONS.map(r => ["r/" + r.id, r]), ...NOTES.map(n => [n.id, n])])
+  for (const m of String(p[1].body || "").matchAll(/data-trace="([^"]+)"/g))
+    if (!ctx.TRACES || !ctx.TRACES[m[1]]) err(p[0], `trace "${m[1]}" is not defined in js/trace.js`);
 
 /* ---------- Practice problems ---------- */
 for (const p of [...REGIONS.map(r => ["r/" + r.id, r]), ...NOTES.map(n => [n.id, n])]) {
