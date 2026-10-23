@@ -710,5 +710,84 @@ One instruction cache miss:
       }
     ]
   }
+},
+
+{
+  id: "perf-validation",
+  region: "perf",
+  title: "Validating a Performance Model",
+  sections: [
+    { id: "what", label: "What Validation Means" },
+    { id: "errors", label: "Kinds of Error" },
+    { id: "micro", label: "Microbenchmarks Structure by Structure" },
+    { id: "metrics", label: "Error Metrics" },
+    { id: "process", label: "A Correlation Process" }
+  ],
+  body: `
+<p>A performance model is a claim about hardware that doesn't exist yet. Validation is how a team earns the right to trust it: compare it against a reference (RTL simulation, emulation, an earlier chip, or the new silicon), find where it disagrees, and fix either the model or the understanding. <a href="#/ipc-spec">IPC and Simulation Methodology</a> covers sampling and the sources of error; this page covers how correlation is actually done.</p>
+
+<h3 id="sec-what">What Validation Means</h3>
+<p>Two different questions, and teams often need both:</p>
+<ul>
+<li><strong>Absolute accuracy:</strong> does the model predict the IPC the chip will achieve? Needed for performance projections and commitments to customers.</li>
+<li><strong>Relative accuracy:</strong> when the design changes (bigger ROB, new prefetcher), does the model predict the direction and size of the change? This is what design decisions depend on, and a model can have it while being off in absolute terms, as long as its errors don't depend on the change being evaluated.</li>
+</ul>
+
+<h3 id="sec-errors">Kinds of Error</h3>
+<ul>
+<li><strong>Specification error:</strong> the model implements what the documents say, and the documents (or the modeler's reading of them) differ from the RTL: a queue size, an arbitration policy, a latency.</li>
+<li><strong>Abstraction error:</strong> details deliberately left out (bank conflicts, exact predictor update timing, replay mechanisms) that turn out to matter for some workload.</li>
+<li><strong>Bugs:</strong> the model doesn't do what its author intended. A model that is "too fast" often has a bug that lets something bypass a limit.</li>
+<li><strong>Reference error:</strong> the thing you compare against is also imperfect: an emulator with a fake memory system, silicon with different firmware settings, or performance counters with known inaccuracies.</li>
+</ul>
+<p>Desikan, Burger, and Keckler's 2001 study of an Alpha 21264 simulator showed how these stack up: simulators that hadn't been checked against the real chip had large errors, and matching the chip on microbenchmarks didn't guarantee matching it on full applications.</p>
+
+<h3 id="sec-micro">Microbenchmarks Structure by Structure</h3>
+<p>Comparing SPEC IPC first tells you the model is wrong but not where. Correlation starts with microbenchmarks that each isolate one parameter, run on both the model and the reference:</p>
+<div class="tbl"><table>
+<tr><th>Parameter</th><th>Microbenchmark</th><th>What the curve shows</th></tr>
+<tr><td>Cache and TLB latencies and sizes</td><td>Pointer chase through a randomly linked array, sweeping the array size</td><td>Steps in latency at each capacity; the step heights are the latencies</td></tr>
+<tr><td>Bandwidth at each level</td><td>Streaming loads (and separately stores) over arrays sized for each level</td><td>Plateaus in bytes per cycle</td></tr>
+<tr><td>ROB size</td><td>Two independent cache-missing loads separated by N filler instructions, sweeping N</td><td>Time per iteration doubles once N exceeds the window: the misses stop overlapping</td></tr>
+<tr><td>Physical registers, load queue, store queue, scheduler</td><td>The same, with filler that consumes only that resource (register writes, loads, stores, dependent instructions)</td><td>The knee moves to that structure's size</td></tr>
+<tr><td>Execution ports and latencies</td><td>Long chains of one instruction (latency) and many independent copies (throughput)</td><td>Cycles per instruction for each</td></tr>
+<tr><td>Branch predictor</td><td>Patterns of increasing period or history length; many branches to fill the BTB</td><td>Where the misprediction rate jumps</td></tr>
+<tr><td>Memory-level parallelism</td><td>K independent pointer chases interleaved, sweeping K</td><td>Throughput rises with K until MSHRs or queues saturate</td></tr>
+</table></div>
+<p>The window-size technique was popularized by Henry Wong's measurements of reorder buffer capacity on real x86 cores; the same benchmarks run on the model expose a misconfigured structure in minutes.</p>
+
+<h3 id="sec-metrics">Error Metrics</h3>
+<ul>
+<li><strong>Per-workload error:</strong> (model − reference) / reference. Report the mean of the absolute values (mean absolute percentage error), and the worst case; a small mean can hide one workload that is 40% off.</li>
+<li><strong>Bias:</strong> the mean of the signed errors. A model that is consistently 8% optimistic is easier to use than one that is ±8% at random.</li>
+<li><strong>Speedup error:</strong> for a design change, compare predicted and measured speedup per workload. This is the error that matters for decisions.</li>
+<li><strong>Rank correlation:</strong> do the workloads (or design options) come out in the same order? Spearman's rank correlation summarizes it.</li>
+<li><strong>Event-level error:</strong> MPKI, miss rates, and stall counts per structure. Matching IPC with wrong event counts means errors are canceling, and they won't cancel after the next design change.</li>
+</ul>
+
+<h3 id="sec-process">A Correlation Process</h3>
+<ol start="0">
+<li><strong>Align configurations:</strong> same binary, same inputs, same compiler flags, same memory configuration and frequency, prefetchers and SMT set the same.</li>
+<li><strong>Microbenchmarks first,</strong> until every structure's latency, size, and bandwidth match.</li>
+<li><strong>Then small kernels</strong> (loops from real code) that combine two or three effects.</li>
+<li><strong>Then full workloads,</strong> compared with a top-down breakdown on both sides, so a gap is attributed to front end, bad speculation, or a back-end resource.</li>
+<li><strong>Fix the largest gap, rerun everything,</strong> and keep the whole suite as a regression, so a later model change can't silently break a parameter that was already correlated.</li>
+<li><strong>Record what remains:</strong> known gaps and their direction go into every report the model produces.</li>
+</ol>
+<p class="refs">References: Desikan, Burger, and Keckler, "Measuring Experimental Error in Microprocessor Simulation," ISCA 2001 · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 1 (measuring and reporting performance) · Henry Wong, "Measuring Reorder Buffer Capacity" (blog.stuffedcow.net, 2013)</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A model and the silicon give these IPCs on four workloads: A 2.10 vs 2.00, B 1.32 vs 1.20, C 0.62 vs 0.80, D 3.04 vs 3.20 (model first). Compute each error, the mean absolute percentage error, and the bias. Is the workload ranking preserved?</p>`,
+        a: `<ol start="0"><li>A: (2.10 − 2.00) / 2.00 = +5%. B: (1.32 − 1.20) / 1.20 = +10%. C: (0.62 − 0.80) / 0.80 = −22.5%. D: (3.04 − 3.20) / 3.20 = −5%.</li><li>Mean absolute error: (5 + 10 + 22.5 + 5) / 4 ≈ <strong>10.6%</strong>.</li><li>Bias: (5 + 10 − 22.5 − 5) / 4 ≈ <strong>−3.1%</strong>: small on average, because errors in both directions cancel.</li><li>Ranking: silicon D &gt; A &gt; B &gt; C; model D &gt; A &gt; B &gt; C. <strong>Preserved.</strong></li><li>C is the one to investigate: the lowest-IPC workload is usually memory-bound, so a 22% pessimistic error points at the memory system (MLP, prefetcher, or DRAM latency) rather than the core.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Design the microbenchmark that measures a core's reorder buffer size, explain what curve you expect, and say what could make the measured value differ from the real ROB size.</p>`,
+        a: `<p>Build a loop body of: a load that misses to DRAM, N filler instructions that don't depend on it, then a second independent DRAM-missing load, using random pointers so prefetchers can't help. Sweep N. While both loads fit in the window (N + 2 ≤ ROB entries), their misses overlap and each iteration costs about one DRAM latency; once N exceeds the window, the second load can't enter until the first retires, and the time per iteration roughly doubles. The knee is the ROB size.</p><p>Pitfalls: the filler must not consume a smaller resource first. Instructions that write registers can exhaust the physical register file first, so the usual filler is NOPs, which take a ROB entry but no register or execution port. Know the micro-op count of the filler: long NOPs and fused pairs may count differently than you expect. And with SMT, the ROB may be split between threads, so run with the sibling thread idle.</p>`
+      }
+    ]
+  }
 }
 ]);
