@@ -377,7 +377,7 @@ One instruction cache miss:
 <p>A performance model can see every structure every cycle, so it can find causes exactly instead of inferring them:</p>
 <ol start="0">
 <li><strong>Stall reasons with a fixed priority.</strong> Every cycle, each stage records why it passed fewer than its width, choosing one reason by a fixed order (for example, at rename: ROB full, then the instruction's issue queue, then load queue or store queue, then free registers). Counting only the first missing resource keeps the counts from overlapping. See <a href="#/perf-stalls/details">Details that are easy to get wrong</a>.</li>
-<li><strong>Blame propagation.</strong> When rename is stalled on a full ROB, record the class of the instruction at the ROB head (L1 miss, L2 miss, last-level miss, DRAM, divide, fence) and charge the slot to that class. This turns a symptom counter into a cause counter and produces a CPI stack directly.</li>
+<li><strong>Blame propagation.</strong> When rename is stalled on a full ROB, record the class of the instruction at the ROB head (load served by L2, load served by the last-level cache, load served by DRAM, divide, fence) and charge the slot to that class. This turns a symptom counter into a cause counter and produces a CPI stack directly.</li>
 <li><strong>Occupancy histograms.</strong> A structure that's full 30% of the time is a bottleneck candidate; one that's never more than half full isn't, however large its stall count looks elsewhere (see <a href="#/perf-stats/tracked">What's tracked, structure by structure</a>).</li>
 <li><strong>Pipeline traces.</strong> Record each instruction's cycle at fetch, decode, rename, issue, complete, and retire, and view them in a pipeline viewer (gem5's O3 pipeline view, Konata). A stall shows up as a gap between two stages, and the instruction that every other instruction is lined up behind is visible directly.</li>
 <li><strong>Per-PC attribution.</strong> Charge stall cycles to the PC of the instruction responsible (the missing load, the mispredicted branch). A handful of PCs usually accounts for most of the loss.</li>
@@ -388,8 +388,8 @@ One instruction cache miss:
 <ul>
 <li><strong>Blame propagation</strong> (class of the instruction at the ROB head during the ROB-full cycles):
 <ul>
-<li>last-level-cache miss: 64%</li>
-<li>L2 hit: 14%</li>
+<li>load served by DRAM (missed the last-level cache): 64%</li>
+<li>load served by L2: 14%</li>
 <li>mispredicted branch still waiting on its operand: 12%</li>
 <li>other: 10%</li>
 </ul></li>
@@ -407,7 +407,7 @@ One instruction cache miss:
 </ul>
 <p>Should the team double the ROB? If not, where should the area go?</p>
 <ol start="0">
-<li><strong>Blame propagation first.</strong> 64% of the ROB-full cycles have a last-level miss at the head, so rename's "ROB full" is a symptom and the cause is mostly DRAM latency.</li>
+<li><strong>Blame propagation first.</strong> 64% of the ROB-full cycles have a load served by DRAM at the head, so rename's "ROB full" is a symptom and the cause is mostly DRAM latency.</li>
 <li><strong>Is the window the limit, or the misses?</strong> A mean of 1.4 misses in flight, against 16 MSHRs, means the misses are dependent (pointer chasing): each address comes from the previous miss, so a bigger ROB has nothing independent to overlap. A histogram near the MSHR limit would instead say the window was the limit.</li>
 <li><strong>Per-PC attribution.</strong> The 5 hot PCs all load the next pointer, which confirms the dependent-miss reading from step 1.</li>
 <li><strong>Read the idealization table.</strong> The bigger ROB is worth 6%, so the counter was mostly pointing at a symptom. Memory is the cause (+53%). The two ideals together give far more than the sum of the separate gains (+118% vs. +68%): the mispredicted branches depend on missing loads, so each one resolves late and flushes the misses queued behind it. Fixing either one alone leaves the other in the way.</li>
