@@ -95,7 +95,7 @@ section({
 </table></div>
 <p>Because reads and writes use separate channels, they proceed in parallel, so a 128-bit AXI interface at 1 GHz can move 16 GB/s of reads and 16 GB/s of writes at the same time.</p>
 <ul>
-<li><strong>Bursts:</strong> one address can be followed by many data beats (up to 256 in AXI4). <em>Incrementing</em> bursts read consecutive addresses; <em>wrapping</em> bursts are used for cache line fills, so the critical word comes first; <em>fixed</em> bursts repeat one address, as for a FIFO register.</li>
+<li><strong>Bursts:</strong> one address can be followed by many data beats (up to 256 in AXI4).<ul><li><em>Incrementing</em> bursts read consecutive addresses</li><li><em>Wrapping</em> bursts are used for cache line fills, so the critical word comes first</li><li><em>Fixed</em> bursts repeat one address, as for a FIFO register</li></ul></li>
 <li><strong>Multiple outstanding transactions:</strong> a manager can issue many requests before the first completes, which hides latency.</li>
 <li><strong>IDs and ordering:</strong> responses with the same ID return in order; different IDs may return out of order.</li>
 <li><strong>Responses:</strong> each transaction reports OKAY or an error (subordinate error, or decode error when no subordinate owns the address).</li>
@@ -127,7 +127,7 @@ READY  __________________|‾‾‾‾‾|____
   practice: {
     guided: [
       {
-        q: `<p>Classify each block as a manager, a subordinate, or both, and say what it does on the bus: (a) a CPU cluster; (b) a DMA engine; (c) a UART; (d) a DRAM memory controller; (e) a video decoder.</p>`,
+        q: `<p>Classify each block as a manager, a subordinate, or both, and say what it does on the bus:</p><ul><li>(a) A CPU cluster</li><li>(b) A DMA engine</li><li>(c) A UART</li><li>(d) A DRAM memory controller</li><li>(e) A video decoder</li></ul>`,
         a: `<ol type="a"><li><strong>Manager:</strong> issues cache-line reads and writebacks when its caches miss or evict, and register reads and writes to program other blocks.</li><li><strong>Both:</strong> a subordinate when the CPU writes its configuration registers (source, destination, length), then a manager while it performs the copy as bursts of reads and writes.</li><li><strong>Subordinate:</strong> it only answers small register reads and writes, usually on APB behind a bridge. It tells the CPU about new data with an interrupt, not a bus transaction.</li><li><strong>Subordinate:</strong> the destination of nearly all memory traffic. It never starts transactions on the fabric.</li><li><strong>Both:</strong> a subordinate for its control registers, and a manager that reads the compressed stream from DRAM and writes decoded frames back.</li></ol>`
       },
       {
@@ -197,7 +197,7 @@ READY  __________________|‾‾‾‾‾|____
     interview: [
       {
         q: `<p>Map CHI's cache states to MOESI.</p>`,
-        a: `<p>Unique Dirty = Modified; Unique Clean = Exclusive; Shared Clean = Shared; Shared Dirty = Owned (this copy is dirty and responsible for writing back, but other copies may exist); Invalid = Invalid. CHI's names describe two separate properties: whether the copy is the only one (unique vs. shared) and whether it differs from memory (clean vs. dirty).</p>`
+        a: `<ul><li>Unique Dirty = Modified</li><li>Unique Clean = Exclusive</li><li>Shared Clean = Shared</li><li>Shared Dirty = Owned (this copy is dirty and responsible for writing back, but other copies may exist)</li><li>Invalid = Invalid</li></ul><p>CHI's names describe two separate properties: whether the copy is the only one (unique vs. shared) and whether it differs from memory (clean vs. dirty).</p>`
       },
       {
         q: `<p>Why do large coherent systems use snoop filters at home nodes instead of broadcasting every snoop?</p>`,
@@ -258,7 +258,7 @@ READY  __________________|‾‾‾‾‾|____
   title: "Chip-to-Chip Links",
   sections: [{ id: "pcie", label: "PCIe" }, { id: "cxl", label: "CXL" }, { id: "gpu-links", label: "NVLink and Other Links" }],
   body: `
-<p>Chip-to-chip links connect separate packages: a CPU to a GPU, SSD, or network card; GPUs to each other; or one CPU socket to another. They're serial links built from lanes of very fast differential signals.</p>
+<p>Chip-to-chip links connect separate packages:</p><ul><li>A CPU to a GPU, SSD, or network card</li><li>GPUs to each other</li><li>One CPU socket to another</li></ul><p>They're serial links built from lanes of very fast differential signals.</p>
 <h3 id="sec-pcie">PCIe (PCI Express)</h3>
 <p>PCIe is the standard way to attach devices to a CPU. A link has 1 to 16 <strong>lanes</strong> (x1 to x16), each a pair of one-way differential connections, so data flows in both directions at once.</p>
 <p><strong>Three layers:</strong></p>

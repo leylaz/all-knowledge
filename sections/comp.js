@@ -450,7 +450,7 @@ for (i = 0; i &lt; n; i += 8) {
 <h3 id="sec-what-asm">What the Assembler Does</h3>
 <ul>
 <li><strong>Encodes instructions:</strong> each mnemonic and its operands become the bit pattern the ISA defines.</li>
-<li><strong>Expands pseudo-instructions:</strong> <code>mv a1, s0</code> becomes <code>addi a1, s0, 0</code>; <code>li</code> may become one or two instructions depending on the constant's size; <code>call printf</code> becomes an <code>auipc</code> and <code>jalr</code> pair.</li>
+<li><strong>Expands pseudo-instructions:</strong><ul><li><code>mv a1, s0</code> becomes <code>addi a1, s0, 0</code></li><li><code>li</code> may become one or two instructions depending on the constant's size</li><li><code>call printf</code> becomes an <code>auipc</code> and <code>jalr</code> pair</li></ul></li>
 <li><strong>Resolves local labels:</strong> it computes each label's offset (often in two passes, since a branch can refer to a label that appears later), so <code>ble a0, t0, .L2</code> gets its PC-relative offset filled in.</li>
 <li><strong>Places data:</strong> directives like <code>.string</code> put bytes into the right section.</li>
 <li><strong>Records what it can't finish:</strong> addresses of things outside this file, or whose final location isn't known yet, become <strong>relocations</strong> for the linker.</li>

@@ -132,7 +132,7 @@ section({
 <h3>Recovery</h3>
 <p>On a misprediction, restore the RAT from a branch checkpoint, walk the ROB backward undoing mappings, or copy the retirement RAT.</p>
 <h3>What Limits It</h3>
-<p>Free-list size bounds instructions in flight; rename width bounds throughput; checkpoints bound branch depth.</p>`,
+<ul><li>Free-list size bounds instructions in flight</li><li>Rename width bounds throughput</li><li>Checkpoints bound branch depth</li></ul>`,
   practice: {
     guided: [
       {
@@ -430,7 +430,7 @@ I3: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
 <li><strong>Fraction (F):</strong> <em>f</em> bits, the digits after the binary point.</li>
 </ul>
 <p class="eq">Normal value = (−1)<sup>S</sup> × 1.F × 2<sup>E − bias</sup></p>
-<p><strong>Mantissa vs. significand vs. fraction.</strong> IEEE 754 calls the full number 1.F the <em>significand</em>; the stored field F is the <em>fraction</em>; “mantissa” is the older word and people use it for either. The leading 1 is not stored (the <strong>hidden bit</strong>): any normalized binary number starts with 1, so storing it would waste a bit. So the <strong>precision</strong> is <em>p</em> = <em>f</em> + 1 bits. FP32 stores 23 fraction bits but has 24 bits of precision. Hardware re-inserts the hidden bit when it unpacks an operand, so an FP32 multiplier is 24 × 24 bits, not 23 × 23.</p>
+<p><strong>Mantissa vs. significand vs. fraction.</strong></p><ul><li>IEEE 754 calls the full number 1.F the <em>significand</em></li><li>The stored field F is the <em>fraction</em></li><li>“mantissa” is the older word and people use it for either</li></ul><p>The leading 1 is not stored (the <strong>hidden bit</strong>): any normalized binary number starts with 1, so storing it would waste a bit. So the <strong>precision</strong> is <em>p</em> = <em>f</em> + 1 bits. FP32 stores 23 fraction bits but has 24 bits of precision. Hardware re-inserts the hidden bit when it unpacks an operand, so an FP32 multiplier is 24 × 24 bits, not 23 × 23.</p>
 <p><strong>The exponent field’s two reserved values:</strong></p>
 <div class="tbl"><table>
 <tr><th>Exponent field</th><th>Fraction</th><th>Meaning</th></tr>
@@ -548,14 +548,14 @@ ${FP_BARS}
 <p><strong>Who supports what:</strong></p>
 <div class="tbl"><table>
 <tr><th>Platform</th><th>Formats beyond FP32 / FP64</th></tr>
-<tr><td>x86</td><td>x87 80-bit; F16C (FP16 ↔ FP32 conversion only); AVX-512 BF16 (<code>VDPBF16PS</code> dot product into FP32; Cooper Lake, Zen 4); AVX-512 FP16 full arithmetic (Sapphire Rapids); AMX tiles with BF16 (Sapphire Rapids) and FP16 (Granite Rapids)</td></tr>
-<tr><td>Arm</td><td>FP16 arithmetic (Armv8.2); BF16 <code>BFDOT</code>, <code>BFMMLA</code>, <code>BFCVT</code> (Armv8.6); FP8 in recent Armv9 extensions</td></tr>
+<tr><td>x86</td><td><ul><li>x87 80-bit</li><li>F16C (FP16 ↔ FP32 conversion only)</li><li>AVX-512 BF16 (<code>VDPBF16PS</code> dot product into FP32, on Cooper Lake and Zen 4)</li><li>AVX-512 FP16 full arithmetic (Sapphire Rapids)</li><li>AMX tiles with BF16 (Sapphire Rapids) and FP16 (Granite Rapids)</li></ul></td></tr>
+<tr><td>Arm</td><td><ul><li>FP16 arithmetic (Armv8.2)</li><li>BF16 <code>BFDOT</code>, <code>BFMMLA</code>, <code>BFCVT</code> (Armv8.6)</li><li>FP8 in recent Armv9 extensions</li></ul></td></tr>
 <tr><td>RISC-V</td><td>Q (quad), Zfh (half), Zfbfmin and Zvfbfmin (BF16 conversions), Zvfbfwma (vector BF16 widening multiply-add into FP32)</td></tr>
 <tr><td>IBM POWER</td><td>Hardware binary128 (POWER9 onward)</td></tr>
-<tr><td>NVIDIA GPUs</td><td>FP16 tensor cores (Volta); TF32 and BF16 (Ampere); FP8 E4M3 and E5M2 (Hopper); FP6, FP4, MX formats, and NVFP4 (Blackwell)</td></tr>
+<tr><td>NVIDIA GPUs</td><td><ul><li>FP16 tensor cores (Volta)</li><li>TF32 and BF16 (Ampere)</li><li>FP8 E4M3 and E5M2 (Hopper)</li><li>FP6, FP4, MX formats, and NVFP4 (Blackwell)</li></ul></td></tr>
 <tr><td>Google TPU</td><td>BF16 matrix units with FP32 accumulation (TPU v2 onward); INT8 and FP8 on later generations</td></tr>
 </table></div>
-<p class="refs">Further reading: IEEE 754-2019, the standard; David Goldberg, “What Every Computer Scientist Should Know About Floating-Point Arithmetic” (ACM Computing Surveys, 1991); Kalamkar et al., “A Study of BFLOAT16 for Deep Learning Training” (2019); Micikevicius et al., “Mixed Precision Training” (ICLR 2018) and “FP8 Formats for Deep Learning” (2022); Open Compute Project, “OCP Microscaling Formats (MX) v1.0 Specification” (2023); NVIDIA, “NVIDIA A100 Tensor Core GPU Architecture” whitepaper, for TF32; DeepSeek-AI, “DeepSeek-V3 Technical Report” (2024), for fine-grained FP8 training.</p>`,
+<p class="refs">Further reading:</p><ul class="refs"><li>IEEE 754-2019, the standard</li><li>David Goldberg, “What Every Computer Scientist Should Know About Floating-Point Arithmetic” (ACM Computing Surveys, 1991)</li><li>Kalamkar et al., “A Study of BFLOAT16 for Deep Learning Training” (2019)</li><li>Micikevicius et al., “Mixed Precision Training” (ICLR 2018) and “FP8 Formats for Deep Learning” (2022)</li><li>Open Compute Project, “OCP Microscaling Formats (MX) v1.0 Specification” (2023)</li><li>NVIDIA, “NVIDIA A100 Tensor Core GPU Architecture” whitepaper, for TF32</li><li>DeepSeek-AI, “DeepSeek-V3 Technical Report” (2024), for fine-grained FP8 training</li></ul>`,
   practice: {
     guided: [
       {

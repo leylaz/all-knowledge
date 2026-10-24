@@ -11,7 +11,7 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>Put these verification activities in the order a CPU project can first start them, and say what each one needs to exist first: (a) lockstep comparison of the core against the ISA reference model; (b) formal proofs on the load/store queue's ordering logic; (c) booting Linux on an emulator; (d) post-silicon validation.</p>`,
+        q: `<p>Put these verification activities in the order a CPU project can first start them, and say what each one needs to exist first:</p><ul><li>(a) Lockstep comparison of the core against the ISA reference model</li><li>(b) Formal proofs on the load/store queue's ordering logic</li><li>(c) Booting Linux on an emulator</li><li>(d) Post-silicon validation</li></ul>`,
         a: `<ol start="0"><li><strong>(b) Formal on a block:</strong> needs only that block's RTL and its properties, so it can start as soon as the block compiles.</li><li><strong>(a) Lockstep against the reference model:</strong> needs a core that fetches, executes, and retires instructions end to end, plus the reference model.</li><li><strong>(c) Linux on an emulator:</strong> needs the full SoC (core, caches, interconnect, devices) to be stable enough that an OS boot gets somewhere, plus firmware.</li><li><strong>(d) Post-silicon:</strong> needs real chips back from the fab, months after tapeout.</li></ol><p>Each later method costs more per bug found and gives less visibility, which is why the early ones are pushed as hard as possible.</p>`
       }
     ],
@@ -90,14 +90,14 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>A block has a 4-requester round-robin arbiter with an AXI4 port to the rest of the SoC. Pick the main tool for each goal: (a) prove the grant vector is one-hot or zero for every possible input sequence; (b) check the AXI4 port follows the protocol under realistic traffic; (c) run the real boot firmware through the block; (d) show that every requester was granted while the AXI port was back-pressured.</p>`,
+        q: `<p>A block has a 4-requester round-robin arbiter with an AXI4 port to the rest of the SoC. Pick the main tool for each goal:</p><ul><li>(a) Prove the grant vector is one-hot or zero for every possible input sequence</li><li>(b) Check the AXI4 port follows the protocol under realistic traffic</li><li>(c) Run the real boot firmware through the block</li><li>(d) Show that every requester was granted while the AXI port was back-pressured</li></ul>`,
         a: `<ol start="0"><li>(a) <strong>Formal tool</strong> with an assertion: the property is small and control-heavy, and "every possible input" is exactly what formal proves and simulation can't.</li><li>(b) <strong>AXI verification IP</strong>: it generates legal traffic and checks the block's side of the protocol.</li><li>(c) <strong>Emulation</strong> (or an FPGA prototype): firmware runs billions of cycles, far too slow for RTL simulation.</li><li>(d) <strong>Functional coverage</strong>: a cross of "which requester was granted" with "AXI READY low," collected across the regression.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>Three weeks before RTL freeze, your block shows 98% line coverage but only 60% on a functional cross of coherence state × incoming snoop type. Where do you spend the time, and what do you tell the project lead?</p>`,
-        a: `<p>On the cross. Line coverage near 100% only says each line ran at least once; the bugs in coherence logic live in combinations (a snoop arriving while the line is mid-upgrade), and 40% of those combinations have never been exercised. Steps: list the unhit bins; mark any that are unreachable by design as excluded, with a written reason; steer constraints toward the rest (more sharing, smaller address ranges so lines collide); write directed tests for the stubborn ones; and use formal on the state machine if the space is small enough. Tell the lead the block is not ready on functional coverage regardless of the line number, give the count of reachable unhit bins and a burn-down estimate, and flag the risk if the date can't move.</p>`
+        a: `<p>On the cross. Line coverage near 100% only says each line ran at least once; the bugs in coherence logic live in combinations (a snoop arriving while the line is mid-upgrade), and 40% of those combinations have never been exercised. Steps:</p><ul><li>List the unhit bins</li><li>Mark any that are unreachable by design as excluded, with a written reason</li><li>Steer constraints toward the rest (more sharing, smaller address ranges so lines collide)</li><li>Write directed tests for the stubborn ones</li><li>Use formal on the state machine if the space is small enough</li></ul><p>Tell the lead the block is not ready on functional coverage regardless of the line number, give the count of reachable unhit bins and a burn-down estimate, and flag the risk if the date can't move.</p>`
       }
     ]
   }
@@ -230,7 +230,7 @@ assert property (@(posedge clk) disable iff (!rst_n)
   practice: {
     guided: [
       {
-        q: `<p>You're building a UVM testbench for an AXI4-Lite register block. Say which UVM component does each job: (a) choose random write addresses within the register map; (b) raise AWVALID and hold it until AWREADY; (c) rebuild "write 0x5 to offset 0x10" from pin activity; (d) check that a read returns the last value written; (e) record whether every register was written while BREADY was held low.</p>`,
+        q: `<p>You're building a UVM testbench for an AXI4-Lite register block. Say which UVM component does each job:</p><ul><li>(a) Choose random write addresses within the register map</li><li>(b) Raise AWVALID and hold it until AWREADY</li><li>(c) Rebuild "write 0x5 to offset 0x10" from pin activity</li><li>(d) Check that a read returns the last value written</li><li>(e) Record whether every register was written while BREADY was held low</li></ul>`,
         a: `<ol start="0"><li>(a) <strong>Sequence</strong>, randomizing sequence items within constraints. It says what to do, not when.</li><li>(b) <strong>Driver</strong>: the only component that knows the handshake timing.</li><li>(c) <strong>Monitor</strong>: it watches pins and publishes transactions on an analysis port.</li><li>(d) <strong>Scoreboard</strong>, holding a register-map model that the monitor's write transactions update.</li><li>(e) <strong>Coverage collector</strong>: a covergroup crossing register offset with "BREADY was low."</li></ol>`
       }
     ],

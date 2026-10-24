@@ -17,7 +17,7 @@ section({
     guided: [
       {
         q: `<p>The digit-reading network has layers of 784, 16, 16, and 10 neurons, fully connected. How many weights and biases does it have?</p>`,
-        a: `<ol start="0"><li>Weights between layers: 784 × 16 = 12,544; 16 × 16 = 256; 16 × 10 = 160. Total: <strong>12,960</strong>.</li><li>Biases: one per neuron outside the input layer: 16 + 16 + 10 = <strong>42</strong>.</li><li>Parameters: 12,960 + 42 = <strong>13,002</strong>.</li></ol>`
+        a: `<ol start="0"><li>Weights between layers:<ul><li>784 × 16 = 12,544</li><li>16 × 16 = 256</li><li>16 × 10 = 160</li></ul> Total: <strong>12,960</strong>.</li><li>Biases: one per neuron outside the input layer: 16 + 16 + 10 = <strong>42</strong>.</li><li>Parameters: 12,960 + 42 = <strong>13,002</strong>.</li></ol>`
       }
     ],
     interview: [

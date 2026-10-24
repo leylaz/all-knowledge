@@ -25,7 +25,7 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>Sort each into ISA or microarchitecture: (a) RISC-V has 32 integer registers, with x0 always zero; (b) Zen 4's ROB has 320 entries; (c) whether a misaligned load is allowed or faults; (d) Golden Cove's L1 data cache hits in 5 cycles; (e) x86 keeps stores in program order as seen by other cores.</p>`,
+        q: `<p>Sort each into ISA or microarchitecture:</p><ul><li>(a) RISC-V has 32 integer registers, with x0 always zero</li><li>(b) Zen 4's ROB has 320 entries</li><li>(c) Whether a misaligned load is allowed or faults</li><li>(d) Golden Cove's L1 data cache hits in 5 cycles</li><li>(e) x86 keeps stores in program order as seen by other cores</li></ul>`,
         a: `<ol start="0"><li>(a) <strong>ISA</strong>: software names those registers directly.</li><li>(b) <strong>Microarchitecture</strong>: invisible to software except through speed.</li><li>(c) <strong>ISA</strong>: it changes what a program does.</li><li>(d) <strong>Microarchitecture</strong>: a latency, which the ISA never specifies.</li><li>(e) <strong>ISA</strong>: the memory model (x86's TSO) is part of the contract, because correct multithreaded programs depend on it.</li></ol>`
       }
     ],
@@ -56,8 +56,8 @@ section({
 <li><strong>Floating point:</strong> IEEE 754 formats, mainly single and double precision, often with smaller formats too (see <a href="#/isa-defines/fp">Floating-point formats</a> below).</li>
 <li><strong>Vector types:</strong> packed groups of integers or floating-point values processed together by SIMD or vector instructions.</li>
 <li><strong>General-purpose registers:</strong> how many there are and how wide. RISC-V has 32 (counting x0). 64-bit Arm has 31 (X0–X30); register number 31 means either the zero register (XZR) or the stack pointer, depending on the instruction. x86-64 has 16, and Intel's newer APX extension adds 16 more.</li>
-<li><strong>Registers with fixed roles:</strong> the program counter (PC); a register hardwired to zero in some ISAs (RISC-V's x0, Arm's XZR, MIPS's $zero), which always reads as zero and ignores writes; and in some ISAs a stack pointer. In x86 and Arm the stack pointer is architecturally special (instructions such as <code>push</code> and <code>pop</code> use it implicitly), while in RISC-V using x2 as the stack pointer is mostly an ABI convention.</li>
-<li><strong>Special registers:</strong> status flags (x86's FLAGS, Arm's condition flags); floating-point control and status (rounding mode, exception flags); and control and status registers (CSRs) for privileged state, such as interrupt settings and the page table base (the address of the current page table's root: CR3 on x86, satp on RISC-V, TTBR on Arm), which the OS switches on every context switch. Not every ISA has condition flags: RISC-V has none, so its branches compare two registers directly and comparisons like <code>slt</code> write a 0 or 1 into a register. That avoids a shared flags register every instruction might update, which simplifies out-of-order cores.</li>
+<li><strong>Registers with fixed roles:</strong><ul><li>The program counter (PC)</li><li>A register hardwired to zero in some ISAs (RISC-V's x0, Arm's XZR, MIPS's $zero), which always reads as zero and ignores writes</li><li>In some ISAs a stack pointer. In x86 and Arm the stack pointer is architecturally special (instructions such as <code>push</code> and <code>pop</code> use it implicitly), while in RISC-V using x2 as the stack pointer is mostly an ABI convention.</li></ul></li>
+<li><strong>Special registers:</strong><ul><li>Status flags (x86's FLAGS, Arm's condition flags)</li><li>Floating-point control and status (rounding mode, exception flags)</li><li>Control and status registers (CSRs) for privileged state, such as interrupt settings and the page table base (the address of the current page table's root: CR3 on x86, satp on RISC-V, TTBR on Arm), which the OS switches on every context switch</li></ul> Not every ISA has condition flags: RISC-V has none, so its branches compare two registers directly and comparisons like <code>slt</code> write a 0 or 1 into a register. That avoids a shared flags register every instruction might update, which simplifies out-of-order cores.</li>
 <li><strong>Vector registers</strong> for SIMD or vector extensions.</li>
 </ul>
 <h3 id="sec-fp">Floating-Point Formats</h3>
@@ -84,7 +84,7 @@ section({
 <ul>
 <li><strong>Doubles cost twice the memory and bandwidth,</strong> and fewer fit in a vector register: a 256-bit vector holds 8 singles but only 4 doubles.</li>
 <li><strong>Scientific computing</strong> usually needs double precision; <strong>graphics and AI</strong> tolerate much less.</li>
-<li><strong>Newer ISAs add smaller formats:</strong> half precision (FP16: 1/5/10 bits); bfloat16 (1/8/7 bits: the same range as single precision with less precision, popular for AI training); and 8-bit formats for AI inference. Halving the bits doubles how many numbers fit through the same memory bandwidth and vector units, which matters for bandwidth-bound AI workloads (see <a href="#/gen-gpus/roofline">the roofline model</a>).</li>
+<li><strong>Newer ISAs add smaller formats:</strong><ul><li>Half precision (FP16: 1/5/10 bits)</li><li>Bfloat16 (1/8/7 bits: the same range as single precision with less precision, popular for AI training)</li><li>8-bit formats for AI inference</li></ul> Halving the bits doubles how many numbers fit through the same memory bandwidth and vector units, which matters for bandwidth-bound AI workloads (see <a href="#/gen-gpus/roofline">the roofline model</a>).</li>
 </ul>
 <p>Every format from FP128 down to FP4, how the mantissa sets precision, BF16, TF32, and how the hardware computes with them: <a href="#/fp-units">Floating-Point Units</a>.</p>
 <h3 id="sec-abi">ISA vs. ABI</h3>
@@ -117,7 +117,7 @@ Little-endian puts the “little end” at the lowest address, so the bytes look
 <ul>
 <li><strong>Page sizes:</strong> a base size, usually 4 KB, plus larger “huge pages” (2 MB and 1 GB on x86-64). 64-bit Arm also allows 16 KB and 64 KB base pages; Apple uses 16 KB.</li>
 <li><strong>Page table format:</strong> how many levels the multilevel page table has, and the layout of each entry.</li>
-<li><strong>Page table entry contents:</strong> the <strong>physical frame number</strong> (where the page actually lives, the translation itself); a <strong>valid (present) bit</strong> (if it's 0, an access causes a page fault); <strong>permission bits</strong> (read, write, execute); a <strong>user/supervisor bit</strong> (which privilege levels may access the page); <strong>accessed and dirty bits</strong>, set by hardware when the page is read or written, which the OS uses to pick pages to evict and to know which must be written back; and <strong>memory attributes</strong>, such as whether the page may be cached (device registers usually can't) and a “global” bit for kernel pages shared by every process.</li>
+<li><strong>Page table entry contents:</strong><ul><li>The <strong>physical frame number</strong> (where the page actually lives, the translation itself)</li><li>A <strong>valid (present) bit</strong> (if it's 0, an access causes a page fault)</li><li><strong>Permission bits</strong> (read, write, execute)</li><li>A <strong>user/supervisor bit</strong> (which privilege levels may access the page)</li><li><strong>Accessed and dirty bits</strong>, set by hardware when the page is read or written, which the OS uses to pick pages to evict and to know which must be written back</li><li><strong>Memory attributes</strong>, such as whether the page may be cached (device registers usually can't) and a “global” bit for kernel pages shared by every process</li></ul></li>
 <li><strong>Who walks the table:</strong> on x86, Arm, and RISC-V, hardware walks the page table itself on a TLB miss, which is why the ISA must fix the format. Some older ISAs, such as MIPS, let the OS handle TLB misses in software, so the OS chose the table format and the ISA only defined the TLB.</li>
 </ul></li>
 <li><strong>Memory protection:</strong> per-page permission bits (readable, writable, executable) and a user/supervisor bit controlling which privilege levels may access each page, so user programs can't touch kernel memory. Protection also works in the other direction: modern ISAs let the OS stop the <em>kernel</em> from accidentally executing or accessing <em>user</em> memory unless it explicitly allows it (SMEP and SMAP on x86, PXN and PAN on Arm, and a similar control on RISC-V), which blocks a whole class of security exploits.</li>
@@ -131,7 +131,7 @@ Little-endian puts the “little end” at the lowest address, so the bytes look
   practice: {
     guided: [
       {
-        q: `<p>Classify each as defined by the ISA, the ABI, or the microarchitecture: (a) x0 always reads as zero; (b) the first function argument goes in register a0; (c) a 64 KB L1 data cache; (d) TSO memory ordering; (e) 4-wide decode; (f) the page table format; (g) the branch predictor design.</p>`,
+        q: `<p>Classify each as defined by the ISA, the ABI, or the microarchitecture:</p><ul><li>(a) x0 always reads as zero</li><li>(b) The first function argument goes in register a0</li><li>(c) A 64 KB L1 data cache</li><li>(d) TSO memory ordering</li><li>(e) 4-wide decode</li><li>(f) The page table format</li><li>(g) The branch predictor design</li></ul>`,
         a: `<ol type="a"><li>ISA (RISC-V).</li><li>ABI: a software calling convention.</li><li>Microarchitecture.</li><li>ISA: the memory consistency model (x86).</li><li>Microarchitecture.</li><li>ISA (the hardware page walker and the OS must agree on it).</li><li>Microarchitecture.</li></ol>`
       },
       {
@@ -249,7 +249,7 @@ Little-endian puts the “little end” at the lowest address, so the bytes look
   practice: {
     guided: [
       {
-        q: `<p>Name the addressing mode and compute the address for each RISC-V instruction: (a) <code>lw x5, -12(x8)</code> with x8 = 0x2000; (b) a <code>beq</code> at address 0x400 with an offset of +0x20, when it's taken; (c) <code>addi x5, x6, 10</code>.</p>`,
+        q: `<p>Name the addressing mode and compute the address for each RISC-V instruction:</p><ul><li>(a) <code>lw x5, -12(x8)</code> with x8 = 0x2000</li><li>(b) A <code>beq</code> at address 0x400 with an offset of +0x20, when it's taken</li><li>(c) <code>addi x5, x6, 10</code></li></ul>`,
         a: `<ol type="a"><li>Base + offset: effective address = 0x2000 − 12 = <strong>0x1FF4</strong>; the load reads memory there.</li><li>PC-relative: RISC-V adds the offset to the branch's own address, so the target is 0x400 + 0x20 = <strong>0x420</strong>.</li><li>Immediate (for the constant 10) and register (for x6): no memory address at all.</li></ol>`
       }
     ],

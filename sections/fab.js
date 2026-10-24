@@ -22,7 +22,7 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>For each problem, say which part of the flow it belongs to: (a) a via between metal layers 3 and 4 has too much resistance; (b) a die fails at the probe card; (c) the fin of a transistor is too wide; (d) a part only reaches its target frequency at a higher voltage.</p>`,
+        q: `<p>For each problem, say which part of the flow it belongs to:</p><ul><li>(a) A via between metal layers 3 and 4 has too much resistance</li><li>(b) A die fails at the probe card</li><li>(c) The fin of a transistor is too wide</li><li>(d) A part only reaches its target frequency at a higher voltage</li></ul>`,
         a: `<ol><li>(a) Back end of line: vias and metal layers are BEOL.</li><li>(b) Wafer sort: the die is caught before packaging.</li><li>(c) Front end of line: fins are part of the transistor.</li><li>(d) Final test and binning: the part is sorted into a slower or higher-voltage bin.</li></ol>`
       }
     ],

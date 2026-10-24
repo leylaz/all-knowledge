@@ -66,7 +66,7 @@ section({
 <h3>Flows</h3>
 <p><strong>Read miss:</strong> the home forwards to an owner in M, which sends data and downgrades. <strong>Write miss:</strong> the home invalidates sharers and tells the requester how many acks to expect.</p>
 <h3>Sharer Tracking</h3>
-<p>Full bit vectors cost a bit per core per line; limited pointers and coarse vectors trade precision for space; sparse directories evict entries and force invalidations.</p>
+<ul><li>Full bit vectors cost a bit per core per line</li><li>Limited pointers and coarse vectors trade precision for space</li><li>Sparse directories evict entries and force invalidations</li></ul>
 <h3>The Hard Part</h3>
 <p>Transient states: messages race, so real protocols need many intermediate states.</p>`,
   practice: {
@@ -290,7 +290,7 @@ section({
     interview: [
       {
         q: `<p>Profiling shows a high rate of memory-ordering machine clears on an x86 server running a work-stealing scheduler. What's happening, and how would you reduce it?</p>`,
-        a: `<p>Loads in a core's window executed early, then another core wrote one of those lines before they retired. To preserve TSO, the core squashed and re-executed them. In a work-stealing scheduler, the likely lines are the deque's top and bottom indices and nearby task slots: thieves and the owner read and write them constantly. Each clear throws away the whole window, so the cost scales with ROB size. Reductions: separate frequently written fields onto their own cache lines (the owner's bottom index away from the thieves' top index); have thieves back off after a failed steal instead of spinning on the shared index; spin with <code>pause</code>, which also limits how many speculative loads are in flight; and avoid polling shared lines with plain loads in tight loops. Confirm by attributing the clears to PCs (precise sampling) and checking that they fall on the deque's code.</p>`
+        a: `<p>Loads in a core's window executed early, then another core wrote one of those lines before they retired. To preserve TSO, the core squashed and re-executed them. In a work-stealing scheduler, the likely lines are the deque's top and bottom indices and nearby task slots: thieves and the owner read and write them constantly. Each clear throws away the whole window, so the cost scales with ROB size. Reductions:</p><ul><li>Separate frequently written fields onto their own cache lines (the owner's bottom index away from the thieves' top index)</li><li>Have thieves back off after a failed steal instead of spinning on the shared index</li><li>Spin with <code>pause</code>, which also limits how many speculative loads are in flight</li><li>Avoid polling shared lines with plain loads in tight loops</li></ul><p>Confirm by attributing the clears to PCs (precise sampling) and checking that they fall on the deque's code.</p>`
       }
     ]
   }

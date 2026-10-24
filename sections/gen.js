@@ -88,7 +88,7 @@ section({
 <tr><th>Family</th><th>Idea</th><th>Strengths</th><th>Weaknesses</th></tr>
 <tr><td>Autoregressive (LLMs)</td><td>p(x) = Π<sub>t</sub> p(x<sub>t</sub> | x<sub>&lt;t</sub>): predict the next token from all previous ones</td><td>Exact likelihood; scales extremely well</td><td>Sequential generation, one token per pass</td></tr>
 <tr><td>Variational autoencoders (VAEs)</td><td>Encode x into a latent z, decode z back to x; train on a lower bound of likelihood (the ELBO)</td><td>Fast sampling; useful latent space</td><td>Samples tend to be blurry</td></tr>
-<tr><td>GANs</td><td>A generator tries to fool a discriminator that tells real from fake</td><td>Sharp samples in one pass</td><td>Unstable training; mode collapse; no likelihood</td></tr>
+<tr><td>GANs</td><td>A generator tries to fool a discriminator that tells real from fake</td><td>Sharp samples in one pass</td><td><ul><li>Unstable training</li><li>Mode collapse</li><li>No likelihood</li></ul></td></tr>
 <tr><td>Normalizing flows</td><td>Invertible transforms from simple noise to data; exact likelihood by change of variables</td><td>Exact likelihood and fast sampling</td><td>Architecture must stay invertible</td></tr>
 <tr><td>Energy-based models</td><td>p(x) ∝ e<sup>−E(x)</sup>: low energy means likely</td><td>Very flexible</td><td>Sampling needs slow iterative methods (MCMC)</td></tr>
 <tr><td>Diffusion models</td><td>Learn to reverse gradual noising, step by step</td><td>Top image/video quality; stable training</td><td>Many network passes per sample</td></tr>
@@ -152,7 +152,7 @@ section({
 <p>Text generation is a stochastic process over tokens: each step samples x<sub>t</sub> ~ p(x<sub>t</sub> | x<sub>&lt;t</sub>), then appends it and repeats. The network outputs logits z, and the sampler shapes them:</p>
 <p class="eq">p(token k) = <span class="frac"><span>e<sup>z<sub>k</sub>/T</sup></span><span>Σ<sub>j</sub> e<sup>z<sub>j</sub>/T</sup></span></span></p>
 <ul>
-<li><strong>Temperature T:</strong> T &lt; 1 sharpens the distribution (more predictable); T &gt; 1 flattens it (more varied); T → 0 is greedy decoding (always the top token).</li>
+<li><strong>Temperature T:</strong><ul><li>T &lt; 1 sharpens the distribution (more predictable)</li><li>T &gt; 1 flattens it (more varied)</li><li>T → 0 is greedy decoding (always the top token)</li></ul></li>
 <li><strong>Top-k:</strong> sample only from the k most likely tokens.</li>
 <li><strong>Top-p (nucleus):</strong> sample from the smallest set of tokens whose probabilities add up to p.</li>
 </ul>

@@ -155,8 +155,8 @@ section({
 <h3>Deep vs. Shallow: PPA</h3>
 <div class="tbl"><table>
 <tr><th></th><th>Deeper pipeline</th><th>Shallower pipeline</th></tr>
-<tr><td>Performance</td><td>Higher frequency; bigger mispredict and load-use penalties; needs better prediction</td><td>Lower frequency; cheaper mispredicts; higher IPC per cycle</td></tr>
-<tr><td>Power</td><td>More latches and clock load; higher f often needs higher V; more wasted wrong-path work</td><td>Fewer latches; can run at lower V for the same throughput</td></tr>
+<tr><td>Performance</td><td><ul><li>Higher frequency</li><li>Bigger mispredict and load-use penalties</li><li>Needs better prediction</li></ul></td><td><ul><li>Lower frequency</li><li>Cheaper mispredicts</li><li>Higher IPC per cycle</li></ul></td></tr>
+<tr><td>Power</td><td><ul><li>More latches and clock load</li><li>Higher f often needs higher V</li><li>More wasted wrong-path work</li></ul></td><td><ul><li>Fewer latches</li><li>Can run at lower V for the same throughput</li></ul></td></tr>
 <tr><td>Area</td><td>More pipeline registers and bypass paths; larger windows to cover longer latencies</td><td>Less overhead</td></tr>
 </table></div>
 <p>History: very deep designs (around 30 stages in some mid-2000s desktop chips) hit a power wall. Modern high-performance cores sit closer to 12–20 stages and get their performance from width and large windows.</p>`,
@@ -1088,7 +1088,7 @@ sub r5, r3, r6</code></pre>`,
       },
       {
         q: `<p>In an in-order pipeline, a 4-cycle FP multiply writes <code>f2</code>, and the very next instruction, a 1-cycle FP move, also writes <code>f2</code>. What can go wrong, and how do designs handle it?</p>`,
-        a: `<p><strong>WAW hazard:</strong> the move finishes first, then the multiply overwrites <code>f2</code> with the older value, so later instructions see the wrong result. <strong>Imprecise exceptions:</strong> if the multiply faults after the move has already written, the machine state no longer matches any point in program order.</p><p>Fixes: a scoreboard that stalls issue while an older instruction has a pending write to the same register; padding all units to the same writeback stage; or in-order commit through a reorder buffer or history buffer. Out-of-order cores avoid the WAW entirely with register renaming.</p>`
+        a: `<p><strong>WAW hazard:</strong> the move finishes first, then the multiply overwrites <code>f2</code> with the older value, so later instructions see the wrong result. <strong>Imprecise exceptions:</strong> if the multiply faults after the move has already written, the machine state no longer matches any point in program order.</p><p>Fixes:</p><ul><li>A scoreboard that stalls issue while an older instruction has a pending write to the same register</li><li>Padding all units to the same writeback stage</li><li>In-order commit through a reorder buffer or history buffer</li></ul><p>Out-of-order cores avoid the WAW entirely with register renaming.</p>`
       }
     ]
   }

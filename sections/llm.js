@@ -91,11 +91,11 @@ section({
 <tr><td>Sampling</td><td>GPU, then a 4-byte copy to CPU</td><td>Synchronization</td><td>Small, but adds up per token</td></tr>
 </table></div>
 <p>At long contexts and large batches, reading the KV cache joins the weights as a major cost. The page <a href="#/llm-hardware">One token through the hardware</a> puts the whole picture together.</p>
-<p class="refs">Further reading: Vaswani et al., “Attention Is All You Need” (NeurIPS 2017), the original transformer paper; Jay Alammar, “The Illustrated Transformer” (blog), for visual intuition; Andrej Karpathy, “Let’s build GPT: from scratch, in code, spelled out” (video) and nanoGPT (code); Pope et al., “Efficiently Scaling Transformer Inference” (MLSys 2023), for the hardware view; Meta, “The Llama 3 Herd of Models” (2024), for the running example’s architecture.</p>`,
+<p class="refs">Further reading:</p><ul class="refs"><li>Vaswani et al., “Attention Is All You Need” (NeurIPS 2017), the original transformer paper</li><li>Jay Alammar, “The Illustrated Transformer” (blog), for visual intuition</li><li>Andrej Karpathy, “Let’s build GPT: from scratch, in code, spelled out” (video) and nanoGPT (code)</li><li>Pope et al., “Efficiently Scaling Transformer Inference” (MLSys 2023), for the hardware view</li><li>Meta, “The Llama 3 Herd of Models” (2024), for the running example’s architecture</li></ul>`,
   practice: {
     guided: [
       {
-        q: `<p>Count the parameters of the running example. Per layer: W<sub>Q</sub> and W<sub>O</sub> are 8,192 × 8,192; W<sub>K</sub> and W<sub>V</sub> are 8,192 × 1,024; the MLP has three matrices of 8,192 × 28,672. The embedding table and the separate LM head are each 128,256 × 8,192. Ignore norms. How many parameters in total, and how many GB in BF16?</p>`,
+        q: `<p>Count the parameters of the running example. Per layer:</p><ul><li>W<sub>Q</sub> and W<sub>O</sub> are 8,192 × 8,192</li><li>W<sub>K</sub> and W<sub>V</sub> are 8,192 × 1,024</li><li>The MLP has three matrices of 8,192 × 28,672</li></ul><p>The embedding table and the separate LM head are each 128,256 × 8,192. Ignore norms. How many parameters in total, and how many GB in BF16?</p>`,
         a: `<ol><li>Attention per layer: 2 × 67.1M + 2 × 8.4M ≈ 151.0M.</li><li>MLP per layer: 3 × 8,192 × 28,672 ≈ 704.6M.</li><li>Per layer: ≈ 855.6M. Times 80 layers: ≈ 68.45B.</li><li>Embedding + LM head: 2 × 1.05B ≈ 2.10B.</li><li>Total ≈ <strong>70.6B parameters</strong>, × 2 bytes ≈ <strong>141 GB</strong>, which doesn't fit on one 80 GB GPU.</li></ol>`
       }
     ],
@@ -144,7 +144,7 @@ section({
 <h3 id="sec-tok-hw">The Hardware View</h3>
 <p>Tokenization runs on the <strong>host CPU</strong>, typically taking microseconds to a few milliseconds. The result, a few kilobytes of 32-bit integer IDs, is copied to the GPU over PCIe. Next to the model itself, this is negligible.</p>
 <p>But the token count sets every downstream cost: prefill compute grows with prompt tokens, KV cache memory grows with total tokens, and decode time grows with output tokens. The vocabulary size sets the size of the embedding table and the LM head.</p>
-<p class="refs">Further reading: Sennrich, Haddow, and Birch, “Neural Machine Translation of Rare Words with Subword Units” (ACL 2016), which introduced BPE for neural models; OpenAI’s tiktoken library, used by many tokenizers including Llama 3’s; Karpathy, “Let’s build the GPT Tokenizer” (video).</p>`,
+<p class="refs">Further reading:</p><ul class="refs"><li>Sennrich, Haddow, and Birch, “Neural Machine Translation of Rare Words with Subword Units” (ACL 2016), which introduced BPE for neural models</li><li>OpenAI’s tiktoken library, used by many tokenizers including Llama 3’s</li><li>Karpathy, “Let’s build the GPT Tokenizer” (video)</li></ul>`,
   practice: {
     guided: [
       {
@@ -197,7 +197,7 @@ section({
 <li><strong>Activations are small:</strong> one token’s residual vector is 16 KB. The working set that fills memory is weights (141 GB) and, at long contexts, the KV cache.</li>
 <li><strong>Norms are elementwise:</strong> a few FLOPs per byte, so memory-bound. Good kernels fuse the norm into the neighboring matrix multiply so the vector doesn’t make an extra trip to HBM.</li>
 </ul>
-<p class="refs">Further reading: Su et al., “RoFormer: Enhanced Transformer with Rotary Position Embedding” (2021); Zhang and Sennrich, “Root Mean Square Layer Normalization” (NeurIPS 2019); Elhage et al., “A Mathematical Framework for Transformer Circuits” (Anthropic, 2021), which develops the residual-stream view.</p>`,
+<p class="refs">Further reading:</p><ul class="refs"><li>Su et al., “RoFormer: Enhanced Transformer with Rotary Position Embedding” (2021)</li><li>Zhang and Sennrich, “Root Mean Square Layer Normalization” (NeurIPS 2019)</li><li>Elhage et al., “A Mathematical Framework for Transformer Circuits” (Anthropic, 2021), which develops the residual-stream view</li></ul>`,
   practice: {
     guided: [
       {
@@ -341,7 +341,7 @@ section({
 <li><strong>Decode:</strong> one new query per sequence against N cached keys is a matrix-vector product. Each layer must read its entire K and V cache, at about 8 FLOPs per byte with our GQA setup, so it’s firmly memory-bound. Batching doesn’t help, because every sequence has its own cache.</li>
 <li><strong>Softmax</strong> needs exponentials, which run on special function units rather than Tensor Cores, and a reduction across each row. Fused kernels hide this inside the attention kernel.</li>
 </ul>
-<p class="refs">Further reading: Vaswani et al., “Attention Is All You Need” (NeurIPS 2017); Shazeer, “Fast Transformer Decoding: One Write-Head Is All You Need” (2019), which introduced MQA; Ainslie et al., “GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints” (EMNLP 2023); Dao et al., “FlashAttention” (NeurIPS 2022); DeepSeek-AI, “DeepSeek-V2” (2024), for MLA.</p>`,
+<p class="refs">Further reading:</p><ul class="refs"><li>Vaswani et al., “Attention Is All You Need” (NeurIPS 2017)</li><li>Shazeer, “Fast Transformer Decoding: One Write-Head Is All You Need” (2019), which introduced MQA</li><li>Ainslie et al., “GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints” (EMNLP 2023)</li><li>Dao et al., “FlashAttention” (NeurIPS 2022)</li><li>DeepSeek-AI, “DeepSeek-V2” (2024), for MLA</li></ul>`,
   practice: {
     guided: [
       {
@@ -405,7 +405,7 @@ section({
 <li><strong>Elementwise work is fused.</strong> SiLU, the gating multiply, residual adds, and norms are a few FLOPs per byte; kernels fold them into the surrounding matrix multiplies so intermediate vectors don’t round-trip through HBM.</li>
 <li><strong>Tensor parallelism splits each matrix across GPUs.</strong> W<sub>gate</sub> and W<sub>up</sub> are split by columns and W<sub>down</sub> by rows, so each GPU computes a partial result and one all-reduce per MLP combines them.</li>
 </ul>
-<p class="refs">Further reading: Shazeer, “GLU Variants Improve Transformer” (2020); Shazeer et al., “Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer” (ICLR 2017); Fedus, Zoph, and Shazeer, “Switch Transformers” (JMLR 2022); Geva et al., “Transformer Feed-Forward Layers Are Key-Value Memories” (EMNLP 2021); Shoeybi et al., “Megatron-LM” (2019), for how tensor parallelism splits these matrices.</p>`,
+<p class="refs">Further reading:</p><ul class="refs"><li>Shazeer, “GLU Variants Improve Transformer” (2020)</li><li>Shazeer et al., “Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer” (ICLR 2017)</li><li>Fedus, Zoph, and Shazeer, “Switch Transformers” (JMLR 2022)</li><li>Geva et al., “Transformer Feed-Forward Layers Are Key-Value Memories” (EMNLP 2021)</li><li>Shoeybi et al., “Megatron-LM” (2019), for how tensor parallelism splits these matrices</li></ul>`,
   practice: {
     guided: [
       {
@@ -459,7 +459,7 @@ section({
 <li><strong>Sampling runs on the GPU:</strong> softmax, then top-k or top-p, which needs a partial sort over 128,256 values per sequence. It’s fast, tens of microseconds, but it’s serial work at the end of every step.</li>
 <li><strong>Then a tiny copy:</strong> the chosen 4-byte token ID goes back to the CPU for detokenizing and streaming. That synchronization point every step is overhead; serving systems overlap the CPU work for step t with the GPU work for step t + 1 where they can.</li>
 </ul>
-<p class="refs">Further reading: Holtzman et al., “The Curious Case of Neural Text Degeneration” (ICLR 2020), which introduced nucleus sampling; Nguyen et al., “Turning Up the Heat: Min-p Sampling for Creative and Coherent LLM Outputs” (2024); Thinking Machines Lab, “Defeating Nondeterminism in LLM Inference” (2025), on why temperature 0 isn’t deterministic in practice.</p>`,
+<p class="refs">Further reading:</p><ul class="refs"><li>Holtzman et al., “The Curious Case of Neural Text Degeneration” (ICLR 2020), which introduced nucleus sampling</li><li>Nguyen et al., “Turning Up the Heat: Min-p Sampling for Creative and Coherent LLM Outputs” (2024)</li><li>Thinking Machines Lab, “Defeating Nondeterminism in LLM Inference” (2025), on why temperature 0 isn’t deterministic in practice</li></ul>`,
   practice: {
     guided: [
       {
@@ -525,7 +525,7 @@ section({
 <li><strong>Bandwidth:</strong> every decode step streams every active sequence’s whole cache from HBM, with no reuse within the step. It behaves like the STREAM benchmark: caches don’t help, because the working set is gigabytes and the on-chip L2 is about 50 MB.</li>
 <li><strong>Why it’s a hardware target:</strong> work that reads huge data with only a few FLOPs per byte is the ideal case for designs that compute near or inside memory instead of moving the data to the processor.</li>
 </ul>
-<p class="refs">Further reading: Kwon et al., “Efficient Memory Management for Large Language Model Serving with PagedAttention” (SOSP 2023), the vLLM paper; Pope et al., “Efficiently Scaling Transformer Inference” (MLSys 2023); Zheng et al., “SGLang: Efficient Execution of Structured Language Model Programs” (2024), for RadixAttention prefix caching.</p>`,
+<p class="refs">Further reading:</p><ul class="refs"><li>Kwon et al., “Efficient Memory Management for Large Language Model Serving with PagedAttention” (SOSP 2023), the vLLM paper</li><li>Pope et al., “Efficiently Scaling Transformer Inference” (MLSys 2023)</li><li>Zheng et al., “SGLang: Efficient Execution of Structured Language Model Programs” (2024), for RadixAttention prefix caching</li></ul>`,
   practice: {
     guided: [
       {
@@ -574,7 +574,7 @@ section({
 <li><strong>Chunked prefill:</strong> long prompts are split into chunks that run alongside ongoing decode steps, so one big prompt doesn’t freeze everyone else’s stream.</li>
 <li><strong>Disaggregated serving:</strong> prefill and decode run on separate GPU pools, with KV caches transferred between them.</li>
 </ul>
-<p class="refs">Further reading: Yu et al., “Orca: A Distributed Serving System for Transformer-Based Generative Models” (OSDI 2022), which introduced continuous batching; Agrawal et al., “Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve” (OSDI 2024), for chunked prefill; Zhong et al., “DistServe” (OSDI 2024) and Patel et al., “Splitwise” (ISCA 2024), for disaggregated prefill and decode.</p>`,
+<p class="refs">Further reading:</p><ul class="refs"><li>Yu et al., “Orca: A Distributed Serving System for Transformer-Based Generative Models” (OSDI 2022), which introduced continuous batching</li><li>Agrawal et al., “Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve” (OSDI 2024), for chunked prefill</li><li>Zhong et al., “DistServe” (OSDI 2024) and Patel et al., “Splitwise” (ISCA 2024), for disaggregated prefill and decode</li></ul>`,
   practice: {
     guided: [
       {
@@ -652,7 +652,7 @@ section({
 <li><strong>Specialization by phase:</strong> different hardware for compute-bound prefill and bandwidth-bound decode.</li>
 <li><strong>Different math:</strong> probabilistic and physics-based designs that treat sampling and noise as primitives (see <a href="#/gen-gpus">How GPUs make this possible</a>).</li>
 </ul>
-<p class="refs">Further reading: Horowitz, “Computing’s Energy Problem (and What We Can Do About It)” (ISSCC 2014), the classic energy-per-operation figures; Pope et al., “Efficiently Scaling Transformer Inference” (MLSys 2023); Shoeybi et al., “Megatron-LM” (2019); NVIDIA H100 Tensor Core GPU architecture whitepaper (2022).</p>`,
+<p class="refs">Further reading:</p><ul class="refs"><li>Horowitz, “Computing’s Energy Problem (and What We Can Do About It)” (ISSCC 2014), the classic energy-per-operation figures</li><li>Pope et al., “Efficiently Scaling Transformer Inference” (MLSys 2023)</li><li>Shoeybi et al., “Megatron-LM” (2019)</li><li>NVIDIA H100 Tensor Core GPU architecture whitepaper (2022)</li></ul>`,
   practice: {
     guided: [
       {
@@ -699,7 +699,7 @@ section({
 <p>A clever acceptance rule guarantees that the output follows exactly the same probability distribution as the big model alone, so quality is unchanged. For a CPU architect, this is <strong>branch prediction and speculative execution</strong>: predict ahead, verify in parallel, squash on a mispredict, and the speedup depends on prediction accuracy. Variants skip the separate draft model by adding extra prediction heads (Medusa, EAGLE) or by matching text that already appeared in the context.</p>
 <h3 id="sec-choose">Choosing Techniques</h3>
 <p>Start by asking which phase and which resource limit the workload, the same way you’d read a CPI stack. Long prompts and short answers point to prefill compute and prefix caching. Short prompts and long answers point to decode bandwidth: quantization, batching, and speculation. Long contexts with many users point to the KV cache: GQA, FP8 caches, paging, and offloading.</p>
-<p class="refs">Further reading: Leviathan, Kalman, and Matias, “Fast Inference from Transformers via Speculative Decoding” (ICML 2023); Chen et al., “Accelerating Large Language Model Decoding with Speculative Sampling” (2023); Frantar et al., “GPTQ” (ICLR 2023); Lin et al., “AWQ” (MLSys 2024); Cai et al., “Medusa” (2024); Li et al., “EAGLE” (2024).</p>`,
+<p class="refs">Further reading:</p><ul class="refs"><li>Leviathan, Kalman, and Matias, “Fast Inference from Transformers via Speculative Decoding” (ICML 2023)</li><li>Chen et al., “Accelerating Large Language Model Decoding with Speculative Sampling” (2023)</li><li>Frantar et al., “GPTQ” (ICLR 2023)</li><li>Lin et al., “AWQ” (MLSys 2024)</li><li>Cai et al., “Medusa” (2024)</li><li>Li et al., “EAGLE” (2024)</li></ul>`,
   practice: {
     guided: [
       {

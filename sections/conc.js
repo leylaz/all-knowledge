@@ -70,7 +70,7 @@ T2: y = 1; r2 = x;</code></pre><p>Can r1 = r2 = 0 with release stores and acquir
   region: "conc",
   title: "Sense-Reversing Barriers",
   body: `
-<p>A centralized barrier with a counter and a shared sense flag. Each thread flips a private sense every episode; the last arriver resets the counter and flips the shared sense; others spin until it matches theirs.</p>
+<p>A centralized barrier with a counter and a shared sense flag:</p><ul><li>Each thread flips a private sense every episode</li><li>The last arriver resets the counter and flips the shared sense</li><li>Others spin until it matches theirs</li></ul>
 <h3>Why the Sense Flips</h3>
 <p>It makes the barrier reusable without reinitialization: a fast thread racing into the next episode waits on the opposite value.</p>
 <pre><code>typedef struct { atomic_int count; atomic_int sense; int n; } barrier_t;
@@ -98,7 +98,7 @@ void barrier_wait(barrier_t *b, int *local_sense) {
     ],
     interview: [
       {
-        q: `<p>A naive barrier: the last thread sets <code>flag = 1</code>; waiters spin on <code>flag == 1</code>; on entry, each thread sets <code>flag = 0</code>. What breaks?</p>`,
+        q: `<p>A naive barrier:</p><ul><li>The last thread sets <code>flag = 1</code></li><li>Waiters spin on <code>flag == 1</code></li><li>On entry, each thread sets <code>flag = 0</code></li></ul><p>What breaks?</p>`,
         a: `<p>A fast thread leaves, re-enters the next barrier, and resets flag to 0 before a slow thread has observed flag = 1. The slow thread spins forever on the previous episode: deadlock. Sense reversal fixes it because consecutive episodes wait on opposite values, so the next episode can never overwrite the value the current one is waiting for.</p>`
       },
       {

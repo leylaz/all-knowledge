@@ -58,7 +58,7 @@ section({
 <tr><th>Flavor</th><th>Speed</th><th>Leakage</th><th>Where it's used</th></tr>
 <tr><td>Low-V<sub>th</sub> (LVT, ultra-low ULVT)</td><td>Fastest</td><td>Highest</td><td>Only on critical paths, the slowest paths that set the clock frequency</td></tr>
 <tr><td>Standard-V<sub>th</sub> (SVT)</td><td>Medium</td><td>Medium</td><td>General logic</td></tr>
-<tr><td>High-V<sub>th</sub> (HVT)</td><td>Slowest</td><td>Lowest</td><td>Most of the chip, since most paths have spare time; always-on blocks; battery-powered designs where standby power matters</td></tr>
+<tr><td>High-V<sub>th</sub> (HVT)</td><td>Slowest</td><td>Lowest</td><td><ul><li>Most of the chip, since most paths have spare time</li><li>Always-on blocks</li><li>Battery-powered designs where standby power matters</li></ul></td></tr>
 </table></div>
 <p><strong>Why leaky cells go on critical paths.</strong> The slowest path sets the clock for the whole chip, so a path that's a few picoseconds too slow either slows everything down or must be fixed. Swapping a handful of its cells to low-V<sub>th</sub> versions is often the cheapest fix. The alternatives cost more: bigger cells (area and capacitance), restructuring the logic (design time), an extra pipeline stage (latency), or a higher supply voltage (power across the entire chip).</p>
 <p><strong>What happens when cells leak:</strong></p>
@@ -197,7 +197,7 @@ section({
 <text x="572" y="232" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-weight:600">skew + jitter</text>
 <text x="370" y="268" text-anchor="middle" style="fill:var(--muted);font-size:11px">one clock period: every segment above must fit inside it</text>
 </svg></div>
-<p>Reading the diagram left to right: the launch edge arrives; after clock-to-Q, FF1's output changes; the new value ripples through the logic; it must reach FF2's input a setup time before the capture edge; and that edge itself might arrive early by the skew and jitter margin (the grey band).</p>
+<p>Reading the diagram left to right:</p><ol start="0"><li>The launch edge arrives</li><li>After clock-to-Q, FF1's output changes</li><li>The new value ripples through the logic</li><li>It must reach FF2's input a setup time before the capture edge</li><li>That edge itself might arrive early by the skew and jitter margin (the grey band)</li></ol>
 <h3>Setup Time</h3>
 <p>Inside the capturing flip-flop, the input must be stable for a short window <em>before</em> the clock edge so its internal latch can settle on a clean 0 or 1. That window is the <strong>setup time</strong>. If data changes inside it, the flip-flop may capture the wrong value or go metastable (hover between 0 and 1 for an unpredictable time). So the logic must finish early by at least the setup time.</p>
 <p>Its counterpart, <strong>hold time</strong>, is how long the input must stay stable <em>after</em> the edge. Hold failures happen on very short paths, where new data arrives too soon.</p>

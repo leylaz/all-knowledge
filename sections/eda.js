@@ -64,7 +64,7 @@ section({
 <tr><td><a href="#/eda-synth">Logic synthesis</a></td><td>RTL to a gate-level netlist</td><td>Design Compiler, Fusion Compiler, Genus</td></tr>
 <tr><td><a href="#/eda-dft">Design for test</a></td><td>Scan chains, test pattern generation</td><td>Tessent, TetraMAX</td></tr>
 <tr><td><a href="#/eda-pd">Physical design</a></td><td>Floorplan, placement, clock tree, routing</td><td>IC Compiler II, Fusion Compiler, Innovus</td></tr>
-<tr><td><a href="#/eda-signoff">Signoff</a></td><td>Timing, power, DRC/LVS, equivalence</td><td>PrimeTime, Tempus; Voltus, PrimePower; Calibre; Formality, Conformal</td></tr>
+<tr><td><a href="#/eda-signoff">Signoff</a></td><td>Timing, power, DRC/LVS, equivalence</td><td><ul><li>PrimeTime, Tempus</li><li>Voltus, PrimePower</li><li>Calibre</li><li>Formality, Conformal</li></ul></td></tr>
 <tr><td><a href="#/eda-tapeout">Tapeout</a></td><td>Final layout (GDSII/OASIS) goes to the foundry</td><td></td></tr>
 </table></div>
 <h3 id="sec-perf-connect">Where Performance Work Connects</h3>
@@ -76,7 +76,7 @@ section({
         a: `<p>Performance modeling → RTL design → functional verification (runs alongside RTL) → synthesis → place and route → signoff → tapeout.</p>`
       },
       {
-        q: `<p>Place each problem in the flow: (a) cycle counts from your C++ model disagree with RTL on a microbenchmark; (b) a timing violation after place and route; (c) a mismatch between the netlist and RTL.</p>`,
+        q: `<p>Place each problem in the flow:</p><ul><li>(a) Cycle counts from your C++ model disagree with RTL on a microbenchmark</li><li>(b) A timing violation after place and route</li><li>(c) A mismatch between the netlist and RTL</li></ul>`,
         a: `<ol><li>(a) Model correlation, between <a href="#/eda-arch">architecture and performance modeling</a> and RTL simulation or <a href="#/eda-emu">emulation</a>.</li><li>(b) Static timing analysis during <a href="#/eda-pd">physical design</a> and <a href="#/eda-signoff">signoff</a>; the fix may change pipeline depth, which feeds back into the performance model.</li><li>(c) Equivalence checking during <a href="#/eda-signoff">signoff</a>.</li></ol>`
       }
     ],
