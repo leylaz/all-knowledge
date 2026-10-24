@@ -211,7 +211,7 @@ ${FP_BARS}
   id: "fp-rounding",
   region: "fp",
   title: "Rounding, Exceptions, and Error",
-  book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Appendix J, Computer Arithmetic (rounding, guard and sticky bits, exceptions). Nicholas Higham, <em>Accuracy and Stability of Numerical Algorithms</em> (2nd ed.), Chapter 4, Summation.`,
+  book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Appendix J, Computer Arithmetic (rounding, guard and sticky bits, exceptions). Nicholas Higham, <em>Accuracy and Stability of Numerical Algorithms</em> (2nd ed.), Chapter 4, Summation. Agner Fog, <em>The Microarchitecture of Intel, AMD, and VIA CPUs</em>, for measured subnormal penalties.`,
   sections: [
     { id: "modes", label: "Rounding Modes" },
     { id: "grs", label: "Guard, Round, and Sticky Bits" },
@@ -256,8 +256,8 @@ ${FP_BARS}
 <h3 id="sec-subnormal">Subnormals and Flush to Zero</h3>
 <p>Subnormal operands and results need extra work: a missing hidden bit, a leading-zero count and normalizing shift on input, and a denormalizing shift on output. Many cores handle the common cases in the FMA pipeline and send the rest to a slow path:</p>
 <ul>
-<li><strong>Intel cores</strong> have used <strong>microcode assists</strong> for some subnormal cases, which flush the pipeline and cost on the order of a hundred cycles or more per operation. Which cases need an assist (subnormal inputs vs. outputs, add vs. multiply) depends on the generation.</li>
-<li><strong>Other designs</strong> handle subnormals fully in hardware at little or no cost, at the price of extra shifter area and sometimes an extra cycle.</li>
+<li><strong>Intel big cores</strong> send these cases to a <strong>microcode assist</strong>, which flushes the pipeline. Agner Fog measures about 140–150 cycles on Sandy Bridge, 124 on Haswell and Broadwell, 129 on Skylake, and 120 on Ice Lake. The penalty applies when an operation on normal numbers produces a subnormal result, and to a multiply (Skylake onward, also a divide) of a normal by a subnormal. Adding a normal and a subnormal costs nothing extra.</li>
+<li><strong>AMD Zen 3, Zen 4, and Zen 5</strong> handle subnormals in hardware, and a subnormal result costs only a few extra cycles. AMD’s earlier Bulldozer and Piledriver paid about 175 cycles. Full hardware support costs extra shifter area and sometimes an extra pipeline cycle.</li>
 <li><strong>Flush to zero (FTZ)</strong> replaces subnormal results with zero. <strong>Denormals are zero (DAZ)</strong> treats subnormal inputs as zero. On x86 they are bits 15 and 6 of <code>MXCSR</code>. On Arm, <code>FPCR.FZ</code> does both.</li>
 <li>GCC and Clang set FTZ and DAZ at program startup when linking with <code>-ffast-math</code>, which changes results for the whole process, including libraries that weren’t compiled with it.</li>
 </ul>
@@ -307,7 +307,7 @@ ${FP_BARS}
       },
       {
         q: `<p>An HPC code slows down 8× on one input set, with no change in instruction count or cache misses. The hot loop is an exponentially decaying recurrence <code>y = 0.999f * y + x[i]</code> with mostly zero <code>x</code>. What is happening and how do you confirm and fix it?</p>`,
-        a: `<p>With x mostly zero, y decays toward zero geometrically. In FP32, 0.999<sup>n</sup> reaches the smallest normal (1.18 × 10<sup>−38</sup>) from 1.0 after about ln(1.18 × 10<sup>−38</sup>) / ln(0.999) ≈ 87,000 iterations, and from then on y is subnormal. On a core that takes a microcode assist for subnormal multiplies, every iteration pays tens to hundreds of cycles, which explains a large slowdown with no change in instructions or misses.</p><p>Confirm with the FP assist counter (on Intel, <code>FP_ASSIST.ANY</code> or the newer <code>ASSISTS.FP</code>), or by checking that the slowdown disappears with FTZ and DAZ set. Fixes: set FTZ and DAZ for the thread if the algorithm tolerates it, clamp tiny values to zero explicitly, or add a tiny offset (the “denormal killer” trick in audio DSP).</p>`
+        a: `<p>With x mostly zero, y decays toward zero geometrically. In FP32, 0.999<sup>n</sup> reaches the smallest normal (1.18 × 10<sup>−38</sup>) from 1.0 after about ln(1.18 × 10<sup>−38</sup>) / ln(0.999) ≈ 87,000 iterations, and from then on y is subnormal. Each iteration then multiplies a normal (0.999) by a subnormal, which takes a microcode assist on Intel big cores: about 129 cycles on Skylake, against a few cycles for the normal multiply-add. That explains a large slowdown with no change in instructions or misses. On Zen 4 the same loop would barely slow down.</p><p>Confirm with the FP assist counter (on Intel, <code>FP_ASSIST.ANY</code> or the newer <code>ASSISTS.FP</code>), or by checking that the slowdown disappears with FTZ and DAZ set. Fixes: set FTZ and DAZ for the thread if the algorithm tolerates it, clamp tiny values to zero explicitly, or add a tiny offset (the “denormal killer” trick in audio DSP).</p>`
       }
     ]
   }
@@ -421,7 +421,7 @@ ${FP_BARS}
 <p class="eq">independent accumulators = L × P</p>
 <p>On Skylake (L = 4, P = 2) that’s 8 vector accumulators. With fewer, the loop is latency bound: throughput = accumulators / L FMAs per cycle. This is why BLAS kernels keep a register tile of accumulators, and why a performance model must track FP dependency chains, not just port counts.</p>
 <ul>
-<li><strong>Peak FLOPs per cycle</strong> = pipes × lanes × 2. Skylake-SP with two 512-bit FMA units: 2 × 16 FP32 lanes × 2 = 64 FP32 FLOPs per cycle per core.</li>
+<li><strong>Peak FLOPs per cycle</strong> = pipes × lanes × 2. A Skylake-SP part with two 512-bit FMA units (Gold 6000 and Platinum. Most lower SKUs have only one): 2 × 16 FP32 lanes × 2 = 64 FP32 FLOPs per cycle per core.</li>
 <li><strong>Fused vs. separate:</strong> when the compiler can’t fuse (or the ISA lacks FMA), a dependent multiply-then-add pays both latencies back to back.</li>
 <li><strong>Bypass delays:</strong> on some cores, moving a result between the FP/SIMD domain and the integer domain costs an extra cycle or more, which shows up in code that mixes integer and FP ops on the same data.</li>
 </ul>
