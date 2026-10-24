@@ -5,19 +5,18 @@
 section({
   id: "perf",
   name: "Performance Analysis",
-  cap: "Statistics, stall causes, bottlenecks, benchmarks",
+  cap: "Methodology, workloads, benchmarks, models, validation, power",
   body: `
-<p>Performance work is mostly measurement: choosing workloads, measuring the right things, finding the bottleneck, and summarizing results honestly. The same analysis applies to performance models, RTL, emulation, and real silicon.</p>
+<p>Performance work is mostly measurement: choosing workloads, measuring the right things, finding the bottleneck, and summarizing results honestly. The same analysis applies to performance models, RTL, emulation, and real silicon. This region covers the methodology: how to simulate and summarize, what to run, how to model performance on paper, how to check a model against hardware, and how to model power. Finding where the cycles go, from statistics and stall causes to bounding each stage, is in <a href="#/r/stall">Stalls and Bottlenecks</a>.</p>
 <h3>The Iron Law</h3>
 <p>Time = instructions × CPI × cycle time. A change helps only if it improves the product; a better CPI with a lower clock or more instructions can be a loss (see <a href="#/pipelining">Pipelining and the iron law</a>).</p>
 <h3>How the Pages Fit Together</h3>
 <ul>
 <li><a href="#/ipc-spec">IPC and simulation methodology</a>: CPI stacks, summarizing results, simulation hygiene, and model correlation.</li>
-<li><a href="#/perf-stats">Performance statistics</a>: what a model counts, and how.</li>
-<li><a href="#/perf-stalls">Stall causes</a>: every reason a cycle can be lost, by pipeline area.</li>
-<li><a href="#/perf-stage-stalls">Stalls by pipeline stage</a>: where each stage stalls and why, how to trace a stall back to its cause, and the cycles-per-iteration bound each stage and structure sets.</li>
-<li><a href="#/perf-bottlenecks">Bottleneck types</a>: front-end bound, bad speculation, memory-bound, and core-bound, and latency-bound vs. throughput-bound.</li>
-<li><a href="#/spec-cpu">SPEC CPU benchmarks</a> and <a href="#/workloads">Types of workloads</a>: what to run.</li>
+<li><a href="#/workloads">Types of workloads</a> and <a href="#/spec-cpu">SPEC CPU benchmarks</a>: what to run, and what each workload stresses.</li>
+<li><a href="#/perf-analytical">Analytical performance models</a>: first-order CPI stacks, interval analysis, and the roofline, worked on paper.</li>
+<li><a href="#/perf-validation">Validating a performance model</a>: kinds of error, microbenchmarks, error metrics, and a correlation process.</li>
+<li><a href="#/perf-power">Power and energy modeling</a>: where power goes, event-based energy models, and voltage and frequency.</li>
 </ul>`,
   practice: {
     guided: [
@@ -79,6 +78,47 @@ section({
       {
         q: `<p>Your model predicts +8% IPC for a feature, but RTL simulation of the same workloads shows +2%. How do you find the gap?</p>`,
         a: `<ol><li>Confirm it's the same workload: same binary, region, warmup, and configuration.</li><li>Compare event counts per structure (misses, replays, stall cycles by resource) between model and RTL.</li><li>Narrow it down with directed microbenchmarks that exercise just the feature.</li><li>Check modeling assumptions: latencies, port counts, arbitration, queue sizes, and corner cases RTL implements that the model idealizes.</li><li>Fix the model or flag the RTL as a performance bug, and add the case to a correlation regression suite.</li></ol>`
+      }
+    ]
+  }
+},
+
+{
+  id: "workloads",
+  region: "perf",
+  title: "Types of Workloads",
+  body: `
+<p>Workloads differ in which part of the machine limits them. Name the bottleneck first, then pick the feature to study.</p>
+<h3>By Bottleneck</h3>
+<ul>
+<li><strong>Compute-bound:</strong> high IPC, limited by execution width and ports (namd, exchange2).</li>
+<li><strong>Memory latency-bound:</strong> dependent misses, low MLP (mcf, linked data structures).</li>
+<li><strong>Memory bandwidth-bound:</strong> streaming arrays, limited by DRAM bandwidth (lbm, STREAM).</li>
+<li><strong>Frontend-bound:</strong> large code footprints, i-cache and BTB misses (servers, browsers, interpreters).</li>
+<li><strong>Branch-bound:</strong> data-dependent, hard-to-predict branches (game search, compression).</li>
+<li><strong>Synchronization-bound:</strong> locks, barriers, and sharing limit multithreaded scaling.</li>
+</ul>
+<h3>By Domain</h3>
+<ul>
+<li><strong>Client:</strong> browsers, JavaScript, app launch, UI; latency and energy matter.</li>
+<li><strong>Server and cloud:</strong> databases, web services, JVMs; throughput and tail latency.</li>
+<li><strong>HPC:</strong> dense numerical kernels; floating point and bandwidth.</li>
+<li><strong>ML:</strong> matrix multiplies are compute-bound; inference with large models is often bandwidth-bound.</li>
+<li><strong>Media and games:</strong> SIMD-heavy, real-time deadlines.</li>
+</ul>
+<h3>Top-Down Analysis</h3>
+<p>Intel's top-down method splits pipeline slots into retiring, front-end bound, bad speculation, and back-end bound (memory or core), then drills into the largest category. See <a href="#/perf-bottlenecks">Bottleneck types</a> for the full method and how to tell the bottlenecks apart.</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A top-down breakdown: retiring 30%, frontend-bound 35%, bad speculation 10%, backend-bound 25%. What kind of workload is this, and what do you check next?</p>`,
+        a: `<ol><li>Frontend-bound dominates: the core is starved of instructions.</li><li>Likely a large code footprint (server, browser, interpreter, JIT).</li><li>Check L1I and L2 instruction MPKI, iTLB misses, BTB misses, and decode or micro-op cache behavior.</li><li>Features to evaluate: bigger BTB, instruction prefetching (fetch-directed prefetching with a decoupled frontend), bigger L1I or micro-op cache.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>How would you build a workload set to evaluate a phone CPU versus a server CPU?</p>`,
+        a: `<p>Phone: short bursty interactive work (browser benchmarks, app launches, UI rendering, JavaScript), with single-thread latency and energy as primary metrics, plus some media and light ML. Server: databases, web serving, key-value stores, JVM and microservices with huge code footprints and many threads, measured by throughput at a latency target and performance per watt. Both should include SPEC as a common baseline, but neither should rely on it alone.</p>`
       }
     ]
   }
@@ -162,47 +202,6 @@ section({
       {
         q: `<p>Simulating ref is too slow, so a teammate evaluated a new prefetcher using the train inputs and reports +5% IPC. Do you trust it?</p>`,
         a: `<ol><li>Not yet. Train inputs often have smaller working sets and shorter, different phases, and a prefetcher is very sensitive to footprint and access patterns. A gain that shows up when data almost fits in the L2 may disappear, or reverse, when the working set is DRAM-sized.</li><li>Check that train and ref behave alike for these benchmarks (MPKI, footprint, basic-block profiles), or better, run SimPoints taken from ref.</li><li>Never report a train-based number as a SPEC result or estimate.</li></ol>`
-      }
-    ]
-  }
-},
-
-{
-  id: "workloads",
-  region: "perf",
-  title: "Types of Workloads",
-  body: `
-<p>Workloads differ in which part of the machine limits them. Name the bottleneck first, then pick the feature to study.</p>
-<h3>By Bottleneck</h3>
-<ul>
-<li><strong>Compute-bound:</strong> high IPC, limited by execution width and ports (namd, exchange2).</li>
-<li><strong>Memory latency-bound:</strong> dependent misses, low MLP (mcf, linked data structures).</li>
-<li><strong>Memory bandwidth-bound:</strong> streaming arrays, limited by DRAM bandwidth (lbm, STREAM).</li>
-<li><strong>Frontend-bound:</strong> large code footprints, i-cache and BTB misses (servers, browsers, interpreters).</li>
-<li><strong>Branch-bound:</strong> data-dependent, hard-to-predict branches (game search, compression).</li>
-<li><strong>Synchronization-bound:</strong> locks, barriers, and sharing limit multithreaded scaling.</li>
-</ul>
-<h3>By Domain</h3>
-<ul>
-<li><strong>Client:</strong> browsers, JavaScript, app launch, UI; latency and energy matter.</li>
-<li><strong>Server and cloud:</strong> databases, web services, JVMs; throughput and tail latency.</li>
-<li><strong>HPC:</strong> dense numerical kernels; floating point and bandwidth.</li>
-<li><strong>ML:</strong> matrix multiplies are compute-bound; inference with large models is often bandwidth-bound.</li>
-<li><strong>Media and games:</strong> SIMD-heavy, real-time deadlines.</li>
-</ul>
-<h3>Top-Down Analysis</h3>
-<p>Intel's top-down method splits pipeline slots into retiring, front-end bound, bad speculation, and back-end bound (memory or core), then drills into the largest category. See <a href="#/perf-bottlenecks">Bottleneck types</a> for the full method and how to tell the bottlenecks apart.</p>`,
-  practice: {
-    guided: [
-      {
-        q: `<p>A top-down breakdown: retiring 30%, frontend-bound 35%, bad speculation 10%, backend-bound 25%. What kind of workload is this, and what do you check next?</p>`,
-        a: `<ol><li>Frontend-bound dominates: the core is starved of instructions.</li><li>Likely a large code footprint (server, browser, interpreter, JIT).</li><li>Check L1I and L2 instruction MPKI, iTLB misses, BTB misses, and decode or micro-op cache behavior.</li><li>Features to evaluate: bigger BTB, instruction prefetching (fetch-directed prefetching with a decoupled frontend), bigger L1I or micro-op cache.</li></ol>`
-      }
-    ],
-    interview: [
-      {
-        q: `<p>How would you build a workload set to evaluate a phone CPU versus a server CPU?</p>`,
-        a: `<p>Phone: short bursty interactive work (browser benchmarks, app launches, UI rendering, JavaScript), with single-thread latency and energy as primary metrics, plus some media and light ML. Server: databases, web serving, key-value stores, JVM and microservices with huge code footprints and many threads, measured by throughput at a latency target and performance per watt. Both should include SPEC as a common baseline, but neither should rely on it alone.</p>`
       }
     ]
   }
