@@ -79,6 +79,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "fe fe fe fe fe fe"
     "core core core mem mem mem"
     "core core core ctr ctr ctr"
+    "fp fp fp fp fp fp"
     "coh coh coh icx icx icx"
     "proc proc proc proc proc proc"
     "os os os comp comp comp"
@@ -459,7 +460,7 @@ a.lyr-name::after { content: ""; position: absolute; inset: 0; border-radius: 4p
 }
 
 @media (max-width: 860px) {
-  .floor { grid-template-columns: 1fr; grid-template-areas: "fab" "circ" "isa" "pipe" "fe" "core" "mem" "ctr" "coh" "icx" "proc" "os" "comp" "conc" "perf" "stall" "eda" "verif" "nn" "gen" "llm" "intv" "p1" "p2"; }
+  .floor { grid-template-columns: 1fr; grid-template-areas: "fab" "circ" "isa" "pipe" "fe" "core" "mem" "ctr" "fp" "coh" "icx" "proc" "os" "comp" "conc" "perf" "stall" "eda" "verif" "nn" "gen" "llm" "intv" "p1" "p2"; }
   .intro { padding-top: 32px; }
   .page { grid-template-columns: 1fr; gap: 0; padding-top: 16px; }
   .menu-btn.show { display: inline-block; }
@@ -503,6 +504,7 @@ window.MathJax = {
 <script src="sections/core.js"></script>
 <script src="sections/mem.js"></script>
 <script src="sections/ctr.js"></script>
+<script src="sections/fp.js"></script>
 <script src="sections/coh.js"></script>
 <script src="sections/icx.js"></script>
 <script src="sections/proc.js"></script>

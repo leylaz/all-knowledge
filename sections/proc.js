@@ -152,7 +152,7 @@ ${procSvg(760, 650, 620, "Zen 5 core block diagram: branch predictor feeds the L
 <li><strong>Operand-bus contention:</strong> a three-source op (FMA) on P0 or P2 borrows P4's source bus, and on P1 or P3 borrows P5's; the loser stalls. AVX-512 merge masking needs an extra source and can hit this.</li>
 <li><strong>Configurable width:</strong> desktop and server Zen 5 have full 512-bit datapaths; the mobile Strix Point cores use 256-bit datapaths, so 512-bit instructions run at half rate there.</li>
 </ul>
-<p>Compare <a href="#/simd">SIMD and Vector Execution</a> and <a href="#/fp-units">Floating-Point Units</a> for the general trade-offs.</p>
+<p>Compare <a href="#/simd">SIMD and Vector Execution</a> and <a href="#/fp-units">Floating-Point Units and the FMA Pipeline</a> for the general trade-offs.</p>
 
 <h3 id="sec-ls">Load/Store Unit and L1D</h3>
 <p>Four load/store pipes allow up to 4 memory ops per cycle: up to 4 loads (at most 2 of them 128-bit or wider) and up to 2 stores (at most one 512-bit). A 512-bit load pairs two pipes for one cycle.</p>
@@ -586,7 +586,7 @@ ${procSvg(760, 400, 620, "An H100 SM: a shared L1 instruction cache above four s
 </ul>
 
 <h3 id="sec-tc">Fourth-Generation Tensor Cores</h3>
-<p>Per SM, clock for clock, H100's tensor cores do twice A100's dense MMA rate for FP16/BF16/TF32/FP64, and four times with the new FP8 formats (E4M3 and E5M2, with FP16 or FP32 accumulation; see <a href="#/fp-units/fp8">FP8</a>). Hopper adds <code>wgmma</code>: an asynchronous MMA issued by a <em>warpgroup</em> (4 warps, 128 threads, one per sub-partition) that reads its B operand (and optionally A) directly from shared memory, so operand tiles don't have to pass through registers. Accumulators still live in registers. The "Transformer Engine" is software and hardware that choose FP8 or 16-bit per layer and track scaling factors.</p>
+<p>Per SM, clock for clock, H100's tensor cores do twice A100's dense MMA rate for FP16/BF16/TF32/FP64, and four times with the new FP8 formats (E4M3 and E5M2, with FP16 or FP32 accumulation; see <a href="#/fp-ml-formats/fp8">FP8</a>). Hopper adds <code>wgmma</code>: an asynchronous MMA issued by a <em>warpgroup</em> (4 warps, 128 threads, one per sub-partition) that reads its B operand (and optionally A) directly from shared memory, so operand tiles don't have to pass through registers. Accumulators still live in registers. The "Transformer Engine" is software and hardware that choose FP8 or 16-bit per layer and track scaling factors.</p>
 
 <h3 id="sec-mem">Memory Hierarchy</h3>
 <div class="tbl"><table>
@@ -698,7 +698,7 @@ ${procSvg(760, 246, 620, "A Blackwell SM: four sub-partitions, each with a sched
 <li><strong>MXFP8 / MXFP6 / MXFP4</strong> (OCP microscaling): each block of 32 values shares an 8-bit power-of-two scale (E8M0).</li>
 <li><strong>NVFP4:</strong> blocks of 16 values share an FP8 (E4M3) scale, plus one FP32 scale per tensor. The smaller block and non-power-of-two scale track the data's range more closely than MXFP4.</li>
 </ul>
-<p>The hardware applies the block scales inside the MMA, so scaled formats cost no extra instructions. NVIDIA quotes 5 PFLOPS dense FP8 and 10 PFLOPS dense FP4 per GPU for GB200, against Hopper's 2 PFLOPS dense FP8. See <a href="#/fp-units/fp8">narrow floating-point formats</a>.</p>
+<p>The hardware applies the block scales inside the MMA, so scaled formats cost no extra instructions. NVIDIA quotes 5 PFLOPS dense FP8 and 10 PFLOPS dense FP4 per GPU for GB200, against Hopper's 2 PFLOPS dense FP8. See <a href="#/fp-ml-formats/fp8">narrow floating-point formats</a>.</p>
 
 <h3 id="sec-mem">Memory and L2</h3>
 <p>B200 has 192 GB of HBM3E in 8 stacks (four per die) at 8 TB/s. The L2 is 126 MB. Chips and Cheese found it behaves as two partitions corresponding to the dies, with latency rising sharply when an access is served from the other die's half; reaching most of the capacity without cross-partition penalties took many threads. So the "one GPU" abstraction is coherent but not uniform, like a 2-socket CPU with a very fast link.</p>
