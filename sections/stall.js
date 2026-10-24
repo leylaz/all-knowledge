@@ -393,7 +393,9 @@ One instruction cache miss:
 <li>mispredicted branch still waiting on its operand: 12%</li>
 <li>other: 10%</li>
 </ul></li>
-<li><strong>Misses in flight</strong> while the ROB is full: a histogram with a mean of 1.4, rarely above 3.</li>
+<li><strong>Last-level misses:</strong> 12 per kilo-instruction (MPKI).</li>
+<li><strong>Last-level misses in flight</strong> while the ROB is full: a histogram with a mean of 1.4, rarely above 3. In the 2× ROB run the mean rises only to 1.5.</li>
+<li><strong>Dependence tagging:</strong> 91% of last-level misses have an address computed from the data of an older miss that is still in flight.</li>
 <li><strong>Per-PC attribution:</strong> 5 load PCs account for 71% of the ROB-full cycles, and each one loads a pointer field (the next arc or node) that the following load uses as its address.</li>
 <li><strong>Idealization experiments:</strong>
 <div class="tbl"><table>
@@ -408,8 +410,19 @@ One instruction cache miss:
 <p>Should the team double the ROB? If not, where should the area go?</p>
 <ol start="0">
 <li><strong>Blame propagation first.</strong> 64% of the ROB-full cycles have a load served by DRAM at the head, so rename's "ROB full" is a symptom and the cause is mostly DRAM latency.</li>
-<li><strong>Is the window the limit, or the misses?</strong> A mean of 1.4 misses in flight, against 16 MSHRs, means the misses are dependent (pointer chasing): each address comes from the previous miss, so a bigger ROB has nothing independent to overlap. A histogram near the MSHR limit would instead say the window was the limit.</li>
-<li><strong>Per-PC attribution.</strong> The 5 hot PCs all load the next pointer, which confirms the dependent-miss reading from step 1.</li>
+<li><strong>Is the window the limit, or the misses?</strong> Only 1.4 misses overlap on average. There are two explanations, and they point in opposite directions:
+<ul>
+<li>The misses are independent but far apart, so the window rarely holds two at once. A bigger ROB would help.</li>
+<li>The misses are dependent (pointer chasing): each address comes from an earlier miss, so they can only run one after another. A bigger ROB has nothing independent to overlap.</li>
+</ul>
+Three measurements decide it:
+<ul>
+<li><strong>Window bound:</strong> the ROB holds about 512 × 12 / 1000 ≈ 6.1 misses. The measured 1.4 is far below that, so the window isn't what limits overlap.</li>
+<li><strong>Dependence tagging:</strong> 91% of the misses wait on an older miss for their address.</li>
+<li><strong>ROB sweep:</strong> doubling the ROB doubles the window bound to about 12, but misses in flight only rise from 1.4 to 1.5.</li>
+</ul>
+So the misses are dependent. The MSHRs aren't the limit either: 1.4 is far below 16. For contrast, misses in flight near the window bound would mean the window is the limit, and near the MSHR count would mean the MSHRs are.</li>
+<li><strong>Per-PC attribution.</strong> The 5 hot PCs all load the next pointer, the code-level reason for the dependence found in step 1.</li>
 <li><strong>Read the idealization table.</strong> The bigger ROB is worth 6%, so the counter was mostly pointing at a symptom. Memory is the cause (+53%). The two ideals together give far more than the sum of the separate gains (+118% vs. +68%): the mispredicted branches depend on missing loads, so each one resolves late and flushes the misses queued behind it. Fixing either one alone leaves the other in the way.</li>
 <li><strong>Recommendation:</strong> don't double the ROB. Spend the area on memory-side help (a prefetcher that can follow pointers, or a lower-latency path to memory) and on predicting branches that depend on loads.</li>
 </ol>
