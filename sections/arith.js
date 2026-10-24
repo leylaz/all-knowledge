@@ -69,7 +69,8 @@ section({
     { id: "fields", label: "Sign, Exponent, Mantissa" },
     { id: "special", label: "Zeros, Subnormals, Infinities, and NaNs" },
     { id: "ulp", label: "What the Mantissa Width Buys" },
-    { id: "example", label: "Worked Example: −6.5 in Three Formats" }
+    { id: "example", label: "Worked Example: −6.5 in Three Formats" },
+    { id: "try", label: "Try It: Encode or Decode a Float" }
   ],
   body: `
 <h3 id="sec-fields">Sign, Exponent, Mantissa</h3>
@@ -132,7 +133,11 @@ section({
         *e = ef - 127;
         *sig = frac | 0x800000;          <span class="cm">// re-insert the hidden bit</span>
     }
-}                                        <span class="cm">// value = (-1)^s * sig * 2^(e - 23)</span></code></pre>`,
+}                                        <span class="cm">// value = (-1)^s * sig * 2^(e - 23)</span></code></pre>
+
+<h3 id="sec-try">Try It: Encode or Decode a Float</h3>
+<p>Pick a format, then type a decimal value to see its bits and rounding error, or a bit pattern such as <code>0x3EAAAAAB</code> to decode it. Every format on <a href="#/fp-formats">Floating-Point Formats Compared</a> except FP128 and x87 is available.</p>
+<div class="calc" data-calc="float"></div>`,
   practice: {
     guided: [
       {

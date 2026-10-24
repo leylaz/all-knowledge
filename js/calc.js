@@ -12,6 +12,75 @@ function boundTable(rows, unit) {
     `<tr class="${v === max && max > 0 ? "hot" : ""}"><td>${name}</td><td>${fmt(v)}</td><td>${note}</td></tr>`).join("")}</table>`;
 }
 
+/* Float formats for the encoder: exponent bits, fraction bits, and what the
+   all-ones exponent means ("ieee": ∞ and NaN, "e4m3": one NaN pattern per
+   sign, "fn": finite numbers only). */
+const FP_FORMATS = {
+  fp64: { name: "FP64", e: 11, f: 52, kind: "ieee" },
+  fp32: { name: "FP32", e: 8, f: 23, kind: "ieee" },
+  tf32: { name: "TF32", e: 8, f: 10, kind: "ieee" },
+  fp16: { name: "FP16", e: 5, f: 10, kind: "ieee" },
+  bf16: { name: "BF16", e: 8, f: 7, kind: "ieee" },
+  e5m2: { name: "FP8 E5M2", e: 5, f: 2, kind: "ieee" },
+  e4m3: { name: "FP8 E4M3", e: 4, f: 3, kind: "e4m3" },
+  e3m2: { name: "FP6 E3M2", e: 3, f: 2, kind: "fn" },
+  e2m3: { name: "FP6 E2M3", e: 2, f: 3, kind: "fn" },
+  e2m1: { name: "FP4 E2M1", e: 2, f: 1, kind: "fn" }
+};
+const pow2 = k => Math.pow(2, k);
+function fpInfo(F) {
+  const bias = pow2(F.e - 1) - 1, top = pow2(F.e) - 1;
+  const emax = (F.kind === "ieee" ? top - 1 : top) - bias;
+  const maxM = F.kind === "e4m3" ? pow2(F.f) - 2 : pow2(F.f) - 1;
+  return { bias, top, emin: 1 - bias, emax, maxM, max: (1 + maxM / pow2(F.f)) * pow2(emax) };
+}
+/* Round to nearest integer, ties to even. q is small enough to be exact. */
+function rne(q) {
+  const i = Math.floor(q), d = q - i;
+  return d > 0.5 || (d === 0.5 && i % 2 === 1) ? i + 1 : i;
+}
+/* Value of the fields { s, E, M } (M is the stored fraction as an integer). */
+function fpValue({ s, E, M }, F) {
+  const I = fpInfo(F);
+  if (F.kind === "ieee" && E === I.top) return M ? NaN : s ? -Infinity : Infinity;
+  if (F.kind === "e4m3" && E === I.top && M === pow2(F.f) - 1) return NaN;
+  const v = E === 0 ? M * pow2(I.emin - F.f) : (pow2(F.f) + M) * pow2(E - I.bias - F.f);
+  return s ? -v : v;
+}
+/* Round x into format F. Returns the fields, plus over: true if it overflowed. */
+function fpEncode(x, F) {
+  const I = fpInfo(F), s = x < 0 || Object.is(x, -0) ? 1 : 0, a = Math.abs(x);
+  const sat = { s, E: I.emax + I.bias, M: I.maxM, over: true };
+  if (Number.isNaN(x)) return F.kind === "fn" ? null : { s: 0, E: I.top, M: F.kind === "e4m3" ? pow2(F.f) - 1 : pow2(F.f - 1) };
+  if (a === Infinity) return F.kind === "ieee" ? { s, E: I.top, M: 0 } : sat;
+  if (a === 0) return { s, E: 0, M: 0 };
+  let k = Math.floor(Math.log2(a));
+  while (pow2(k) > a) k--;
+  while (pow2(k + 1) <= a) k++;
+  let E, M;
+  if (k < I.emin) {
+    M = rne(a / pow2(I.emin - F.f));
+    E = M >= pow2(F.f) ? 1 : 0;
+    if (E) M -= pow2(F.f);
+  } else {
+    M = rne(a / pow2(k - F.f));
+    if (M >= pow2(F.f + 1)) { k++; M /= 2; }
+    E = k + I.bias;
+    M -= pow2(F.f);
+  }
+  if (E > I.emax + I.bias || (E === I.emax + I.bias && M > I.maxM))
+    return F.kind === "ieee" ? { s, E: I.top, M: 0, over: true } : sat;
+  return { s, E, M };
+}
+function fpNum(v) {
+  if (Number.isNaN(v)) return "NaN";
+  if (!isFinite(v)) return v > 0 ? "+∞" : "−∞";
+  if (v === 0) return Object.is(v, -0) ? "−0" : "0";
+  const [m, e] = String(v).split("e");
+  return m.replace("-", "−") + (e ? ` × 10<sup>${String(+e).replace("-", "−")}</sup>` : "");
+}
+const fpEsc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
 const CALCS = {
   bounds: {
     title: "Loop Bounds Calculator",
@@ -100,6 +169,50 @@ const CALCS = {
     }
   },
 
+  float: {
+    title: "Float Encoder and Decoder",
+    intro: "Type a decimal value to see how a format rounds and stores it, or a bit pattern starting with 0x or 0b to decode it. Rounding is to nearest, ties to even. Errors are measured against your input as an FP64 number, so FP64 always shows as exact. The OCP formats (E4M3, FP6, FP4) saturate instead of overflowing.",
+    inputs: [["Input", [
+      ["fmt", "Format", "fp32", null, Object.entries(FP_FORMATS).map(([k, F]) => [k, F.name])],
+      ["x", "Value or bits", "-6.5", null, "text"]
+    ]]],
+    run(v) {
+      const F = FP_FORMATS[v.fmt] || FP_FORMATS.fp32, I = fpInfo(F), w = 1 + F.e + F.f;
+      const t = v.x.trim().replace(/−/g, "-"), l = t.toLowerCase().replace(/^\+/, "");
+      let r, x = null;
+      if (/^0[xb]/.test(l)) {
+        let b;
+        try { b = BigInt(l); } catch (e) { return "<p>That isn’t a valid bit pattern.</p>"; }
+        if (b >= 1n << BigInt(w)) return `<p>${F.name} has only ${w} bits, so the pattern must be below 0x${(1n << BigInt(w)).toString(16).toUpperCase()}.</p>`;
+        r = { s: Number(b >> BigInt(F.e + F.f)), E: Number((b >> BigInt(F.f)) & BigInt(I.top)), M: Number(b & ((1n << BigInt(F.f)) - 1n)) };
+      } else {
+        x = /^(inf|infinity)$/.test(l) ? Infinity : /^-(inf|infinity)$/.test(l) ? -Infinity : l === "nan" ? NaN : t === "" ? NaN : Number(t);
+        if (Number.isNaN(x) && l !== "nan") return "<p>Enter a decimal number (such as -6.5, 1e-6, inf, or nan) or a bit pattern (such as 0xC0D00000).</p>";
+        r = fpEncode(x, F);
+        if (!r) return `<p>${F.name} has no NaN encoding: every bit pattern is a finite number.</p>`;
+      }
+      const val = fpValue(r, F);
+      const bits = (BigInt(r.s) << BigInt(F.e + F.f)) | (BigInt(r.E) << BigInt(F.f)) | BigInt(r.M);
+      const bin = (n, len) => n.toString(2).padStart(len, "0");
+      const hex = "0x" + bits.toString(16).toUpperCase().padStart(Math.ceil(w / 4), "0");
+      const cls = Number.isNaN(val) ? "NaN" : !isFinite(val) ? "infinity" : val === 0 ? "zero" : r.E === 0 ? "subnormal" : "normal";
+      const ulp = r.E === 0 ? pow2(I.emin - F.f) : pow2(r.E - I.bias - F.f);
+      const expTxt = cls === "normal" ? `${r.E} − ${I.bias} = ${r.E - I.bias}` : r.E === 0 ? `0: read as 1 − ${I.bias} = ${I.emin}, hidden bit 0` : "All ones: special value";
+      const fracTxt = isFinite(val) ? `Significand ${r.E ? 1 : 0}.F = ${fpNum((r.E ? 1 : 0) + r.M / pow2(F.f))}` : Number.isNaN(val) ? "Nonzero: NaN" : "Zero: infinity";
+      let out = `<table><tr><th>Field</th><th>Bits</th><th>Meaning</th></tr>
+        <tr><td>Sign</td><td><code>${r.s}</code></td><td>${r.s ? "Negative" : "Positive"}</td></tr>
+        <tr><td>Exponent (${F.e} bits)</td><td><code>${bin(r.E, F.e)}</code></td><td>${expTxt}</td></tr>
+        <tr><td>Fraction (${F.f} bits)</td><td><code>${bin(r.M, F.f)}</code></td><td>${fracTxt}</td></tr></table>
+        <p>Bits <code>${r.s} | ${bin(r.E, F.e)} | ${bin(r.M, F.f)}</code> = <code>${hex}</code>, a ${cls} number.${isFinite(val) ? ` Neighbors here are ${fpNum(ulp)} apart (1 ULP).` : ""}</p>
+        <p>${F.name} range: max ${fpNum(+I.max.toPrecision(4))}, min normal ${fpNum(+pow2(I.emin).toPrecision(4))}, min subnormal ${fpNum(+pow2(I.emin - F.f).toPrecision(4))}, with ${F.f + 1} bits of precision.</p>`;
+      if (x === null) return out + `<p class="calc-out"><code>${fpEsc(t)}</code> decodes to <strong>${fpNum(val)}</strong>.</p>`;
+      if (r.over) return out + `<p class="calc-out">${fpNum(x)} is beyond ${F.name}’s max of ${fpNum(I.max)}, so it ${F.kind === "ieee" ? "overflows to" : "saturates to"} <strong>${fpNum(val)}</strong>.</p>`;
+      if (Number.isNaN(x)) return out + `<p class="calc-out">NaN is stored as <code>${hex}</code>.</p>`;
+      const err = Math.abs(val - x);
+      return out + `<p class="calc-out">${fpNum(x)} is stored as <strong>${fpNum(val)}</strong>${err === 0 || !isFinite(x) ? ", exactly." : `, off by ${fpNum(+err.toPrecision(3))} (relative error ${fpNum(+(err / Math.abs(x)).toPrecision(3))}).`}</p>`;
+    }
+  },
+
   yield: {
     title: "Die Cost Calculator",
     intro: "Dies per wafer, Poisson yield, and cost per good die, using the formulas above. Defaults match the worked example.",
@@ -117,23 +230,33 @@ const CALCS = {
   }
 };
 
+/* One input: [id, label, default, step] is a number box, a fifth element
+   "text" makes a text box, and a list of [value, label] makes a menu. */
+function calcField([id, label, val, step, kind]) {
+  if (Array.isArray(kind))
+    return `<label><span>${label}</span><select name="${id}">${kind.map(([k, t]) => `<option value="${k}"${k === val ? " selected" : ""}>${t}</option>`).join("")}</select></label>`;
+  if (kind === "text")
+    return `<label><span>${label}</span><input type="text" name="${id}" value="${val}" spellcheck="false" autocomplete="off"></label>`;
+  return `<label><span>${label}</span><input type="number" name="${id}" value="${val}" step="${step}" min="0" inputmode="decimal"></label>`;
+}
+
 function initCalcs(root) {
   root.querySelectorAll(".calc[data-calc]").forEach(el => {
     const c = CALCS[el.dataset.calc];
     if (!c || el.dataset.ready) return;
     el.dataset.ready = "1";
     el.innerHTML = `<p class="calc-title">${c.title}</p>${c.intro ? `<p class="calc-intro">${c.intro}</p>` : ""}
-      <form class="calc-form">${c.inputs.map(([group, list]) => `<fieldset><legend>${group}</legend>${list.map(([id, label, val, step]) =>
-        `<label><span>${label}</span><input type="number" name="${id}" value="${val}" step="${step}" min="0" inputmode="decimal"></label>`).join("")}</fieldset>`).join("")}</form>
+      <form class="calc-form">${c.inputs.map(([group, list]) => `<fieldset><legend>${group}</legend>${list.map(calcField).join("")}</fieldset>`).join("")}</form>
       <div class="calc-result" aria-live="polite"></div>`;
     const form = el.querySelector("form"), out = el.querySelector(".calc-result");
     const draw = () => {
       const v = {};
-      for (const inp of form.elements) if (inp.name) v[inp.name] = parseFloat(inp.value);
-      if (Object.values(v).some(x => !isFinite(x) || x < 0)) { out.innerHTML = "<p>Enter a non-negative number in every box.</p>"; return; }
+      for (const inp of form.elements) if (inp.name) v[inp.name] = inp.type === "number" ? parseFloat(inp.value) : inp.value;
+      if (Object.values(v).some(x => typeof x === "number" && (!isFinite(x) || x < 0))) { out.innerHTML = "<p>Enter a non-negative number in every box.</p>"; return; }
       try { out.innerHTML = c.run(v); } catch (e) { out.innerHTML = "<p>Those inputs can't be computed.</p>"; console.error("Calculator " + el.dataset.calc + " failed:", e); }
     };
     form.addEventListener("input", draw);
+    form.addEventListener("change", draw);
     form.addEventListener("submit", e => e.preventDefault());
     draw();
   });
