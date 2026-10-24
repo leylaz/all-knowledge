@@ -1,6 +1,6 @@
-/* Section: Floating-point arithmetic
+/* Section: Computer arithmetic
    One region of the die plus its pages, in display order.
-   To add a page, append an object to the list below (region: "fp"). */
+   To add a page, append an object to the list below (region: "arith"). */
 
 /* Bit-field bars for the Floating-Point Formats page, drawn to scale. */
 function fpBar(name, segs, of) {
@@ -20,17 +20,23 @@ const FP_BARS = '<div class="bfs">' +
   '</div><p class="bfkey">Widths to scale (32 bits = full width).<i style="background:var(--pad-soft);border:1px solid var(--pad)"></i>sign<i style="background:var(--trace-soft);border:1px solid var(--trace)"></i>exponent<i style="background:var(--code-bg);border:1px solid var(--rule)"></i>fraction (stored mantissa bits)</p>';
 
 section({
-  id: "fp",
-  name: "Floating-Point Arithmetic",
-  cap: "Number formats, rounding, ML types, and the FMA pipeline",
+  id: "arith",
+  name: "Computer Arithmetic",
+  cap: "Floating-point and fixed-point formats, rounding, ML types, and the integer and FMA datapaths",
   body: `
-<p>A floating-point number trades exact spacing for range: it stores a sign, an exponent, and a fixed number of significand bits, so the gap between neighbors grows with the magnitude. The format decides the hardware (multiplier width, lanes per vector register, bytes per operand) and the numerics (what overflows, what rounds away, what accumulates error).</p>
+<p>How hardware represents numbers and computes with them. Integers and fixed point space their values evenly, so the absolute error is constant and the range is small. A floating-point number trades that for range: it stores a sign, an exponent, and a fixed number of significand bits, so the gap between neighbors grows with the magnitude. The format decides the hardware (adder and multiplier width, lanes per vector register, bytes per operand) and the numerics (what overflows, what rounds away, what accumulates error).</p>
 <h3>The Pages</h3>
+<p><strong>Representations:</strong></p>
 <ol start="0">
-<li><a href="#/fp-encoding">Encoding a Float</a>: the sign, exponent, and fraction fields, the hidden bit, special values, and ULP.</li>
+<li><a href="#/fp-encoding">Encoding a Float</a>: the sign, exponent, and fraction fields, the hidden bit, special values, and ULP, with an encoder you can try.</li>
 <li><a href="#/fp-formats">Floating-Point Formats Compared</a>: every format from FP128 down to FP4, side by side.</li>
 <li><a href="#/fp-rounding">Rounding, Exceptions, and Error</a>: rounding modes, guard, round, and sticky bits, the five exception flags, subnormal penalties, and summation error.</li>
 <li><a href="#/fp-ml-formats">Low-Precision ML Formats</a>: BF16, TF32 and “BF32,” FP8, FP6, FP4, and block scaling.</li>
+<li><a href="#/fixed-point">Fixed Point and Integer Quantization</a>: Q formats, saturating arithmetic, and INT8 and INT4 inference.</li>
+</ol>
+<p><strong>Hardware:</strong></p>
+<ol start="5">
+<li><a href="#/int-units">Integer Arithmetic Units</a>: prefix adders, shifters, Booth multipliers and compressor trees, and SRT dividers.</li>
 <li><a href="#/fp-units">Floating-Point Units and the FMA Pipeline</a>: the FMA datapath stage by stage, latency and throughput, area by format, and ISA support.</li>
 </ol>
 <h3>Where It Connects</h3>
@@ -56,7 +62,7 @@ section({
 }, [
 {
   id: "fp-encoding",
-  region: "fp",
+  region: "arith",
   title: "Encoding a Float",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Appendix J, Computer Arithmetic (floating-point representation). Patterson &amp; Hennessy, <em>Computer Organization and Design</em>, Section 3.5, Floating Point.`,
   sections: [
@@ -153,7 +159,7 @@ section({
 
 {
   id: "fp-formats",
-  region: "fp",
+  region: "arith",
   title: "Floating-Point Formats Compared",
   book: `Sources: IEEE 754-2019. Micikevicius et al., “FP8 Formats for Deep Learning” (2022). Open Compute Project, “OCP Microscaling Formats (MX) v1.0 Specification” (2023).`,
   sections: [
@@ -209,7 +215,7 @@ ${FP_BARS}
 
 {
   id: "fp-rounding",
-  region: "fp",
+  region: "arith",
   title: "Rounding, Exceptions, and Error",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Appendix J, Computer Arithmetic (rounding, guard and sticky bits, exceptions). Nicholas Higham, <em>Accuracy and Stability of Numerical Algorithms</em> (2nd ed.), Chapter 4, Summation. Agner Fog, <em>The Microarchitecture of Intel, AMD, and VIA CPUs</em>, for measured subnormal penalties.`,
   sections: [
@@ -315,7 +321,7 @@ ${FP_BARS}
 
 {
   id: "fp-ml-formats",
-  region: "fp",
+  region: "arith",
   title: "Low-Precision ML Formats",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Chapter 7, Domain-Specific Architectures, for bfloat16 on Google’s TPU.`,
   sections: [
@@ -389,8 +395,188 @@ ${FP_BARS}
 },
 
 {
+  id: "fixed-point",
+  region: "arith",
+  title: "Fixed Point and Integer Quantization",
+  book: `Sources: Jacob et al., “Quantization and Training of Neural Networks for Efficient Integer-Arithmetic-Only Inference” (CVPR 2018). Intel 64 and IA-32 Architectures Software Developer’s Manual, for <code>VPMADDUBSW</code> and <code>VPDPBUSD</code>. Arm Architecture Reference Manual, for <code>SQRDMULH</code>, <code>SDOT</code>, and <code>SMMLA</code>.`,
+  sections: [
+    { id: "q", label: "Q Formats" },
+    { id: "ops", label: "Fixed-Point Arithmetic" },
+    { id: "where", label: "Where Fixed Point Is Used" },
+    { id: "quant", label: "Integer Quantization for ML" },
+    { id: "hw", label: "INT8 Dot-Product Hardware" }
+  ],
+  body: `
+<h3 id="sec-q">Q Formats</h3>
+<p>A fixed-point number is an integer with an implied binary point. In <strong>Qm.n</strong> notation a signed value has m integer bits and n fraction bits after the sign bit, so it fits in 1 + m + n bits and represents the integer stored divided by 2<sup>n</sup>.</p>
+<ul>
+<li><strong>Range:</strong> −2<sup>m</sup> to 2<sup>m</sup> − 2<sup>−n</sup>.</li>
+<li><strong>Resolution:</strong> 2<sup>−n</sup> everywhere. The <em>absolute</em> error is constant, where floating point keeps the <em>relative</em> error constant.</li>
+<li><strong>Common formats:</strong> Q15 (Q0.15, 16 bits, range [−1, 1)) and Q31 (32 bits) in DSP and audio, and Q16.16 in older graphics and game engines.</li>
+</ul>
+<p>The format is a convention between the programmer and the code. The hardware only sees integers, so nothing checks that two operands share a binary point.</p>
+
+<h3 id="sec-ops">Fixed-Point Arithmetic</h3>
+<ul>
+<li><strong>Add and subtract:</strong> ordinary integer adds, once both operands have the same n. Aligning different formats is a shift.</li>
+<li><strong>Multiply:</strong> Qa.b × Qc.d gives Q(a+c).(b+d) in twice the width. To return to the input format, shift right by the extra fraction bits, adding half an LSB first to round to nearest instead of truncating toward −∞.</li>
+<li><strong>Saturate, don’t wrap:</strong> integer overflow wraps around, which turns a loud audio sample into a loud click of the opposite sign. DSP code clamps to the largest or smallest value instead, and most ISAs have saturating instructions for it (Arm <code>QADD</code>, x86 <code>PADDSW</code>).</li>
+<li><strong>Divide:</strong> rare and slow, as with integers. It’s usually replaced by multiplying with a precomputed reciprocal.</li>
+</ul>
+<p><strong>Q15 multiply in C,</strong> rounding and saturating (what Arm’s <code>SQRDMULH</code> does in one instruction):</p>
+<pre><code>int16_t q15_mul(int16_t a, int16_t b) {
+    int32_t p = (int32_t)a * b;           <span class="cm">// Q30 product</span>
+    p = (p + (1 &lt;&lt; 14)) &gt;&gt; 15;            <span class="cm">// round to nearest, back to Q15</span>
+    if (p &gt; INT16_MAX) p = INT16_MAX;     <span class="cm">// only (-1) * (-1) overflows</span>
+    return (int16_t)p;
+}</code></pre>
+<p>−1 × −1 is the one overflow: in Q15, −1 is representable but +1 is not, so the product saturates to 0.99997.</p>
+
+<h3 id="sec-where">Where Fixed Point Is Used</h3>
+<ul>
+<li><strong>Cores without an FPU:</strong> Arm Cortex-M0 and M3 class microcontrollers, where software floating point costs tens to hundreds of cycles per operation.</li>
+<li><strong>DSP, audio, and radio:</strong> filters and FFTs with known signal ranges, where fixed point gives more precision per bit than a float of the same width.</li>
+<li><strong>Determinism:</strong> integer arithmetic gives bit-identical results on every compiler and ISA, which is why lockstep game simulations and some financial code use it.</li>
+<li><strong>Hardware structures:</strong> predictors and replacement policies that need weights or counters use small saturating integers. Perceptron branch predictors, for example, keep 8-bit signed weights and sum them with an integer adder tree.</li>
+<li><strong>ML inference:</strong> integer quantization, below.</li>
+</ul>
+
+<h3 id="sec-quant">Integer Quantization for ML</h3>
+<p>Quantization maps real values onto integers with an <strong>affine</strong> mapping, a scale s and a zero point z:</p>
+<p class="eq">x ≈ s × (q − z)</p>
+<ul>
+<li><strong>Symmetric</strong> (z = 0): the usual choice for weights, whose distribution is centered on zero. INT8 then uses −127 to 127.</li>
+<li><strong>Asymmetric</strong> (z ≠ 0): for activations that are all non-negative after a ReLU, so all 256 UINT8 codes are used.</li>
+<li><strong>Granularity:</strong> one scale per tensor, per output channel, or per group of consecutive weights. Weight-only INT4 schemes such as GPTQ and AWQ typically use groups of 128. A group with a 16-bit scale costs 16 / g extra bits per weight, for example 4 + 16/64 = 4.25 bits with groups of 64.</li>
+</ul>
+<p><strong>An integer dot product.</strong> With symmetric weights, Σ x<sub>i</sub> w<sub>i</sub> = s<sub>x</sub> s<sub>w</sub> Σ (q<sub>x,i</sub> − z<sub>x</sub>) q<sub>w,i</sub>. The sum runs entirely in integer multiply-accumulates into INT32, and the z<sub>x</sub> term folds into a precomputed per-channel constant. The INT32 result is then <strong>requantized</strong> to INT8 for the next layer by multiplying by s<sub>x</sub> s<sub>w</sub> / s<sub>y</sub>. Integer-only pipelines represent that factor as a 32-bit fixed-point multiplier and a shift, so no floating point is needed at all.</p>
+<p><strong>Integer or FP8?</strong> INT8’s evenly spaced codes suit narrow, well-behaved distributions. FP8’s spacing grows with magnitude, so it handles outliers better, which is why training and many LLM deployments moved to FP8 (see <a href="#/fp-ml-formats/fp8">FP8, FP6, FP4 and Block Scaling</a>).</p>
+
+<h3 id="sec-hw">INT8 Dot-Product Hardware</h3>
+<div class="tbl"><table>
+<tr><th>Platform</th><th>Instruction or unit</th><th>What it computes</th></tr>
+<tr><td>x86 (SSSE3, AVX2)</td><td><code>VPMADDUBSW</code></td><td>u8 × s8 products, adjacent pairs summed into <strong>saturating</strong> s16</td></tr>
+<tr><td>x86 (AVX-512 VNNI, AVX-VNNI)</td><td><code>VPDPBUSD</code></td><td>4 u8 × s8 products summed into each s32 lane, in one instruction</td></tr>
+<tr><td>x86 (AMX)</td><td>INT8 tile multiply</td><td>Matrix multiply of INT8 tiles into INT32 tiles</td></tr>
+<tr><td>Arm (Armv8.2 dot product, Armv8.6 I8MM)</td><td><code>SDOT</code>, <code>UDOT</code>, <code>SMMLA</code></td><td>4-way dot products into s32, and 2 × 8 by 8 × 2 matrix multiply-accumulate</td></tr>
+<tr><td>NVIDIA GPUs</td><td>INT8 tensor cores (Turing onward)</td><td>INT8 MMA into INT32. INT4 was supported on Turing and Ampere and dropped in Hopper</td></tr>
+</table></div>
+<p>A single integer MAC is much smaller and lower power than an FP MAC of the same width: no alignment shifter, no normalizer, no rounding. That’s the main reason inference accelerators favored INT8 before FP8 arrived.</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A motor controller stores values in Q4.11 (16 bits). Compute 3.25 × −1.5, then 5 × 4, both returning Q4.11 with rounding and saturation.</p>`,
+        a: `<ol start="0"><li>Q4.11 has range [−16, 16 − 2<sup>−11</sup>] and resolution 2<sup>−11</sup> ≈ 0.00049.</li><li>Encode: 3.25 × 2,048 = 6,656, and −1.5 × 2,048 = −3,072.</li><li>Multiply: 6,656 × −3,072 = −20,447,232, a Q8.22 value in 32 bits.</li><li>Shift back by 11 with rounding: (−20,447,232 + 1,024) &gt;&gt; 11 = −9,984 (the product was an exact multiple, so rounding doesn’t change it). −9,984 / 2,048 = <strong>−4.875</strong>, which is exact.</li><li>5 × 4: 10,240 × 8,192 = 83,886,080, and &gt;&gt; 11 gives 40,960. That’s more than the largest code, 32,767, so it saturates to 32,767 = <strong>15.9995</strong>. Without saturation, the low 16 bits of 40,960 read as −24,576 = −12.0.</li></ol>`
+      },
+      {
+        q: `<p>Llama 3 70B has 70.6 billion parameters. How large are the weights in BF16, in INT8 with one FP32 scale per output channel (negligible overhead), and in INT4 with groups of 128 that each carry an FP16 scale and an FP16 zero point?</p>`,
+        a: `<ol start="0"><li>BF16: 70.6 × 10<sup>9</sup> × 2 bytes = <strong>141.2 GB</strong>.</li><li>INT8: 70.6 GB, plus a few hundred kilobytes of scales, so about <strong>70.6 GB</strong>.</li><li>INT4: each group adds 16 + 16 = 32 bits for 128 weights, so 4 + 32/128 = 4.25 bits per weight. 70.6 × 10<sup>9</sup> × 4.25 / 8 ≈ <strong>37.5 GB</strong>.</li><li>Takeaway: INT4 fits on one 48 GB GPU, while BF16 needs at least two 80 GB GPUs.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Before VNNI, x86 INT8 inference used <code>VPMADDUBSW</code> (u8 × s8, adjacent pairs summed into saturating s16) followed by <code>VPMADDWD</code> to widen to s32. Show that this can give wrong answers. Which inputs trigger it, and how did libraries work around it?</p>`,
+        a: `<p>The largest pair sum is 255 × 127 + 255 × 127 = 64,770, and the most negative is 255 × (−128) × 2 = −65,280. s16 only holds −32,768 to 32,767, so any pair whose sum exceeds that saturates and the dot product is silently wrong. It needs large unsigned activations paired with large weights of the same sign, which is rare but does happen with outliers.</p><p>Workarounds: restrict weights to 7 bits (−64 to 63), so a pair is at most 255 × 63 × 2 = 32,130 and fits, at the cost of one bit of weight precision. Or shift activations into a smaller range. <code>VPDPBUSD</code> fixes it by summing 4 products directly into s32. The largest possible sum is 4 × 255 × 128 = 130,560, far from the s32 limits, and it’s one instruction instead of two or three.</p>`
+      },
+      {
+        q: `<p>A perceptron branch predictor keeps 8-bit signed weights for each of 64 history bits plus a bias, and predicts taken if the dot product with the ±1 history is non-negative. Why integers rather than floats, and how wide must the adder tree’s output be?</p>`,
+        a: `<p>Integers because:</p><ul><li>With ±1 inputs the “multiply” is just a conditional negate, and an integer adder tree is small and fast enough to fit in the prediction cycle budget.</li><li>Weights are trained with saturating ±1 updates, so they never need fractions.</li><li>Results are deterministic and easy to verify against a C model.</li></ul><p>Width: 65 terms each in [−128, 127] give a sum in [−8,320, 8,255]. That needs 15 bits signed, since 2<sup>13</sup> = 8,192 is too small and 2<sup>14</sup> = 16,384 covers it. In general, summing N values of b bits needs b + ⌈log<sub>2</sub> N⌉ bits: 8 + 7 = 15 here. Real designs also truncate low weight bits or use carry-save trees to meet timing, which a performance model can usually ignore but a timing model cannot.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "int-units",
+  region: "arith",
+  title: "Integer Arithmetic Units",
+  book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Appendix J, Computer Arithmetic (carry-lookahead, carry-select, and carry-save adders, Booth recoding and multiplier trees, SRT division, the Pentium FDIV bug). Agner Fog, “Instruction Tables,” for the latencies below.`,
+  sections: [
+    { id: "adders", label: "Adders: Ripple Carry to Parallel Prefix" },
+    { id: "shift", label: "Shifters and Bit Counting" },
+    { id: "mul", label: "Multipliers" },
+    { id: "div", label: "Dividers" },
+    { id: "lat", label: "Measured Latencies" }
+  ],
+  body: `
+<h3 id="sec-adders">Adders: Ripple Carry to Parallel Prefix</h3>
+<p>An n-bit add is easy except for the carry, which can ripple from bit 0 to bit n − 1. Every fast adder is a way to compute carries in fewer than n gate delays. Each bit position defines</p>
+<p class="eq">g<sub>i</sub> = a<sub>i</sub> b<sub>i</sub> (generate), &nbsp; p<sub>i</sub> = a<sub>i</sub> ⊕ b<sub>i</sub> (propagate), &nbsp; c<sub>i+1</sub> = g<sub>i</sub> + p<sub>i</sub> c<sub>i</sub>, &nbsp; s<sub>i</sub> = p<sub>i</sub> ⊕ c<sub>i</sub></p>
+<ul>
+<li><strong>Ripple carry:</strong> n full adders in a chain. Smallest, with delay linear in n.</li>
+<li><strong>Carry lookahead:</strong> combine (g, p) pairs for groups of bits, (G, P) = (g<sub>1</sub> + p<sub>1</sub> g<sub>0</sub>, p<sub>1</sub> p<sub>0</sub>), so a group’s carry-out is known without waiting for its bits.</li>
+<li><strong>Parallel prefix:</strong> apply that combine operator in a tree to get every carry in log<sub>2</sub> n levels. <strong>Kogge–Stone</strong> uses exactly log<sub>2</sub> n levels and n log<sub>2</sub> n − n + 1 combine cells, each with fanout 2, but needs many long wires. <strong>Brent–Kung</strong> uses 2 log<sub>2</sub> n − 1 levels and only 2n − 2 − log<sub>2</sub> n cells. <strong>Han–Carlson</strong> and <strong>Sklansky</strong> sit in between. For 64 bits: Kogge–Stone takes 6 levels and 321 cells, Brent–Kung 11 levels and 120 cells.</li>
+<li><strong>Carry select:</strong> compute the upper half twice, for carry-in 0 and 1, and pick one when the real carry arrives.</li>
+<li><strong>Carry save:</strong> to add three numbers, a row of full adders (3:2 compressors) produces a sum word and a carry word with no carry propagation at all. Only the final step needs a real adder. Multipliers and the FMA’s 3-input add are built this way.</li>
+</ul>
+<p>A 64-bit prefix adder fits in a fraction of a cycle at 5 GHz, which is why integer adds have 1-cycle latency. The harder part is the bypass network that gets the result back to the next adder in time.</p>
+
+<h3 id="sec-shift">Shifters and Bit Counting</h3>
+<ul>
+<li><strong>Barrel (logarithmic) shifter:</strong> log<sub>2</sub> n stages of 2:1 muxes, stage k shifting by 2<sup>k</sup> when bit k of the amount is set. 6 stages for 64 bits, so shifts and rotates are also 1 cycle.</li>
+<li><strong>Population count:</strong> a tree of adders over the bits, about log<sub>2</sub> n levels deep.</li>
+<li><strong>Leading and trailing zero count:</strong> a priority encoder tree. The same logic normalizes FP results, and FPUs predict it in parallel with the add (the leading-zero anticipator, see <a href="#/fp-units/fma">Inside the FMA Pipeline</a>).</li>
+</ul>
+<p>Some cores give these a single cycle (Zen 4), others put them on the 3-cycle multiply port (Intel through Ice Lake), which matters for bit-manipulation-heavy code such as compression and chess engines.</p>
+
+<h3 id="sec-mul">Multipliers</h3>
+<p>An n × n multiply is a sum of n shifted partial products. Hardware speeds up both how many there are and how fast they’re summed:</p>
+<ol start="0">
+<li><strong>Booth recoding (radix 4):</strong> recode the multiplier into digits in {−2, −1, 0, 1, 2}, each covering 2 bits. Every digit selects 0, ±a, or ±2a, all cheap (a shift and an invert), so there are only about n/2 + 1 partial products.</li>
+<li><strong>Compressor tree:</strong> reduce the partial products with 3:2 compressors (Wallace or Dadda trees) or 4:2 compressors until two rows remain. Each level cuts the row count by about a third, so the depth grows with log<sub>1.5</sub> of the row count.</li>
+<li><strong>Final adder:</strong> one carry-propagate adder of width 2n turns the two rows into the product.</li>
+</ol>
+<p>This pipelines into 3 cycles for a 64-bit multiply on modern x86 cores, with a new multiply accepted every cycle. The full 128-bit product (<code>MUL</code>, <code>MULX</code>) needs the upper half of the final adder and an extra result write.</p>
+
+<h3 id="sec-div">Dividers</h3>
+<p>Division produces quotient bits one digit at a time, and each digit depends on the remainder from the previous one, so it can’t be pipelined the way multiplication can.</p>
+<ul>
+<li><strong>Restoring and non-restoring:</strong> one quotient bit per iteration, a subtract and a sign check each time.</li>
+<li><strong>SRT:</strong> a redundant quotient digit set (for radix 4, {−2, …, 2}) lets each digit be chosen from a few top bits of the remainder through a small lookup table, while the remainder stays in carry-save form. Radix 4 gives 2 bits per iteration. Radix 16 gives 4, often built as overlapped radix-4 stages.</li>
+<li><strong>Newton–Raphson and Goldschmidt:</strong> iterate on the reciprocal with multiplies, doubling the correct bits each step. They reuse the multiplier and suit FP divide and square root, but the result needs a correction step to round correctly.</li>
+<li><strong>Early out:</strong> integer dividers normalize first and skip leading quotient zeros, so small quotients finish sooner. That’s why divide latency is a range.</li>
+</ul>
+<p><strong>The Pentium FDIV bug (1994):</strong> 5 of the 1,066 entries in the original Pentium’s radix-4 SRT lookup table were missing, so some divisions were wrong from about the 4th significant decimal digit. The replacement program cost Intel $475 million and is a standard argument for formally verifying arithmetic units.</p>
+<p><strong>Division by a constant</strong> never uses the divider: compilers multiply by a precomputed reciprocal and shift. For unsigned 32-bit x, x / 10 = (x × 0xCCCCCCCD) &gt;&gt; 35, where 0xCCCCCCCD = ⌈2<sup>35</sup> / 10⌉. Libraries such as libdivide do the same at run time for divisors that are fixed but not known at compile time.</p>
+
+<h3 id="sec-lat">Measured Latencies</h3>
+<div class="tbl"><table>
+<tr><th>Operation</th><th>Intel Skylake</th><th>Intel Ice Lake</th><th>AMD Zen 4</th></tr>
+<tr><td>Add, logic, shift (r64)</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td><code>IMUL r64, r64</code></td><td>3</td><td>3</td><td>3</td></tr>
+<tr><td><code>POPCNT</code>, <code>LZCNT</code></td><td>3</td><td>3</td><td>1</td></tr>
+<tr><td><code>DIV r32</code></td><td>26</td><td>12</td><td>10–13</td></tr>
+<tr><td><code>DIV r64</code></td><td>35–88</td><td>15</td><td>10–18</td></tr>
+<tr><td><code>DIV r64</code> reciprocal throughput</td><td>21–83</td><td>10</td><td>7–12</td></tr>
+</table></div>
+<p>Latencies in cycles, from Agner Fog’s tables. Ice Lake’s new divider cut 64-bit divide latency by more than half, so a model calibrated on Skylake badly overestimates division-heavy code (hash tables with prime moduli, some compression codecs) on newer cores.</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>For a 32-bit adder, how many prefix levels and combine cells do Kogge–Stone and Brent–Kung need? Which would you pick for an ALU on the critical bypass loop, and which for a low-power microcontroller?</p>`,
+        a: `<ol start="0"><li>Kogge–Stone: log<sub>2</sub> 32 = <strong>5 levels</strong>, and 32 × 5 − 32 + 1 = <strong>129 cells</strong>.</li><li>Brent–Kung: 2 × 5 − 1 = <strong>9 levels</strong>, and 2 × 32 − 2 − 5 = <strong>57 cells</strong>.</li><li>A high-frequency core’s ALU picks Kogge–Stone (or a sparse variant such as Han–Carlson), because adder delay sits inside the 1-cycle add-to-dependent-add loop.</li><li>A microcontroller at a few hundred MHz has slack in the cycle, so Brent–Kung’s fewer cells and shorter wires save area and switching power.</li></ol>`
+      },
+      {
+        q: `<p>GCC compiles unsigned 32-bit <code>x / 3</code> as <code>(x * 0xAAAAAAAB) &gt;&gt; 33</code> using a 64-bit product. Show where the constant comes from and check it for x = 100 and x = 4,294,967,295.</p>`,
+        a: `<ol start="0"><li>2<sup>33</sup> / 3 = 2,863,311,530.67, so ⌈2<sup>33</sup> / 3⌉ = 2,863,311,531 = <code>0xAAAAAAAB</code>.</li><li>x = 100: 100 × 2,863,311,531 = 286,331,153,100. Divided by 2<sup>33</sup> = 8,589,934,592 that’s 33.33, which truncates to <strong>33</strong>.</li><li>x = 2<sup>32</sup> − 1: the product is 12,297,829,381,041,378,645 (it fits in 64 bits), and divided by 2<sup>33</sup> it’s 1,431,655,765.17, which truncates to <strong>1,431,655,765</strong>, the correct quotient.</li><li>The error of the rounded-up constant is small enough that it never reaches the next integer for any 32-bit x. That condition is what the compiler checks when it picks the shift amount.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A 64 × 64 multiplier is built from a Dadda tree of 3:2 compressors. How many reduction levels does it need without Booth recoding and with radix-4 Booth? What does that say about what Booth recoding actually buys?</p>`,
+        a: `<p>A Dadda tree reduces to the sequence of maximum heights 2, 3, 4, 6, 9, 13, 19, 28, 42, 63, 94, … and needs one level for each height below the starting row count.</p><ul><li>Without Booth: 64 rows. The heights below 64 are 63, 42, 28, 19, 13, 9, 6, 4, 3, 2, so <strong>10 levels</strong>.</li><li>Radix-4 Booth: about 64/2 + 1 = 33 rows. The heights below 33 are 28, 19, 13, 9, 6, 4, 3, 2, so <strong>8 levels</strong>.</li></ul><p>Booth halves the number of partial products, and so roughly halves the tree’s area and switching power, but saves only 2 of 10 levels of delay, because tree depth grows with the log of the row count. The recoding also adds a mux level up front. So Booth recoding is mostly an area and power win, and the latency win is modest. That’s why multiplier latency hasn’t improved much below 3 cycles, while multiplier count and width (more SIMD lanes) keep growing.</p>`
+      },
+      {
+        q: `<p>A radix-4 SRT divider retires 2 quotient bits per cycle after 2 cycles of setup, with early out on leading zeros. Estimate the latency of dividing a 64-bit dividend of 2<sup>40</sup> by 1,000,000, then a full 64-bit quotient. What changes with a radix-16 divider, and why might a designer not just go to radix 256?</p>`,
+        a: `<ol start="0"><li>Quotient size: 2<sup>40</sup> / 10<sup>6</sup> ≈ 1.1 × 10<sup>6</sup>, about 21 bits. That’s ⌈21 / 2⌉ = 11 iterations, so about <strong>13 cycles</strong>.</li><li>Full 64-bit quotient: 32 iterations plus setup, about <strong>34 cycles</strong>.</li><li>Radix 16 (4 bits per cycle): about 2 + 6 = 8 cycles and 2 + 16 = 18 cycles.</li><li>Why not radix 256: the digit-selection table grows quickly with radix (it needs more remainder and divisor bits as input), each iteration must also form a larger set of divisor multiples, and the iteration must still fit in one cycle. Designs therefore overlap several small-radix stages per cycle instead of building one large one.</li></ol>`
+      }
+    ]
+  }
+},
+
+{
   id: "fp-units",
-  region: "fp",
+  region: "arith",
   title: "Floating-Point Units and the FMA Pipeline",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Appendix J, Computer Arithmetic (floating-point multiplication and addition, rounding).`,
   sections: [
