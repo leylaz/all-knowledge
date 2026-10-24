@@ -384,19 +384,21 @@ One instruction cache miss:
 <li><strong>Idealization experiments.</strong> Confirm a suspected cause by removing it: make the L2 always hit, give the ROB unlimited entries, use a perfect branch predictor. The IPC gained is an upper bound on what fixing that stage can deliver, and if it's small, the stall counter was pointing at a symptom.</li>
 </ol>
 <details class="ex"><summary>Worked example: deciding what to fix on a pointer-heavy benchmark</summary>
-<p><strong>Question.</strong> On SPEC CPU2017 <code>505.mcf_r</code> (network simplex over large linked structures), your model of a 6-wide core with a 512-entry ROB and 16 L1D miss-status holding registers (MSHRs) runs at IPC 0.62 and reports rename stalled on "ROB full" 41% of cycles. The team wants to double the ROB. The model also gives you:</p>
+<p><strong>Question.</strong> On SPEC CPU2017 <code>505.mcf_r</code> (network simplex over large linked structures), your model of a 3.5 GHz, 6-wide core with a 512-entry ROB, 16 L1D miss-status holding registers (MSHRs), and about 80 ns (280 cycles) of DRAM latency runs at IPC 0.62 and reports rename stalled on "ROB full" 41% of cycles. The team wants to double the ROB. The model also gives you:</p>
 <ul>
 <li><strong>Blame propagation</strong> (class of the instruction at the ROB head during the ROB-full cycles):
 <ul>
 <li>load served by DRAM (missed the last-level cache): 64%</li>
 <li>load served by L2: 14%</li>
-<li>mispredicted branch still waiting on its operand: 12%</li>
+<li>load served by the last-level cache: 12%</li>
 <li>other: 10%</li>
 </ul></li>
-<li><strong>Last-level misses:</strong> 12 per kilo-instruction (MPKI).</li>
-<li><strong>Last-level misses in flight</strong> while the ROB is full: a histogram with a mean of 1.4, rarely above 3. In the 2× ROB run the mean rises only to 1.5.</li>
+<li><strong>Last-level misses:</strong> 3 per kilo-instruction (MPKI).</li>
+<li><strong>Last-level misses in flight</strong> in the ROB-full cycles that have at least one in flight: mean 1.4, rarely above 3. In the 2× ROB run the mean rises only to 1.5.</li>
+<li><strong>L1D MSHR occupancy</strong> in the ROB-full cycles: mean 2.3 of 16, all 16 busy in under 1% of them.</li>
 <li><strong>Dependence tagging:</strong> 91% of last-level misses have an address computed from the data of an older miss that is still in flight.</li>
 <li><strong>Per-PC attribution:</strong> 5 load PCs account for 71% of the ROB-full cycles, and each one loads a pointer field (the next arc or node) that the following load uses as its address.</li>
+<li><strong>Branches:</strong> 9 mispredicts per kilo-instruction, and 62% of the mispredicted branches have an operand produced by a load served by DRAM.</li>
 <li><strong>Idealization experiments:</strong>
 <div class="tbl"><table>
 <tr><th>Experiment</th><th>IPC</th><th>Gain</th></tr>
@@ -415,15 +417,15 @@ One instruction cache miss:
 <li>The misses are independent but far apart, so the window rarely holds two at once. A bigger ROB would help.</li>
 <li>The misses are dependent (pointer chasing): each address comes from an earlier miss, so they can only run one after another. A bigger ROB has nothing independent to overlap.</li>
 </ul>
-Three measurements decide it:
+Three measurements test them:
 <ul>
-<li><strong>Window bound:</strong> the ROB holds about 512 × 12 / 1000 ≈ 6.1 misses. The measured 1.4 is far below that, so the window isn't what limits overlap.</li>
+<li><strong>Window bound:</strong> the ROB holds about 512 × 3 / 1000 ≈ 1.5 last-level misses. The measured 1.4 sits right at it, so this alone can't rule out misses that are just far apart. The next two measurements decide it.</li>
 <li><strong>Dependence tagging:</strong> 91% of the misses wait on an older miss for their address.</li>
-<li><strong>ROB sweep:</strong> doubling the ROB doubles the window bound to about 12, but misses in flight only rise from 1.4 to 1.5.</li>
+<li><strong>ROB sweep:</strong> doubling the ROB doubles the window bound to about 3.1, but misses in flight only rise from 1.4 to 1.5. Far-apart misses would have followed the bound up.</li>
 </ul>
-So the misses are dependent. The MSHRs aren't the limit either: 1.4 is far below 16. For contrast, misses in flight near the window bound would mean the window is the limit, and near the MSHR count would mean the MSHRs are.</li>
+So the misses are dependent. The L1D MSHRs aren't the limit either: they average 2.3 of 16 and are almost never all busy. For contrast, misses in flight near the window bound would mean the window is the limit, and near the MSHR count would mean the MSHRs are.</li>
 <li><strong>Per-PC attribution.</strong> The 5 hot PCs all load the next pointer, the code-level reason for the dependence found in step 1.</li>
-<li><strong>Read the idealization table.</strong> The bigger ROB is worth 6%, so the counter was mostly pointing at a symptom. Memory is the cause (+53%). The two ideals together give far more than the sum of the separate gains (+118% vs. +68%): the mispredicted branches depend on missing loads, so each one resolves late and flushes the misses queued behind it. Fixing either one alone leaves the other in the way.</li>
+<li><strong>Read the idealization table.</strong> The bigger ROB is worth 6%, so the counter was mostly pointing at a symptom. Memory is the cause (+53%). The two ideals together give far more than the sum of the separate gains (+118% vs. +68%): 62% of the mispredicted branches depend on loads served by DRAM, so each one resolves late and flushes the misses queued behind it. Fixing either one alone leaves the other in the way.</li>
 <li><strong>Recommendation:</strong> don't double the ROB. Spend the area on memory-side help (a prefetcher that can follow pointers, or a lower-latency path to memory) and on predicting branches that depend on loads.</li>
 </ol>
 </details>
