@@ -555,6 +555,19 @@ Q(`<p>Using Little’s law, how many ROB entries would a 6-wide core need to ful
 </ul>
 <p>So no realistic window hides DRAM latency. Performance on memory-bound code comes from <em>overlapping</em> misses with each other (MLP: the window must be big enough to reach the next independent miss), from prefetching (turning DRAM misses into cache hits), and from keeping the working set in cache. A bigger ROB helps only to the extent that it exposes more independent misses.</p>
 <p><strong>Concrete case:</strong> Little’s law with the raw ROB size gives 512 / 400 = <strong>1.28</strong>. The simulation gives more because the window advances in whole miss-to-miss chunks: when the miss at the head returns, retirement runs on to the next miss 100 instructions later, so dispatch can reach 612 instructions past the old head and pick up one more miss. On average about 6 misses (600 instructions) overlap per 400-cycle latency: 600 / 400 = 1.5, minus small pipeline effects, giving the simulated <strong>1.45</strong>. Little’s law with the raw window slightly underestimates when misses are spread at a spacing comparable to the window; round the window up to the next miss.</p>`, "hard") +
+Q(`<p>A memory-bound loop has one independent DRAM miss every 120 instructions. The core runs at 5 GHz with 90 ns DRAM latency and 64-byte lines. Compare a 320-entry ROB (Zen 4) with a 512-entry ROB (Golden Cove), assuming the window is always full of useful work and misses are evenly spaced. For each, estimate:</p><ul><li>Outstanding misses</li><li>Miss throughput (misses per cycle)</li><li>Effective penalty per miss</li><li>Demand DRAM bandwidth</li><li>The IPC ceiling</li></ul><p>Is the 16-entry fill buffer a limit for either?</p>`,
+`<p>DRAM latency is 90 ns × 5 GHz = 450 cycles. A miss can be outstanding only while its load is in the window, so outstanding ≈ ROB size / instructions between misses. Then Little’s law gives throughput = outstanding / latency, and the effective penalty per miss is latency / outstanding = 1 / throughput.</p>
+<div class="tbl"><table>
+<tr><th>ROB</th><th>Outstanding</th><th>Throughput</th><th>Effective penalty</th><th>Demand bandwidth</th><th>IPC ceiling</th></tr>
+<tr><td>320</td><td>320 / 120 ≈ 2.67</td><td>2.67 / 450 ≈ 0.0059</td><td>≈ 169 cycles</td><td>≈ 1.9 GB/s</td><td>≈ 0.71</td></tr>
+<tr><td>512</td><td>512 / 120 ≈ 4.27</td><td>4.27 / 450 ≈ 0.0095</td><td>≈ 105 cycles</td><td>≈ 3.0 GB/s</td><td>≈ 1.14</td></tr>
+</table></div>
+<ul>
+<li><strong>Bandwidth:</strong> throughput × 64 B × 5 × 10<sup>9</sup> cycles per second, for example 0.0059 × 64 × 5 × 10<sup>9</sup> ≈ 1.9 GB/s.</li>
+<li><strong>IPC ceiling:</strong> throughput × 120 instructions per miss, which reduces to ROB size / latency (320 / 450 and 512 / 450). The core retires at most one window of instructions per miss latency.</li>
+<li><strong>Fill buffers:</strong> 16 × 64 B / 90 ns ≈ 11.4 GB/s, and 4.3 outstanding is far below 16. Neither design is MSHR-limited, so the window is the limit and the larger ROB is worth about 1.6×.</li>
+</ul>
+<p>Caveats: this is idealized. Real misses cluster, mispredicts cut the window short, and the load queue or physical registers may fill before the ROB. As the Little’s-law question above shows, a cycle-level simulation lands slightly higher because the window advances in whole miss-to-miss chunks.</p>`, "hard") +
 Q(`<p>Your statistics say average ROB occupancy is 180 of 512 entries, so a colleague argues the ROB is oversized and could be cut to 256. But the ROB is also full in 25% of cycles. Reconcile the two numbers, and say what they do and don’t tell you about shrinking or growing the ROB.</p>`,
 `<p>If the ROB is full (512) in 25% of cycles, the other 75% average x where 0.25 × 512 + 0.75 × x = 180, so x ≈ <strong>69</strong>. The occupancy is bimodal: nearly full during memory-bound phases (a miss at the head, the window filling behind it), and mostly empty during the rest (refilling after mispredicts, compute phases with short lifetimes).</p>
 <p>Shrinking to 256 would cap exactly the memory-bound phases, which are where a large window earns its keep by overlapping misses; the average hides that. Growing it helps only if, in those full phases, more independent misses lie beyond the current window. What you need is the occupancy histogram, the stall cycles attributed to a full ROB with the head instruction’s type, average outstanding misses during full-ROB phases, and ultimately a sweep. Never size a structure from its average occupancy.</p>`, "hard") +
@@ -951,6 +964,18 @@ Q(`<p>Stores are 10% of instructions on a core running at IPC 3. Committed store
 Q(`<p>An Intel Skylake-class core can track about 10–12 outstanding L1D misses (fill buffers). With 80 ns DRAM latency and 64-byte lines, what bandwidth can one core pull from DRAM through demand misses alone? Measured single-core bandwidth on such chips is noticeably higher. Why?</p>`,
 `<p>Little’s law: bandwidth = bytes in flight / latency = 12 × 64 B / 80 ns ≈ <strong>9.6 GB/s</strong> (8 GB/s with 10 buffers).</p>
 <p>The measured figure is higher because the L2’s hardware prefetchers fetch ahead into the L2 (and L3), and those requests are tracked by the L2’s own miss queue, not the L1 fill buffers. Many L1 misses then become L2 hits with about 12-cycle latency, so each fill buffer turns over far faster. Same law, much shorter latency. That’s also why disabling prefetchers in a single-core streaming benchmark drops bandwidth toward the Little’s-law bound.</p>`, "hard") +
+Q(`<p>Your model reports these counters for a 50M-cycle interval on a 5 GHz core that retires 60M instructions:</p><ul><li>Cycles with at least one L2 miss outstanding: 30M</li><li>Sum over all cycles of the number of outstanding L2 misses: 69M miss-cycles</li><li>L2 misses completed: 180K</li></ul><p>(a) Compute the MLP, the average miss latency, the miss throughput, and the effective penalty per miss. (b) A colleague computes MLP as 69M / 50M. Why is that misleading? (c) What is the most time these misses could be costing?</p>`,
+`<ol start="0">
+<li><strong>(a)</strong>
+<ul>
+<li>MLP = 69M / 30M = <strong>2.3</strong> misses in flight, averaged over cycles that have at least one.</li>
+<li>Average latency = 69M miss-cycles / 180K misses ≈ <strong>383 cycles</strong> (about 77 ns at 5 GHz, so mostly DRAM).</li>
+<li>Throughput = 180K / 30M = <strong>0.006 misses per cycle</strong> while misses are in flight. Little’s law check: 0.006 × 383 ≈ 2.3.</li>
+<li>Effective penalty = latency / MLP = 383 / 2.3 ≈ <strong>167 cycles</strong> = 1 / throughput.</li>
+</ul></li>
+<li><strong>(b)</strong> 69M / 50M = 1.38 mixes in the 20M cycles with no miss in flight. It measures how memory-bound the interval is, not how well misses overlap. A program with perfect overlap during short bursts would look serialized. Average MLP only over cycles with at least one miss outstanding.</li>
+<li><strong>(c)</strong> Misses × effective penalty = 180K × 167 ≈ 30M cycles, exactly the cycles with a miss in flight. That is <strong>60%</strong> of the interval, an upper bound on the miss cost, because the core may still retire independent work during some of those cycles. The actual cost is the ROB-full (or other full-resource) stall cycles with a missing load at the head.</li>
+</ol>`, "medium") +
 Q(`<p>Growing the load queue helps one workload a lot and another not at all. Give an explanation, and say how you would tell a load-queue capacity bottleneck from a memory-bandwidth bottleneck.</p><p>Then quantify the streaming case: one core wants 20 GB/s from DRAM with 90 ns latency and 64-byte lines. How many lines must be in flight, and roughly how many load-queue entries would demand loads need if the program uses 8-byte loads and nothing prefetches?</p>`,
 `<p>The first workload has many independent loads, and with more load-queue entries the window reaches more of them, so more misses overlap. The second either has few loads in flight anyway (compute-bound, or dependent pointer-chasing loads), or was already limited by something else: the miss buffers, the ROB, or DRAM bandwidth.</p>
 <p>To tell capacity from bandwidth:</p>
@@ -1024,6 +1049,17 @@ Q(`<p>Build a CPI stack:</p><ul><li>Base CPI 0.30</li><li>20 L2 misses per 1,000
 </ul></li>
 </ol>
 <p>Caveats worth saying: the components aren’t truly additive (a mispredict that depends on a miss is counted in both), and “exposed” cycles shift when other components change. Use the stack to rank where to look, then confirm with idealized simulations.</p>`, "hard") +
+Q(`<p>Your model of a Zen 4-class core shows dispatch stalled on a full ROB in 35% of cycles, and in most of those cycles the ROB head is a load that missed L2. A colleague proposes growing the ROB from 320 to 512 entries. What do you measure before agreeing, and which results would change your recommendation?</p>`,
+`<p>The symptom says memory latency the window can’t hide. Whether a bigger window helps depends on whether more independent misses lie beyond it.</p>
+<ol start="0">
+<li><strong>MLP and latency:</strong> average outstanding misses over cycles with at least one in flight, average miss latency, and from them the throughput. MLP near 1 points to dependent misses, which a bigger ROB can’t fix.</li>
+<li><strong>Misses by level:</strong> L2 versus LLC versus DRAM, with latency per level. LLC hits (about 50 cycles) are a different problem from DRAM misses (400+).</li>
+<li><strong>Address dependence:</strong> does each missing load’s address come from an earlier missing load (pointer chasing)? If so, the fix is lower latency, prefetching, or a data-structure change.</li>
+<li><strong>A sweep:</strong> grow the ROB with the load queue, physical registers, and scheduler scaled together, and track MLP, latency, IPC, and the stall reason. Growing only the ROB just moves the stall to the next structure.</li>
+<li><strong>If MLP plateaus:</strong> MSHR occupancy against its maximum, DRAM bandwidth against its peak, and mispredicts on branches that depend on missing loads (they cut the window short).</li>
+<li><strong>Prefetching:</strong> if the miss addresses are regular, a prefetcher may buy more than 192 extra entries.</li>
+</ol>
+<p>Agree only if MLP rises with the window and IPC follows. Otherwise the area belongs elsewhere.</p>`, "medium") +
 `<h3 id="sec-shift">Bottlenecks That Move</h3>` +
 Q(`<p>The front end delivers fewer instructions than the back end can execute. Which back-end improvements won’t help, and which might still help a little?</p>`,
 `<p><strong>Won’t help:</strong> more execution units, wider issue, a bigger scheduler, a bigger ROB or register file, wider retirement. The back end is already waiting for instructions, and more capacity just sits empty.</p>
@@ -1086,6 +1122,18 @@ Q(`<p>You doubled the ROB and the scheduler together and performance improved by
 Q(`<p>More MSHRs improved performance by 12% without changing the cache hit rate at all. How?</p><p>Put numbers on it: 8 MSHRs, 80 ns DRAM latency, 64-byte lines, and a core that could generate 16 independent misses at once. What bandwidth can one core pull before and after doubling the MSHRs?</p>`,
 `<p>The hit rate measures how often you miss; MSHRs determine how many misses can be in flight at once. With too few, a core that has found several independent misses must wait for one to finish before starting the next, so they’re serialized. More MSHRs let those misses overlap (higher MLP), which reduces the time per miss without changing the number of misses. By Little’s law, outstanding misses = miss rate × latency, so if the core can generate more concurrent misses than the MSHRs allow, the MSHRs cap the achievable bandwidth. Confirm with MSHR-full cycles in the baseline and average outstanding misses before and after.</p>
 <p><strong>Numbers:</strong> before: 8 × 64 B / 80 ns = <strong>6.4 GB/s</strong>; after: 16 × 64 B / 80 ns = <strong>12.8 GB/s</strong>, assuming DRAM isn’t saturated and latency doesn’t rise with the extra load. Miss-bound phases run up to twice as fast with exactly the same hit rate.</p>`, "hard") +
+Q(`<p>You sweep the ROB from 224 to 512 entries, scaling the load queue, physical registers, and scheduler with it. Three memory-bound workloads respond like this:</p><ul><li><strong>A:</strong> MLP 1.05 → 1.08, IPC +1%</li><li><strong>B:</strong> MLP 1.6 → 3.1, IPC +52%, average miss latency 380 → 420 cycles</li><li><strong>C:</strong> MLP 2.9 → 3.0, IPC +2%</li></ul><p>Diagnose each one, quantify what happened to B, and say what you would check next for C.</p>`,
+`<ul>
+<li><strong>A: latency-bound.</strong> MLP near 1 before and after means the misses are dependent (pointer chasing), so the window has nothing to overlap. The fixes are lower latency, prefetching, or a different data structure. First confirm the ROB is still the stall reason after the sweep, rather than the load queue, registers, or scheduler.</li>
+<li><strong>B: window-limited.</strong> The program had latent MLP that the small window couldn’t reach. Effective penalty per miss went from 380 / 1.6 ≈ 238 to 420 / 3.1 ≈ 135 cycles, a 1.75× drop. MLP grew 1.94×, but latency rose 10.5% from extra queueing, which ate part of the gain. Latency rose far less than MLP did, so the limit is the window, not bandwidth. If latency had risen in proportion to MLP, the misses would only be queueing and the real limit would be MSHRs or DRAM bandwidth.</li>
+<li><strong>C: MLP above 1 but flat.</strong> Something other than the window caps parallel misses. Check, in order:
+<ul>
+<li><strong>MSHRs or fill buffers full:</strong> occupancy pinned at the maximum, with MSHR-full stall cycles.</li>
+<li><strong>DRAM bandwidth saturated:</strong> bandwidth near the achievable peak and loaded latency rising.</li>
+<li><strong>Window cut short elsewhere:</strong> mispredicted branches that depend on missing loads, or another structure (load queue, registers, scheduler) filling first.</li>
+<li><strong>Program MLP exhausted:</strong> none of the above is saturated, and the dependence structure itself allows only about 3 misses at once.</li>
+</ul></li>
+</ul>`, "hard") +
 Q(`<p>How would you use configuration sweeps to understand interactions between ROB size, issue width, cache latency, and MSHR count, without running every combination?</p>`,
 `<ol start="0">
 <li><strong>Screening:</strong> a two-level fractional factorial or Plackett–Burman design picks a small set of runs (about 8–12 for 4 to 7 parameters) that estimates which parameters matter most.</li>
