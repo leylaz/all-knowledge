@@ -196,7 +196,7 @@ if (!hit) stats.l1d_misses++;</code></pre>
 <li><strong>Bad speculation:</strong> high branch mispredicts per thousand instructions and many flushed instructions.</li>
 </ul>
 <h3 id="sec-dependency">Dependency Stalls on a Load Miss</h3>
-<p>When instructions wait on a load that missed, the stall counts as memory-bound, even though it shows up as "operands not ready." The dependents sit in the issue queue until the data arrives: from L2 on an L1 miss, or from the last-level cache (tens of cycles) or DRAM (hundreds) if L2 misses too. The load then broadcasts its destination register tag, waking the dependents, which get the value through the bypass network or the register file.</p>
+<p>When instructions wait on a load that missed, the stall counts as memory-bound, even though it shows up as "operands not ready." How the dependents wait and wake up is on <a href="#/perf-stalls/details">Stall causes</a>; what matters for classification is how much of the miss the core can hide:</p>
 <ul>
 <li><strong>Worst case:</strong> everything after the load depends on it, so nothing independent is left to run.</li>
 <li><strong>Best case, with a limit:</strong> independent instructions keep issuing, but instructions retire in order, so the ROB fills behind the stuck load. A 4-wide core with a 128-entry ROB fills it in about 128 / 4 = 32 cycles and then stalls anyway. The latency is fully hidden only if the miss is short (like an L2 hit) or the work behind it includes other misses that overlap with it.</li>
