@@ -403,6 +403,20 @@ One instruction cache miss:
 <p><strong>The machine</strong> (from AMD's optimization guide and Agner Fog's tables): micro-op cache delivers 8 macro-ops per cycle; dispatch 6 macro-ops per cycle; 1 taken branch per cycle; 2 FMA pipes, FMA latency 4 cycles; 3 load pipes, but the L1 data cache delivers 2 × 32 B = 64 B per cycle, so at most 2 ymm loads per cycle; L2 to L1 bandwidth 32 B per cycle; L2 latency about 12 cycles; 24 L1 miss buffers. Peak = 2 FMA × 4 doubles × 2 FLOPs = 16 FLOPs per cycle.</p>
 <p><strong>Step 0: count the work per iteration.</strong> 4 macro-ops (the FMA with a memory operand is one macro-op; <code>cmp</code> + <code>jne</code> fuse), 2 loads moving 64 B, 1 FMA, 1 taken branch, 8 FLOPs.</p>
 <p><strong>Step 1: the dependency.</strong> <code>ymm0</code> is read and written by every FMA, so the loop-carried chain is one FMA: B<sub>dep</sub> = 4 cycles. The loads don't depend on each other.</p>
+<p>A loop-carried chain is a value one iteration writes and the next iteration reads (see <a href="#/ooo-tradeoffs/little">Where It Buys Little</a>). This loop has two:</p>
+<div class="tbl"><table>
+<tr><th>Value</th><th>Written by</th><th>Read next iteration by</th><th>Latency per iteration</th></tr>
+<tr><td><code>rax</code></td><td><code>add rax, 32</code></td><td>the next <code>add</code>, both load addresses, <code>cmp</code></td><td>1 cycle</td></tr>
+<tr><td><code>ymm0</code></td><td><code>vfmadd231pd</code></td><td>the next FMA's addend (<code>ymm0 += &hellip;</code>)</td><td>4 cycles</td></tr>
+</table></div>
+<p><code>ymm1</code> isn't loop-carried: every iteration loads a fresh value, and renaming gives each iteration its own physical register. Both loads depend only on <code>rax</code>, whose chain advances 1 cycle per iteration, so the loads run ahead of the FMAs. B<sub>dep</sub> is the longest chain: max(1, 4) = 4 cycles.</p>
+<p>Why 4: a 256-bit FMA on Zen 3 takes 4 cycles from inputs ready to result ready, and each FMA needs the previous one's result as its addend, so the FMAs run end to end:</p>
+<pre><code>cycle:  0   1   2   3   4   5   6   7   8
+FMA 0   [==============]                       writes ymm0 at the end of cycle 3
+FMA 1                   [==============]       can't start until cycle 4
+FMA 2                                   [===   starts at cycle 8
+loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre>
+<p>The chain isn't load latency plus FMA latency. The FMA's memory operand depends only on <code>rax</code>, so its load finishes early. By the time the addend is ready, the multiplicands are already there, and only the 4-cycle FMA computation sits on the chain. (Some Arm cores forward an accumulator into a dependent multiply-accumulate late, which shortens accumulate chains below the full FMA latency; Zen 3 doesn't.) One accumulator allows 1 FMA in flight, but keeping both pipes busy needs 4 × 2 = 8, which is why Step 3 splits the sum.</p>
 <p><strong>Step 2: all the bounds.</strong></p>
 <div class="tbl"><table>
 <tr><th>Bound</th><th>Formula</th><th>Cycles/iteration</th></tr>
