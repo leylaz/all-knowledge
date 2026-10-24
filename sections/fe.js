@@ -281,7 +281,7 @@ section({
 <li><strong>Micro-fusion:</strong> a load combined with an ALU operation (<code>add rax, [rbx]</code>) travels as one micro-op through rename and retire but issues as two to the ports.</li>
 <li><strong>Cracking:</strong> a read-modify-write to memory (<code>add [rbx], rax</code>) becomes a load, an add, and a store address and store data pair.</li>
 </ul>
-<p>That is why a performance model must count fused micro-ops for rename and retire bounds and unfused ones for port bounds (see <a href="#/perf-stage-stalls/be-bounds">Back-End Bounds</a>).</p>
+<p>That is why a performance model must count fused micro-ops for rename and retire bounds and unfused ones for port bounds (see <a href="#/perf-bounds/be-bounds">Back-End Bounds</a>).</p>
 
 <h3 id="sec-arm">Fixed-Length ISAs</h3>
 <p>With every AArch64 instruction 4 bytes long, boundaries are known in advance, so wide decode is cheap: Apple's Firestorm cores decode 8 instructions per cycle with no micro-op cache. Arm went further on its own cores: when the Cortex-A715 dropped 32-bit (AArch32) support, Arm removed its macro-op cache and widened the decoders instead, because decode had become cheap enough that the cache no longer paid for its area and power. RISC-V's compressed extension brings back 2-byte instructions, so wide RISC-V decoders need some of the same boundary-finding logic as x86, though only for two lengths.</p>

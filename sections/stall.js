@@ -13,7 +13,9 @@ section({
 <li><a href="#/perf-stats">Performance statistics</a>: what a model counts, and how.</li>
 <li><a href="#/perf-stalls">Stall causes</a>: every reason a cycle can be lost, by pipeline area.</li>
 <li><a href="#/perf-bottlenecks">Bottleneck types</a>: the top-down categories, and latency-bound vs. throughput-bound.</li>
-<li><a href="#/perf-stage-stalls">Stalls by pipeline stage</a>: where each stage stalls and why, how to trace a stall back to its cause, and the cycles-per-iteration bound each stage and structure sets.</li>
+<li><a href="#/perf-stage-stalls">Stalls by pipeline stage</a>: where each stage stalls and why, and how a stall spreads from the stage that causes it to the stages that show it.</li>
+<li><a href="#/perf-find-cause">Finding a stall's cause</a>: the procedure in a model and on silicon.</li>
+<li><a href="#/perf-bounds">Bounding each stage</a>: the cycles-per-iteration bound each stage and structure sets, computed before running anything.</li>
 </ul>`,
   practice: {
     guided: [
@@ -224,19 +226,11 @@ if (!hit) stats.l1d_misses++;</code></pre>
   sections: [
     { id: "symptom-cause", label: "Where a Stall Shows vs. Where It Starts" },
     { id: "stages", label: "Stage by Stage" },
-    { id: "accounting", label: "Where to Count: Rename and Retire" },
-    { id: "model", label: "Finding the Cause in a Model" },
-    { id: "silicon", label: "Finding the Cause on Silicon" },
-    { id: "bounds", label: "Bounding Each Stage" },
-    { id: "fe-bounds", label: "Front-End Bounds" },
-    { id: "be-bounds", label: "Back-End Bounds" },
-    { id: "window-bounds", label: "Window Bounds" },
-    { id: "mem-bounds", label: "Memory Bounds" },
-    { id: "chip-bounds", label: "Chip-Level Bounds" },
-    { id: "procedure", label: "Procedure and Traps" }
+    { id: "accounting", label: "Where to Count: Rename and Retire" }
   ],
   body: `
 <p><a href="#/perf-stalls">Stall causes</a> lists every reason a cycle can be lost. This page looks at the same problem by <em>place</em>: which stage of an out-of-order core stops moving work, why that stage in particular, and how an engineer traces a stall seen at one stage back to the stage that caused it.</p>
+<p>Two pages build on this one: <a href="#/perf-find-cause">Finding a stall's cause</a> turns the tracing rule into a procedure for models and silicon, and <a href="#/perf-bounds">Bounding each stage</a> puts a number on how many cycles each stage can cost per loop iteration.</p>
 
 <h3 id="sec-symptom-cause">Where a Stall Shows vs. Where It Starts</h3>
 <p>Stage <em>i</em> passes fewer instructions than its width in a cycle for one of three reasons:</p>
@@ -336,6 +330,37 @@ One instruction cache miss:
 <li><strong>Per-stage counters disagree.</strong> Fetch stalled in cycles 2 and 3 (instruction cache) and in 4 to 6 (queue full, back-pressure): 5 cycles. Decode: about the same 5. Rename: cycles 2 to 6, 5 cycles. Retire: no retirement while the L2 miss was at the head, say cycles 3 to 5, 3 cycles. That's about 18 "stalled" stage-cycles in an 8-cycle window, 225%, because both events were counted at every stage they passed through.</li>
 </ol>
 </details>
+`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A 6-wide core (Intel Golden Cove allocates 6 micro-ops per cycle) runs for 2.0 × 10<sup>9</sup> cycles. Counters report: 2.4 × 10<sup>9</sup> slots not delivered by the front end, 7.8 × 10<sup>9</sup> micro-ops issued, 6.6 × 10<sup>9</sup> micro-ops retired, and 0.1 × 10<sup>9</sup> recovery cycles after flushes. Compute the top-down level 1 breakdown, and say which stage you would look at next.</p>`,
+        a: `<ol start="0"><li>Total slots = 6 × 2.0 × 10<sup>9</sup> = 12.0 × 10<sup>9</sup>.</li><li>Retiring = 6.6 / 12.0 = <strong>55%</strong>.</li><li>Bad speculation = (issued − retired + width × recovery cycles) / slots = (7.8 − 6.6 + 6 × 0.1) / 12.0 = 1.8 / 12.0 = <strong>15%</strong>. Recovery cycles count because rename issues nothing while the pipeline refills.</li><li>Front-end bound = 2.4 / 12.0 = <strong>20%</strong>.</li><li>Back-end bound = 100 − 55 − 15 − 20 = <strong>10%</strong>.</li><li>Front end is the largest loss, so look at fetch and decode: instruction cache and BTB MPKI, and micro-op cache hit rate, to tell latency (misses, redirects) from bandwidth (decoder limits).</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A colleague's model has a stall counter at every stage, and summed over a run they come to 240% of cycles. They conclude everything is a bottleneck. What went wrong, and how do you fix the accounting?</p>`,
+        a: `<p>One event is being counted at several stages. A long miss blocks retirement, fills the ROB, stalls rename, and backs up decode and fetch, so the same cycle appears in four or five counters; an instruction cache miss starves every stage below it. Those are symptoms of a single cause. Fix: choose one accounting point, normally rename/allocate, and charge each unused slot there exactly once: to the front end if the queue in front of rename was empty, or to the back end if a resource was full. For back-end slots, assign the cause by looking at what's at the ROB head (or the oldest waiting instruction), with a fixed priority when several resources are full. Then the categories add to 100% of slots and form a CPI stack. Keep the per-stage counters for drilling down, but don't add them together.</p>`
+      },
+      {
+        q: `<p>An AMD Zen 4 core dispatches 6 macro-ops per cycle into a 320-entry ROB at 5 GHz. A load misses to DRAM (about 80 ns) right after the ROB empties, and every instruction after it is independent and available from the front end. Roughly how many cycles does a retire-side counter ("cycles a missing load blocks the ROB head") report, and how many does a rename-side counter ("cycles rename stalled on a full ROB") report? Which one belongs in a CPI stack?</p>`,
+        a: `<ol start="0"><li>Miss latency ≈ 80 ns × 5 GHz = <strong>400 cycles</strong>. The load is the oldest instruction, so the retire-side counter sees all ~400.</li><li>Rename keeps filling the ROB at 6 per cycle: 320 / 6 ≈ <strong>53 cycles</strong> to fill. It then stalls for about 400 − 53 ≈ <strong>347 cycles</strong>.</li><li>The first 53 cycles weren't lost: rename and execute did useful work that just retires later. So the time actually lost is ≈ 347 cycles, matching the rename-side counter. Put the rename-side count in the CPI stack (charged to DRAM, because the ROB head names the cause); the retire-side count overstates the loss by the part the window hid. A bigger ROB shrinks the rename-side number; if the instructions behind the load include other misses, they overlap with this one, and the window hides even more.</li></ol>`
+      }
+    ]
+  }
+},
+
+{
+  id: "perf-find-cause",
+  region: "stall",
+  title: "Finding a Stall's Cause",
+  sections: [
+    { id: "model", label: "Finding the Cause in a Model" },
+    { id: "silicon", label: "Finding the Cause on Silicon" }
+  ],
+  body: `
+<p><a href="#/perf-stage-stalls/symptom-cause">Where a stall shows vs. where it starts</a> gives the rule for tracing a stall to its source. This page is the procedure for applying it in two settings: a performance model, which can see every structure every cycle, and silicon, which has a handful of counters and sampling.</p>
 
 <h3 id="sec-model">Finding the Cause in a Model</h3>
 <p>A performance model can see every structure every cycle, so it can find causes exactly instead of inferring them:</p>
@@ -384,8 +409,40 @@ One instruction cache miss:
 <li><strong>Confirm.</strong> A microbenchmark that probes a table of the same size at random reproduces the walk rate with 4 KB pages and drops it to near zero with transparent huge pages. Rerun the service with huge pages and check that <code>DTLB_WALK</code> and <code>STALL_BACKEND_MEM</code> both fall; if only the first falls, the cache misses were the bigger cost all along.</li>
 </ol>
 </details>
+`,
+  practice: {
+    guided: [
+      {
+        q: `<p>In your model, rename is stalled 35% of cycles with "ROB full." In those cycles, the instruction at the ROB head is: a load that missed the last-level cache 60% of the time, a floating-point square root 25%, and an instruction that has already completed (retire is just catching up) 15%. Which stage is the cause, and what do you check next?</p>`,
+        a: `<ol start="0"><li>Rename is only the symptom; the ROB is full because retirement is blocked, so look at the ROB head.</li><li>60% of the stall (21% of all cycles) is <strong>memory</strong>: last-level misses. Check memory-level parallelism; if it's near 1, the misses are dependent and need lower latency or a smarter prefetcher, and if it's high, check bandwidth.</li><li>25% (about 9% of cycles) is <strong>core latency</strong>: square root chains. Check whether they're dependent on each other and how long the unit stays busy.</li><li>15% (about 5% of cycles) is <strong>retire width</strong>: after a long stall, the ROB drains at retire width. That's a consequence of the other stalls, not a separate problem, unless retire is narrower than rename.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>You sample <code>MEM_LOAD_RETIRED.L3_MISS</code> on an Intel core with ordinary (non-precise) sampling, and the profile blames an <code>add</code> two instructions after a load instead of the load itself. Why, and how do you get the right instruction? Would your performance model have the same problem?</p>`,
+        a: `<p>Ordinary sampling raises an interrupt when the counter overflows, and the handler records whatever PC the core reaches by the time the interrupt is taken. On a wide out-of-order core that's a few instructions later, and it tends to land on the instruction after a long stall, because that's where retirement resumes: this is <strong>skid</strong>. Use precise sampling, which records the instruction that caused the event: PEBS on Intel (<code>perf record -e mem_load_retired.l3_miss:pp</code>), IBS on AMD, SPE on Arm. Those also give the load's latency and data source. A model has no skid: it charges each event to the PC of the instruction that caused it at the moment it happens, unless you deliberately model sampling to compare with hardware.</p>`
+      }
+    ]
+  }
+},
 
-<h3 id="sec-bounds">Bounding Each Stage</h3>
+{
+  id: "perf-bounds",
+  region: "stall",
+  title: "Bounding Each Stage",
+  sections: [
+    { id: "bounds", label: "The Bound Equation" },
+    { id: "fe-bounds", label: "Front-End Bounds" },
+    { id: "be-bounds", label: "Back-End Bounds" },
+    { id: "window-bounds", label: "Window Bounds" },
+    { id: "mem-bounds", label: "Memory Bounds" },
+    { id: "chip-bounds", label: "Chip-Level Bounds" },
+    { id: "procedure", label: "Procedure and Traps" }
+  ],
+  body: `
+<p><a href="#/perf-find-cause">Finding a stall's cause</a> works from measurements. This page works before any run: from a loop's instruction counts and the machine's widths, sizes, and latencies, it bounds how many cycles per iteration each stage and structure can cost, and which one binds.</p>
+
+<h3 id="sec-bounds">The Bound Equation</h3>
 <p>Counters say which stage is stalling; a bound says how many cycles per loop iteration a stage can cost, before running anything. In steady state, time per iteration is the largest of every resource's bound, plus penalties that can't overlap with anything:</p>
 <div class="math">\\[ T_{iter} \\approx \\max_k B_k \\;+\\; \\sum_j r_j \\, P_j \\]</div>
 <p>Each \\(B_k\\) is a lower limit in cycles per iteration set by one stage or structure; the largest is the bottleneck. \\(r_j\\) is how often a serializing event (a branch mispredict, a flush, a coherence transfer) happens per iteration, and \\(P_j\\) is its unhidden penalty. Bandwidth and capacity bounds overlap with each other, so take their max; serializing penalties don't, so add them.</p>
@@ -397,7 +454,7 @@ One instruction cache miss:
 <tr><td>2. Latency (dependency)</td><td>\\(\\sum L_i\\) over the loop-carried critical path</td><td>The next iteration's chain can't start until this one's finishes.</td><td>Only shorter latencies or a restructured dependency; no width or window size helps</td></tr>
 </table></div>
 <p>Notation, all per iteration: \\(N_i\\) and \\(N_u\\) instructions and micro-ops; \\(N_{ld}\\), \\(N_{st}\\), \\(N_{br}\\), \\(N_{tk}\\) loads, stores, branches, and taken branches; \\(N_k\\) micro-ops that can only run on port class k; \\(W_x\\) the width of stage x; \\(P_k\\) the number of ports or units of class k; \\(C_s\\) the entries in structure s, \\(E_s\\) the entries one iteration uses, and \\(R_s\\) the cycles each entry stays; \\(L_x\\) a latency and \\(m_x\\) a miss rate per access.</p>
-<p><strong>Latency vs. throughput.</strong> Latency is how long one iteration takes from start to finish; throughput is how often iterations finish. Out-of-order execution hides latency by overlapping iterations, until a capacity bound (kind 1) or a dependency (kind 2) stops the overlap. The tables below give the bounds for each part of the pipeline, matching the stages above.</p>
+<p><strong>Latency vs. throughput.</strong> Latency is how long one iteration takes from start to finish; throughput is how often iterations finish. Out-of-order execution hides latency by overlapping iterations, until a capacity bound (kind 1) or a dependency (kind 2) stops the overlap. The tables below give the bounds for each part of the pipeline, matching the stages on <a href="#/perf-stage-stalls/stages">Stalls by pipeline stage</a>.</p>
 <p><strong>Why per iteration.</strong> These are throughput bounds, so they need work that repeats: a steady state where start-up costs (cold caches, an untrained predictor, pipeline fill) are spread over many repetitions, and where iteration i + 1 overlaps iteration i the way the max assumes. A hot loop is the natural unit, its per-iteration counts are exact, and in most compute code it's where the time goes (the 90/10 rule, Hennessy &amp; Patterson, Ch. 1). Code with no hot loop keeps the same bounds with a different unit. For server-style code whose time is spread over thousands of functions (databases, browsers, compilers), count per instruction or per 1,000 instructions, \\( \\text{CPI} \\approx \\max_k B_k + \\sum_j \\text{MPKI}_j \\, P_j / 1000 \\), or per request or transaction. That's where the instruction cache, ITLB, and BTB rows below dominate: Google's warehouse-scale profiling (Kanev et al., ISCA 2015) found front-end stalls take a large share of cycles for exactly this reason. Code that runs once has no steady state; its critical path and warm-up set the time, and these bounds don't apply.</p>
 <p>Try it: the calculator below takes the main bound from each table that follows and adds the serialized penalties. Change one number at a time and watch which row becomes the bottleneck.</p>
 <div class="calc" data-calc="bounds"></div>
@@ -550,7 +607,7 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
 </details>
 
 <h3 id="sec-window-bounds">Window Bounds</h3>
-<p>Every out-of-order structure obeys the same Little's-law bound, \\(E \\cdot R / C\\); what changes is which micro-ops occupy it and for how long. These are the structures that show up at rename as "full" in the stage table above.</p>
+<p>Every out-of-order structure obeys the same Little's-law bound, \\(E \\cdot R / C\\); what changes is which micro-ops occupy it and for how long. These are the structures that show up at rename as "full" in the <a href="#/perf-stage-stalls/stages">stage table</a>.</p>
 <div class="tbl"><table>
 <tr><th>Structure</th><th>Entries per iteration (E)</th><th>Residency (R)</th><th>Bound</th><th>Binds when</th></tr>
 <tr><td>ROB</td><td>N<sub>u</sub> (fused)</td><td>Dispatch to retire; ≈ L<sub>miss</sub> when a miss sits at the head</td><td>N<sub>u</sub> · R / C<sub>ROB</sub></td><td>Long-latency misses with many micro-ops between them</td></tr>
@@ -700,27 +757,11 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
   practice: {
     guided: [
       {
-        q: `<p>A 6-wide core (Intel Golden Cove allocates 6 micro-ops per cycle) runs for 2.0 × 10<sup>9</sup> cycles. Counters report: 2.4 × 10<sup>9</sup> slots not delivered by the front end, 7.8 × 10<sup>9</sup> micro-ops issued, 6.6 × 10<sup>9</sup> micro-ops retired, and 0.1 × 10<sup>9</sup> recovery cycles after flushes. Compute the top-down level 1 breakdown, and say which stage you would look at next.</p>`,
-        a: `<ol start="0"><li>Total slots = 6 × 2.0 × 10<sup>9</sup> = 12.0 × 10<sup>9</sup>.</li><li>Retiring = 6.6 / 12.0 = <strong>55%</strong>.</li><li>Bad speculation = (issued − retired + width × recovery cycles) / slots = (7.8 − 6.6 + 6 × 0.1) / 12.0 = 1.8 / 12.0 = <strong>15%</strong>. Recovery cycles count because rename issues nothing while the pipeline refills.</li><li>Front-end bound = 2.4 / 12.0 = <strong>20%</strong>.</li><li>Back-end bound = 100 − 55 − 15 − 20 = <strong>10%</strong>.</li><li>Front end is the largest loss, so look at fetch and decode: instruction cache and BTB MPKI, and micro-op cache hit rate, to tell latency (misses, redirects) from bandwidth (decoder limits).</li></ol>`
-      },
-      {
-        q: `<p>In your model, rename is stalled 35% of cycles with "ROB full." In those cycles, the instruction at the ROB head is: a load that missed the last-level cache 60% of the time, a floating-point square root 25%, and an instruction that has already completed (retire is just catching up) 15%. Which stage is the cause, and what do you check next?</p>`,
-        a: `<ol start="0"><li>Rename is only the symptom; the ROB is full because retirement is blocked, so look at the ROB head.</li><li>60% of the stall (21% of all cycles) is <strong>memory</strong>: last-level misses. Check memory-level parallelism; if it's near 1, the misses are dependent and need lower latency or a smarter prefetcher, and if it's high, check bandwidth.</li><li>25% (about 9% of cycles) is <strong>core latency</strong>: square root chains. Check whether they're dependent on each other and how long the unit stays busy.</li><li>15% (about 5% of cycles) is <strong>retire width</strong>: after a long stall, the ROB drains at retire width. That's a consequence of the other stalls, not a separate problem, unless retire is narrower than rename.</li></ol>`
-      },
-      {
         q: `<p>An Intel Skylake core (4-wide rename, 224-entry ROB, 97-entry scheduler, 72-entry load queue, 2 load ports, 10 L1 fill buffers) runs at 4.0 GHz with about 80 ns DRAM latency. A loop does <code>sum += a[idx[i]]</code> over a huge, randomly indexed array: per iteration 6 fused micro-ops, 2 loads (<code>idx[i]</code> hits L1; <code>a[...]</code> misses to DRAM, independent across iterations), and 1 add that depends on the miss. Bound the loop, and say what the stage counters would show.</p>`,
         a: `<ol start="0"><li>L<sub>DRAM</sub> = 80 ns × 4.0 GHz = 320 cycles.</li><li>Bandwidth bounds: rename 6 / 4 = 1.5; load ports 2 / 2 = 1; the loop-carried chain is the 1-cycle add on <code>sum</code>, so B<sub>dep</sub> = 1.</li><li>Capacity bounds: fill buffers 1 × 320 / 10 = <strong>32</strong>; ROB 6 × 320 / 224 ≈ 8.6; load queue 2 × 320 / 72 ≈ 8.9; scheduler (only the dependent add waits) 1 × 320 / 97 ≈ 3.3.</li><li>Max = <strong>32 cycles per iteration</strong>, bound by the fill buffers: only 10 misses are ever in flight. The next bound is the load queue at about 8.9, so more fill buffers could help up to about 3.6×.</li><li>Counters: rename still reports "ROB full," because loads waiting for a fill buffer stay in the ROB longer than L<sub>miss</sub> (the window holds about 224 / 6 ≈ 37 iterations, but only 10 of their misses are outstanding). The cause shows at the ROB head (a DRAM-missing load) and in the fill-buffer-full counter (<code>L1D_PEND_MISS.FB_FULL</code>). A hardware stride prefetcher won't help with random indices.</li></ol>`
       }
     ],
     interview: [
-      {
-        q: `<p>A colleague's model has a stall counter at every stage, and summed over a run they come to 240% of cycles. They conclude everything is a bottleneck. What went wrong, and how do you fix the accounting?</p>`,
-        a: `<p>One event is being counted at several stages. A long miss blocks retirement, fills the ROB, stalls rename, and backs up decode and fetch, so the same cycle appears in four or five counters; an instruction cache miss starves every stage below it. Those are symptoms of a single cause. Fix: choose one accounting point, normally rename/allocate, and charge each unused slot there exactly once: to the front end if the queue in front of rename was empty, or to the back end if a resource was full. For back-end slots, assign the cause by looking at what's at the ROB head (or the oldest waiting instruction), with a fixed priority when several resources are full. Then the categories add to 100% of slots and form a CPI stack. Keep the per-stage counters for drilling down, but don't add them together.</p>`
-      },
-      {
-        q: `<p>An AMD Zen 4 core dispatches 6 macro-ops per cycle into a 320-entry ROB at 5 GHz. A load misses to DRAM (about 80 ns) right after the ROB empties, and every instruction after it is independent and available from the front end. Roughly how many cycles does a retire-side counter ("cycles a missing load blocks the ROB head") report, and how many does a rename-side counter ("cycles rename stalled on a full ROB") report? Which one belongs in a CPI stack?</p>`,
-        a: `<ol start="0"><li>Miss latency ≈ 80 ns × 5 GHz = <strong>400 cycles</strong>. The load is the oldest instruction, so the retire-side counter sees all ~400.</li><li>Rename keeps filling the ROB at 6 per cycle: 320 / 6 ≈ <strong>53 cycles</strong> to fill. It then stalls for about 400 − 53 ≈ <strong>347 cycles</strong>.</li><li>The first 53 cycles weren't lost: rename and execute did useful work that just retires later. So the time actually lost is ≈ 347 cycles, matching the rename-side counter. Put the rename-side count in the CPI stack (charged to DRAM, because the ROB head names the cause); the retire-side count overstates the loss by the part the window hid. A bigger ROB shrinks the rename-side number; if the instructions behind the load include other misses, they overlap with this one, and the window hides even more.</li></ol>`
-      },
       {
         q: `<p>A Xeon Platinum 8480+ (Sapphire Rapids) has 56 cores, each with 16 L1 fill buffers, and 8 channels of DDR5-4800. Idle DRAM latency is about 110 ns (approximate). A random-access, miss-bound loop like a hash probe keeps every fill buffer busy. At how many active cores does DRAM bandwidth saturate? With all 56 cores running at 2.0 GHz, what is the loaded latency and the per-core cycles per miss, and does the MSHR bound agree with the bandwidth bound?</p>`,
         a: `<ol start="0"><li>Peak bandwidth = 8 × 4,800 MT/s × 8 B = <strong>307.2 GB/s</strong>.</li><li>One core sustains 16 × 64 B / 110 ns ≈ 9.3 GB/s, so N<sub>sat</sub> ≈ 307.2 / 9.3 ≈ <strong>33 cores</strong> (fewer in practice, since sustained bandwidth is closer to 70–80% of peak).</li><li>At 56 cores: M = 56 × 16 = 896 lines in flight, so L<sub>loaded</sub> = max(110 ns, 896 × 64 B / 307.2 GB/s) ≈ max(110, 187) = <strong>≈ 187 ns</strong>.</li><li>MSHR bound per core = L<sub>loaded</sub> / 16 ≈ 11.7 ns ≈ <strong>23.3 cycles per miss</strong> at 2.0 GHz, compared with 110 / 16 × 2 ≈ 13.8 cycles at idle latency.</li><li>Bandwidth bound per core = 56 × 64 B × 2.0 GHz / 307.2 GB/s ≈ <strong>23.3 cycles</strong>, the same answer, as Little's law requires. Going from about 33 to 56 cores adds almost no throughput; each core just waits longer. Using idle latency here would overestimate throughput by about 1.7×.</li></ol>`

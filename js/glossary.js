@@ -26,7 +26,7 @@ const GLOSSARY = {
   "FR-FCFS": { def: "First-ready, first-come-first-served: the baseline DRAM scheduling policy that serves row-buffer hits before older requests.", page: "dram-ctrl/scheduling" },
   "MPKI": { def: "Misses (or mispredictions) per thousand instructions: an event rate that can be compared across programs.", page: "perf-stats" },
   "MSHR": { def: "Miss status holding register: tracks one outstanding cache miss, so the cache can keep serving hits while misses are pending.", page: "dcache" },
-  "PEBS": { def: "Precise event-based sampling (Intel): tags a counter sample with the exact instruction that caused it.", page: "perf-stage-stalls/silicon" },
+  "PEBS": { def: "Precise event-based sampling (Intel): tags a counter sample with the exact instruction that caused it.", page: "perf-find-cause/silicon" },
   "PRF": { def: "Physical register file: holds every renamed register value; architectural registers map onto its entries.", page: "prf-sizing" },
   "RAS": { def: "Return address stack: predicts return targets by pushing on calls and popping on returns.", page: "fe-targets/ras" },
   "ROB": { def: "Reorder buffer: holds every in-flight instruction in program order so they retire in order, giving precise exceptions.", page: "rob" },
@@ -38,5 +38,5 @@ const GLOSSARY = {
   "UVM": { def: "Universal Verification Methodology: the standard SystemVerilog class library for building reusable testbenches.", page: "verif-testbench" },
   "store-to-load forwarding": { def: "A load gets its data straight from an older, not-yet-committed store to the same address in the store queue.", page: "lsq" },
   "memory-level parallelism": { def: "The average number of cache misses outstanding at once. Higher MLP hides more of the memory latency.", page: "latency-tolerance" },
-  "Little's law": { def: "Average occupancy = throughput × average time in the system. Sizes queues: entries needed = rate × residency.", page: "perf-stage-stalls/bounds" }
+  "Little's law": { def: "Average occupancy = throughput × average time in the system. Sizes queues: entries needed = rate × residency.", page: "perf-bounds/bounds" }
 };

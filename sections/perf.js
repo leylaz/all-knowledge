@@ -257,7 +257,7 @@ section({
 <li><strong>Interactions:</strong> a mispredicted branch that depends on a long miss resolves only when the miss returns, so the two penalties overlap in ways a sum of independent terms misses.</li>
 <li><strong>Prefetching:</strong> it turns misses into hits or partial hits; event counts must come from the configuration being modeled.</li>
 <li><strong>Bandwidth and queueing:</strong> interval analysis treats memory latency as fixed; near peak bandwidth, latency rises (see <a href="#/icx-memory">Memory Interfaces</a>).</li>
-<li><strong>Resource stalls without misses:</strong> port pressure or a small scheduler can cap \\(D_{eff}\\); the bounds on <a href="#/perf-stage-stalls/bounds">Stalls by Pipeline Stage</a> estimate it.</li>
+<li><strong>Resource stalls without misses:</strong> port pressure or a small scheduler can cap \\(D_{eff}\\); the bounds on <a href="#/perf-bounds/bounds">Stalls by Pipeline Stage</a> estimate it.</li>
 </ul>
 <p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapters 1 and 3, and Chapter 4 (the roofline model) · Karkhanis and Smith, "A First-Order Superscalar Processor Model," ISCA 2004 · Eyerman, Eeckhout, Karkhanis, and Smith, "A Mechanistic Performance Model for Superscalar Out-of-Order Processors," ACM TOCS 2009 · Carlson, Heirman, and Eeckhout, "Sniper: Exploring the Level of Abstraction for Scalable and Accurate Parallel Multi-Core Simulation," SC 2011 · Williams, Waterman, and Patterson, "Roofline: An Insightful Visual Performance Model for Multicore Architectures," CACM 2009</p>`,
   practice: {
