@@ -46,7 +46,7 @@ section({
 
 <h3 id="sec-order">Study Order</h3>
 <ol start="0">
-<li><strong>Fundamentals:</strong> <a href="#/intv-pipeline">Pipeline Flow and Width</a>, <a href="#/intv-renaming">Renaming and Dependences</a>, <a href="#/intv-rob">The ROB and Retirement</a>, <a href="#/intv-sched">Scheduling and Execution</a>.</li>
+<li><strong>Fundamentals:</strong> <a href="#/intv-pipeline">Pipeline Flow and Width</a>, <a href="#/intv-renaming">Renaming and Dependences</a>, <a href="#/intv-rob">The ROB and Retirement</a>, <a href="#/intv-sched">Scheduling and Execution</a>, <a href="#/intv-arith">Arithmetic and Floating Point</a>.</li>
 <li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>.</li>
 <li><strong>Your own experience:</strong> <a href="#/intv-sim">Building a Performance Model in C</a>, <a href="#/intv-design">Open-Ended Design Problems</a>. Connect every answer here to a decision or bug from your own simulator.</li>
 </ol>
@@ -730,6 +730,85 @@ Q(`<p>A loop sums the elements above a threshold: <code>if (x[i] &gt; t) s += x[
 <li><strong>(b)</strong> Sorted data makes the branch almost perfectly predictable, so both versions run at about 1 cycle per element.</li>
 <li><strong>(c)</strong> In the max loop the conditional move is <em>on</em> the chain: compare m, then select into m: 2 cycles per element. On random data the running maximum changes rarely (about ln <em>n</em> times over <em>n</em> elements), so the branch is almost always not taken and well predicted, and the predicted branch breaks the dependence: the core doesn’t wait for m to know what to do next. That gives about 1 cycle per element, 2× faster than the branchless version. Branchless code wins when the branch is unpredictable and the select is off the critical path; it loses when the branch is predictable and the select sits on a loop-carried chain.</li>
 </ol>`, "hard"),
+},
+{
+  id: "intv-arith",
+  title: "Arithmetic and Floating Point",
+  sections: [
+    { id: "fmt", label: "Formats and Numerics" },
+    { id: "units", label: "Arithmetic Units" },
+    { id: "model", label: "Arithmetic in Performance Models" }
+  ],
+  body: reset("intv-arith") + `
+<p>Background: <a href="#/r/arith">Computer Arithmetic</a>, especially <a href="#/fp-rounding">Rounding, Exceptions, and Error</a>, <a href="#/int-units">Integer Arithmetic Units</a>, and <a href="#/fp-units">Floating-Point Units and the FMA Pipeline</a>. Latencies below are from Agner Fog’s instruction tables.</p>
+<h3 id="sec-fmt">Formats and Numerics</h3>` +
+Q(`<p>A colleague stores 64-bit event IDs in a <code>float</code> column to save space, arguing that “FP32 has about 7 significant digits, so 123,456,789 only loses its last digit or two.” What is actually stored for 123,456,789, and is the argument sound for IDs?</p>`,
+`<ol start="0">
+<li>2<sup>26</sup> = 67,108,864 ≤ 123,456,789 &lt; 2<sup>27</sup>, so the ULP is 2<sup>26 − 23</sup> = 8.</li>
+<li>123,456,789 / 8 = 15,432,098.625, which rounds to 15,432,099, so the stored value is <strong>123,456,792</strong>, off by 3.</li>
+<li>The relative error (2.4 × 10<sup>−8</sup>) is as small as promised, so for a measurement the argument is fine. For an ID it isn’t: every float here stands for 8 neighboring integers, so 123,456,789 and 123,456,790 become the same key. IDs need exact integers, and FP32 is exact only up to 2<sup>24</sup>.</li>
+</ol>`, "easy") +
+Q(`<p>Activations are quantized to FP8 E4M3 with one scale per tensor, chosen so the largest magnitude maps to 448. Most values lie within ±1, but one channel has an outlier of 300. What happens to activations of 0.002 and 0.0005, with and without the outlier? What would you change?</p>`,
+`<p>E4M3 facts: smallest normal 2<sup>−6</sup> = 0.015625, subnormal spacing 2<sup>−9</sup> ≈ 0.00195, 3 fraction bits (at most 6.25% relative error for a normal number).</p>
+<ol start="0">
+<li><strong>With the outlier:</strong> scale s = 300 / 448 ≈ 0.67, so a value x is stored as x / 0.67.
+<ul><li>0.002 → 0.00299, a subnormal: 0.00299 / 0.00195 = 1.53 rounds to 2 spacings = 0.0039, which dequantizes to 0.0026. That’s <strong>31% high</strong>.</li>
+<li>0.0005 → 0.00075, below half the smallest subnormal (0.00098), so it becomes <strong>0</strong>.</li></ul></li>
+<li><strong>Without it:</strong> s = 1 / 448. 0.002 → 0.896 and 0.0005 → 0.224, both normal, so both are within 6.25%.</li>
+<li><strong>Fixes:</strong> finer-grained scales (per channel, or per 32-element block as in the MX formats), so one outlier only affects its own block. Alternatively, clip outliers, or keep the few outlier channels in BF16 and the rest in FP8.</li>
+</ol>
+<p>The general point: a per-tensor scale spends the format’s 15 binades of range on the outlier, and everything small falls into the subnormals or to zero.</p>`, "hard") +
+`<h3 id="sec-units">Arithmetic Units</h3>` +
+Q(`<p>Why does one FMA count as 2 FLOPs in peak-performance figures? A kernel does only FP additions, perfectly vectorized and with enough independent chains. What fraction of the advertised peak can it reach?</p>`,
+`<p>An FMA does a multiply and an add, so peak FLOPS = FMA pipes × lanes × 2 × frequency. An addition is 1 FLOP per vector lane per issue slot, whether it runs on the FMA pipe as a × 1 + b (Skylake) or on separate adder pipes (Zen 4, which has 2 FADD pipes next to its 2 FMA pipes). Either way, add-only code reaches at most <strong>half the peak</strong>. The same holds for multiply-only code. Peak FLOPS figures describe dense linear algebra, not general FP code.</p>`, "easy") +
+Q(`<p>On Golden Cove, a vector FP add has 2-cycle latency when its result feeds another add, and 3 cycles otherwise. How would you represent this in a cycle-level model, which code would show the difference, and how would you measure it?</p>`,
+`<ul>
+<li><strong>Model:</strong> latency is a property of the producer–consumer pair, not of the producer alone. Give the adder a fast bypass to its own inputs: when an add’s consumer is also an add, wake it after 2 cycles, otherwise after 3. In a scheduler model this means the wakeup delay depends on the consumer’s opcode class, so it’s easiest to model as an extra cycle on the general bypass path.</li>
+<li><strong>Where it shows:</strong> latency-bound add chains, such as a reduction with too few accumulators or a scalar running sum. A single-accumulator FP sum runs 1.5× faster (2 vs. 3 cycles per element). Throughput-bound code with many independent chains doesn’t change.</li>
+<li><strong>Measurement:</strong> time a long dependent chain of <code>vaddps</code> (expect 2 cycles each), then a chain alternating <code>vaddps</code> and a 1-cycle op such as <code>vandps</code> or a move into another domain. Subtract the known cost of the other op to get the add-to-other latency.</li>
+</ul>`, "medium") +
+Q(`<p>A hash-table benchmark does independent lookups, each with about 8 cycles of other work and one <code>hash % nbuckets</code> on 64-bit operands, where <code>nbuckets</code> is a prime near 1,000,000. Estimate the cost per lookup on Skylake (64-bit <code>DIV</code>: latency 35–88, reciprocal throughput 21–83) and Ice Lake (latency 15, reciprocal throughput 10). How would you fix it?</p>`,
+`<ol start="0">
+<li><strong>Which limit applies:</strong> lookups are independent, so the divide’s latency overlaps and the divider’s <em>throughput</em> is the bound, unless the ROB fills first.</li>
+<li><strong>Skylake:</strong> a random 64-bit hash divided by about 2<sup>20</sup> gives a quotient of about 44 bits, toward the slow end of the range. Expect roughly 60–80 cycles per lookup set by the divider, against 8 cycles of other work: <strong>about 8–10× slower</strong> than without the modulo.</li>
+<li><strong>Ice Lake:</strong> about 10 cycles per lookup, slightly above the 8 cycles of other work. The divide goes from dominant to roughly breaking even.</li>
+<li><strong>Fixes:</strong>
+<ul><li>Use a power-of-two table and <code>hash &amp; (n − 1)</code>, with a hash good enough that the low bits are random.</li>
+<li>Use Lemire’s range reduction, <code>((uint64_t)h32 * n) &gt;&gt; 32</code>: one multiply, 3-cycle latency, fully pipelined.</li>
+<li>Precompute a reciprocal for the fixed divisor (libdivide or Lemire’s fastmod), turning the modulo into two or three multiplies.</li>
+<li>At minimum, use 32-bit operands: Skylake’s 32-bit <code>DIV</code> has 26-cycle latency and a reciprocal throughput of 6.</li></ul></li>
+<li><strong>Modeling lesson:</strong> a model calibrated on Skylake would overestimate this benchmark’s run time on Ice Lake by several times. Divider latency and throughput should be per-core parameters, ideally a function of quotient length.</li>
+</ol>`, "hard") +
+Q(`<p>On Zen 4, 256-bit FMAs have 4-cycle latency and issue 2 per cycle, while 512-bit FMAs are double-pumped: 4-cycle latency, 1 per cycle. (a) Compare peak FP32 FLOPs per cycle and the minimum number of accumulators for each width. (b) An SGEMM micro-kernel nevertheless often runs faster with AVX-512 on Zen 4. Give the reasons, with numbers.</p>`,
+`<ol start="0">
+<li><strong>(a)</strong> AVX2: 2 × 8 lanes × 2 = 32 FLOPs per cycle. AVX-512: 1 × 16 × 2 = <strong>32 FLOPs per cycle, the same</strong>. Accumulators = latency × issue rate: 4 × 2 = 8 ymm registers, versus 4 × 1 = 4 zmm registers.</li>
+<li><strong>(b) More registers, bigger tile:</strong> AVX2 has 16 architectural vector registers, AVX-512 has 32. With a tile of 2 B vectors and broadcast A values, AVX2 fits a 6 × 2-vector tile (12 accumulators + 2 B + 1 broadcast = 15 registers), doing 12 FMAs per 2 B loads and 6 broadcasts: 8 loads per 12 FMAs, or 0.67. AVX-512 fits 14 × 2 (28 + 2 + 1 = 31 registers): 16 loads per 28 FMAs, or 0.57. Fewer loads per FLOP leaves more slack on the load ports and the L1.</li>
+<li><strong>Half the instructions per FLOP:</strong> at peak, AVX2 issues 2 FMAs plus about 1.3 loads per cycle, AVX-512 1 FMA plus about 0.6 loads. That leaves much more of Zen 4’s 6-wide rename and its scheduler and ROB capacity for loop overhead, prefetches, and packing code, so the kernel stays closer to peak.</li>
+<li><strong>Masking</strong> handles matrix edges without scalar cleanup loops.</li>
+<li><strong>What doesn’t change:</strong> peak FLOPs and memory bandwidth. Memory-bound kernels gain little, and the gain on compute-bound kernels is modest, not 2×.</li>
+</ol>`, "hard") +
+`<h3 id="sec-model">Arithmetic in Performance Models</h3>` +
+Q(`<p>At <code>-O3</code> without <code>-ffast-math</code>, GCC does not vectorize <code>float s = 0; for (i = 0; i &lt; n; i++) s += x[i];</code>. Why not? On Zen 4 (FP add latency 3, two 256-bit FP add pipes), how large is the gap to a fully vectorized sum when x is in L1? How can the programmer close it without <code>-ffast-math</code>?</p>`,
+`<ul>
+<li><strong>Why:</strong> FP addition isn’t associative. Vectorizing splits the sum into lanes and adds them in a different order, which can change the result, and C requires the source order unless reassociation is allowed.</li>
+<li><strong>Gap:</strong> the scalar loop is one chain, 1 add every 3 cycles. A vectorized loop with at least 2 × 3 = 6 vector accumulators reaches 2 adds × 8 lanes = 16 elements per cycle. That’s <strong>48× faster</strong>. In practice, loading 64 bytes per cycle becomes the limit first.</li>
+<li><strong>Without <code>-ffast-math</code>:</strong> write the reassociation explicitly (several accumulators in the source, combined at the end), use <code>#pragma omp simd reduction(+:s)</code>, or allow <code>-fassociative-math</code> for just that file. All of these give a fixed, deterministic order, unlike <code>-ffast-math</code>, which also enables FTZ and drops NaN and infinity handling for the whole program.</li>
+</ul>`, "medium") +
+Q(`<p>Kahan summation computes, per element, <code>y = x[i] - c; t = s + y; c = (t - s) - y; s = t;</code>. With FP add latency 3 (Zen 4), what is its throughput as written, compared with a naive single-accumulator sum? How do you get compensated accuracy at close to vectorized speed?</p>`,
+`<ol start="0">
+<li><strong>Find the loop-carried cycle.</strong> c<sub>i</sub> → y<sub>i+1</sub> = x − c<sub>i</sub> → t<sub>i+1</sub> = s<sub>i</sub> + y<sub>i+1</sub> → t<sub>i+1</sub> − s<sub>i</sub> → c<sub>i+1</sub> = (t − s) − y. That’s <strong>4 dependent adds per element</strong>, and s is on the cycle too, since s<sub>i+1</sub> = t<sub>i+1</sub>.</li>
+<li><strong>As written:</strong> 4 × 3 = <strong>12 cycles per element</strong>, versus 3 for the naive sum, which is itself latency bound. So Kahan is 4× slower than a naive scalar sum and about 200× slower than a vectorized one.</li>
+<li><strong>Fix:</strong> run independent Kahan sums in parallel, one per vector lane and several vectors deep, and combine them at the end (with a final compensated combination). Each element then costs 4 adds of throughput, not latency: 4 adds × 1/16 cycle each at 16 adds per cycle = 0.25 cycles per element. That’s about 4× slower than a vectorized naive sum, and usually hidden behind memory bandwidth.</li>
+<li><strong>Alternative:</strong> for FP32 data, accumulate in FP64 lanes. That’s one add per element plus a conversion, and accurate enough for most uses.</li>
+<li><strong>Trap:</strong> under <code>-ffast-math</code>, the compiler may simplify <code>(t - s) - y</code> to 0 and delete the compensation.</li>
+</ol>`, "hard") +
+Q(`<p>Your C cycle-level simulator reports IPC 1.8231 on an x86 build and 1.8226 on an Arm build, for the same trace and configuration. The code has no undefined behavior and no threads. What are the likely causes, and how do you make results bit-identical?</p>`,
+`<ul>
+<li><strong>FMA contraction:</strong> GCC defaults to <code>-ffp-contract=fast</code> in GNU C mode, so on AArch64 (where FMA is always available) it fuses <code>a * b + c</code>. A baseline x86-64 build has no FMA instruction, so it can’t. Different rounding in a float used for a decision (a replacement policy score, a predictor confidence, a throttle threshold) flips that decision, and the difference cascades into different timing.</li>
+<li><strong>libm:</strong> <code>exp</code>, <code>log</code>, and <code>pow</code> aren’t required to be correctly rounded, and glibc versions and platforms differ in the last bit.</li>
+<li><strong>Reductions and statistics:</strong> a different summation order (vectorized on one target, not the other) only changes the reported stats, but if those feed back into the model, as in adaptive policies, they change behavior too.</li>
+<li><strong>Fix:</strong> make everything that steers the model integer or fixed point (counters, saturating confidences, fixed-point weights), keep floating point for reported statistics only, build with <code>-ffp-contract=off</code>, and avoid libm in decision paths. Then add a regression test that compares a hash of the per-cycle state across platforms.</li>
+</ul>`, "medium"),
 },
 {
   id: "intv-branch",

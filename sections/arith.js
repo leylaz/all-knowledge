@@ -39,6 +39,7 @@ section({
 <li><a href="#/int-units">Integer Arithmetic Units</a>: prefix adders, shifters, Booth multipliers and compressor trees, and SRT dividers.</li>
 <li><a href="#/fp-units">Floating-Point Units and the FMA Pipeline</a>: the FMA datapath stage by stage, latency and throughput, area by format, and ISA support.</li>
 </ol>
+<p>Interview questions on this material: <a href="#/intv-arith">Arithmetic and Floating Point</a>.</p>
 <h3>Where It Connects</h3>
 <ul>
 <li><a href="#/exec-units">Execution Units</a>: where the FPU sits among the core’s other functional units.</li>
