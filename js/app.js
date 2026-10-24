@@ -488,6 +488,8 @@ function goToSection(sec) {
 function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/");
   menuBtn.setAttribute("aria-expanded", "false");
+  /* Leaving home ends the search, so coming back shows the full page. */
+  if (parts[0]) q.value = "";
   if (parts[0] === "flagged") { renderFlagged(); window.scrollTo(0, 0); return; }
   if (parts[0] === "drill") { renderDrill(); window.scrollTo(0, 0); return; }
   if (parts[0] === "r") {
