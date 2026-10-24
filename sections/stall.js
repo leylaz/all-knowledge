@@ -384,12 +384,18 @@ One instruction cache miss:
 <li><strong>Idealization experiments.</strong> Confirm a suspected cause by removing it: make the L2 always hit, give the ROB unlimited entries, use a perfect branch predictor. The IPC gained is an upper bound on what fixing that stage can deliver, and if it's small, the stall counter was pointing at a symptom.</li>
 </ol>
 <details class="ex"><summary>Worked example: deciding what to fix on a pointer-heavy benchmark</summary>
-<p><strong>Question.</strong> On SPEC CPU2017 <code>505.mcf_r</code> (network simplex over large linked structures), your model of a 6-wide core runs at IPC 0.62 and reports rename stalled on "ROB full" 41% of cycles. The team wants to double the ROB. How do you use the model to decide?</p>
-<ol start="0">
-<li><strong>Blame propagation first.</strong> In the ROB-full cycles, the head is: a last-level-cache miss 64%, an L2 hit 14%, a mispredicted branch still waiting on its operand 12%, other 10%. Rename's "ROB full" is a symptom; the cause is mostly DRAM latency.</li>
-<li><strong>Is the window the limit, or the misses?</strong> Look at the misses in flight while the ROB is full: a histogram centered at 1 to 2 means the misses are dependent (pointer chasing), and a bigger ROB can't overlap them. A histogram near the MSHR limit means a bigger window would help.</li>
-<li><strong>Per-PC attribution.</strong> Charge the stall cycles to the PC of the instruction at the head. In mcf, a handful of loads that walk arcs and nodes typically account for most of it, and they load the next pointer, which confirms the dependent-miss reading.</li>
-<li><strong>Idealization experiments.</strong> Suppose the model reports:
+<p><strong>Question.</strong> On SPEC CPU2017 <code>505.mcf_r</code> (network simplex over large linked structures), your model of a 6-wide core with a 512-entry ROB and 16 L1D miss-status holding registers (MSHRs) runs at IPC 0.62 and reports rename stalled on "ROB full" 41% of cycles. The team wants to double the ROB. The model also gives you:</p>
+<ul>
+<li><strong>Blame propagation</strong> (class of the instruction at the ROB head during the ROB-full cycles):
+<ul>
+<li>last-level-cache miss: 64%</li>
+<li>L2 hit: 14%</li>
+<li>mispredicted branch still waiting on its operand: 12%</li>
+<li>other: 10%</li>
+</ul></li>
+<li><strong>Misses in flight</strong> while the ROB is full: a histogram with a mean of 1.4, rarely above 3.</li>
+<li><strong>Per-PC attribution:</strong> 5 load PCs account for 71% of the ROB-full cycles, and each one loads a pointer field (the next arc or node) that the following load uses as its address.</li>
+<li><strong>Idealization experiments:</strong>
 <div class="tbl"><table>
 <tr><th>Experiment</th><th>IPC</th><th>Gain</th></tr>
 <tr><td>Baseline</td><td>0.62</td><td>—</td></tr>
@@ -398,8 +404,14 @@ One instruction cache miss:
 <tr><td>Last-level cache always hits</td><td>0.95</td><td>+53%</td></tr>
 <tr><td>Both of the last two</td><td>1.35</td><td>+118%</td></tr>
 </table></div></li>
-<li><strong>Read the table.</strong> The bigger ROB is worth 6%, so the counter was mostly pointing at a symptom. Memory is the cause. The two ideals together give far more than the sum of the separate gains (+118% vs. +68%): the mispredicted branches depend on missing loads, so each one resolves late and flushes the misses queued behind it. Fixing either one alone leaves the other in the way.</li>
-<li><strong>Recommendation:</strong> spend the area on memory-side help (a prefetcher that can follow pointers, or a lower-latency path to memory) and on predicting branches that depend on loads, not on a larger ROB.</li>
+</ul>
+<p>Should the team double the ROB? If not, where should the area go?</p>
+<ol start="0">
+<li><strong>Blame propagation first.</strong> 64% of the ROB-full cycles have a last-level miss at the head, so rename's "ROB full" is a symptom and the cause is mostly DRAM latency.</li>
+<li><strong>Is the window the limit, or the misses?</strong> A mean of 1.4 misses in flight, against 16 MSHRs, means the misses are dependent (pointer chasing): each address comes from the previous miss, so a bigger ROB has nothing independent to overlap. A histogram near the MSHR limit would instead say the window was the limit.</li>
+<li><strong>Per-PC attribution.</strong> The 5 hot PCs all load the next pointer, which confirms the dependent-miss reading from step 1.</li>
+<li><strong>Read the idealization table.</strong> The bigger ROB is worth 6%, so the counter was mostly pointing at a symptom. Memory is the cause (+53%). The two ideals together give far more than the sum of the separate gains (+118% vs. +68%): the mispredicted branches depend on missing loads, so each one resolves late and flushes the misses queued behind it. Fixing either one alone leaves the other in the way.</li>
+<li><strong>Recommendation:</strong> don't double the ROB. Spend the area on memory-side help (a prefetcher that can follow pointers, or a lower-latency path to memory) and on predicting branches that depend on loads.</li>
 </ol>
 </details>
 <details class="ex"><summary>Worked example: one streaming kernel, two different memory bottlenecks</summary>
@@ -453,12 +465,26 @@ One instruction cache miss:
 <li><strong>Confirm with a microbenchmark</strong> that isolates the suspected cause (a pointer chase, a divide chain, a partial-overlap store-forward), then compare its counter signature against the real workload.</li>
 </ol>
 <details class="ex"><summary>Worked example: drilling down on an Arm server</summary>
-<p><strong>Question.</strong> A key-value store runs on AWS Graviton3 (Arm Neoverse V1, 2.6 GHz). <code>perf stat -e cycles,instructions,stall_frontend,stall_backend</code> over 10 seconds of one core reports 26.0 × 10<sup>9</sup> cycles, 23.4 × 10<sup>9</sup> instructions, 2.9 × 10<sup>9</sup> <code>STALL_FRONTEND</code> cycles, and 13.5 × 10<sup>9</sup> <code>STALL_BACKEND</code> cycles. Walk the procedure.</p>
+<p><strong>Question.</strong> A key-value store runs on AWS Graviton3 (Arm Neoverse V1, 2.6 GHz). <code>perf stat -e cycles,instructions,stall_frontend,stall_backend</code> over 10 seconds of one core reports:</p>
+<ul>
+<li>26.0 × 10<sup>9</sup> cycles</li>
+<li>23.4 × 10<sup>9</sup> instructions</li>
+<li>2.9 × 10<sup>9</sup> <code>STALL_FRONTEND</code> cycles</li>
+<li>13.5 × 10<sup>9</sup> <code>STALL_BACKEND</code> cycles</li>
+</ul>
+<p>Later rounds of counters, over the same 10 seconds, report:</p>
+<ul>
+<li>10.4 × 10<sup>9</sup> <code>STALL_BACKEND_MEM</code> cycles</li>
+<li><code>L2D_CACHE_REFILL</code>: 21 per kilo-instruction</li>
+<li><code>DTLB_WALK</code>: 9 per kilo-instruction</li>
+<li>Arm SPE samples (<code>perf record -e arm_spe_0//</code>): most of the loads that walked the page table are the bucket load in the probe function</li>
+</ul>
+<p>The hash table spans tens of GB in 4 KB pages. Walk the procedure and say what you'd change.</p>
 <ol start="0">
 <li><strong>Level 1.</strong> IPC = 23.4 / 26.0 = 0.90, far below what this wide core can sustain. Arm's <code>STALL_*</code> events count <em>cycles</em> in which nothing was dispatched, not slots: front end 2.9 / 26.0 = 11%, back end 13.5 / 26.0 = 52%. Back end dominates.</li>
-<li><strong>Drill into the back end.</strong> Second round: <code>STALL_BACKEND_MEM</code> = 10.4 × 10<sup>9</sup> (77% of back-end stalls), so memory, not core resources. Then <code>L1D_CACHE_REFILL</code>, <code>L2D_CACHE_REFILL</code>, <code>LL_CACHE_MISS_RD</code>, and <code>DTLB_WALK</code>: suppose L2 refills are 21 per kilo-instruction and <code>DTLB_WALK</code> is 9 per kilo-instruction. Nine page walks per thousand instructions is very high: the hash table spans tens of GB in 4 KB pages, far beyond what the TLBs cover.</li>
-<li><strong>Find the code.</strong> <code>perf record -e arm_spe_0//</code> (the Statistical Profiling Extension) samples loads with their PC, latency, and whether they walked the page table. Most of the samples with walks fall on the bucket load in the probe function.</li>
-<li><strong>Confirm.</strong> A microbenchmark that probes a table of the same size at random reproduces the walk rate with 4 KB pages and drops it to near zero with transparent huge pages. Rerun the service with huge pages and check that <code>DTLB_WALK</code> and <code>STALL_BACKEND_MEM</code> both fall; if only the first falls, the cache misses were the bigger cost all along.</li>
+<li><strong>Drill into the back end.</strong> <code>STALL_BACKEND_MEM</code> / <code>STALL_BACKEND</code> = 10.4 / 13.5 = 77%, so memory, not core resources. Nine page walks per thousand instructions is very high: tens of GB in 4 KB pages is millions of pages, far beyond what the TLBs cover. The 21 L2 refills per kilo-instruction are the other half of the memory cost.</li>
+<li><strong>Find the code.</strong> SPE tags each sampled load with its PC, latency, and whether it walked the page table, so the walks land on one instruction: the bucket load in the probe function.</li>
+<li><strong>Confirm.</strong> A microbenchmark that probes a table of the same size at random should reproduce the walk rate with 4 KB pages and drop it to near zero with transparent huge pages. Then rerun the service with huge pages and check that <code>DTLB_WALK</code> and <code>STALL_BACKEND_MEM</code> both fall; if only the first falls, the cache misses were the bigger cost all along.</li>
 </ol>
 </details>
 
