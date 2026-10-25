@@ -486,7 +486,13 @@ So the misses are dependent. The L1D MSHRs aren't the limit either: they average
 <li><strong>Split latency from bandwidth.</strong> Empty-queue cycles are fetch latency (24 points), and partly filled ones are fetch bandwidth (7 points). Latency dominates.</li>
 <li><strong>Check the blame for misfiled cycles.</strong> The 2 points of refill after execute-time mispredicts aren't front-end stalls. Move them to bad speculation, where they belong. That leaves instruction cache misses (12 points) and BTB redirects (8 points) as the two big causes, matching the high MPKI of both.</li>
 <li><strong>Find the code.</strong> No small set of culprits and a 6 MB hot footprint over thousands of functions is typical of database and other warehouse-scale code. There's no single function to fix.</li>
-<li><strong>Check the table against the blame.</strong> Removing both causes removes at most the 12 + 8 = 20 points charged to them, so "both" can gain at most 1 / (1 − 0.20) − 1 = 25%. The measured +23% fits.</li>
+<li><strong>Check the table against the blame.</strong> Removing both causes removes at most the 12 + 8 = 20 points charged to them, so "both" can gain at most 1 / (1 − 0.20) − 1 = 25%. The measured +23% fits.
+<ul>
+<li>A point is 1% of slots, so the two causes cost 20% of the run time. A 100-cycle run spends 20 cycles stalled on them. With both removed, the same instructions finish in 80 cycles.</li>
+<li>Speedup = 100 / 80 = 1 / (1 − 0.20) = 1.25, a 25% gain. This is Amdahl's law, 1 / ((1 − f) + f / s), with f = 0.20 and s = ∞: the removed time drops to zero.</li>
+<li>The gain is 25%, not 20%, because it's measured against the new, shorter time: the 20 cycles saved are 20 / 100 of the old time but 20 / 80 of the new one.</li>
+<li>It's an upper bound. Some of the freed cycles become other stalls, such as the back end now waiting on memory, so a measurement just under 25% is expected. One above it would mean the blame is wrong.</li>
+</ul></li>
 <li><strong>Read the table.</strong> Together the two ideals give more than the sum (+23% vs. +15%). Many empty cycles have both causes at once, so removing one alone leaves the other still stalling them. The reason is fetch-directed instruction prefetching (Reinman, Calder, and Austin, MICRO 1999): the branch predictor runs ahead of fetch and prefetches the lines it predicts, but only as far as the BTB knows the branches. Each BTB miss stops the run-ahead, so the next instruction cache miss is exposed (Ishii et al., ISPASS 2021, make the same point for industry cores). The op cache result rules out decode bandwidth.</li>
 <li><strong>Recommendation:</strong> a larger or second-level BTB first, since a realistic 4× BTB recovers most of the perfect-BTB gain and also makes the existing instruction prefetcher work. On the software side, profile-guided layout (BOLT) and huge pages for code attack the same misses.</li>
 </ol>
