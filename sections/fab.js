@@ -23,7 +23,7 @@ section({
     guided: [
       {
         q: `<p>For each problem, say which part of the flow it belongs to:</p><ul><li>(a) A via between metal layers 3 and 4 has too much resistance</li><li>(b) A die fails at the probe card</li><li>(c) The fin of a transistor is too wide</li><li>(d) A part only reaches its target frequency at a higher voltage</li></ul>`,
-        a: `<ol><li>(a) Back end of line: vias and metal layers are BEOL.</li><li>(b) Wafer sort: the die is caught before packaging.</li><li>(c) Front end of line: fins are part of the transistor.</li><li>(d) Final test and binning: the part is sorted into a slower or higher-voltage bin.</li></ol>`
+        a: `<ol start="0"><li>(a) Back end of line: vias and metal layers are BEOL.</li><li>(b) Wafer sort: the die is caught before packaging.</li><li>(c) Front end of line: fins are part of the transistor.</li><li>(d) Final test and binning: the part is sorted into a slower or higher-voltage bin.</li></ol>`
       }
     ],
     interview: [
@@ -66,7 +66,7 @@ section({
     guided: [
       {
         q: `<p>EUV light has a wavelength λ = 13.5 nm. High-NA EUV raises the numerical aperture from 0.33 to 0.55. With k<sub>1</sub> = 0.35, what single-exposure pitch can it print, and how does that compare with 0.33 NA at the same k<sub>1</sub>?</p>`,
-        a: `<ol><li>Half-pitch = k<sub>1</sub> × λ / NA = 0.35 × 13.5 / 0.55.</li><li>0.35 × 13.5 = 4.725, and 4.725 / 0.55 ≈ 8.6 nm.</li><li>Pitch = 2 × half-pitch ≈ <strong>17 nm</strong>.</li><li>At 0.33 NA: 2 × 4.725 / 0.33 ≈ 28.6 nm. The ratio is 0.33 / 0.55 = 0.6, so High-NA prints about 60% of the 0.33 NA pitch.</li></ol>`
+        a: `<ol start="0"><li>Half-pitch = k<sub>1</sub> × λ / NA = 0.35 × 13.5 / 0.55.</li><li>0.35 × 13.5 = 4.725, and 4.725 / 0.55 ≈ 8.6 nm.</li><li>Pitch = 2 × half-pitch ≈ <strong>17 nm</strong>.</li><li>At 0.33 NA: 2 × 4.725 / 0.33 ≈ 28.6 nm. The ratio is 0.33 / 0.55 = 0.6, so High-NA prints about 60% of the 0.33 NA pitch.</li></ol>`
       }
     ],
     interview: [
@@ -93,7 +93,7 @@ section({
 <h3>Cost per Good Die</h3>
 <p class="eq">Cost per die = wafer cost / (dies per wafer × die yield)</p>
 <p>Example: a 300 mm wafer, a 100 mm<sup>2</sup> (1 cm<sup>2</sup>) die, D<sub>0</sub> = 0.1 per cm<sup>2</sup>, and a wafer price around $17,000 (a common estimate for TSMC N5).</p>
-<ol>
+<ol start="0">
 <li>Dies per wafer: π × 150<sup>2</sup> / 100 ≈ 707, minus π × 300 / √200 ≈ 67, so about <strong>640</strong>.</li>
 <li>Yield: e<sup>−0.1</sup> ≈ 0.905, so about 579 good dies.</li>
 <li>Cost: $17,000 / 579 ≈ <strong>$29 per good die</strong>, before test and packaging.</li>
@@ -110,7 +110,7 @@ section({
     guided: [
       {
         q: `<p>A laptop SoC die is 120 mm<sup>2</sup>, built on 300 mm wafers costing $20,000, with D<sub>0</sub> = 0.07 per cm<sup>2</sup>. Find dies per wafer, yield (Poisson), and cost per good die.</p>`,
-        a: `<ol><li>Area: 120 mm<sup>2</sup> = 1.2 cm<sup>2</sup>.</li><li>Dies per wafer: π × 150<sup>2</sup> / 120 ≈ 589, minus π × 300 / √240 ≈ 61, so about <strong>528</strong>.</li><li>Yield: e<sup>−1.2 × 0.07</sup> = e<sup>−0.084</sup> ≈ 0.919, so about 485 good dies.</li><li>Cost: $20,000 / 485 ≈ <strong>$41 per good die</strong>.</li></ol>`
+        a: `<ol start="0"><li>Area: 120 mm<sup>2</sup> = 1.2 cm<sup>2</sup>.</li><li>Dies per wafer: π × 150<sup>2</sup> / 120 ≈ 589, minus π × 300 / √240 ≈ 61, so about <strong>528</strong>.</li><li>Yield: e<sup>−1.2 × 0.07</sup> = e<sup>−0.084</sup> ≈ 0.919, so about 485 good dies.</li><li>Cost: $20,000 / 485 ≈ <strong>$41 per good die</strong>.</li></ol>`
       }
     ],
     interview: [

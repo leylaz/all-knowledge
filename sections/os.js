@@ -12,7 +12,7 @@ section({
     guided: [
       {
         q: `<p>A process touches a heap page for the first time. List the hardware and OS events in order.</p>`,
-        a: `<ol><li>The load misses in the TLB, and the page walker reads the page table.</li><li>The leaf entry is not present, so the core raises a page fault on that load (precisely, at commit).</li><li>The kernel's fault handler finds the address is in a valid region, allocates a zeroed physical page, and fills in the page table entry.</li><li>The handler returns; the load re-executes, walks again (or hits a refilled TLB), and completes.</li></ol>`
+        a: `<ol start="0"><li>The load misses in the TLB, and the page walker reads the page table.</li><li>The leaf entry is not present, so the core raises a page fault on that load (precisely, at commit).</li><li>The kernel's fault handler finds the address is in a valid region, allocates a zeroed physical page, and fills in the page table entry.</li><li>The handler returns; the load re-executes, walks again (or hits a refilled TLB), and completes.</li></ol>`
       }
     ],
     interview: [
@@ -55,7 +55,7 @@ section({
     guided: [
       {
         q: `<p>On x86-64 with 4-level paging and 4 KB pages, split the virtual address 0x00007F3A12345678 into its page-table indices and page offset.</p>`,
-        a: `<ol><li>Layout: bits 47–39 (PML4), 38–30 (PDPT), 29–21 (PD), 20–12 (PT), 11–0 (offset).</li><li>Offset: low 12 bits = <strong>0x678</strong>.</li><li>Shift and mask 9 bits for each level: PML4 = <strong>254</strong>, PDPT = <strong>232</strong>, PD = <strong>145</strong>, PT = <strong>325</strong>.</li><li>A walk reads PML4[254] → PDPT[232] → PD[145] → PT[325], then adds 0x678 to the frame address: up to 4 memory accesses per TLB miss.</li></ol>`
+        a: `<ol start="0"><li>Layout: bits 47–39 (PML4), 38–30 (PDPT), 29–21 (PD), 20–12 (PT), 11–0 (offset).</li><li>Offset: low 12 bits = <strong>0x678</strong>.</li><li>Shift and mask 9 bits for each level: PML4 = <strong>254</strong>, PDPT = <strong>232</strong>, PD = <strong>145</strong>, PT = <strong>325</strong>.</li><li>A walk reads PML4[254] → PDPT[232] → PD[145] → PT[325], then adds 0x678 to the frame address: up to 4 memory accesses per TLB miss.</li></ol>`
       }
     ],
     interview: [
@@ -87,7 +87,7 @@ section({
 <h3>Privilege Levels</h3>
 <p>x86 has rings 0–3 (kernel in 0, user in 3). ARM has exception levels EL0 (user), EL1 (kernel), EL2 (hypervisor), and EL3 (secure monitor). RISC-V has user, supervisor, and machine modes.</p>
 <h3>The Hardware Sequence</h3>
-<ol><li>Record the cause and the PC to resume at (and the faulting address, if any).</li><li>Raise privilege and switch to the kernel stack.</li><li>Jump to the handler through a vector table (x86 IDT, ARM VBAR, RISC-V stvec/mtvec).</li><li>The handler runs, then a return instruction (<code>iret</code>/<code>sysret</code>, <code>eret</code>, <code>sret</code>/<code>mret</code>) restores state.</li></ol>
+<ol start="0"><li>Record the cause and the PC to resume at (and the faulting address, if any).</li><li>Raise privilege and switch to the kernel stack.</li><li>Jump to the handler through a vector table (x86 IDT, ARM VBAR, RISC-V stvec/mtvec).</li><li>The handler runs, then a return instruction (<code>iret</code>/<code>sysret</code>, <code>eret</code>, <code>sret</code>/<code>mret</code>) restores state.</li></ol>
 <h3>System Calls</h3>
 <p>User code puts a call number and arguments in registers and executes <code>syscall</code> (x86-64), <code>svc</code> (ARM), or <code>ecall</code> (RISC-V). The kernel dispatches through a table, does the work, and returns. A bare call costs on the order of 100 ns; the real cost includes cache and TLB pollution from kernel code.</p>
 <h3>In an Out-of-Order Core</h3>
@@ -98,13 +98,13 @@ section({
     guided: [
       {
         q: `<p>A server makes 1 million system calls per second per core, each costing 500 ns of entry, dispatch, and exit overhead. What fraction of the core goes to overhead, and what would you do?</p>`,
-        a: `<ol><li>Overhead per second = 10<sup>6</sup> × 500 ns = 0.5 s.</li><li>That's <strong>50%</strong> of the core.</li><li>Reduce the count: batch work per call (<code>io_uring</code>, <code>sendmmsg</code>), use vDSO for calls like <code>clock_gettime</code> that need no kernel entry, or bypass the kernel for I/O.</li></ol>`
+        a: `<ol start="0"><li>Overhead per second = 10<sup>6</sup> × 500 ns = 0.5 s.</li><li>That's <strong>50%</strong> of the core.</li><li>Reduce the count: batch work per call (<code>io_uring</code>, <code>sendmmsg</code>), use vDSO for calls like <code>clock_gettime</code> that need no kernel entry, or bypass the kernel for I/O.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>Walk through what an out-of-order core does when a load page-faults.</p>`,
-        a: `<ol><li>The load misses the TLB, and the walker finds a non-present entry. The load is marked faulting in its ROB entry; nothing architectural happens yet.</li><li>If an older branch was mispredicted, the load is squashed and the fault disappears.</li><li>When the load reaches the ROB head, the core flushes it and everything younger, saves the faulting PC and address (CR2 on x86, FAR on ARM), switches to kernel mode, and jumps to the fault vector.</li><li>The handler maps the page and returns; the load re-executes from the saved PC.</li></ol>`
+        a: `<ol start="0"><li>The load misses the TLB, and the walker finds a non-present entry. The load is marked faulting in its ROB entry; nothing architectural happens yet.</li><li>If an older branch was mispredicted, the load is squashed and the fault disappears.</li><li>When the load reaches the ROB head, the core flushes it and everything younger, saves the faulting PC and address (CR2 on x86, FAR on ARM), switches to kernel mode, and jumps to the fault vector.</li><li>The handler maps the page and returns; the load re-executes from the saved PC.</li></ol>`
       },
       {
         q: `<p>Why did system calls get more expensive after Meltdown?</p>`,

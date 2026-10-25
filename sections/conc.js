@@ -14,7 +14,7 @@ section({
     guided: [
       {
         q: `<p>A program is 90% parallel. What's the speedup on 8 cores, and what's the ceiling with infinite cores?</p>`,
-        a: `<ol><li>8 cores: 1 / (0.1 + 0.9 / 8) = 1 / 0.2125 ≈ <strong>4.7×</strong>.</li><li>Infinite cores: 1 / 0.1 = <strong>10×</strong>.</li></ol>`
+        a: `<ol start="0"><li>8 cores: 1 / (0.1 + 0.9 / 8) = 1 / 0.2125 ≈ <strong>4.7×</strong>.</li><li>Infinite cores: 1 / 0.1 = <strong>10×</strong>.</li></ol>`
       }
     ],
     interview: [
@@ -47,7 +47,7 @@ assert(data == 42);  // guaranteed</code></pre>
     guided: [
       {
         q: `<p>The producer writes <code>data = 42</code> and then sets <code>ready = 1</code> with relaxed ordering. The consumer spins until <code>ready</code> is 1 (relaxed), then reads <code>data</code>. What can go wrong, and how do you fix it?</p>`,
-        a: `<ol><li>Relaxed gives atomicity but no ordering. The data store may become visible after the ready store, or the consumer's data read may be satisfied early.</li><li>The consumer can see ready = 1 and data = 0.</li><li>Fix: make the ready store <code>release</code> and the spin load <code>acquire</code>. The acquire that reads the release value synchronizes-with it, so data = 42 is guaranteed.</li></ol>`
+        a: `<ol start="0"><li>Relaxed gives atomicity but no ordering. The data store may become visible after the ready store, or the consumer's data read may be satisfied early.</li><li>The consumer can see ready = 1 and data = 0.</li><li>Fix: make the ready store <code>release</code> and the spin load <code>acquire</code>. The acquire that reads the release value synchronizes-with it, so data = 42 is guaranteed.</li></ol>`
       }
     ],
     interview: [
@@ -93,7 +93,7 @@ void barrier_wait(barrier_t *b, int *local_sense) {
     guided: [
       {
         q: `<p>Trace two episodes of the <code>barrier_wait</code> code on this page with n = 2, count = 2, sense = 0, and both local senses 0. T0 arrives first each time.</p>`,
-        a: `<ol><li>Episode 0: both flip their local sense to 1. T0's fetch_sub returns 2, so it spins until sense == 1.</li><li>T1's fetch_sub returns 1, so it is last: it resets count to 2 and stores sense = 1. T0 sees 1 and leaves.</li><li>Episode 1: both flip local sense to 0. T0 decrements (returns 2) and spins until sense == 0.</li><li>T1 is last: count = 2, sense = 0. Both leave. No reinitialization was needed.</li></ol>`
+        a: `<ol start="0"><li>Episode 0: both flip their local sense to 1. T0's fetch_sub returns 2, so it spins until sense == 1.</li><li>T1's fetch_sub returns 1, so it is last: it resets count to 2 and stores sense = 1. T0 sees 1 and leaves.</li><li>Episode 1: both flip local sense to 0. T0 decrements (returns 2) and spins until sense == 0.</li><li>T1 is last: count = 2, sense = 0. Both leave. No reinitialization was needed.</li></ol>`
       }
     ],
     interview: [
@@ -132,7 +132,7 @@ _Static_assert(_Alignof(per_thread_t) == LINE, "not line-aligned");</code></pre>
     guided: [
       {
         q: `<p>Eight threads each update their own 8-byte counter in <code>long counters[8]</code>. What's wrong, and how big is the fixed array with 64-byte lines?</p>`,
-        a: `<ol><li>All 8 counters (64 bytes) fit in one line, so every update invalidates the other seven cores' copies.</li><li>Fix: give each counter its own line with a padded, 64-byte-aligned struct.</li><li>Size: 8 × 64 = <strong>512 bytes</strong> (1024 if you pad to 128).</li></ol>`
+        a: `<ol start="0"><li>All 8 counters (64 bytes) fit in one line, so every update invalidates the other seven cores' copies.</li><li>Fix: give each counter its own line with a padded, 64-byte-aligned struct.</li><li>Size: 8 × 64 = <strong>512 bytes</strong> (1024 if you pad to 128).</li></ol>`
       }
     ],
     interview: [

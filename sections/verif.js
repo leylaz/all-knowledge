@@ -49,7 +49,7 @@ section({
 
 <h3 id="sec-what-to-test">Deciding What to Test, and How AI Changes It</h3>
 <p><strong>The traditional approach</strong> starts with a <strong>verification plan</strong>, written by hand from the specification:</p>
-<ol>
+<ol start="0">
 <li><strong>Extract features.</strong> Engineers read the spec and microarchitecture documents and list every feature and rule. For a FIFO, that includes ordering, full and empty flags, simultaneous push and pop, and behavior on reset.</li>
 <li><strong>Turn each feature into checks and coverage.</strong> For each item they decide how correctness will be checked (scoreboard, assertion, or reference-model comparison) and which coverage points prove it was exercised, including crosses such as “full while a push and pop happen together.”</li>
 <li><strong>Prioritize by risk.</strong> New or changed logic, complex control (arbiters, coherence, memory ordering), concurrency, error paths, and areas with past bugs get the most attention.</li>
@@ -412,7 +412,7 @@ module core_tb;
   end
 endmodule</code></pre>
 <p><strong>What the testbench does:</strong></p>
-<ol>
+<ol start="0">
 <li><strong>Connects the C code.</strong> <code>import "DPI-C"</code> lets SystemVerilog call the C functions as if they were its own. The C file is compiled and linked into the simulator, so the model runs in the same process on the host machine.</li>
 <li><strong>Gives both the same starting state.</strong> It resets both, then loads the same random values into registers 1 to 31 of each.</li>
 <li><strong>Runs each ADD on both.</strong> For each of 1,000 random ADDs, it presents the instruction to the RTL and calls <code>ref_step()</code> on the C model. The RTL executes at the next rising edge; the C model executes immediately.</li>
@@ -472,7 +472,7 @@ endmodule</code></pre>
 endgroup</code></pre>
 <p>This asks whether every load size has been seen with every forwarding outcome, including an 8-byte load that partially overlaps an older store. Assertions can also carry <em>cover properties</em> that count how often a sequence of events (such as “store address resolves after a younger load already ran”) actually happened.</p>
 <p><strong>How coverage is used</strong> (coverage-driven verification):</p>
-<ol>
+<ol start="0">
 <li><strong>Plan:</strong> the verification plan lists features from the spec, and each gets coverage points.</li>
 <li><strong>Run:</strong> random regressions run with many seeds, and coverage from every run is merged into one database.</li>
 <li><strong>Find holes:</strong> reports show which bins were never hit.</li>

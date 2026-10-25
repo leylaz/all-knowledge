@@ -136,7 +136,7 @@ Little-endian puts the “little end” at the lowest address, so the bytes look
       },
       {
         q: `<p>Encode −2.5 as an IEEE 754 single-precision number.</p>`,
-        a: `<ol><li>Sign: negative, so 1.</li><li>2.5 = 1.25 × 2<sup>1</sup>, so the stored exponent is 1 + 127 = 128 = 1000 0000.</li><li>Fraction: the part after the leading 1 is .25 = binary .01, so the 23-bit fraction is 0100 0000 0000 0000 0000 000.</li><li>Bits: 1 10000000 01000000000000000000000 = <strong>0xC0200000</strong>.</li></ol>`
+        a: `<ol start="0"><li>Sign: negative, so 1.</li><li>2.5 = 1.25 × 2<sup>1</sup>, so the stored exponent is 1 + 127 = 128 = 1000 0000.</li><li>Fraction: the part after the leading 1 is .25 = binary .01, so the 23-bit fraction is 0100 0000 0000 0000 0000 000.</li><li>Bits: 1 10000000 01000000000000000000000 = <strong>0xC0200000</strong>.</li></ol>`
       }
     ],
     interview: [
@@ -203,7 +203,7 @@ Little-endian puts the “little end” at the lowest address, so the bytes look
     guided: [
       {
         q: `<p>A RISC-V I-type instruction has a 7-bit opcode, a 5-bit destination register, a 3-bit function field, a 5-bit source register, and a 12-bit immediate. Check that it fills 32 bits, and give the immediate's range.</p>`,
-        a: `<ol><li>7 + 5 + 3 + 5 + 12 = <strong>32 bits</strong>.</li><li>5-bit register fields can name 2<sup>5</sup> = 32 registers.</li><li>The 12-bit immediate is signed (two's complement): <strong>−2,048 to +2,047</strong>. Larger constants need two instructions (for example, <code>lui</code> to set the upper bits, then <code>addi</code>).</li></ol>`
+        a: `<ol start="0"><li>7 + 5 + 3 + 5 + 12 = <strong>32 bits</strong>.</li><li>5-bit register fields can name 2<sup>5</sup> = 32 registers.</li><li>The 12-bit immediate is signed (two's complement): <strong>−2,048 to +2,047</strong>. Larger constants need two instructions (for example, <code>lui</code> to set the upper bits, then <code>addi</code>).</li></ol>`
       }
     ],
     interview: [

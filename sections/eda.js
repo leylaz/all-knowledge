@@ -77,7 +77,7 @@ section({
       },
       {
         q: `<p>Place each problem in the flow:</p><ul><li>(a) Cycle counts from your C++ model disagree with RTL on a microbenchmark</li><li>(b) A timing violation after place and route</li><li>(c) A mismatch between the netlist and RTL</li></ul>`,
-        a: `<ol><li>(a) Model correlation, between <a href="#/eda-arch">architecture and performance modeling</a> and RTL simulation or <a href="#/eda-emu">emulation</a>.</li><li>(b) Static timing analysis during <a href="#/eda-pd">physical design</a> and <a href="#/eda-signoff">signoff</a>; the fix may change pipeline depth, which feeds back into the performance model.</li><li>(c) Equivalence checking during <a href="#/eda-signoff">signoff</a>.</li></ol>`
+        a: `<ol start="0"><li>(a) Model correlation, between <a href="#/eda-arch">architecture and performance modeling</a> and RTL simulation or <a href="#/eda-emu">emulation</a>.</li><li>(b) Static timing analysis during <a href="#/eda-pd">physical design</a> and <a href="#/eda-signoff">signoff</a>; the fix may change pipeline depth, which feeds back into the performance model.</li><li>(c) Equivalence checking during <a href="#/eda-signoff">signoff</a>.</li></ol>`
       }
     ],
     interview: [
@@ -160,7 +160,7 @@ section({
 <p>PPA always involves trade-offs: a faster path usually means bigger or leakier cells. The tools don't remove the trade-off; they find a better balance point for the targets the team sets.</p>
 <h3 id="sec-vt-decisions">Leaky vs. Low-Leakage Cells: Where the Decisions Are Made</h3>
 <p>The cell-by-cell choices are made automatically by the tools, within rules and budgets that engineers set. For what these cells are and why leakage matters, see <a href="#/transistors/vt-flavors">Threshold-voltage flavors</a>.</p>
-<ol>
+<ol start="0">
 <li><strong>Flow setup (before synthesis):</strong> the team decides which threshold-voltage flavors are allowed, often with limits such as a maximum percentage of low-V<sub>th</sub> cells, or high-V<sub>th</sub> only for always-on blocks. These limits come from the power budget and frequency target.</li>
 <li><strong><a href="#/eda-synth/synth-ppa">Logic synthesis</a>, the first pass:</strong> mostly low-leakage cells, with leaky, fast ones on paths that miss timing. Provisional, since wire delays are only estimated.</li>
 <li><strong><a href="#/eda-pd/vt-pd">Physical design</a>, where most decisions become final:</strong> with real wire delays known, the tool swaps leaky cells onto paths that became too slow, then runs leakage recovery to swap cells back wherever slack allows.</li>
@@ -172,7 +172,7 @@ section({
     guided: [
       {
         q: `<p>A path misses timing by 15 ps late in the schedule. List the possible fixes, roughly from least to most disruptive, and what each costs in power, performance, or area.</p>`,
-        a: `<ol><li><strong>Swap cells to low-V<sub>th</sub>:</strong> no area change and no layout disturbance, but more leakage power.</li><li><strong>Upsize cells or add buffers:</strong> more area and switching power; may need small placement changes.</li><li><strong>Restructure the logic:</strong> design and verification time; may change the RTL.</li><li><strong>Add a pipeline stage:</strong> more latency, which can lower IPC, plus more flip-flops and clock power.</li><li><strong>Raise the supply voltage or lower the frequency:</strong> affects the whole chip's power or performance.</li></ol>`
+        a: `<ol start="0"><li><strong>Swap cells to low-V<sub>th</sub>:</strong> no area change and no layout disturbance, but more leakage power.</li><li><strong>Upsize cells or add buffers:</strong> more area and switching power; may need small placement changes.</li><li><strong>Restructure the logic:</strong> design and verification time; may change the RTL.</li><li><strong>Add a pipeline stage:</strong> more latency, which can lower IPC, plus more flip-flops and clock power.</li><li><strong>Raise the supply voltage or lower the frequency:</strong> affects the whole chip's power or performance.</li></ol>`
       }
     ],
     interview: [
@@ -245,7 +245,7 @@ for (cycle = 0; !done; cycle++) {
 
 <h3 id="sec-func-how">How a Functional Model Knows What the Program Computes</h3>
 <p>A functional model doesn't read a trace to learn the answer; it <strong>computes</strong> the answer by executing the program itself, the way the ISA says a processor must.</p>
-<ol>
+<ol start="0">
 <li><strong>Load the program.</strong> The model reads the compiled binary (for example, an ELF file), copies its code and data into the model's simulated memory, and sets the PC to the program's entry point.</li>
 <li><strong>Hold the architectural state as plain data structures:</strong> an array for the registers, a variable for the PC, a sparse map of memory pages, and the control and status registers.</li>
 <li><strong>Run the fetch-decode-execute loop:</strong> read the instruction at the PC, decode it, perform its effect on that state, and compute the next PC.</li>
@@ -344,7 +344,7 @@ void step(ArchState &amp;s) {
     guided: [
       {
         q: `<p>A functional model runs at 50 million instructions per second and a cycle-level model at 0.5 million. A benchmark executes 2 trillion instructions. How long does each take to run it in full, and how long does a sampled study take with 10 regions of 100 million detailed instructions each?</p>`,
-        a: `<ol><li>Functional: 2 × 10<sup>12</sup> / 5 × 10<sup>7</sup> = 40,000 s ≈ <strong>11 hours</strong>.</li><li>Cycle-level, in full: 2 × 10<sup>12</sup> / 5 × 10<sup>5</sup> = 4 × 10<sup>6</sup> s ≈ <strong>46 days</strong>.</li><li>Sampled: 10 × 10<sup>8</sup> = 10<sup>9</sup> detailed instructions / 5 × 10<sup>5</sup> = 2,000 s ≈ <strong>33 minutes</strong> of detailed simulation, plus fast-forwarding (or restoring checkpoints) and warm-up. That's why sampling methods like SimPoints exist.</li></ol>`
+        a: `<ol start="0"><li>Functional: 2 × 10<sup>12</sup> / 5 × 10<sup>7</sup> = 40,000 s ≈ <strong>11 hours</strong>.</li><li>Cycle-level, in full: 2 × 10<sup>12</sup> / 5 × 10<sup>5</sup> = 4 × 10<sup>6</sup> s ≈ <strong>46 days</strong>.</li><li>Sampled: 10 × 10<sup>8</sup> = 10<sup>9</sup> detailed instructions / 5 × 10<sup>5</sup> = 2,000 s ≈ <strong>33 minutes</strong> of detailed simulation, plus fast-forwarding (or restoring checkpoints) and warm-up. That's why sampling methods like SimPoints exist.</li></ol>`
       }
     ],
     interview: [
@@ -354,7 +354,7 @@ void step(ArchState &amp;s) {
       },
       {
         q: `<p>A new prefetcher gives +5% IPC in ChampSim. What has to happen before it ships in a product?</p>`,
-        a: `<ol><li>Re-implement it in the in-house model, which matches the real core and memory system, and re-measure on the company's workload suite, including regressions.</li><li>Check hardware costs: table storage, timing of its lookup path, power, and how it interacts with existing prefetchers.</li><li>Review feasibility with RTL designers, then implement and verify it.</li><li>Correlate model and RTL (often on emulation) to confirm the gain survives in the real design.</li></ol>`
+        a: `<ol start="0"><li>Re-implement it in the in-house model, which matches the real core and memory system, and re-measure on the company's workload suite, including regressions.</li><li>Check hardware costs: table storage, timing of its lookup path, power, and how it interacts with existing prefetchers.</li><li>Review feasibility with RTL designers, then implement and verify it.</li><li>Correlate model and RTL (often on emulation) to confirm the gain survives in the real design.</li></ol>`
       }
     ]
   }
@@ -461,7 +461,7 @@ DFF_X1  q_reg (.D(n2), .CK(clk), .Q(q));</code></pre>
     guided: [
       {
         q: `<p>A coverage model for a cache controller has 400 coverage bins, and regressions have hit 340 of them. What's the coverage, and what do you do about the rest?</p>`,
-        a: `<ol><li>Coverage = 340 / 400 = <strong>85%</strong>.</li><li>Review each unhit bin: some are unreachable by design and should be excluded with a justification; others need new constraints or directed tests to reach.</li><li>Rerun regressions and repeat until coverage goals are met, then sign off.</li></ol>`
+        a: `<ol start="0"><li>Coverage = 340 / 400 = <strong>85%</strong>.</li><li>Review each unhit bin: some are unreachable by design and should be excluded with a justification; others need new constraints or directed tests to reach.</li><li>Rerun regressions and repeat until coverage goals are met, then sign off.</li></ol>`
       }
     ],
     interview: [
@@ -528,7 +528,7 @@ DFF_X1  q_reg (.D(n2), .CK(clk), .Q(q));</code></pre>
     guided: [
       {
         q: `<p>A workload runs for 0.5 seconds on a 2 GHz chip. How long does it take to run on RTL simulation at 200 cycles/s, an emulator at 1.5 MHz, and an FPGA prototype at 25 MHz?</p>`,
-        a: `<ol><li>Cycles: 0.5 s × 2 × 10<sup>9</sup> = 10<sup>9</sup> cycles.</li><li>RTL simulation: 10<sup>9</sup> / 200 = 5 × 10<sup>6</sup> s ≈ <strong>58 days</strong>.</li><li>Emulator: 10<sup>9</sup> / 1.5 × 10<sup>6</sup> ≈ 667 s ≈ <strong>11 minutes</strong>.</li><li>FPGA prototype: 10<sup>9</sup> / 25 × 10<sup>6</sup> = <strong>40 s</strong>.</li></ol>`
+        a: `<ol start="0"><li>Cycles: 0.5 s × 2 × 10<sup>9</sup> = 10<sup>9</sup> cycles.</li><li>RTL simulation: 10<sup>9</sup> / 200 = 5 × 10<sup>6</sup> s ≈ <strong>58 days</strong>.</li><li>Emulator: 10<sup>9</sup> / 1.5 × 10<sup>6</sup> ≈ 667 s ≈ <strong>11 minutes</strong>.</li><li>FPGA prototype: 10<sup>9</sup> / 25 × 10<sup>6</sup> = <strong>40 s</strong>.</li></ol>`
       }
     ],
     interview: [
@@ -604,7 +604,7 @@ DFF_X1  q_reg (.D(n2), .CK(clk), .Q(q));</code></pre>
     guided: [
       {
         q: `<p>A block has 10,000 scan flip-flops in one chain, tested with 2,000 patterns at a 100 MHz scan clock. Roughly how long does the test take? What if the flip-flops are split into 100 chains of 100?</p>`,
-        a: `<ol><li>Each pattern shifts through the chain: about 10,000 cycles (the next pattern shifts in while the previous result shifts out).</li><li>One chain: 2,000 × 10,000 = 2 × 10<sup>7</sup> cycles / 10<sup>8</sup> per second = <strong>0.2 s</strong>.</li><li>100 chains of 100: 2,000 × 100 = 2 × 10<sup>5</sup> cycles = <strong>2 ms</strong>. Tester time costs money on every chip, which is why designs use many short chains and compression.</li></ol>`
+        a: `<ol start="0"><li>Each pattern shifts through the chain: about 10,000 cycles (the next pattern shifts in while the previous result shifts out).</li><li>One chain: 2,000 × 10,000 = 2 × 10<sup>7</sup> cycles / 10<sup>8</sup> per second = <strong>0.2 s</strong>.</li><li>100 chains of 100: 2,000 × 100 = 2 × 10<sup>5</sup> cycles = <strong>2 ms</strong>. Tester time costs money on every chip, which is why designs use many short chains and compression.</li></ol>`
       }
     ],
     interview: [
@@ -647,7 +647,7 @@ DFF_X1  q_reg (.D(n2), .CK(clk), .Q(q));</code></pre>
     guided: [
       {
         q: `<p>Put the physical design steps in order and say what each one decides: routing, placement, clock tree synthesis, floorplanning.</p>`,
-        a: `<ol><li><strong>Floorplanning:</strong> where major blocks, memories, I/O, and power grid go.</li><li><strong>Placement:</strong> where every standard cell goes.</li><li><strong>Clock tree synthesis:</strong> how the clock reaches every flip-flop with low skew.</li><li><strong>Routing:</strong> the actual metal wires for every connection.</li></ol><p>Optimization (resizing cells, adding buffers) happens throughout.</p>`
+        a: `<ol start="0"><li><strong>Floorplanning:</strong> where major blocks, memories, I/O, and power grid go.</li><li><strong>Placement:</strong> where every standard cell goes.</li><li><strong>Clock tree synthesis:</strong> how the clock reaches every flip-flop with low skew.</li><li><strong>Routing:</strong> the actual metal wires for every connection.</li></ol><p>Optimization (resizing cells, adding buffers) happens throughout.</p>`
       }
     ],
     interview: [
@@ -723,7 +723,7 @@ DFF_X1  q_reg (.D(n2), .CK(clk), .Q(q));</code></pre>
     interview: [
       {
         q: `<p>A functional bug is found right after tapeout. What are the options, from cheapest to most expensive?</p>`,
-        a: `<ol><li><strong>Software or firmware workaround:</strong> avoid the buggy behavior in drivers, the OS, or microcode.</li><li><strong>Disable the feature:</strong> designs include configuration bits ("chicken bits") that turn off risky features.</li><li><strong>Metal-only fix:</strong> rewire existing spare cells using only the upper metal layers, which needs only a few new masks.</li><li><strong>Full respin:</strong> new masks for all layers and months of delay.</li></ol>`
+        a: `<ol start="0"><li><strong>Software or firmware workaround:</strong> avoid the buggy behavior in drivers, the OS, or microcode.</li><li><strong>Disable the feature:</strong> designs include configuration bits ("chicken bits") that turn off risky features.</li><li><strong>Metal-only fix:</strong> rewire existing spare cells using only the upper metal layers, which needs only a few new masks.</li><li><strong>Full respin:</strong> new masks for all layers and months of delay.</li></ol>`
       }
     ]
   }

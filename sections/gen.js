@@ -57,7 +57,7 @@ section({
     guided: [
       {
         q: `<p>A logistic regression model has weights w = (2, −1) and bias b = 0.5. What probability does it give that x = (1, 3) belongs to class 1? Then convert the logits (2, 1, 0) for a 3-class model into probabilities with softmax.</p>`,
-        a: `<ol><li>z = w · x + b = 2(1) − 1(3) + 0.5 = −0.5.</li><li>σ(−0.5) = 1 / (1 + e<sup>0.5</sup>) = 1 / (1 + 1.649) ≈ <strong>0.38</strong>, so the model leans toward class 0.</li><li>Softmax: e<sup>2</sup> = 7.389, e<sup>1</sup> = 2.718, e<sup>0</sup> = 1; sum = 11.107.</li><li>Probabilities: 7.389/11.107 ≈ <strong>0.665</strong>, 2.718/11.107 ≈ <strong>0.245</strong>, 1/11.107 ≈ <strong>0.090</strong>.</li></ol>`
+        a: `<ol start="0"><li>z = w · x + b = 2(1) − 1(3) + 0.5 = −0.5.</li><li>σ(−0.5) = 1 / (1 + e<sup>0.5</sup>) = 1 / (1 + 1.649) ≈ <strong>0.38</strong>, so the model leans toward class 0.</li><li>Softmax: e<sup>2</sup> = 7.389, e<sup>1</sup> = 2.718, e<sup>0</sup> = 1; sum = 11.107.</li><li>Probabilities: 7.389/11.107 ≈ <strong>0.665</strong>, 2.718/11.107 ≈ <strong>0.245</strong>, 1/11.107 ≈ <strong>0.090</strong>.</li></ol>`
       }
     ],
     interview: [
@@ -103,7 +103,7 @@ section({
     guided: [
       {
         q: `<p>An autoregressive model assigns p("the") = 0.2, p("cat" | "the") = 0.1, and p("sat" | "the cat") = 0.5. What's the probability of the sequence "the cat sat," its log probability, and its per-token perplexity?</p>`,
-        a: `<ol><li>Chain rule: 0.2 × 0.1 × 0.5 = <strong>0.01</strong>.</li><li>Natural log: ln 0.01 ≈ <strong>−4.61</strong>.</li><li>Perplexity = exp(−average log probability per token) = exp(4.61 / 3) = e<sup>1.535</sup> ≈ <strong>4.6</strong>: on average, the model was as uncertain as choosing among about 4.6 equally likely tokens.</li></ol>`
+        a: `<ol start="0"><li>Chain rule: 0.2 × 0.1 × 0.5 = <strong>0.01</strong>.</li><li>Natural log: ln 0.01 ≈ <strong>−4.61</strong>.</li><li>Perplexity = exp(−average log probability per token) = exp(4.61 / 3) = e<sup>1.535</sup> ≈ <strong>4.6</strong>: on average, the model was as uncertain as choosing among about 4.6 equally likely tokens.</li></ol>`
       }
     ],
     interview: [
@@ -166,7 +166,7 @@ section({
     guided: [
       {
         q: `<p>An LLM's logits for three tokens are (2, 1, 0). Find the sampling probabilities at temperature T = 0.5 and T = 2. Separately, a path tracer at 16 samples per pixel is too noisy: how many samples halve the noise, and how many cut it by 10×?</p>`,
-        a: `<ol><li>T = 0.5: logits / T = (4, 2, 0). e<sup>4</sup> = 54.6, e<sup>2</sup> = 7.39, e<sup>0</sup> = 1; sum = 63.0. Probabilities ≈ <strong>(0.867, 0.117, 0.016)</strong>: sharper, closer to greedy.</li><li>T = 2: logits / T = (1, 0.5, 0). e<sup>1</sup> = 2.72, e<sup>0.5</sup> = 1.65, 1; sum = 5.37. Probabilities ≈ <strong>(0.506, 0.307, 0.186)</strong>: flatter, more random.</li><li>Monte Carlo noise ∝ 1/√N. Halving it needs 4× the samples: <strong>64</strong>. Cutting it 10× needs 100×: <strong>1,600</strong>.</li></ol>`
+        a: `<ol start="0"><li>T = 0.5: logits / T = (4, 2, 0). e<sup>4</sup> = 54.6, e<sup>2</sup> = 7.39, e<sup>0</sup> = 1; sum = 63.0. Probabilities ≈ <strong>(0.867, 0.117, 0.016)</strong>: sharper, closer to greedy.</li><li>T = 2: logits / T = (1, 0.5, 0). e<sup>1</sup> = 2.72, e<sup>0.5</sup> = 1.65, 1; sum = 5.37. Probabilities ≈ <strong>(0.506, 0.307, 0.186)</strong>: flatter, more random.</li><li>Monte Carlo noise ∝ 1/√N. Halving it needs 4× the samples: <strong>64</strong>. Cutting it 10× needs 100×: <strong>1,600</strong>.</li></ol>`
       }
     ],
     interview: [
@@ -196,7 +196,7 @@ section({
 <p class="eq">x<sub>t</sub> = √ᾱ<sub>t</sub> x<sub>0</sub> + √(1 − ᾱ<sub>t</sub>) ε</p>
 <p>Early on ᾱ<sub>t</sub> ≈ 1 (mostly signal); by the last step ᾱ<sub>T</sub> ≈ 0 (pure noise).</p>
 <h3 id="sec-training">Training</h3>
-<ol><li>Pick a real example x<sub>0</sub>, a random step t, and random noise ε.</li><li>Make x<sub>t</sub> with the formula above.</li><li>Train the network ε<sub>θ</sub>(x<sub>t</sub>, t) to predict the noise that was added:</li></ol>
+<ol start="0"><li>Pick a real example x<sub>0</sub>, a random step t, and random noise ε.</li><li>Make x<sub>t</sub> with the formula above.</li><li>Train the network ε<sub>θ</sub>(x<sub>t</sub>, t) to predict the noise that was added:</li></ol>
 <p class="eq">L = ‖ ε − ε<sub>θ</sub>(x<sub>t</sub>, t) ‖<sup>2</sup></p>
 <p>This is ordinary regression, which is why diffusion training is stable compared with GANs.</p>
 <h3 id="sec-sampling">Sampling (Generating)</h3>
@@ -218,13 +218,13 @@ section({
     guided: [
       {
         q: `<p>At step t, ᾱ<sub>t</sub> = 0.36. For a pixel with clean value x<sub>0</sub> = 1.0 and noise draw ε = −0.5, what is x<sub>t</sub>? Separately, how many times fewer values does a latent diffusion model process when it maps a 512 × 512 × 3 image to a 64 × 64 × 4 latent?</p>`,
-        a: `<ol><li>x<sub>t</sub> = √ᾱ<sub>t</sub> x<sub>0</sub> + √(1 − ᾱ<sub>t</sub>) ε = 0.6 × 1.0 + 0.8 × (−0.5) = <strong>0.2</strong>.</li><li>Image: 512 × 512 × 3 = 786,432 values. Latent: 64 × 64 × 4 = 16,384 values.</li><li>786,432 / 16,384 = <strong>48× fewer</strong>, which cuts the compute per denoising step dramatically.</li></ol>`
+        a: `<ol start="0"><li>x<sub>t</sub> = √ᾱ<sub>t</sub> x<sub>0</sub> + √(1 − ᾱ<sub>t</sub>) ε = 0.6 × 1.0 + 0.8 × (−0.5) = <strong>0.2</strong>.</li><li>Image: 512 × 512 × 3 = 786,432 values. Latent: 64 × 64 × 4 = 16,384 values.</li><li>786,432 / 16,384 = <strong>48× fewer</strong>, which cuts the compute per denoising step dramatically.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>An image model runs 50 denoising steps with classifier-free guidance. Each network evaluation costs 0.8 TFLOP, and the GPU sustains 400 TFLOP/s on it. What's the latency, and how would you cut it?</p>`,
-        a: `<ol><li>Guidance needs a conditional and an unconditional evaluation per step: 50 × 2 = 100 evaluations.</li><li>Total: 100 × 0.8 = 80 TFLOP. At 400 TFLOP/s: <strong>0.2 s</strong>.</li><li>Cuts: a better sampler (for example 20 steps → 0.08 s), distillation to 1–4 steps, batching the two guidance passes so the GPU runs them as one larger, more efficient batch, lower precision (FP8), or a smaller latent.</li></ol>`
+        a: `<ol start="0"><li>Guidance needs a conditional and an unconditional evaluation per step: 50 × 2 = 100 evaluations.</li><li>Total: 100 × 0.8 = 80 TFLOP. At 400 TFLOP/s: <strong>0.2 s</strong>.</li><li>Cuts: a better sampler (for example 20 steps → 0.08 s), distillation to 1–4 steps, batching the two guidance passes so the GPU runs them as one larger, more efficient batch, lower precision (FP8), or a smaller latent.</li></ol>`
       },
       {
         q: `<p>Why is predicting the noise ε a good training target, and how does it relate to the score ∇ log p(x)?</p>`,
@@ -278,7 +278,7 @@ section({
     guided: [
       {
         q: `<p>A 70-billion-parameter LLM stored in FP16 runs on a GPU with 3.35 TB/s of memory bandwidth. Estimate the maximum tokens per second at batch size 1, and the aggregate rate at batch size 32 (ignore the KV cache).</p>`,
-        a: `<ol><li>Weights: 70 × 10<sup>9</sup> × 2 bytes = 140 GB, all read once per generated token.</li><li>Time per token ≥ 140 GB / 3.35 TB/s ≈ 42 ms, so at most <strong>about 24 tokens/s</strong>.</li><li>At batch 32, the same weight read serves 32 sequences per step, so the step still takes about 42 ms while it stays memory-bound: about 32 × 24 ≈ <strong>760 tokens/s</strong> in aggregate.</li><li>Real numbers are lower (KV cache traffic, imperfect bandwidth use), and a 140 GB model needs more than one GPU's memory anyway.</li></ol>`
+        a: `<ol start="0"><li>Weights: 70 × 10<sup>9</sup> × 2 bytes = 140 GB, all read once per generated token.</li><li>Time per token ≥ 140 GB / 3.35 TB/s ≈ 42 ms, so at most <strong>about 24 tokens/s</strong>.</li><li>At batch 32, the same weight read serves 32 sequences per step, so the step still takes about 42 ms while it stays memory-bound: about 32 × 24 ≈ <strong>760 tokens/s</strong> in aggregate.</li><li>Real numbers are lower (KV cache traffic, imperfect bandwidth use), and a 140 GB model needs more than one GPU's memory anyway.</li></ol>`
       }
     ],
     interview: [
@@ -338,7 +338,7 @@ bias_relu&lt;&lt;&lt;(total + 255) / 256, 256&gt;&gt;&gt;(x, b, y, n, total);</c
 
 <h3 id="sec-gemm">How a GEMM Kernel Works</h3>
 <p>A matrix multiply (GEMM) of an \\(M \\times K\\) matrix by a \\(K \\times N\\) matrix is the kernel everything else is built around. A naive kernel gives each thread one element of \\(C\\) and loops over \\(K\\), reading \\(A\\) and \\(B\\) from HBM every time: about 2 FLOPs per 4 bytes in FP16, far below the ridge. Real GEMM kernels use <strong>tiling</strong>:</p>
-<ol>
+<ol start="0">
 <li><strong>Block tile:</strong> each thread block owns one \\(B_M \\times B_N\\) tile of \\(C\\), for example 128 × 128.</li>
 <li><strong>K loop:</strong> the block walks along \\(K\\) in steps of \\(B_K\\). At each step it copies a \\(B_M \\times B_K\\) slice of \\(A\\) and a \\(B_K \\times B_N\\) slice of \\(B\\) from HBM into shared memory.</li>
 <li><strong>Warp tiles:</strong> each warp multiplies its part of those slices on Tensor Cores.</li>
@@ -423,17 +423,17 @@ bias_relu&lt;&lt;&lt;(total + 255) / 256, 256&gt;&gt;&gt;(x, b, y, n, total);</c
     guided: [
       {
         q: `<p>A CUTLASS-style GEMM kernel uses 256 × 128 block tiles with \\(B_K = 64\\) in FP16. Per K step, how many FLOPs does a block do, how many bytes does it load, and what's the arithmetic intensity? What changes with 128 × 64 tiles? Compare both with an A100's ridge point (312 TFLOP/s FP16, 2.04 TB/s).</p>`,
-        a: `<ol><li>FLOPs: \\(2 \\times 256 \\times 128 \\times 64 = 4{,}194{,}304\\).</li><li>Bytes: \\((256 + 128) \\times 64\\) values \\(\\times\\) 2 B \\(= 49{,}152\\) B.</li><li>Intensity: \\(4{,}194{,}304 / 49{,}152 \\approx\\) <strong>85 FLOP/byte</strong>, matching \\(B_M B_N / (B_M + B_N) = 256 \\cdot 128 / 384\\).</li><li>With 128 × 64 tiles: \\(128 \\cdot 64 / 192 \\approx\\) <strong>43 FLOP/byte</strong>. Smaller tiles, less reuse.</li><li>A100 ridge: \\(312 / 2.04 \\approx\\) <strong>153 FLOP/byte</strong>. Neither tile reaches it from HBM alone; L2 hits between neighboring blocks make up the difference, which is why tile scheduling order (rasterization) matters.</li></ol>`
+        a: `<ol start="0"><li>FLOPs: \\(2 \\times 256 \\times 128 \\times 64 = 4{,}194{,}304\\).</li><li>Bytes: \\((256 + 128) \\times 64\\) values \\(\\times\\) 2 B \\(= 49{,}152\\) B.</li><li>Intensity: \\(4{,}194{,}304 / 49{,}152 \\approx\\) <strong>85 FLOP/byte</strong>, matching \\(B_M B_N / (B_M + B_N) = 256 \\cdot 128 / 384\\).</li><li>With 128 × 64 tiles: \\(128 \\cdot 64 / 192 \\approx\\) <strong>43 FLOP/byte</strong>. Smaller tiles, less reuse.</li><li>A100 ridge: \\(312 / 2.04 \\approx\\) <strong>153 FLOP/byte</strong>. Neither tile reaches it from HBM alone; L2 hits between neighboring blocks make up the difference, which is why tile scheduling order (rasterization) matters.</li></ol>`
       },
       {
         q: `<p>During prefill, Llama 3 8B's MLP up-projection multiplies 2,048 tokens × 4,096 hidden by a 4,096 × 14,336 weight matrix. How many <code>mma.sync.m16n8k16</code> instructions is that, and how long would it take at an A100's FP16 peak of 312 TFLOP/s? How long at 75% of peak, which is typical for real kernels?</p>`,
-        a: `<ol><li>Shape: \\(M = 2{,}048\\), \\(N = 14{,}336\\), \\(K = 4{,}096\\). FMAs: \\(MNK \\approx 1.20 \\times 10^{11}\\).</li><li>Each instruction does 2,048 FMAs, so \\(MNK / 2{,}048 = 14{,}336 \\times 4{,}096 \\approx\\) <strong>58.7 million</strong> warp-level MMA instructions.</li><li>FLOPs: \\(2MNK \\approx 2.41 \\times 10^{11}\\). At 312 TFLOP/s: about <strong>770 µs</strong>. At 75% of peak: 770 / 0.75 ≈ <strong>1.03 ms</strong>.</li></ol>`
+        a: `<ol start="0"><li>Shape: \\(M = 2{,}048\\), \\(N = 14{,}336\\), \\(K = 4{,}096\\). FMAs: \\(MNK \\approx 1.20 \\times 10^{11}\\).</li><li>Each instruction does 2,048 FMAs, so \\(MNK / 2{,}048 = 14{,}336 \\times 4{,}096 \\approx\\) <strong>58.7 million</strong> warp-level MMA instructions.</li><li>FLOPs: \\(2MNK \\approx 2.41 \\times 10^{11}\\). At 312 TFLOP/s: about <strong>770 µs</strong>. At 75% of peak: 770 / 0.75 ≈ <strong>1.03 ms</strong>.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>In BERT-large (hidden size 1,024), the feed-forward up-projection produces a 4,096-wide output per token, followed by a bias add and GELU. For a batch of 32 sequences × 512 tokens in FP16 on an A100 (2.04 TB/s, 312 TFLOP/s), estimate what fusing the bias and GELU into the GEMM's epilogue saves.</p>`,
-        a: `<ol><li>Tokens: \\(32 \\times 512 = 16{,}384\\). Output: \\(16{,}384 \\times 4{,}096 \\times 2\\) B ≈ <strong>134 MB</strong>.</li><li>Unfused: the bias kernel reads and writes it (268 MB), and the GELU kernel does the same (268 MB): about <strong>537 MB</strong> of extra HBM traffic, plus two extra launches.</li><li>At 2.04 TB/s that's about <strong>263 µs</strong>.</li><li>The GEMM itself (\\(2 \\times 16{,}384 \\times 1{,}024 \\times 4{,}096\\) FLOPs) takes about 440 µs at peak. So the unfused elementwise kernels add roughly 60% on top, and fusion removes nearly all of it.</li></ol>`
+        a: `<ol start="0"><li>Tokens: \\(32 \\times 512 = 16{,}384\\). Output: \\(16{,}384 \\times 4{,}096 \\times 2\\) B ≈ <strong>134 MB</strong>.</li><li>Unfused: the bias kernel reads and writes it (268 MB), and the GELU kernel does the same (268 MB): about <strong>537 MB</strong> of extra HBM traffic, plus two extra launches.</li><li>At 2.04 TB/s that's about <strong>263 µs</strong>.</li><li>The GEMM itself (\\(2 \\times 16{,}384 \\times 1{,}024 \\times 4{,}096\\) FLOPs) takes about 440 µs at peak. So the unfused elementwise kernels add roughly 60% on top, and fusion removes nearly all of it.</li></ol>`
       },
       {
         q: `<p>A large FP16 GEMM runs about 16× faster on an A100's Tensor Cores (312 TFLOP/s) than the same math in FP32 on CUDA cores (19.5 TFLOP/s). Why? And why does a 256 × 256 × 64 GEMM (one attention head's \\(QK^\\top\\) for a 256-token sequence with head dimension 64) see almost none of that speedup? Assume the kernel uses 128 × 128 output tiles, the A100 has 108 SMs, and a kernel launch costs about 3 µs.</p>`,

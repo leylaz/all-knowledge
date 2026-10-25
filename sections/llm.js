@@ -51,7 +51,7 @@ section({
 <text x="627" y="140" text-anchor="middle" style="fill:var(--muted);font-size:10px">in GPU memory</text>
 <line x1="627" y1="86" x2="627" y2="108" style="stroke:var(--pad);stroke-width:1.5;stroke-dasharray:4 3"/>
 </svg></div>
-<ol>
+<ol start="0">
 <li><a href="#/llm-tokens">Tokenize</a>: split the text into tokens and map each to an integer ID.</li>
 <li><a href="#/llm-embed">Embed</a>: look up a vector for each ID. That vector becomes the token's working memory, the residual stream.</li>
 <li><a href="#/llm-attention">Attention</a>: each token gathers information from earlier tokens.</li>
@@ -96,13 +96,13 @@ section({
     guided: [
       {
         q: `<p>Count the parameters of the running example, which has 80 layers. Per layer:</p><ul><li>W<sub>Q</sub> and W<sub>O</sub> are 8,192 × 8,192</li><li>W<sub>K</sub> and W<sub>V</sub> are 8,192 × 1,024</li><li>The MLP has three matrices of 8,192 × 28,672</li></ul><p>The embedding table and the separate LM head are each 128,256 × 8,192. Ignore norms. How many parameters in total, how many GB in BF16, and does it fit on one 80 GB GPU?</p>`,
-        a: `<ol><li>Attention per layer: 2 × 67.1M + 2 × 8.4M ≈ 151.0M.</li><li>MLP per layer: 3 × 8,192 × 28,672 ≈ 704.6M.</li><li>Per layer: ≈ 855.6M. Times 80 layers: ≈ 68.45B.</li><li>Embedding + LM head: 2 × 1.05B ≈ 2.10B.</li><li>Total ≈ <strong>70.6B parameters</strong>, × 2 bytes ≈ <strong>141 GB</strong>, which doesn't fit on one 80 GB GPU.</li></ol>`
+        a: `<ol start="0"><li>Attention per layer: 2 × 67.1M + 2 × 8.4M ≈ 151.0M.</li><li>MLP per layer: 3 × 8,192 × 28,672 ≈ 704.6M.</li><li>Per layer: ≈ 855.6M. Times 80 layers: ≈ 68.45B.</li><li>Embedding + LM head: 2 × 1.05B ≈ 2.10B.</li><li>Total ≈ <strong>70.6B parameters</strong>, × 2 bytes ≈ <strong>141 GB</strong>, which doesn't fit on one 80 GB GPU.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>“Walk me through what happens, end to end, between a user pressing enter on a chat prompt and seeing the first word appear.”</p>`,
-        a: `<ol><li>The request reaches a serving system, which wraps it in the chat template and tokenizes it on the CPU.</li><li>A scheduler adds it to the running batch (continuous batching) and allocates KV cache blocks; matching prefix blocks may already be cached.</li><li>Prefill: token IDs go to the GPUs, embeddings are looked up, and all prompt tokens run through the 80 blocks in parallel as large matrix multiplies, writing each layer’s keys and values into the KV cache. Weights are split across GPUs with tensor parallelism, so every layer ends with all-reduces over NVLink.</li><li>The LM head turns the last position’s vector into 128,256 logits; sampling picks a token.</li><li>The token ID is copied to the CPU, detokenized (buffering incomplete UTF-8), and streamed back.</li><li>Time to first token = queueing + prefill (compute-bound, grows with prompt length) + overheads. After that, each token costs one decode step, which is memory-bound.</li></ol>`
+        a: `<ol start="0"><li>The request reaches a serving system, which wraps it in the chat template and tokenizes it on the CPU.</li><li>A scheduler adds it to the running batch (continuous batching) and allocates KV cache blocks; matching prefix blocks may already be cached.</li><li>Prefill: token IDs go to the GPUs, embeddings are looked up, and all prompt tokens run through the 80 blocks in parallel as large matrix multiplies, writing each layer’s keys and values into the KV cache. Weights are split across GPUs with tensor parallelism, so every layer ends with all-reduces over NVLink.</li><li>The LM head turns the last position’s vector into 128,256 logits; sampling picks a token.</li><li>The token ID is copied to the CPU, detokenized (buffering incomplete UTF-8), and streamed back.</li><li>Time to first token = queueing + prefill (compute-bound, grows with prompt length) + overheads. After that, each token costs one decode step, which is memory-bound.</li></ol>`
       }
     ]
   }
@@ -125,7 +125,7 @@ section({
 <p>Why not use characters or whole words? Characters make sequences about four times longer, and as later pages show, cost grows with sequence length. Whole words need an enormous vocabulary and still can’t handle new words or typos. Subword tokens sit in between.</p>
 <h3 id="sec-bpe">Byte-Pair Encoding</h3>
 <p>Most LLM tokenizers use <strong>byte-pair encoding (BPE)</strong> or a close variant. Training the tokenizer (separate from training the model) works like this:</p>
-<ol>
+<ol start="0">
 <li>Start with the 256 possible bytes as the base vocabulary. Any text can be written in bytes, so nothing is ever “unknown.”</li>
 <li>Count every adjacent pair of tokens across a huge training corpus.</li>
 <li>Merge the most frequent pair into a new token and record the merge.</li>
@@ -149,7 +149,7 @@ section({
     guided: [
       {
         q: `<p>A tokenizer learned these merges, in order: (0) e + s → es, (1) es + t → est, (2) l + o → lo, (3) lo + w → low. Encode “lowest” and “newer.” How many tokens is each?</p>`,
-        a: `<ol><li>“lowest” starts as l o w e s t.</li><li>Merge 0: l o w es t. Merge 1: l o w est. Merge 2: lo w est. Merge 3: low est.</li><li>Result: <strong>low + est, 2 tokens</strong>, even though “lowest” never appeared in training.</li><li>“newer” is n e w e r. No learned pair applies, so it stays <strong>5 tokens</strong>. A real tokenizer has tens of thousands of merges, so common words become one token and rare ones split into a few pieces.</li></ol>`
+        a: `<ol start="0"><li>“lowest” starts as l o w e s t.</li><li>Merge 0: l o w es t. Merge 1: l o w est. Merge 2: lo w est. Merge 3: low est.</li><li>Result: <strong>low + est, 2 tokens</strong>, even though “lowest” never appeared in training.</li><li>“newer” is n e w e r. No learned pair applies, so it stays <strong>5 tokens</strong>. A real tokenizer has tens of thousands of merges, so common words become one token and rare ones split into a few pieces.</li></ol>`
       }
     ],
     interview: [
@@ -202,7 +202,7 @@ section({
     guided: [
       {
         q: `<p>For the running example (V = 128,256, d = 8,192, BF16, 141 GB of weights): how big is the embedding table, how many bytes does one lookup read, and how much memory do the residual-stream vectors take during prefill of a 4,000-token prompt?</p>`,
-        a: `<ol><li>Table: 128,256 × 8,192 ≈ 1.05B numbers × 2 bytes ≈ <strong>2.1 GB</strong>.</li><li>One lookup reads one row: 8,192 × 2 bytes = <strong>16 KB</strong>.</li><li>Prefill activations: 4,000 × 16 KB ≈ <strong>66 MB</strong>, tiny next to 141 GB of weights. Activations stay small; weights and the KV cache are what fill memory.</li></ol>`
+        a: `<ol start="0"><li>Table: 128,256 × 8,192 ≈ 1.05B numbers × 2 bytes ≈ <strong>2.1 GB</strong>.</li><li>One lookup reads one row: 8,192 × 2 bytes = <strong>16 KB</strong>.</li><li>Prefill activations: 4,000 × 16 KB ≈ <strong>66 MB</strong>, tiny next to 141 GB of weights. Activations stay small; weights and the KV cache are what fill memory.</li></ol>`
       }
     ],
     interview: [
@@ -246,7 +246,7 @@ section({
 <p>In the running example, W<sub>Q</sub> is 8,192 × 8,192 (64 query heads × 128), while W<sub>K</sub> and W<sub>V</sub> are 8,192 × 1,024 (8 key/value heads × 128). RoPE then rotates q and k by position.</p>
 <h3 id="sec-scores">Scores, Mask, Softmax, Mix</h3>
 <p class="eq">Attention(Q, K, V) = softmax( QK<sup>T</sup> / √d<sub>h</sub> + M ) V</p>
-<ol>
+<ol start="0">
 <li><strong>Score:</strong> dot each query with every key. A high score means a good match.</li>
 <li><strong>Scale:</strong> divide by √d<sub>h</sub> (√128 ≈ 11.3). Dot products of long vectors grow with their length; without scaling, softmax would saturate to nearly all-or-nothing weights, which also stalls training.</li>
 <li><strong>Mask:</strong> M sets scores for future tokens to −∞, so a token can only attend to itself and earlier tokens. This <strong>causal mask</strong> is what lets the model generate left to right.</li>
@@ -315,7 +315,7 @@ section({
 <li>Keys: “The” [0, 1], “cat” [1, 1], “sat” [1, 0].</li>
 <li>Values: “The” [1, 0], “cat” [0, 2], “sat” [2, 2].</li>
 </ul>
-<ol>
+<ol start="0">
 <li>Dot products: 0, 1, 1.</li>
 <li>Scale by 1/√2 ≈ 0.707: 0, 0.707, 0.707.</li>
 <li>Softmax: e<sup>0</sup> = 1, e<sup>0.707</sup> ≈ 2.028, 2.028. Sum ≈ 5.056. Weights ≈ 0.198, 0.401, 0.401.</li>
@@ -346,7 +346,7 @@ section({
     guided: [
       {
         q: `<p>Four tokens, numbered 0 to 3. For token 2, the scaled scores against tokens 0–3 are [2, 0, 1, 5]. The value vectors are v<sub>0</sub> = [1, 0], v<sub>1</sub> = [0, 1], v<sub>2</sub> = [1, 1], v<sub>3</sub> = [3, 3]. Apply the causal mask, softmax, and compute the output.</p>`,
-        a: `<ol><li>Mask: token 2 can’t see token 3, so its score becomes −∞: [2, 0, 1, −∞].</li><li>Exponentiate: e<sup>2</sup> = 7.389, e<sup>0</sup> = 1, e<sup>1</sup> = 2.718, e<sup>−∞</sup> = 0. Sum = 11.107.</li><li>Weights: [0.665, 0.090, 0.245, 0].</li><li>Output = 0.665 × [1, 0] + 0.090 × [0, 1] + 0.245 × [1, 1] = <strong>[0.910, 0.335]</strong>.</li><li>The large score for token 3 had no effect, which is exactly what the mask is for: no peeking at the future.</li></ol>`
+        a: `<ol start="0"><li>Mask: token 2 can’t see token 3, so its score becomes −∞: [2, 0, 1, −∞].</li><li>Exponentiate: e<sup>2</sup> = 7.389, e<sup>0</sup> = 1, e<sup>1</sup> = 2.718, e<sup>−∞</sup> = 0. Sum = 11.107.</li><li>Weights: [0.665, 0.090, 0.245, 0].</li><li>Output = 0.665 × [1, 0] + 0.090 × [0, 1] + 0.245 × [1, 1] = <strong>[0.910, 0.335]</strong>.</li><li>The large score for token 3 had no effect, which is exactly what the mask is for: no peeking at the future.</li></ol>`
       }
     ],
     interview: [
@@ -381,7 +381,7 @@ section({
 <h3 id="sec-mlp">The MLP</h3>
 <p>Llama-style models use a gated MLP called <strong>SwiGLU</strong>:</p>
 <p class="eq">MLP(x) = W<sub>down</sub> ( SiLU(x W<sub>gate</sub>) ⊙ (x W<sub>up</sub>) )</p>
-<ol>
+<ol start="0">
 <li>Expand: x (8,192 numbers) is multiplied by two matrices, W<sub>gate</sub> and W<sub>up</sub>, each 8,192 × 28,672, giving two vectors of 28,672.</li>
 <li>Gate: apply SiLU(z) = z × σ(z) to one vector and multiply it element by element with the other. The gate decides how much of each of the 28,672 features passes through.</li>
 <li>Project back: multiply by W<sub>down</sub> (28,672 × 8,192) to get back to width 8,192, and add the result to the residual stream.</li>
@@ -410,7 +410,7 @@ section({
     guided: [
       {
         q: `<p>In decode at batch size B, one MLP matrix multiply is [B × 8,192] × [8,192 × 28,672] in BF16. What is its arithmetic intensity, and at what batch size does it become compute-bound on a GPU with a ridge point of about 300 FLOPs per byte?</p>`,
-        a: `<ol><li>FLOPs: 2 × B × 8,192 × 28,672.</li><li>Bytes: dominated by the weight matrix, read once per step: 8,192 × 28,672 × 2 bytes. (The B input and output rows are tiny by comparison.)</li><li>Intensity ≈ 2B / 2 = <strong>B FLOPs per byte</strong>: each weight is used once per sequence in the batch.</li><li>Compute-bound once B exceeds about <strong>300</strong>. Below that, the step time is set by reading weights, and extra sequences in the batch are almost free.</li></ol>`
+        a: `<ol start="0"><li>FLOPs: 2 × B × 8,192 × 28,672.</li><li>Bytes: dominated by the weight matrix, read once per step: 8,192 × 28,672 × 2 bytes. (The B input and output rows are tiny by comparison.)</li><li>Intensity ≈ 2B / 2 = <strong>B FLOPs per byte</strong>: each weight is used once per sequence in the batch.</li><li>Compute-bound once B exceeds about <strong>300</strong>. Below that, the step time is set by reading weights, and extra sequences in the batch are almost free.</li></ol>`
       }
     ],
     interview: [
@@ -464,7 +464,7 @@ section({
     guided: [
       {
         q: `<p>Three candidate tokens have logits [2, 1, 0]. Compute the probabilities at temperature 0.5, then apply top-p = 0.9 and renormalize.</p>`,
-        a: `<ol><li>Divide by T: [4, 2, 0].</li><li>Exponentiate: e<sup>4</sup> = 54.598, e<sup>2</sup> = 7.389, e<sup>0</sup> = 1. Sum = 62.987.</li><li>Probabilities: <strong>0.867, 0.117, 0.016</strong>. (At T = 1 they were 0.665, 0.245, 0.090; lower temperature sharpened the distribution.)</li><li>Top-p: sort descending and keep tokens until the cumulative probability reaches 0.9. 0.867 &lt; 0.9, so add the next: 0.984 ≥ 0.9. Keep two.</li><li>Renormalize: 0.867 / 0.984 ≈ <strong>0.881</strong> and 0.117 / 0.984 ≈ <strong>0.119</strong>. The third token can no longer be chosen.</li></ol>`
+        a: `<ol start="0"><li>Divide by T: [4, 2, 0].</li><li>Exponentiate: e<sup>4</sup> = 54.598, e<sup>2</sup> = 7.389, e<sup>0</sup> = 1. Sum = 62.987.</li><li>Probabilities: <strong>0.867, 0.117, 0.016</strong>. (At T = 1 they were 0.665, 0.245, 0.090; lower temperature sharpened the distribution.)</li><li>Top-p: sort descending and keep tokens until the cumulative probability reaches 0.9. 0.867 &lt; 0.9, so add the next: 0.984 ≥ 0.9. Keep two.</li><li>Renormalize: 0.867 / 0.984 ≈ <strong>0.881</strong> and 0.117 / 0.984 ≈ <strong>0.119</strong>. The third token can no longer be chosen.</li></ol>`
       }
     ],
     interview: [
@@ -530,7 +530,7 @@ section({
     guided: [
       {
         q: `<p>For the running example (80 layers, 8 KV heads of dimension 128, BF16, 141 GB of weights, served on an 8-GPU server with 80 GB per GPU), how much KV cache do 32 users need at 8K (8,192) tokens of context each? How much would it be with standard multi-head attention (64 KV heads instead of 8)?</p>`,
-        a: `<ol><li>Per token: 2 × 80 × 8 × 128 × 2 bytes = 327,680 bytes ≈ 0.33 MB.</li><li>Per user: 8,192 × 327,680 ≈ 2.68 GB.</li><li>32 users: ≈ <strong>86 GB</strong>, more than one GPU’s entire memory, on top of 141 GB of weights.</li><li>With 64 KV heads, 8× more: ≈ <strong>687 GB</strong>, more than the whole 8-GPU server. That’s why nearly every modern model uses GQA or something stronger.</li></ol>`
+        a: `<ol start="0"><li>Per token: 2 × 80 × 8 × 128 × 2 bytes = 327,680 bytes ≈ 0.33 MB.</li><li>Per user: 8,192 × 327,680 ≈ 2.68 GB.</li><li>32 users: ≈ <strong>86 GB</strong>, more than one GPU’s entire memory, on top of 141 GB of weights.</li><li>With 64 KV heads, 8× more: ≈ <strong>687 GB</strong>, more than the whole 8-GPU server. That’s why nearly every modern model uses GQA or something stronger.</li></ol>`
       }
     ],
     interview: [
@@ -579,7 +579,7 @@ section({
     guided: [
       {
         q: `<p>The running example has 70.6B parameters (141 GB in BF16) and runs on an 8-GPU server where each GPU has 990 TFLOP/s of dense BF16 compute and 3.35 TB/s of HBM bandwidth. Estimate (a) the prefill time for a 4,000-token prompt at 50% of peak compute, (b) the decode step time at batch size 1 with a short context, and (c) the total time for a 500-token answer.</p>`,
-        a: `<ol><li>Prefill FLOPs ≈ 2 × 70.6B × 4,000 ≈ 5.6 × 10<sup>14</sup>. Achieved compute: 8 × 990 TFLOP/s × 0.5 ≈ 4.0 × 10<sup>15</sup> FLOP/s. Time ≈ <strong>0.14 s</strong>. (Attention adds little at 4K tokens.)</li><li>Decode: read 141 GB of weights at 8 × 3.35 = 26.8 TB/s ≈ <strong>5.3 ms</strong> per token, so at most about 190 tokens/s.</li><li>Answer: 0.14 s + 500 × 5.3 ms ≈ <strong>2.8 s</strong>. Decode dominates, even though prefill processed 8× more tokens. Real systems land below these bounds because of communication and overheads.</li></ol>`
+        a: `<ol start="0"><li>Prefill FLOPs ≈ 2 × 70.6B × 4,000 ≈ 5.6 × 10<sup>14</sup>. Achieved compute: 8 × 990 TFLOP/s × 0.5 ≈ 4.0 × 10<sup>15</sup> FLOP/s. Time ≈ <strong>0.14 s</strong>. (Attention adds little at 4K tokens.)</li><li>Decode: read 141 GB of weights at 8 × 3.35 = 26.8 TB/s ≈ <strong>5.3 ms</strong> per token, so at most about 190 tokens/s.</li><li>Answer: 0.14 s + 500 × 5.3 ms ≈ <strong>2.8 s</strong>. Decode dominates, even though prefill processed 8× more tokens. Real systems land below these bounds because of communication and overheads.</li></ol>`
       }
     ],
     interview: [
@@ -617,7 +617,7 @@ section({
 </table></div>
 <h3 id="sec-layer">One Layer, Kernel by Kernel</h3>
 <p>Each of the 80 layers runs roughly this sequence of GPU kernels on every GPU, each GPU holding one-eighth of every weight matrix:</p>
-<ol>
+<ol start="0">
 <li><strong>RMSNorm</strong> on the 8,192-number residual vector.</li>
 <li><strong>QKV projection:</strong> this GPU’s slice of W<sub>Q</sub>, W<sub>K</sub>, W<sub>V</sub>, giving 8 query heads and 1 KV head. Matrix-vector, memory-bound.</li>
 <li><strong>RoPE</strong>, then <strong>append</strong> the new key and value to this GPU’s KV cache.</li>
@@ -657,7 +657,7 @@ section({
     guided: [
       {
         q: `<p>On the 8-GPU server with tensor parallelism, estimate the decode step time and aggregate tokens/s at (a) batch 1 and (b) batch 64, with every sequence at 8K (8,192) tokens of context. The running example has 141 GB of BF16 weights and 0.33 MB of KV cache per token, both split evenly across the GPUs. Assume perfect use of 3.35 TB/s per GPU.</p>`,
-        a: `<ol><li>Weights per GPU: 141 / 8 ≈ 17.6 GB. KV per sequence: 8,192 × 0.33 MB ≈ 2.68 GB, so ≈ 0.34 GB per GPU.</li><li>(a) Batch 1: 17.6 + 0.34 ≈ 17.9 GB per GPU → 17.9 / 3.35 ≈ <strong>5.4 ms</strong> per step → about <strong>185 tokens/s</strong>.</li><li>(b) Batch 64: 17.6 + 64 × 0.34 ≈ 17.6 + 21.5 = 39.1 GB per GPU → ≈ <strong>11.7 ms</strong> per step → 64 / 0.0117 ≈ <strong>5,500 tokens/s</strong>.</li><li>Batching gave about 30× more throughput for about 2× the latency per token. At this context length, the KV cache is already the bigger read at batch 64.</li></ol>`
+        a: `<ol start="0"><li>Weights per GPU: 141 / 8 ≈ 17.6 GB. KV per sequence: 8,192 × 0.33 MB ≈ 2.68 GB, so ≈ 0.34 GB per GPU.</li><li>(a) Batch 1: 17.6 + 0.34 ≈ 17.9 GB per GPU → 17.9 / 3.35 ≈ <strong>5.4 ms</strong> per step → about <strong>185 tokens/s</strong>.</li><li>(b) Batch 64: 17.6 + 64 × 0.34 ≈ 17.6 + 21.5 = 39.1 GB per GPU → ≈ <strong>11.7 ms</strong> per step → 64 / 0.0117 ≈ <strong>5,500 tokens/s</strong>.</li><li>Batching gave about 30× more throughput for about 2× the latency per token. At this context length, the KV cache is already the bigger read at batch 64.</li></ol>`
       }
     ],
     interview: [
@@ -691,7 +691,7 @@ section({
 <p>Since decode time is roughly bytes divided by bandwidth, halving the bytes per weight nearly halves the step time. Storing the running example’s weights in INT4 shrinks them from 141 GB to about 35 GB: a 4× smaller read per step, and the model fits on fewer GPUs. Methods such as GPTQ and AWQ choose the rounding carefully, using a small calibration set, to keep accuracy. FP8 is now common for both weights and the KV cache, with native Tensor Core support.</p>
 <h3 id="sec-spec">Speculative Decoding</h3>
 <p>Decode wastes the GPU’s compute: it reads every weight to process one token per sequence. Speculative decoding uses that idle compute.</p>
-<ol>
+<ol start="0">
 <li>A small, fast <strong>draft model</strong> guesses the next k tokens.</li>
 <li>The big model runs <strong>one</strong> pass over all k guesses at once. That pass costs about the same as a single decode step, because it’s still dominated by reading the weights.</li>
 <li>Accept guesses left to right while they agree with the big model; at the first disagreement, take the big model’s token instead and discard the rest.</li>
@@ -704,7 +704,7 @@ section({
     guided: [
       {
         q: `<p>A draft model proposes k = 4 tokens per round, and the big model accepts each with probability α = 0.8 (independently). How many tokens does each big-model pass produce on average? What if α = 0.5?</p>`,
-        a: `<ol><li>Expected tokens per pass = (1 − α<sup>k+1</sup>) / (1 − α). (The big model always contributes at least one token of its own, even if it rejects the first draft.)</li><li>α = 0.8: (1 − 0.8<sup>5</sup>) / 0.2 = (1 − 0.328) / 0.2 ≈ <strong>3.4 tokens</strong>.</li><li>α = 0.5: (1 − 0.5<sup>5</sup>) / 0.5 = 0.969 / 0.5 ≈ <strong>1.9 tokens</strong>.</li><li>Since a verification pass costs about the same as one normal decode step (it’s memory-bound), the speedup approaches these numbers minus the draft model’s cost. Acceptance rate is everything.</li></ol>`
+        a: `<ol start="0"><li>Expected tokens per pass = (1 − α<sup>k+1</sup>) / (1 − α). (The big model always contributes at least one token of its own, even if it rejects the first draft.)</li><li>α = 0.8: (1 − 0.8<sup>5</sup>) / 0.2 = (1 − 0.328) / 0.2 ≈ <strong>3.4 tokens</strong>.</li><li>α = 0.5: (1 − 0.5<sup>5</sup>) / 0.5 = 0.969 / 0.5 ≈ <strong>1.9 tokens</strong>.</li><li>Since a verification pass costs about the same as one normal decode step (it’s memory-bound), the speedup approaches these numbers minus the draft model’s cost. Acceptance rate is everything.</li></ol>`
       }
     ],
     interview: [

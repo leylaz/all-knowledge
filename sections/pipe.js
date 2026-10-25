@@ -11,7 +11,7 @@ section({
     guided: [
       {
         q: `<p>Trace <code>lw r1, 8(r2)</code> through the classic 5-stage pipeline. What does each stage do for this instruction?</p>`,
-        a: `<ol><li><strong>IF:</strong> fetch the instruction at PC; PC becomes PC + 4.</li><li><strong>ID:</strong> decode it, read <code>r2</code> from the register file, and sign-extend the offset 8.</li><li><strong>EX:</strong> the ALU adds <code>r2</code> + 8 to form the effective address.</li><li><strong>MEM:</strong> read data memory at that address.</li><li><strong>WB:</strong> write the loaded value into <code>r1</code>.</li></ol>`
+        a: `<ol start="0"><li><strong>IF:</strong> fetch the instruction at PC; PC becomes PC + 4.</li><li><strong>ID:</strong> decode it, read <code>r2</code> from the register file, and sign-extend the offset 8.</li><li><strong>EX:</strong> the ALU adds <code>r2</code> + 8 to form the effective address.</li><li><strong>MEM:</strong> read data memory at that address.</li><li><strong>WB:</strong> write the loaded value into <code>r1</code>.</li></ol>`
       }
     ],
     interview: [
@@ -164,7 +164,7 @@ section({
     guided: [
       {
         q: `<p>Total logic delay is 10 ns and each pipeline latch adds 0.5 ns. 2% of instructions are mispredicted branches, and branches resolve after 40% of the logic. Assume the logic is split evenly across stages. Find the mispredict penalty and time per instruction for N = 5, 10, 20, 30, 50, 60, and 90, and the best depth.</p>`,
-        a: `<ol><li>The penalty is the number of stages between fetch and branch resolution. With an even split, 40% of the logic spans 0.4N stages.</li><li>CPI = 1 + 0.02 × 0.4N. Cycle time = 10 / N + 0.5 ns. Time per instruction = CPI × cycle time:</li></ol>
+        a: `<ol start="0"><li>The penalty is the number of stages between fetch and branch resolution. With an even split, 40% of the logic spans 0.4N stages.</li><li>CPI = 1 + 0.02 × 0.4N. Cycle time = 10 / N + 0.5 ns. Time per instruction = CPI × cycle time:</li></ol>
 <div class="tbl"><table><tr><th>N</th><th>Cycle (ns)</th><th>Penalty (cycles)</th><th>CPI</th><th>ns / instr</th></tr>
 <tr><td>5</td><td>2.50</td><td>2</td><td>1.04</td><td>2.60</td></tr>
 <tr><td>10</td><td>1.50</td><td>4</td><td>1.08</td><td>1.62</td></tr>
@@ -195,7 +195,7 @@ section({
       },
       {
         q: `<p>A core uses 10 W: 30% in the clock network and flip-flops, 70% in logic. Deepening the pipeline raises frequency 20% at the same voltage, adds 33% more flip-flops, and lowers IPC by 8%. What happens to performance, power, and performance per watt?</p>`,
-        a: `<ol><li><strong>Logic power:</strong> 7 W × 1.2 (frequency) = 8.4 W.</li><li><strong>Clock and flip-flop power:</strong> 3 W × 1.33 (more flip-flops) × 1.2 = 4.8 W.</li><li><strong>Total:</strong> 13.2 W, up 32%.</li><li><strong>Performance:</strong> 1.2 × 0.92 = 1.104, up 10.4%.</li><li><strong>Performance per watt:</strong> 1.104 / 1.32 ≈ 0.84, about <strong>16% worse</strong>.</li></ol><p>A 10% performance gain for 32% more power is why power-limited designs avoid deep pipelines. If the design also needed a voltage increase to hit the higher frequency, it would look even worse.</p>`
+        a: `<ol start="0"><li><strong>Logic power:</strong> 7 W × 1.2 (frequency) = 8.4 W.</li><li><strong>Clock and flip-flop power:</strong> 3 W × 1.33 (more flip-flops) × 1.2 = 4.8 W.</li><li><strong>Total:</strong> 13.2 W, up 32%.</li><li><strong>Performance:</strong> 1.2 × 0.92 = 1.104, up 10.4%.</li><li><strong>Performance per watt:</strong> 1.104 / 1.32 ≈ 0.84, about <strong>16% worse</strong>.</li></ol><p>A 10% performance gain for 32% more power is why power-limited designs avoid deep pipelines. If the design also needed a voltage increase to hit the higher frequency, it would look even worse.</p>`
       }
     ]
   }
@@ -296,7 +296,7 @@ section({
 0x100C        bne  $t1, $zero, loop  # repeat while $t1 != 0
 0x1010        ...                     # code after the loop</code></pre>
 <p>Say <code>$t1</code> is 3 when the <code>bne</code> at 0x100C reaches ID. IF has already set PC + 4 = 0x1010. In ID, these happen in parallel:</p>
-<ol>
+<ol start="0">
 <li><strong>Branch comparison:</strong> the register file reads <code>$t1</code> = 3 and <code>$zero</code> = 0, and the comparator checks equality. 3 ≠ 0, so the <code>bne</code> condition is true: the branch is taken.</li>
 <li><strong>Sign extension:</strong> the 16-bit offset field is 0xFFFC. Its top bit is 1, so it's negative, and sign extension copies that 1 into the upper 16 bits: <code>0xFFFC → 0xFFFFFFFC</code>, which is −4. (Zero-extending instead would give 0x0000FFFC = +65,532, sending the branch far forward instead of back to the loop.)</li>
 <li><strong>Branch target:</strong> MIPS offsets count instructions, not bytes, so the offset is multiplied by 4 (shifted left 2): −4 × 4 = −16 (<code>0xFFFFFFF0</code>). Target = PC + 4 + offset = 0x1010 − 16 = <strong>0x1000</strong>, the <code>loop</code> label. Some ISAs count the offset in bytes and skip the shift.</li>
@@ -346,7 +346,7 @@ section({
     guided: [
       {
         q: `<p>Decode the MIPS instruction <code>0x02324020</code>.</p>`,
-        a: `<ol><li>Binary: 000000 10001 10010 01000 00000 100000.</li><li>Opcode 000000 means R-type, so the funct field picks the operation: 100000 is <code>add</code>.</li><li>rs = 10001 = 17 ($s1), rt = 10010 = 18 ($s2), rd = 01000 = 8 ($t0), shamt = 0.</li><li>Result: <strong><code>add $t0, $s1, $s2</code></strong>. In ID, the register file reads $s1 and $s2 while decode works out that it's an add.</li></ol>`
+        a: `<ol start="0"><li>Binary: 000000 10001 10010 01000 00000 100000.</li><li>Opcode 000000 means R-type, so the funct field picks the operation: 100000 is <code>add</code>.</li><li>rs = 10001 = 17 ($s1), rt = 10010 = 18 ($s2), rd = 01000 = 8 ($t0), shamt = 0.</li><li>Result: <strong><code>add $t0, $s1, $s2</code></strong>. In ID, the register file reads $s1 and $s2 while decode works out that it's an add.</li></ol>`
       }
     ],
     interview: [
@@ -457,7 +457,7 @@ section({
     guided: [
       {
         q: `<p>How does the ALU compute 5 − 3 using the same 4-bit adder?</p>`,
-        a: `<ol><li>Invert every bit of B: 3 = 0011 becomes 1100.</li><li>Set the first carry-in to 1.</li><li>Add: 0101 + 1100 + 1 = 1 0010.</li><li>Drop the carry-out of the top bit: <strong>0010 = 2</strong>. Inverting and adding 1 forms the two's complement of 3, which is −3.</li></ol>`
+        a: `<ol start="0"><li>Invert every bit of B: 3 = 0011 becomes 1100.</li><li>Set the first carry-in to 1.</li><li>Add: 0101 + 1100 + 1 = 1 0010.</li><li>Drop the carry-out of the top bit: <strong>0010 = 2</strong>. Inverting and adding 1 forms the two's complement of 3, which is −3.</li></ol>`
       }
     ],
     interview: [
@@ -490,7 +490,7 @@ section({
     guided: [
       {
         q: `<p>Trace <code>sw $t3, 12($a0)</code> through MEM. Where does each piece of data come from?</p>`,
-        a: `<ol><li>The effective address, <code>$a0</code> + 12, was computed by the ALU in EX.</li><li>The data to store is <code>$t3</code>, read from the register file back in ID (the second source register) and carried down the pipeline.</li><li>In MEM, data memory writes <code>$t3</code> at that address.</li><li>Nothing happens in WB: a store writes no register.</li></ol>`
+        a: `<ol start="0"><li>The effective address, <code>$a0</code> + 12, was computed by the ALU in EX.</li><li>The data to store is <code>$t3</code>, read from the register file back in ID (the second source register) and carried down the pipeline.</li><li>In MEM, data memory writes <code>$t3</code> at that address.</li><li>Nothing happens in WB: a store writes no register.</li></ol>`
       }
     ],
     interview: [
@@ -697,13 +697,13 @@ section({
     guided: [
       {
         q: `<p>An unpipelined single-cycle processor has a 10 ns clock. The 5-stage pipelined version has balanced stages plus 0.2 ns of latch overhead per stage. Stalls average 0.25 cycles per instruction. What is the speedup?</p>`,
-        a: `<ol><li>Pipelined clock = 10 / 5 + 0.2 = 2.2 ns.</li><li>Pipelined CPI = 1 + 0.25 = 1.25.</li><li>Unpipelined time per instruction = 1 × 10 = 10 ns. Pipelined = 1.25 × 2.2 = 2.75 ns.</li><li>Speedup = 10 / 2.75 ≈ <strong>3.6×</strong>, versus 5× ideal.</li></ol>`
+        a: `<ol start="0"><li>Pipelined clock = 10 / 5 + 0.2 = 2.2 ns.</li><li>Pipelined CPI = 1 + 0.25 = 1.25.</li><li>Unpipelined time per instruction = 1 × 10 = 10 ns. Pipelined = 1.25 × 2.2 = 2.75 ns.</li><li>Speedup = 10 / 2.75 ≈ <strong>3.6×</strong>, versus 5× ideal.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>A 5-stage pipeline has 20% loads, half of which are followed immediately by a dependent instruction (1 stall each), and 15% branches, of which 60% are taken (1 stall each, predict not-taken). What's the speedup over an unpipelined multi-cycle version at the same clock?</p>`,
-        a: `<ol><li>Load-use stalls per instruction: 0.2 × 0.5 × 1 = 0.10.</li><li>Branch stalls per instruction: 0.15 × 0.6 × 1 = 0.09.</li><li>CPI = 1 + 0.10 + 0.09 = 1.19.</li><li>The multi-cycle version takes 5 cycles per instruction at the same clock, so speedup = 5 / 1.19 ≈ <strong>4.2×</strong>.</li></ol>`
+        a: `<ol start="0"><li>Load-use stalls per instruction: 0.2 × 0.5 × 1 = 0.10.</li><li>Branch stalls per instruction: 0.15 × 0.6 × 1 = 0.09.</li><li>CPI = 1 + 0.10 + 0.09 = 1.19.</li><li>The multi-cycle version takes 5 cycles per instruction at the same clock, so speedup = 5 / 1.19 ≈ <strong>4.2×</strong>.</li></ol>`
       },
       {
         q: `<p>Even with zero stalls, why is real pipeline speedup below the pipeline depth?</p>`,
@@ -756,7 +756,7 @@ section({
     guided: [
       {
         q: `<p>A pipeline with one memory port stalls 1 cycle for every load or store. 35% of instructions are loads or stores. Without the hazard, CPI would be 1. Dropping the second port lets the clock run 8% faster. Which design is faster?</p>`,
-        a: `<ol><li>With the hazard: CPI = 1 + 0.35 = 1.35, cycle time = T / 1.08. Time per instruction = 1.35 × T / 1.08 = 1.25T.</li><li>Without the hazard: time per instruction = 1 × T = T.</li><li>The design <strong>without</strong> the hazard is <strong>1.25× faster</strong>, despite its slower clock.</li></ol>`
+        a: `<ol start="0"><li>With the hazard: CPI = 1 + 0.35 = 1.35, cycle time = T / 1.08. Time per instruction = 1.35 × T / 1.08 = 1.25T.</li><li>Without the hazard: time per instruction = 1 × T = T.</li><li>The design <strong>without</strong> the hazard is <strong>1.25× faster</strong>, despite its slower clock.</li></ol>`
       }
     ],
     interview: [
@@ -1059,7 +1059,7 @@ add  $t1, $t0, $s1
 sw   $t1, 4($a0)
 lw   $t2, 8($a0)
 sw   $t2, 12($a0)</code></pre>`,
-        a: `<ol><li><code>lw</code> → <code>add</code>: load-use hazard. <strong>1 stall</strong>, then MEM/WB forwards <code>$t0</code> to the ALU.</li><li><code>add</code> → <code>sw</code>: <code>$t1</code> is the store's data. The store needs it in MEM, and it's forwarded from the add's result, so no stall.</li><li><code>lw $t2</code> → <code>sw $t2</code>: the store needs <code>$t2</code> only as data in MEM, so it's forwarded from MEM/WB to the data memory input with no stall.</li><li>Total: <strong>1 stall cycle</strong>.</li></ol>`
+        a: `<ol start="0"><li><code>lw</code> → <code>add</code>: load-use hazard. <strong>1 stall</strong>, then MEM/WB forwards <code>$t0</code> to the ALU.</li><li><code>add</code> → <code>sw</code>: <code>$t1</code> is the store's data. The store needs it in MEM, and it's forwarded from the add's result, so no stall.</li><li><code>lw $t2</code> → <code>sw $t2</code>: the store needs <code>$t2</code> only as data in MEM, so it's forwarded from MEM/WB to the data memory input with no stall.</li><li>Total: <strong>1 stall cycle</strong>.</li></ol>`
       }
     ],
     interview: [
@@ -1084,7 +1084,7 @@ sub r5, r3, r6</code></pre>`,
       },
       {
         q: `<p>Timing forces load-to-use latency from 4 to 5 cycles. 30% of instructions are loads, 40% of loads have a dependent instruction right behind them, and out-of-order execution hides 75% of the extra cycle. Base CPI is 0.5. How much faster must the clock get to break even?</p>`,
-        a: `<ol><li>Added CPI = 0.3 × 0.4 × 1 cycle × (1 − 0.75) = 0.03.</li><li>New CPI = 0.53, which is 0.53 / 0.5 = 1.06×, so 6% slower per cycle.</li><li>The clock must get at least <strong>6% faster</strong> to break even.</li></ol>`
+        a: `<ol start="0"><li>Added CPI = 0.3 × 0.4 × 1 cycle × (1 − 0.75) = 0.03.</li><li>New CPI = 0.53, which is 0.53 / 0.5 = 1.06×, so 6% slower per cycle.</li><li>The clock must get at least <strong>6% faster</strong> to break even.</li></ol>`
       },
       {
         q: `<p>In an in-order pipeline, a 4-cycle FP multiply writes <code>f2</code>, and the very next instruction, a 1-cycle FP move, also writes <code>f2</code>. What can go wrong, and how do designs handle it?</p>`,
@@ -1237,7 +1237,7 @@ sub r5, r3, r6</code></pre>`,
 <li><strong>BTB miss:</strong> fetch assumes there's no taken branch and continues sequentially. If there really was a taken branch, it's discovered only in decode.</li>
 </ul>
 <p><strong>A BTB miss, cycle by cycle:</strong></p>
-<ol>
+<ol start="0">
 <li><strong>Cycle 0:</strong> fetch group A is fetched, and the BTB misses, so fetch continues sequentially.</li>
 <li><strong>Cycle 1:</strong> group A is in decode, and group B (the next sequential block) is in fetch. Decode finds a branch in A.</li>
 <li>If the branch is an unconditional direct jump, or a conditional branch predicted taken, decode computes the target and redirects fetch. Group B is flushed, along with any instructions after the branch within group A. If the branch is predicted not taken, the sequential instructions were the right ones, and nothing is flushed.</li>
@@ -1291,7 +1291,7 @@ sub r5, r3, r6</code></pre>`,
     guided: [
       {
         q: `<p>A loop branch is taken 9 times, then not taken once, and the loop runs many times. What accuracy does a 1-bit predictor get on it? A 2-bit predictor?</p>`,
-        a: `<ol><li><strong>1-bit:</strong> it mispredicts the final not-taken exit, which flips it to "not taken," so it also mispredicts the first branch of the next run. 2 misses per 10: <strong>80%</strong>.</li><li><strong>2-bit:</strong> the single not-taken exit moves it from strongly taken to weakly taken, still predicting taken, so the next run's first branch is correct. 1 miss per 10: <strong>90%</strong>.</li></ol>`
+        a: `<ol start="0"><li><strong>1-bit:</strong> it mispredicts the final not-taken exit, which flips it to "not taken," so it also mispredicts the first branch of the next run. 2 misses per 10: <strong>80%</strong>.</li><li><strong>2-bit:</strong> the single not-taken exit moves it from strongly taken to weakly taken, still predicting taken, so the next run's first branch is correct. 1 miss per 10: <strong>90%</strong>.</li></ol>`
       }
     ],
     interview: [
@@ -1305,11 +1305,11 @@ sub r5, r3, r6</code></pre>`,
       },
       {
         q: `<p>A 5-stage pipeline resolves branches in EX (2-cycle penalty) and predicts not-taken. 20% of instructions are branches and 60% of branches are taken. What's the CPI? If you move branch resolution to ID (1-cycle penalty), but the extra comparator lengthens the cycle by 5%, is it worth it?</p>`,
-        a: `<ol><li>Predict not-taken means every taken branch pays the penalty. CPI = 1 + 0.2 × 0.6 × 2 = <strong>1.24</strong>.</li><li>Resolving in ID: CPI = 1 + 0.2 × 0.6 × 1 = <strong>1.12</strong>.</li><li>Relative time: 1.12 × 1.05 = 1.176 versus 1.24, so it's about <strong>5% faster</strong> despite the slower clock.</li></ol>`
+        a: `<ol start="0"><li>Predict not-taken means every taken branch pays the penalty. CPI = 1 + 0.2 × 0.6 × 2 = <strong>1.24</strong>.</li><li>Resolving in ID: CPI = 1 + 0.2 × 0.6 × 1 = <strong>1.12</strong>.</li><li>Relative time: 1.12 × 1.05 = 1.176 versus 1.24, so it's about <strong>5% faster</strong> despite the slower clock.</li></ol>`
       },
       {
         q: `<p>A workload's CPI stack is base 0.4, branch mispredicts 0.3, memory stalls 0.5. A new branch predictor halves mispredicts but needs an extra pipeline stage, raising the mispredict penalty from 15 to 16 cycles. The frequency doesn't change. What's the speedup?</p>`,
-        a: `<ol><li>New branch component: 0.3 × 0.5 (half the mispredicts) × 16/15 (bigger penalty) = 0.16.</li><li>New CPI = 0.4 + 0.16 + 0.5 = 1.06, versus 1.2 before.</li><li>Speedup = 1.2 / 1.06 ≈ <strong>1.13×</strong>.</li></ol><p>In an interview, add that the extra stage may also lengthen other front-end penalties, such as BTB-miss redirects, so check those too.</p>`
+        a: `<ol start="0"><li>New branch component: 0.3 × 0.5 (half the mispredicts) × 16/15 (bigger penalty) = 0.16.</li><li>New CPI = 0.4 + 0.16 + 0.5 = 1.06, versus 1.2 before.</li><li>Speedup = 1.2 / 1.06 ≈ <strong>1.13×</strong>.</li></ol><p>In an interview, add that the extra stage may also lengthen other front-end penalties, such as BTB-miss redirects, so check those too.</p>`
       },
       {
         q: `<p>A 4-wide core takes 20 cycles to resolve a mispredicted branch and has 10 mispredicts per 1000 instructions. Roughly how much front-end work is wasted?</p>`,
@@ -1317,7 +1317,7 @@ sub r5, r3, r6</code></pre>`,
       },
       {
         q: `<p>Two cores have the same 5 mispredicts per 1000 instructions and a 15-cycle penalty. One is 4-wide with a base CPI of 0.5, and the other is 8-wide with a base CPI of 0.25. How much does branch misprediction slow each one down?</p>`,
-        a: `<ol><li>Mispredict CPI = 5 / 1000 × 15 = 0.075 for both.</li><li>4-wide: 0.5 → 0.575, a <strong>15%</strong> slowdown.</li><li>8-wide: 0.25 → 0.325, a <strong>30%</strong> slowdown.</li></ol><p>The same mispredict rate hurts a faster core twice as much in relative terms, because each mispredict throws away more issue slots (width × penalty). That's why wider and deeper cores need much better branch predictors.</p>`
+        a: `<ol start="0"><li>Mispredict CPI = 5 / 1000 × 15 = 0.075 for both.</li><li>4-wide: 0.5 → 0.575, a <strong>15%</strong> slowdown.</li><li>8-wide: 0.25 → 0.325, a <strong>30%</strong> slowdown.</li></ol><p>The same mispredict rate hurts a faster core twice as much in relative terms, because each mispredict throws away more issue slots (width × penalty). That's why wider and deeper cores need much better branch predictors.</p>`
       }
     ]
   }

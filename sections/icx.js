@@ -47,7 +47,7 @@ section({
     guided: [
       {
         q: `<p>An on-chip read channel is 256 bits wide and runs at 1.5 GHz. What's its peak bandwidth? If the round-trip latency to memory is 100 ns and each request fetches a 64-byte line, how many requests must be outstanding to use that bandwidth fully?</p>`,
-        a: `<ol><li>Bandwidth = 256 bits / 8 × 1.5 × 10<sup>9</sup> = 32 bytes × 1.5 × 10<sup>9</sup> = <strong>48 GB/s</strong>.</li><li>Requests in flight = 48 × 10<sup>9</sup> × 100 × 10<sup>−9</sup> / 64 = 4,800 / 64 = <strong>75 requests</strong>.</li><li>That's why caches need many MSHRs and interconnects need deep queues: with only 10 outstanding, bandwidth would be limited to 10 × 64 / 100 ns = 6.4 GB/s.</li></ol>`
+        a: `<ol start="0"><li>Bandwidth = 256 bits / 8 × 1.5 × 10<sup>9</sup> = 32 bytes × 1.5 × 10<sup>9</sup> = <strong>48 GB/s</strong>.</li><li>Requests in flight = 48 × 10<sup>9</sup> × 100 × 10<sup>−9</sup> / 64 = 4,800 / 64 = <strong>75 requests</strong>.</li><li>That's why caches need many MSHRs and interconnects need deep queues: with only 10 outstanding, bandwidth would be limited to 10 × 64 / 100 ns = 6.4 GB/s.</li></ol>`
       }
     ],
     interview: [
@@ -132,7 +132,7 @@ READY  __________________|‾‾‾‾‾|____
       },
       {
         q: `<p>Draw the VALID/READY waveform for a transfer where the sender raises VALID in cycle 2 and the receiver raises READY in cycle 4. In which cycle does the transfer happen, and what must the sender do in cycles 2 and 3?</p>`,
-        a: `<ol><li>The transfer happens in <strong>cycle 4</strong>, the first rising clock edge where VALID and READY are both high.</li><li>In cycles 2 and 3 the sender must keep VALID high and the data unchanged; it isn't allowed to withdraw or change the request while waiting.</li><li>In cycle 5 the sender may lower VALID or present the next transfer.</li></ol>`
+        a: `<ol start="0"><li>The transfer happens in <strong>cycle 4</strong>, the first rising clock edge where VALID and READY are both high.</li><li>In cycles 2 and 3 the sender must keep VALID high and the data unchanged; it isn't allowed to withdraw or change the request while waiting.</li><li>In cycle 5 the sender may lower VALID or present the next transfer.</li></ol>`
       }
     ],
     interview: [
@@ -167,7 +167,7 @@ READY  __________________|‾‾‾‾‾|____
 <p><strong>Cache states:</strong> Unique Dirty, Unique Clean, Shared Clean, Shared Dirty, and Invalid, which correspond to MOESI's Modified, Exclusive, Shared, Owned, and Invalid.</p>
 <h3 id="sec-chi-flow">A CHI Read, Step by Step</h3>
 <p>Core A misses on a line that core B holds in Unique Dirty:</p>
-<ol>
+<ol start="0">
 <li>A's request node sends a read request to the line's <strong>home node</strong>.</li>
 <li>The home node checks its snoop filter and sees that B owns the line.</li>
 <li>The home node sends B a <strong>snoop</strong>.</li>
@@ -191,7 +191,7 @@ READY  __________________|‾‾‾‾‾|____
     guided: [
       {
         q: `<p>In an 8 × 8 mesh with random source and destination tiles, what's the average number of hops? If each hop takes 2 cycles, roughly how many cycles of network travel does a 3-hop coherence transaction take (requester to home, home to owner, owner to requester)?</p>`,
-        a: `<ol><li>In one dimension, the average distance between two random positions among k is (k<sup>2</sup> − 1) / (3k) = 63 / 24 ≈ 2.63 for k = 8.</li><li>Two dimensions: about <strong>5.25 hops</strong>.</li><li>Three network traversals: 3 × 5.25 ≈ 16 hops × 2 cycles ≈ <strong>32 cycles</strong> of travel, plus the snoop-filter lookup and the owner's cache access. Forwarding data directly from the owner saves a fourth traversal compared with sending it back through the home node.</li></ol>`
+        a: `<ol start="0"><li>In one dimension, the average distance between two random positions among k is (k<sup>2</sup> − 1) / (3k) = 63 / 24 ≈ 2.63 for k = 8.</li><li>Two dimensions: about <strong>5.25 hops</strong>.</li><li>Three network traversals: 3 × 5.25 ≈ 16 hops × 2 cycles ≈ <strong>32 cycles</strong> of travel, plus the snoop-filter lookup and the owner's cache access. Forwarding data directly from the owner saves a fourth traversal compared with sending it back through the home node.</li></ol>`
       }
     ],
     interview: [
@@ -240,7 +240,7 @@ READY  __________________|‾‾‾‾‾|____
     guided: [
       {
         q: `<p>Defect density is 0.1 defects per cm<sup>2</sup>. Compare a monolithic 800 mm<sup>2</sup> die with four 200 mm<sup>2</sup> chiplets using the yield model Y = e<sup>−A × D</sup>. How much wafer area does each approach use per good product?</p>`,
-        a: `<ol><li>Monolithic: A = 8 cm<sup>2</sup>, so Y = e<sup>−0.8</sup> ≈ 45%. Wafer area per good die = 800 / 0.45 ≈ <strong>1,780 mm<sup>2</sup></strong>.</li><li>Chiplet: A = 2 cm<sup>2</sup>, so Y = e<sup>−0.2</sup> ≈ 82%. Each chiplet is tested before packaging, so four good ones cost 4 × 200 / 0.82 ≈ <strong>977 mm<sup>2</sup></strong>.</li><li>The chiplet design uses about 1.8× less silicon per product, before counting packaging cost, die-to-die interface area, and assembly yield.</li></ol>`
+        a: `<ol start="0"><li>Monolithic: A = 8 cm<sup>2</sup>, so Y = e<sup>−0.8</sup> ≈ 45%. Wafer area per good die = 800 / 0.45 ≈ <strong>1,780 mm<sup>2</sup></strong>.</li><li>Chiplet: A = 2 cm<sup>2</sup>, so Y = e<sup>−0.2</sup> ≈ 82%. Each chiplet is tested before packaging, so four good ones cost 4 × 200 / 0.82 ≈ <strong>977 mm<sup>2</sup></strong>.</li><li>The chiplet design uses about 1.8× less silicon per product, before counting packaging cost, die-to-die interface area, and assembly yield.</li></ol>`
       }
     ],
     interview: [
@@ -296,13 +296,13 @@ READY  __________________|‾‾‾‾‾|____
     guided: [
       {
         q: `<p>A training job copies 10 GB of data from CPU memory to a GPU. How long does it take over PCIe Gen5 x16 (about 63 GB/s each way), and between two GPUs over NVLink at 900 GB/s?</p>`,
-        a: `<ol><li>PCIe Gen5 x16: 10 / 63 ≈ <strong>0.16 s</strong>.</li><li>NVLink: 10 / 900 ≈ <strong>11 ms</strong>, about 14× faster.</li><li>This gap is why GPU servers connect GPUs to each other with dedicated links and try to keep data on the GPUs rather than moving it back and forth over PCIe.</li></ol>`
+        a: `<ol start="0"><li>PCIe Gen5 x16: 10 / 63 ≈ <strong>0.16 s</strong>.</li><li>NVLink: 10 / 900 ≈ <strong>11 ms</strong>, about 14× faster.</li><li>This gap is why GPU servers connect GPUs to each other with dedicated links and try to keep data on the GPUs rather than moving it back and forth over PCIe.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>Each PCIe packet carries about 24 bytes of overhead (header, sequence number, error check, framing). What's the efficiency with 256-byte payloads versus 64-byte payloads, and what does that imply for software?</p>`,
-        a: `<ol><li>256-byte payload: 256 / (256 + 24) ≈ <strong>91%</strong>.</li><li>64-byte payload: 64 / (64 + 24) ≈ <strong>73%</strong>.</li><li>Small transfers waste a large fraction of the link, and each also pays the full round-trip latency. Drivers and DMA engines batch data into large transfers, and devices use the largest payload size the system supports.</li></ol>`
+        a: `<ol start="0"><li>256-byte payload: 256 / (256 + 24) ≈ <strong>91%</strong>.</li><li>64-byte payload: 64 / (64 + 24) ≈ <strong>73%</strong>.</li><li>Small transfers waste a large fraction of the link, and each also pays the full round-trip latency. Drivers and DMA engines batch data into large transfers, and devices use the largest payload size the system supports.</li></ol>`
       },
       {
         q: `<p>What's the difference between CXL.cache and CXL.mem, and which CXL device types use which?</p>`,
@@ -355,7 +355,7 @@ READY  __________________|‾‾‾‾‾|____
     guided: [
       {
         q: `<p>A DRAM has t<sub>CL</sub> = t<sub>RCD</sub> = t<sub>RP</sub> = 16 ns. What's the access latency for a row hit, a closed row, and a row conflict? Separately, what's the peak bandwidth of a 12-channel DDR5-4800 server?</p>`,
-        a: `<ol><li>Row hit: just the column access, t<sub>CL</sub> = <strong>16 ns</strong>.</li><li>Closed row: activate then read, t<sub>RCD</sub> + t<sub>CL</sub> = <strong>32 ns</strong>.</li><li>Row conflict: close the open row, activate, then read: t<sub>RP</sub> + t<sub>RCD</sub> + t<sub>CL</sub> = <strong>48 ns</strong>. (Plus controller and interconnect time on top.)</li><li>Bandwidth: 12 × 4,800 × 10<sup>6</sup> × 8 bytes = <strong>about 461 GB/s</strong> peak.</li></ol>`
+        a: `<ol start="0"><li>Row hit: just the column access, t<sub>CL</sub> = <strong>16 ns</strong>.</li><li>Closed row: activate then read, t<sub>RCD</sub> + t<sub>CL</sub> = <strong>32 ns</strong>.</li><li>Row conflict: close the open row, activate, then read: t<sub>RP</sub> + t<sub>RCD</sub> + t<sub>CL</sub> = <strong>48 ns</strong>. (Plus controller and interconnect time on top.)</li><li>Bandwidth: 12 × 4,800 × 10<sup>6</sup> × 8 bytes = <strong>about 461 GB/s</strong> peak.</li></ol>`
       }
     ],
     interview: [
@@ -399,7 +399,7 @@ READY  __________________|‾‾‾‾‾|____
     guided: [
       {
         q: `<p>A system boots by copying a 16 MB firmware image from SPI flash. With quad SPI (4 data lines) at 50 MHz, how long does the copy take?</p>`,
-        a: `<ol><li>Quad SPI moves 4 bits per clock: 4 × 50 × 10<sup>6</sup> = 200 Mb/s = 25 MB/s.</li><li>16 MB / 25 MB/s = <strong>0.64 s</strong>, ignoring command overhead. That's why fast boot designs use faster flash interfaces or load only a small first-stage bootloader from SPI.</li></ol>`
+        a: `<ol start="0"><li>Quad SPI moves 4 bits per clock: 4 × 50 × 10<sup>6</sup> = 200 Mb/s = 25 MB/s.</li><li>16 MB / 25 MB/s = <strong>0.64 s</strong>, ignoring command overhead. That's why fast boot designs use faster flash interfaces or load only a small first-stage bootloader from SPI.</li></ol>`
       }
     ],
     interview: [
