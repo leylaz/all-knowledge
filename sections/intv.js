@@ -337,9 +337,9 @@ Q(`<p>A 6-wide rename stage renames six instructions per cycle. Why isn’t that
 `<p><strong>The table</strong> is the rename map table, also called the register alias table (RAT). It has one entry per architectural register (16 integer registers on x86-64, 31 on Arm64), and each entry holds the number of the physical register that currently holds that architectural register’s newest value (9 bits for a 280-entry register file). It is tiny but very heavily ported, so it is usually built from flip-flops or a custom multiported array.</p>
 <p><strong>Ports.</strong> Each of the <em>n</em> instructions in a rename group can need, in the same cycle:</p>
 <ul>
-<li>two reads for its two source registers, to learn which physical registers to wait on: <strong>2<em>n</em></strong> read ports;</li>
-<li>one read of its <em>destination</em> register’s current mapping, which is the “old mapping” saved in the ROB so it can be freed when this instruction commits: <strong><em>n</em></strong> more read ports;</li>
-<li>one write to point its destination at the newly allocated physical register: <strong><em>n</em></strong> write ports.</li>
+<li>Two reads for its two source registers, to learn which physical registers to wait on: <strong>2<em>n</em></strong> read ports.</li>
+<li>One read of its <em>destination</em> register’s current mapping, which is the “old mapping” saved in the ROB so it can be freed when this instruction commits: <strong><em>n</em></strong> more read ports.</li>
+<li>One write to point its destination at the newly allocated physical register: <strong><em>n</em></strong> write ports.</li>
 </ul>
 <p>So the table needs <strong>3<em>n</em> read ports and <em>n</em> write ports</strong>: 18 reads and 6 writes for 6-wide rename. The ports are sized for the worst case: in a given cycle some reads are overridden by the in-group bypass described next, and when two slots write the same register only one write lands, but the hardware can’t know that in advance. (Instructions with three sources, or ISAs that rename flags separately, add more ports.)</p>
 <p><strong>Intra-group dependences.</strong> Instructions in the same group can depend on each other. If slot 0 writes r1 and slot 3 reads r1, slot 3 must get slot 0’s <em>newly allocated</em> register, which isn’t in the table yet. So every source in slot <em>k</em> is compared with the destinations of slots 0 to <em>k</em>−1, and the youngest matching older slot wins (a priority mux). Likewise, every destination is compared with the older destinations in the group: if two slots write the same register, only the younger one’s mapping is written into the table, and the younger one’s old mapping must be the older slot’s new register, not the table’s current entry.</p>
@@ -423,7 +423,7 @@ I4: mul r1, r1, r1</code></pre>
 <li><strong>(c)</strong> Walk <strong>youngest first</strong>: undo I4 (r1←p12, free p13), I3 (r1←p10, free p12), I2 (r2←p2, free p11). Result: r1→p10, r2→p2, r3→p3, correct. Oldest first goes wrong because r1 was written twice in the squashed region: I2 (r2←p2), I3 (r1←p10), then I4 sets r1←<strong>p12</strong>, a register that belonged to a squashed instruction and is also being returned to the free list. r1 would end up pointing at a free register, which corrupts it as soon as p12 is reallocated.</li>
 <li><strong>(d)</strong> I5 reads r1→p10 and r2→p2; r3 gets the head of the free list, <strong>p11</strong>, with old mapping p3: <code>sub p11, p10, p2</code>.</li>
 </ol>`, "hard") +
-Q(`<p>Recovery walks the ROB at 8 entries per cycle, overlapped with the 15-cycle front-end refill, so it costs extra only when the walk takes longer than 15 cycles. At a mispredict, the number of younger instructions to undo is uniformly distributed from 0 to 300 (mean 150). (a) A colleague estimates the extra cost from the mean. What does she get? (b) What is the true average extra cost? (c) At 5 mispredicts per 1,000 instructions and IPC 3, how much time does this add?</p>`,
+Q(`<p>Recovery walks the ROB at 8 entries per cycle, overlapped with the 15-cycle front-end refill, so it costs extra only when the walk takes longer than 15 cycles. At a mispredict, the number of younger instructions to undo is uniformly distributed from 0 to 300 (mean 150). (a) A colleague estimates the extra cost from the mean. What do they get? (b) What is the true average extra cost? (c) At 5 mispredicts per 1,000 instructions and IPC 3, how much time does this add?</p>`,
 `<ol start="0">
 <li><strong>(a)</strong> Mean walk: 150 / 8 = 18.75 cycles, so extra = 18.75 − 15 = <strong>3.75 cycles</strong> per mispredict.</li>
 <li><strong>(b)</strong> The walk time X = N/8 is uniform on 0 to 37.5 cycles, and the extra cost is max(0, X − 15). Its average is (1 / 37.5) ∫ from 15 to 37.5 of (x − 15) dx = 22.5² / (2 × 37.5) = <strong>6.75 cycles</strong>, 1.8× the estimate. The cost function is convex (zero below 15, linear above), so by Jensen’s inequality the average of the cost is larger than the cost of the average: long walks cost a lot and short walks don’t give anything back.</li>
@@ -1319,10 +1319,10 @@ Q(`<p>You optimized the simulator to run 3× faster. How do you prove you didn�
 Q(`<p>A modeling change improves every benchmark by almost exactly the same percentage. Why should that make you suspicious, and what would you check?</p>`,
 `<p>Real microarchitectural changes help workloads in proportion to how much they stress the changed mechanism, so gains vary widely: a bigger ROB helps memory-bound code and does nothing for compute-bound code. A uniform gain suggests something global changed:</p>
 <ul>
-<li>the clock or cycle accounting (for example, a cycle counter that now skips idle cycles);</li>
-<li>a configuration parameter applied everywhere (a latency, a frequency, a warm-up length);</li>
-<li>the measurement window (statistics reset at a different point, or a different instruction count per run);</li>
-<li>a bug that removes a constant overhead, such as a stray bubble in every pipeline stage.</li>
+<li>The clock or cycle accounting (for example, a cycle counter that now skips idle cycles).</li>
+<li>A configuration parameter applied everywhere (a latency, a frequency, a warm-up length).</li>
+<li>The measurement window (statistics reset at a different point, or a different instruction count per run).</li>
+<li>A bug that removes a constant overhead, such as a stray bubble in every pipeline stage.</li>
 </ul>
 <p>Check that instruction counts are unchanged per benchmark, then compare stall breakdowns: a real improvement removes a specific category, and the removed amount should match the gain.</p>`, "medium") +
 Q(`<p>What evidence would convince you that a modeled improvement is real rather than an artifact of the implementation?</p>`,
