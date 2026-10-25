@@ -115,23 +115,23 @@ section({
 <p>Hazard penalties for the classic 5-stage pipeline and out-of-order cores are covered under Pipeline stages: <a href="#/stall-perf/hazard-basics">where penalties come from</a>, <a href="#/structural-hazards/struct-table">structural hazards</a>, <a href="#/data-hazards/reg-table">data hazards</a>, <a href="#/branch-hazards/control-table">branch hazards</a>, and <a href="#/stall-perf/memory-stalls">memory stalls and flushes</a>.</p>
 <h3 id="sec-best-depth">Finding the Best Depth</h3>
 <p>Adding stages shortens the cycle, but stages that land inside a hazard's span also lengthen its penalty. The best depth is where those effects balance.</p>
-<p><strong>Step 1: write CPI from hazard distances.</strong> For each hazard type i, let h<sub>i</sub> be how often it happens per instruction and d<sub>i</sub> the number of stages it spans:</p>
+<p><strong>Step 0: write CPI from hazard distances.</strong> For each hazard type i, let h<sub>i</sub> be how often it happens per instruction and d<sub>i</sub> the number of stages it spans:</p>
 <p class="eq">CPI = 1 + Σ h<sub>i</sub> × d<sub>i</sub></p>
-<p><strong>Step 2: decide how distances change with depth.</strong> This depends on where stages are added, so it's a design choice, not a law. To get a formula, assume the pipeline is deepened by splitting all the logic evenly. Then a hazard whose span covers a fraction f<sub>i</sub> of the logic (for example, fetch to branch resolution is 40% of the logic) spans about f<sub>i</sub> × N stages:</p>
+<p><strong>Step 1: decide how distances change with depth.</strong> This depends on where stages are added, so it's a design choice, not a law. To get a formula, assume the pipeline is deepened by splitting all the logic evenly. Then a hazard whose span covers a fraction f<sub>i</sub> of the logic (for example, fetch to branch resolution is 40% of the logic) spans about f<sub>i</sub> × N stages:</p>
 <p class="eq">d<sub>i</sub> ≈ f<sub>i</sub> × N</p>
 <p>Only under this even-split assumption does CPI become 1 + γN, with γ = Σ h<sub>i</sub> f<sub>i</sub>. For example, if 2% of instructions are mispredicted branches spanning 40% of the logic, and 10% are load-use pairs spanning 20%, then γ = 0.02 × 0.4 + 0.1 × 0.2 = 0.028. At N = 5 this gives a 2-cycle branch penalty and a 1-cycle load-use stall, matching the classic 5-stage pipeline above.</p>
-<p><strong>Step 3: write time per instruction</strong> (CPI × cycle time) and multiply it out:</p>
+<p><strong>Step 2: write time per instruction</strong> (CPI × cycle time) and multiply it out:</p>
 <p class="eq">T(N) = (1 + γN) × (<span class="frac"><span>t<sub>p</sub></span><span>N</span></span> + t<sub>o</sub>) = <span class="frac"><span>t<sub>p</sub></span><span>N</span></span> + γt<sub>o</sub>N + (t<sub>o</sub> + γt<sub>p</sub>)</p>
 <ul>
 <li><strong>t<sub>p</sub> / N shrinks</strong> as N grows: the benefit of shorter stages.</li>
 <li><strong>γt<sub>o</sub>N grows</strong> as N grows: the latch overhead of stages placed inside hazard spans, paid on every hazard.</li>
 <li><strong>t<sub>o</sub> + γt<sub>p</sub> is constant:</strong> γt<sub>p</sub> is the logic delay inside hazard spans, which you pay however the logic is split.</li>
 </ul>
-<p><strong>Step 4: find where the curve bottoms out.</strong> A shrinking term plus a growing term makes a U-shaped curve, with its minimum where the two terms are equal:</p>
+<p><strong>Step 3: find where the curve bottoms out.</strong> A shrinking term plus a growing term makes a U-shaped curve, with its minimum where the two terms are equal:</p>
 <p class="eq"><span class="frac"><span>t<sub>p</sub></span><span>N</span></span> = γt<sub>o</sub>N</p>
 <p class="eq">N<sub>opt</sub> = √<span class="frac"><span>t<sub>p</sub></span><span>γt<sub>o</sub></span></span></p>
 <p>Calculus gives the same answer: dT/dN = −t<sub>p</sub>/N<sup>2</sup> + γt<sub>o</sub> = 0.</p>
-<p><strong>Step 5: plug in numbers.</strong> With t<sub>p</sub> = 10 ns, t<sub>o</sub> = 0.5 ns, and γ = 0.028:</p>
+<p><strong>Step 4: plug in numbers.</strong> With t<sub>p</sub> = 10 ns, t<sub>o</sub> = 0.5 ns, and γ = 0.028:</p>
 <p class="eq">N<sub>opt</sub> = √<span class="frac"><span>10</span><span>0.028 × 0.5</span></span> = √714 ≈ 27 stages</p>
 <p>Check the balance: at N = 27, t<sub>p</sub>/N ≈ 0.37 ns and γt<sub>o</sub>N ≈ 0.38 ns.</p>
 <div class="tbl"><table>
@@ -190,7 +190,7 @@ section({
         a: `<p>Use the iron law, comparing time relative to the baseline (IC × CPI × cycle time):</p><ul><li><strong>A:</strong> 0.8 × 1.2 × 1 = 0.96, so 4% faster.</li><li><strong>B:</strong> 1 × 1.08 × (1 / 1.1) ≈ 0.982, so 1.8% faster.</li></ul><p><strong>A wins.</strong> A large CPI increase can still be worth it if it removes enough instructions.</p>`
       },
       {
-        q: `<p>Why doesn't doubling a core's width (from 4-wide to 8-wide) double its IPC?</p>`,
+        q: `<p>Why doesn't doubling a core's width (from 4-wide to 8-wide) double its IPC? The workload has a branch every 5 to 6 instructions.</p>`,
         a: `<ul><li><strong>Limited parallelism:</strong> dependence chains mean there often aren't 8 independent instructions ready.</li><li><strong>Branches:</strong> a branch every 5–6 instructions limits how many useful instructions can be fetched per cycle, and mispredicts waste twice as many slots at twice the width.</li><li><strong>Memory:</strong> misses stall a wide core just as long as a narrow one.</li><li><strong>Cost grows faster than width:</strong> rename, wakeup-select, register file ports, and the bypass network grow roughly with the square of width, which can lower frequency or add pipeline stages.</li></ul><p>Real gains from widening are typically well under 2× and highly workload dependent.</p>`
       },
       {
@@ -216,8 +216,8 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>Starting at PC = 0x2000, the pipeline fetches one instruction per cycle. The instruction at 0x2008 is a taken branch to 0x3000, resolved at the end of ID. Which addresses are fetched in cycles 1–5, and which fetch is wasted?</p>`,
-        a: `<ol><li>Cycle 1: 0x2000. Cycle 2: 0x2004. Cycle 3: 0x2008 (the branch). Each time, IF sets PC to PC + 4.</li><li>Cycle 4: the branch is in ID, while IF fetches 0x200C. At the end of cycle 4, ID writes 0x3000 into the PC.</li><li>Cycle 5: 0x3000.</li><li>The fetch of <strong>0x200C</strong> in cycle 4 is squashed: the 1-cycle taken-branch penalty.</li></ol>`
+        q: `<p>Starting at PC = 0x2000, the pipeline fetches one instruction per cycle. The instruction at 0x2008 is a taken branch to 0x3000, resolved at the end of ID. The fetch of 0x2000 happens in cycle 0. Which addresses are fetched in cycles 0–4, and which fetch is wasted?</p>`,
+        a: `<ol start="0"><li>Cycle 0: 0x2000. Cycle 1: 0x2004. Cycle 2: 0x2008 (the branch). Each time, IF sets PC to PC + 4.</li><li>Cycle 3: the branch is in ID, while IF fetches 0x200C. At the end of cycle 3, ID writes 0x3000 into the PC.</li><li>Cycle 4: 0x3000.</li><li>The fetch of <strong>0x200C</strong> in cycle 3 is squashed: the 1-cycle taken-branch penalty.</li></ol>`
       }
     ],
     interview: [
@@ -466,8 +466,8 @@ section({
         a: `<p>In a load-store ISA, only loads and stores touch memory, and they don't do arithmetic on the data; ALU instructions don't touch memory. So no instruction needs both an address calculation and a data operation, and one ALU in one stage serves both. An ISA with memory operands (like <code>add r1, [r2+8]</code>) needs an address calculation, a memory read, and an ALU operation in sequence, which takes more stages or cracking into micro-ops.</p>`
       },
       {
-        q: `<p>Why don't real 64-bit ALUs use ripple-carry adders, and what does the alternative cost?</p>`,
-        a: `<p>A ripple-carry adder's worst case passes a carry through all 64 bits, about 128 gate delays, which would set a very long critical path. Parallel-prefix adders compute every carry in about log<sub>2</sub>(64) = 6 combining levels using generate and propagate signals, so the add fits in one short cycle. The cost is many more gates and long wires between bit positions, which means more area and more switching power. Designers sometimes use cheaper, slower adders where timing allows, such as in address generation units with smaller offsets.</p>`
+        q: `<p>Why don't real 64-bit ALUs use ripple-carry adders, and what does the alternative cost? Each bit of a ripple-carry adder adds about 2 gate delays to the carry path.</p>`,
+        a: `<p>A ripple-carry adder's worst case passes a carry through all 64 bits, about 64 × 2 = 128 gate delays, which would set a very long critical path. Parallel-prefix adders compute every carry in about log<sub>2</sub>(64) = 6 combining levels using generate and propagate signals, so the add fits in one short cycle. The cost is many more gates and long wires between bit positions, which means more area and more switching power. Designers sometimes use cheaper, slower adders where timing allows, such as in address generation units with smaller offsets.</p>`
       }
     ]
   }
@@ -541,19 +541,19 @@ section({
 <p>A datapath resource can do only one thing per cycle. For example, a single ALU can't compute one instruction's effective address while also doing another instruction's subtraction. So the pipeline must be designed so that overlapping instructions never need the same resource in the same cycle.</p>
 <p>A RISC instruction set makes this check fairly easy: every instruction follows the same path, and each major unit is used in exactly one stage. Read down any column of the table below and each resource appears once, because each instruction is in a different stage.</p>
 <div class="tbl"><table>
-<tr><th>Instruction</th><th>Cycle 1</th><th>2</th><th>3</th><th>4</th><th style="background:var(--pad-soft)">5</th><th>6</th><th>7</th><th>8</th><th>9</th></tr>
+<tr><th>Instruction</th><th>Cycle 0</th><th>1</th><th>2</th><th>3</th><th style="background:var(--pad-soft)">4</th><th>5</th><th>6</th><th>7</th><th>8</th></tr>
 <tr><td>i</td><td>Instr mem</td><td>Reg read</td><td>ALU</td><td>Data mem</td><td style="background:var(--pad-soft)">Reg write</td><td></td><td></td><td></td><td></td></tr>
 <tr><td>i+1</td><td></td><td>Instr mem</td><td>Reg read</td><td>ALU</td><td style="background:var(--pad-soft)">Data mem</td><td>Reg write</td><td></td><td></td><td></td></tr>
 <tr><td>i+2</td><td></td><td></td><td>Instr mem</td><td>Reg read</td><td style="background:var(--pad-soft)">ALU</td><td>Data mem</td><td>Reg write</td><td></td><td></td></tr>
 <tr><td>i+3</td><td></td><td></td><td></td><td>Instr mem</td><td style="background:var(--pad-soft)">Reg read</td><td>ALU</td><td>Data mem</td><td>Reg write</td><td></td></tr>
 <tr><td>i+4</td><td></td><td></td><td></td><td></td><td style="background:var(--pad-soft)">Instr mem</td><td>Reg read</td><td>ALU</td><td>Data mem</td><td>Reg write</td></tr>
 </table></div>
-<p>In cycle 5 (highlighted), all five instructions are in flight and every resource is busy with exactly one of them. The only resource that appears twice is the register file, which is handled by the second design choice below.</p>
+<p>In cycle 4 (highlighted), all five instructions are in flight and every resource is busy with exactly one of them. The only resource that appears twice is the register file, which is handled by the second design choice below.</p>
 <h3 id="sec-observations">Three Design Choices That Avoid Conflicts</h3>
-<p><strong>1. Separate instruction and data memories.</strong> IF reads an instruction every cycle, and MEM may read or write data in the same cycle. With one shared memory, those would collide whenever a load or store reaches MEM. Separate instruction and data caches remove the conflict.</p>
+<p><strong>0. Separate instruction and data memories.</strong> IF reads an instruction every cycle, and MEM may read or write data in the same cycle. With one shared memory, those would collide whenever a load or store reaches MEM. Separate instruction and data caches remove the conflict.</p>
 <p>This has a cost: if the pipelined processor runs at the same clock as the unpipelined one, it finishes five times as many instructions per unit time, so the memory system has to supply about five times the bandwidth. Higher performance moves pressure onto memory.</p>
-<p><strong>2. The register file is used in two stages.</strong> It is read in ID and written in WB, which are different uses by different instructions, so the diagram below draws it in two places. Every cycle, it must handle two reads (the two source registers of the instruction in ID) and one write (the result of the instruction in WB). When the same register is written and read in one cycle, the write happens in the first half of the cycle and the reads in the second half, so the reader gets the new value. This split also removes one of the data hazards covered later.</p>
-<p><strong>3. The PC needs its own hardware.</strong> To start a new instruction every cycle, IF must increment the PC and store it every cycle, so it needs its own adder for PC + 4 rather than borrowing the ALU. ID needs another adder for the branch target. There is still a problem: a branch doesn't update the PC until the end of ID, after the next instruction has already been fetched. That is a control hazard; see <a href="#/branch-hazards">Branch hazards</a>.</p>
+<p><strong>1. The register file is used in two stages.</strong> It is read in ID and written in WB, which are different uses by different instructions, so the diagram below draws it in two places. Every cycle, it must handle two reads (the two source registers of the instruction in ID) and one write (the result of the instruction in WB). When the same register is written and read in one cycle, the write happens in the first half of the cycle and the reads in the second half, so the reader gets the new value. This split also removes one of the data hazards covered later.</p>
+<p><strong>2. The PC needs its own hardware.</strong> To start a new instruction every cycle, IF must increment the PC and store it every cycle, so it needs its own adder for PC + 4 rather than borrowing the ALU. ID needs another adder for the branch target. There is still a problem: a branch doesn't update the PC until the end of ID, after the next instruction has already been fetched. That is a control hazard; see <a href="#/branch-hazards">Branch hazards</a>.</p>
 <div class="tbl"><svg viewBox="0 0 700 270" role="img" aria-label="Pipelined datapath. IF has the PC, a PC plus 4 adder, and instruction memory. ID has the register file read ports, a sign extender, and a branch target adder. EX has the ALU. MEM has data memory. WB writes back to the register file. Pipeline registers IF/ID, ID/EX, EX/MEM, and MEM/WB sit between the stages." style="width:100%;min-width:600px;max-width:700px;display:block;font-family:var(--sans)">
 <defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
 <g style="fill:var(--ink);font-size:13px;font-weight:600" text-anchor="middle"><text x="75" y="16">IF</text><text x="220" y="16">ID</text><text x="365" y="16">EX</text><text x="510" y="16">MEM</text><text x="645" y="16">WB</text></g>
@@ -612,7 +612,7 @@ section({
 </ol>`
       },
       {
-        q: `<p>In the resource table on this page, which instruction uses each resource in cycle 6?</p>`,
+        q: `<p>In the resource table on this page, instruction i is fetched in cycle 0 and a new instruction is fetched every cycle. Which instruction uses each resource in cycle 5?</p>`,
         a: `<ul><li>Instruction memory (IF): instruction i+5, the next one to enter.</li><li>Register file read (ID): i+4.</li><li>ALU (EX): i+3.</li><li>Data memory (MEM): i+2.</li><li>Register file write (WB): i+1.</li></ul><p>Each resource still has exactly one user (the register file has one reader and one writer, in different halves of the cycle).</p>`
       }
     ],
@@ -765,8 +765,8 @@ section({
         a: `<p>Removing it costs area, power, or latency: a second memory port, a duplicated or fully pipelined unit, more register file ports. If the hazard occurs rarely, the stalls cost less than the hardware. Classic examples are a non-pipelined floating-point divider (divides are rare) and limited register file ports in wide cores, where adding ports grows area roughly with the square of the port count. The decision is made by measuring how often the conflict happens on real workloads.</p>`
       },
       {
-        q: `<p>Why can a structural hazard sometimes lower total runtime even though it adds stalls?</p>`,
-        a: `<p>Because runtime is CPI × cycle time. If removing the resource (or keeping it simpler) shortens the critical path enough, the faster clock can outweigh the stall cycles. It only wins when the hazard is rare: with 35% memory instructions, an 8% faster clock loses; with 3%, it would win (1.03 / 1.08 ≈ 0.95).</p>`
+        q: `<p>Why can a structural hazard sometimes lower total runtime even though it adds stalls? Consider a single memory port that stalls 1 cycle per load or store but lets the clock run 8% faster, with 35% of instructions being loads or stores in one workload and 3% in another. The base CPI is 1.</p>`,
+        a: `<p>Because runtime is CPI × cycle time. If removing the resource (or keeping it simpler) shortens the critical path enough, the faster clock can outweigh the stall cycles. It only wins when the hazard is rare: with 35% memory instructions, an 8% faster clock loses (1.35 / 1.08 = 1.25); with 3%, it would win (1.03 / 1.08 ≈ 0.95).</p>`
       }
     ]
   }
@@ -817,7 +817,7 @@ xor $t4, $t0, $s6   # reads in cycle 6: OK</code></pre>
 <p><strong>The hardware:</strong> comparators check whether a source register of the instruction in EX matches the destination register of the instruction in EX/MEM or MEM/WB (and that instruction actually writes a register). If so, a multiplexer in front of each ALU input picks the forwarded value instead of the one read in ID. If both match, the more recent result (EX/MEM) wins. Forwarding also feeds the data memory input, so a store can save a value produced just before it.</p>
 <div class="prob"><div class="q"><p><strong>Optional: the comparator and multiplexer as logic gates.</strong></p></div>
 <details><summary>Show the gate-level diagrams</summary><div class="a">
-<p><strong>1. The comparator: is this the register being forwarded?</strong> Register numbers are 5 bits. An XNOR gate outputs 1 when its two inputs are equal, so one XNOR per bit plus an AND of all five outputs tells you whether the two register numbers match. Here the instruction in EX/MEM writes <code>$t0</code> (register 8, binary 01000) and the instruction in EX reads <code>$t0</code> as its rs:</p>
+<p><strong>0. The comparator: is this the register being forwarded?</strong> Register numbers are 5 bits. An XNOR gate outputs 1 when its two inputs are equal, so one XNOR per bit plus an AND of all five outputs tells you whether the two register numbers match. Here the instruction in EX/MEM writes <code>$t0</code> (register 8, binary 01000) and the instruction in EX reads <code>$t0</code> as its rs:</p>
 <div class="tbl"><svg viewBox="0 0 680 345" role="img" aria-label="Five XNOR gates compare EX/MEM.rd and ID/EX.rs bit by bit; both are 01000, so every XNOR outputs 1. A five-input AND combines them into equal = 1. A second AND combines equal, RegWrite = 1, and rd not zero = 1, giving forward from EX/MEM = 1." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
 <g style="fill:var(--muted);font-size:11px">
 <text x="10" y="18">EX/MEM.rd bit</text><text x="10" y="31">ID/EX.rs bit</text></g>
@@ -863,7 +863,7 @@ xor $t4, $t0, $s6   # reads in cycle 6: OK</code></pre>
 <text x="566" y="206" style="fill:var(--ink);font-size:12px;font-weight:600">EX/MEM = 1</text>
 </svg></div>
 <p>The final AND adds two conditions: the instruction ahead must actually write a register (its RegWrite control bit), and its destination must not be register 0, which always reads as zero. The "rd ≠ 0" signal is itself just an OR of rd's five bits. The forwarding unit has four of these comparators: rs and rt of the instruction in EX, each checked against the destination in EX/MEM and in MEM/WB.</p>
-<p><strong>2. The multiplexer: pick the forwarded value.</strong> A 2-to-1 multiplexer outputs input A when the select signal S is 0 and input B when S is 1:</p>
+<p><strong>1. The multiplexer: pick the forwarded value.</strong> A 2-to-1 multiplexer outputs input A when the select signal S is 0 and input B when S is 1:</p>
 <p class="eq">Out = (A · <span style="text-decoration:overline">S</span>) + (B · S)</p>
 <p>Here A is the stale value read from the register file in ID, B is the forwarded value, and S is the comparator's output from above:</p>
 <div class="tbl"><svg viewBox="0 0 680 230" role="img" aria-label="One bit of a 2-to-1 multiplexer. S = 1 goes through a NOT gate to give 0, which ANDs with A = 0 to give 0. S = 1 ANDs with B = 1 to give 1. An OR of the two AND outputs gives Out = 1, the forwarded value." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
@@ -1077,10 +1077,10 @@ sw   $t2, 12($a0)</code></pre>`,
         a: `<p>All register reads happen in ID and all writes in WB, in program order. A later instruction always reads after earlier instructions read (no WAR), and writes reach WB in order (no WAW). They appear when instructions can write at different stages (multi-cycle units with different latencies) or execute out of order; renaming removes them in out-of-order cores.</p>`
       },
       {
-        q: `<p>In a classic 5-stage pipeline (IF, ID, EX, MEM, WB), how many stall cycles does this sequence take with full forwarding? Without any forwarding (the register file writes in the first half of a cycle and reads in the second half)?</p><pre><code>lw  r1, 0(r2)
+        q: `<p>In a classic 5-stage pipeline (IF, ID, EX, MEM, WB), how many stall cycles does this sequence take with full forwarding, if <code>lw</code> is fetched in cycle 0? Without any forwarding (the register file writes in the first half of a cycle and reads in the second half)?</p><pre><code>lw  r1, 0(r2)
 add r3, r1, r4
 sub r5, r3, r6</code></pre>`,
-        a: `<p><strong>With forwarding: 1 stall.</strong> The load's data is ready at the end of MEM (cycle 4), but <code>add</code> wants it at the start of EX in cycle 4, so it waits one cycle (the load-use hazard). <code>sub</code> gets <code>r3</code> forwarded from <code>add</code>'s EX output with no stall.</p><p><strong>Without forwarding: 4 stalls.</strong> <code>lw</code> writes <code>r1</code> in WB (cycle 5), so <code>add</code> can't read it in ID until cycle 5: 2 stalls. <code>add</code> then writes <code>r3</code> in WB (cycle 8), so <code>sub</code> can't decode until cycle 8: 2 more stalls.</p>`
+        a: `<p><strong>With forwarding: 1 stall.</strong> The load's data is ready at the end of MEM (cycle 3), but <code>add</code> wants it at the start of EX in cycle 3, so it waits one cycle (the load-use hazard). <code>sub</code> gets <code>r3</code> forwarded from <code>add</code>'s EX output with no stall.</p><p><strong>Without forwarding: 4 stalls.</strong> <code>lw</code> writes <code>r1</code> in WB (cycle 4), so <code>add</code> can't read it in ID until cycle 4: 2 stalls. <code>add</code> then writes <code>r3</code> in WB (cycle 7), so <code>sub</code> can't decode until cycle 7: 2 more stalls.</p>`
       },
       {
         q: `<p>Timing forces load-to-use latency from 4 to 5 cycles. 30% of instructions are loads, 40% of loads have a dependent instruction right behind them, and out-of-order execution hides 75% of the extra cycle. Base CPI is 0.5. How much faster must the clock get to break even?</p>`,
@@ -1296,7 +1296,7 @@ sub r5, r3, r6</code></pre>`,
     ],
     interview: [
       {
-        q: `<p>A deeper pipeline learns branch targets at the end of stage 3 and branch outcomes at the end of stage 4. 4% of instructions are unconditional branches, 6% are untaken conditional branches, and 10% are taken conditional branches. Compare CPI added by stalling, predict taken, and predict not-taken.</p>`,
+        q: `<p>A deeper pipeline learns branch targets at the end of stage 2 and branch outcomes at the end of stage 3, counting fetch as stage 0. The base CPI is 1. 4% of instructions are unconditional branches, 6% are untaken conditional branches, and 10% are taken conditional branches. Compare CPI added by stalling, predict taken, and predict not-taken.</p>`,
         a: `<p>Penalties (cycles): unconditional = 2 (until the target is known) in every scheme. Stall: 3 for any conditional branch. Predict taken: 2 if taken (wait for target), 3 if not taken (wrong). Predict not-taken: 0 if not taken, 3 if taken.</p><ul><li><strong>Stall:</strong> 0.04×2 + 0.06×3 + 0.10×3 = <strong>0.56</strong></li><li><strong>Predict taken:</strong> 0.04×2 + 0.06×3 + 0.10×2 = <strong>0.46</strong></li><li><strong>Predict not-taken:</strong> 0.04×2 + 0.06×0 + 0.10×3 = <strong>0.38</strong></li></ul><p>Predict not-taken is best here: 1.56 / 1.38 ≈ 1.13× faster than stalling.</p>`
       },
       {
