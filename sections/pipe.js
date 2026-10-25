@@ -651,9 +651,9 @@ section({
 <p class="eq">Speedup = <span class="frac"><span>CPI<sub>unpipelined</sub> × Clock<sub>unpipelined</sub></span><span>CPI<sub>pipelined</sub> × Clock<sub>pipelined</sub></span></span></p>
 <p>The ideal pipelined CPI is 1, so stalls simply add to it:</p>
 <p class="eq">CPI<sub>pipelined</sub> = 1 + stall cycles per instruction</p>
-<p><strong>Case 1: the unpipelined machine is multi-cycle</strong> (same clock, one stage per cycle, so its CPI equals the pipeline depth):</p>
+<p><strong>Case 0: the unpipelined machine is multi-cycle</strong> (same clock, one stage per cycle, so its CPI equals the pipeline depth):</p>
 <p class="eq">Speedup = <span class="frac"><span>Pipeline depth</span><span>1 + stall cycles per instruction</span></span></p>
-<p><strong>Case 2: the unpipelined machine is single-cycle</strong> (CPI = 1, longer clock). With perfectly balanced stages and no overhead, Clock<sub>unpipelined</sub> / Clock<sub>pipelined</sub> = depth, which gives the same result:</p>
+<p><strong>Case 1: the unpipelined machine is single-cycle</strong> (CPI = 1, longer clock). With perfectly balanced stages and no overhead, Clock<sub>unpipelined</sub> / Clock<sub>pipelined</sub> = depth, which gives the same result:</p>
 <p class="eq">Speedup = <span class="frac"><span>1</span><span>1 + stall cycles per instruction</span></span> × <span class="frac"><span>Clock<sub>unpipelined</sub></span><span>Clock<sub>pipelined</sub></span></span> ≈ <span class="frac"><span>Pipeline depth</span><span>1 + stall cycles per instruction</span></span></p>
 <p>Either way, <strong>with no stalls, speedup equals the depth</strong>, and every average stall cycle per instruction cuts into it. With latch overhead or unbalanced stages, the clock ratio is smaller than the depth, so real speedup is lower still.</p>
 <h3>Example</h3>
