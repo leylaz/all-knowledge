@@ -457,10 +457,10 @@ So the misses are dependent. The L1D MSHRs aren't the limit either: they average
 </ol>
 </details>
 <details class="ex"><summary>Worked example: a front-end-bound server trace</summary>
-<p><strong>Question.</strong> Your model of an AMD Zen 4 core (6-wide dispatch, 320-entry ROB, 32 KB instruction cache, 6.75K-entry op cache) runs a trace of an OLTP database. Top-down level 1: retiring 34%, front-end bound 31%, bad speculation 9%, back-end bound 26%. The model also gives you:</p>
+<p><strong>Question.</strong> Your model of an AMD Zen 4 core (6-wide dispatch, 320-entry ROB, 32 KB instruction cache, 6.75K-entry op cache) runs a trace of an OLTP database. Top-down level 1: retiring 34%, front-end bound 31%, bad speculation 9%, back-end bound 26%. The model also gives you the numbers below. A "point" is one percentage point of all slots, so 12 points means 12% of all slots.</p>
 <ul>
 <li><strong>Back end in the front-end-bound cycles:</strong> the ROB averages 90 of 320 entries, and no allocation stall is recorded</li>
-<li><strong>Queue in front of rename:</strong> empty in cycles worth 24 of the 31 points, and holding some but fewer than 6 micro-ops in cycles worth 7</li>
+<li><strong>Front-end-bound slots, split by the queue in front of rename:</strong> 24% of all slots are lost in cycles with the queue empty, and 7% in cycles with 1 to 5 micro-ops waiting</li>
 <li><strong>What fetch was waiting for in the empty cycles:</strong>
 <ul>
 <li>instruction cache misses: 12 points</li>
