@@ -95,7 +95,7 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>Count the parameters of the running example. Per layer:</p><ul><li>W<sub>Q</sub> and W<sub>O</sub> are 8,192 × 8,192</li><li>W<sub>K</sub> and W<sub>V</sub> are 8,192 × 1,024</li><li>The MLP has three matrices of 8,192 × 28,672</li></ul><p>The embedding table and the separate LM head are each 128,256 × 8,192. Ignore norms. How many parameters in total, and how many GB in BF16?</p>`,
+        q: `<p>Count the parameters of the running example, which has 80 layers. Per layer:</p><ul><li>W<sub>Q</sub> and W<sub>O</sub> are 8,192 × 8,192</li><li>W<sub>K</sub> and W<sub>V</sub> are 8,192 × 1,024</li><li>The MLP has three matrices of 8,192 × 28,672</li></ul><p>The embedding table and the separate LM head are each 128,256 × 8,192. Ignore norms. How many parameters in total, how many GB in BF16, and does it fit on one 80 GB GPU?</p>`,
         a: `<ol><li>Attention per layer: 2 × 67.1M + 2 × 8.4M ≈ 151.0M.</li><li>MLP per layer: 3 × 8,192 × 28,672 ≈ 704.6M.</li><li>Per layer: ≈ 855.6M. Times 80 layers: ≈ 68.45B.</li><li>Embedding + LM head: 2 × 1.05B ≈ 2.10B.</li><li>Total ≈ <strong>70.6B parameters</strong>, × 2 bytes ≈ <strong>141 GB</strong>, which doesn't fit on one 80 GB GPU.</li></ol>`
       }
     ],
@@ -148,8 +148,8 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>A tokenizer learned these merges, in order: (1) e + s → es, (2) es + t → est, (3) l + o → lo, (4) lo + w → low. Encode “lowest” and “newer.” How many tokens is each?</p>`,
-        a: `<ol><li>“lowest” starts as l o w e s t.</li><li>Merge 1: l o w es t. Merge 2: l o w est. Merge 3: lo w est. Merge 4: low est.</li><li>Result: <strong>low + est, 2 tokens</strong>, even though “lowest” never appeared in training.</li><li>“newer” is n e w e r. No learned pair applies, so it stays <strong>5 tokens</strong>. A real tokenizer has tens of thousands of merges, so common words become one token and rare ones split into a few pieces.</li></ol>`
+        q: `<p>A tokenizer learned these merges, in order: (0) e + s → es, (1) es + t → est, (2) l + o → lo, (3) lo + w → low. Encode “lowest” and “newer.” How many tokens is each?</p>`,
+        a: `<ol><li>“lowest” starts as l o w e s t.</li><li>Merge 0: l o w es t. Merge 1: l o w est. Merge 2: lo w est. Merge 3: low est.</li><li>Result: <strong>low + est, 2 tokens</strong>, even though “lowest” never appeared in training.</li><li>“newer” is n e w e r. No learned pair applies, so it stays <strong>5 tokens</strong>. A real tokenizer has tens of thousands of merges, so common words become one token and rare ones split into a few pieces.</li></ol>`
       }
     ],
     interview: [
@@ -158,8 +158,8 @@ section({
         a: `<p>The model never sees letters. It sees a few token IDs, for example pieces like “str,” “aw,” and “berry,” each an opaque integer mapped to a vector. Counting letters requires knowing the spelling inside each token, which the model only learns indirectly. Asking it to spell the word out first (one letter per token) usually fixes it.</p>`
       },
       {
-        q: `<p>A team proposes doubling the vocabulary from 64K to 128K tokens. What are the trade-offs?</p>`,
-        a: `<p><strong>Gains:</strong> text compresses into fewer tokens, especially code and non-English text. Fewer tokens means less prefill compute, a smaller KV cache, fewer decode steps, and more text in the same context window.</p><p><strong>Costs:</strong> the embedding table and LM head each grow from about 0.5B to 1.05B parameters at d = 8,192. The LM head is read every decode step, and softmax and sampling run over twice as many entries. Rare tokens see fewer training examples, so their embeddings are learned less well.</p>`
+        q: `<p>A team proposes doubling the vocabulary of a model with d = 8,192 from 64K (65,536) to 128K (128,256) tokens. What are the trade-offs?</p>`,
+        a: `<p><strong>Gains:</strong> text compresses into fewer tokens, especially code and non-English text. Fewer tokens means less prefill compute, a smaller KV cache, fewer decode steps, and more text in the same context window.</p><p><strong>Costs:</strong> the embedding table and LM head each grow from 65,536 × 8,192 ≈ 0.54B to 128,256 × 8,192 ≈ 1.05B parameters. The LM head is read every decode step, and softmax and sampling run over twice as many entries. Rare tokens see fewer training examples, so their embeddings are learned less well.</p>`
       }
     ]
   }
@@ -201,7 +201,7 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>For the running example (V = 128,256, d = 8,192, BF16): how big is the embedding table, how many bytes does one lookup read, and how much memory do the residual-stream vectors take during prefill of a 4,000-token prompt?</p>`,
+        q: `<p>For the running example (V = 128,256, d = 8,192, BF16, 141 GB of weights): how big is the embedding table, how many bytes does one lookup read, and how much memory do the residual-stream vectors take during prefill of a 4,000-token prompt?</p>`,
         a: `<ol><li>Table: 128,256 × 8,192 ≈ 1.05B numbers × 2 bytes ≈ <strong>2.1 GB</strong>.</li><li>One lookup reads one row: 8,192 × 2 bytes = <strong>16 KB</strong>.</li><li>Prefill activations: 4,000 × 16 KB ≈ <strong>66 MB</strong>, tiny next to 141 GB of weights. Activations stay small; weights and the KV cache are what fill memory.</li></ol>`
       }
     ],
@@ -211,7 +211,7 @@ section({
         a: `<p>Attention compares every query with every key using dot products, which don’t depend on where tokens sit. Without positional information, the model sees a bag of tokens: “dog bites man” and “man bites dog” look nearly identical. (The causal mask leaks a little order information, since later tokens see more context, but it’s weak.) RoPE fixes this by rotating queries and keys by position-dependent angles, so the score between two tokens depends on their relative distance.</p>`
       },
       {
-        q: `<p>Why do transformers add each sublayer’s output to the residual stream (x = x + f(x)) instead of replacing it (x = f(x))?</p>`,
+        q: `<p>Why do transformers add each sublayer’s output to the residual stream (x = x + f(x)) instead of replacing it (x = f(x))? Answer for an 80-layer model, where each layer has two sublayers (attention and MLP).</p>`,
         a: `<p>With 80 stacked layers, replacement would force every layer to preserve all useful information itself, and gradients would have to pass through 160 nonlinear sublayers during training, which makes deep networks hard to train. The addition gives gradients a direct path from the output back to early layers and lets each layer make a small edit. Layers can read what earlier layers wrote and add their own contribution, like a shared scratchpad.</p>`
       }
     ]
@@ -345,17 +345,17 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>Four tokens. For the third token, the scaled scores against tokens 1–4 are [2, 0, 1, 5]. The value vectors are v<sub>1</sub> = [1, 0], v<sub>2</sub> = [0, 1], v<sub>3</sub> = [1, 1], v<sub>4</sub> = [3, 3]. Apply the causal mask, softmax, and compute the output.</p>`,
-        a: `<ol><li>Mask: token 3 can’t see token 4, so its score becomes −∞: [2, 0, 1, −∞].</li><li>Exponentiate: e<sup>2</sup> = 7.389, e<sup>0</sup> = 1, e<sup>1</sup> = 2.718, e<sup>−∞</sup> = 0. Sum = 11.107.</li><li>Weights: [0.665, 0.090, 0.245, 0].</li><li>Output = 0.665 × [1, 0] + 0.090 × [0, 1] + 0.245 × [1, 1] = <strong>[0.910, 0.335]</strong>.</li><li>The large score for token 4 had no effect, which is exactly what the mask is for: no peeking at the future.</li></ol>`
+        q: `<p>Four tokens, numbered 0 to 3. For token 2, the scaled scores against tokens 0–3 are [2, 0, 1, 5]. The value vectors are v<sub>0</sub> = [1, 0], v<sub>1</sub> = [0, 1], v<sub>2</sub> = [1, 1], v<sub>3</sub> = [3, 3]. Apply the causal mask, softmax, and compute the output.</p>`,
+        a: `<ol><li>Mask: token 2 can’t see token 3, so its score becomes −∞: [2, 0, 1, −∞].</li><li>Exponentiate: e<sup>2</sup> = 7.389, e<sup>0</sup> = 1, e<sup>1</sup> = 2.718, e<sup>−∞</sup> = 0. Sum = 11.107.</li><li>Weights: [0.665, 0.090, 0.245, 0].</li><li>Output = 0.665 × [1, 0] + 0.090 × [0, 1] + 0.245 × [1, 1] = <strong>[0.910, 0.335]</strong>.</li><li>The large score for token 3 had no effect, which is exactly what the mask is for: no peeking at the future.</li></ol>`
       }
     ],
     interview: [
       {
-        q: `<p>Show why decode attention is memory-bound, and how grouped-query attention changes that.</p>`,
-        a: `<p>Take one KV head and the 8 query heads that share it, at context length N. Reading its keys and values moves N × 128 × 2 × 2 bytes = 512N bytes. The work: each of 8 query heads does a dot product with N keys (2 × 128 FLOPs each) and a weighted sum of N values (another 2 × 128), so 8 × 4 × 128 × N = 4,096N FLOPs.</p><p>Intensity = 4,096N / 512N = <strong>8 FLOPs per byte</strong>, far below a GPU’s ridge point of about 300, so it’s memory-bound. With standard multi-head attention (one KV head per query head), intensity drops to 1 FLOP per byte. With grouped-query attention, the group size directly multiplies intensity, while also shrinking the KV cache by the same factor.</p>`
+        q: `<p>Show why decode attention is memory-bound, and how grouped-query attention changes that. Use the running example: head dimension 128, BF16 keys and values, and 8 query heads sharing each KV head. The GPU's ridge point is about 300 FLOPs per byte.</p>`,
+        a: `<p>Take one KV head and the 8 query heads that share it, at context length N. Reading its keys and values moves N × 128 × 2 × 2 bytes = 512N bytes. The work: each of 8 query heads does a dot product with N keys (2 × 128 FLOPs each) and a weighted sum of N values (another 2 × 128), so 8 × 4 × 128 × N = 4,096N FLOPs.</p><p>Intensity = 4,096N / 512N = <strong>8 FLOPs per byte</strong>, far below the ridge point of about 300, so it’s memory-bound. With standard multi-head attention (one KV head per query head), intensity drops to 1 FLOP per byte. With grouped-query attention, the group size directly multiplies intensity, while also shrinking the KV cache by the same factor.</p>`
       },
       {
-        q: `<p>A naive attention kernel runs prefill on a 32K-token prompt. How much memory does it need for the score matrices of one layer, and how does FlashAttention avoid this?</p>`,
+        q: `<p>A naive attention kernel runs prefill on a 32K-token prompt. The layer has 64 attention heads and stores scores in BF16. How much memory does it need for the score matrices of one layer, and how does FlashAttention avoid this?</p>`,
         a: `<p>Each head’s score matrix is 32,768 × 32,768 ≈ 1.07 billion entries × 2 bytes ≈ 2.1 GB. With 64 heads, that’s about <strong>137 GB for one layer</strong>, more than a GPU holds, and writing it to HBM and reading it back would dominate the runtime.</p><p>FlashAttention processes Q, K, and V in tiles that fit in on-chip shared memory and computes softmax incrementally, keeping a running maximum and running sum per row and rescaling partial results as new tiles arrive. The full score matrix never exists in HBM. Same math, a fraction of the memory traffic. It’s cache blocking applied to attention.</p>`
       }
     ]
@@ -529,14 +529,14 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>For the running example, how much KV cache do 32 users need at 8K tokens of context each? How much would it be with standard multi-head attention (64 KV heads instead of 8)?</p>`,
+        q: `<p>For the running example (80 layers, 8 KV heads of dimension 128, BF16, 141 GB of weights, served on an 8-GPU server with 80 GB per GPU), how much KV cache do 32 users need at 8K (8,192) tokens of context each? How much would it be with standard multi-head attention (64 KV heads instead of 8)?</p>`,
         a: `<ol><li>Per token: 2 × 80 × 8 × 128 × 2 bytes = 327,680 bytes ≈ 0.33 MB.</li><li>Per user: 8,192 × 327,680 ≈ 2.68 GB.</li><li>32 users: ≈ <strong>86 GB</strong>, more than one GPU’s entire memory, on top of 141 GB of weights.</li><li>With 64 KV heads, 8× more: ≈ <strong>687 GB</strong>, more than the whole 8-GPU server. That’s why nearly every modern model uses GQA or something stronger.</li></ol>`
       }
     ],
     interview: [
       {
-        q: `<p>About how many concurrent 32K-token conversations can the 8-GPU server (640 GB of HBM) hold for the running example? What limits it besides capacity?</p>`,
-        a: `<p>Free memory ≈ 640 − 141 = 499 GB, minus workspace for activations and kernels; call it about 450 GB. Each 32K conversation needs 32,768 × 0.33 MB ≈ 10.7 GB. So roughly <strong>40 conversations</strong>.</p><p>Bandwidth limits it too: every decode step reads every active sequence’s whole cache. At 40 × 10.7 GB ≈ 430 GB per step plus 141 GB of weights, a step reads about 570 GB; at 8 × 3.35 TB/s that’s at least 21 ms, or under 50 tokens/s per user. To meet a latency target, you may have to admit fewer users than fit in memory.</p>`
+        q: `<p>About how many concurrent 32K-token conversations can the 8-GPU server (640 GB of HBM, 3.35 TB/s per GPU) hold for the running example (141 GB of weights, 0.33 MB of KV cache per token)? Reserve about 50 GB for activations and kernel workspace. What limits it besides capacity?</p>`,
+        a: `<p>Free memory ≈ 640 − 141 = 499 GB, minus 50 GB of workspace: about 450 GB. Each 32K conversation needs 32,768 × 0.33 MB ≈ 10.7 GB. So roughly 450 / 10.7 ≈ <strong>42 conversations</strong>.</p><p>Bandwidth limits it too: every decode step reads every active sequence’s whole cache. At 42 × 10.7 GB ≈ 450 GB per step plus 141 GB of weights, a step reads about 590 GB; at 8 × 3.35 = 26.8 TB/s that’s at least 22 ms, or under 46 tokens/s per user. To meet a latency target, you may have to admit fewer users than fit in memory.</p>`
       },
       {
         q: `<p>PagedAttention borrows an idea from operating systems. Which one, and what problem does it solve?</p>`,
@@ -578,7 +578,7 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>On the 8-GPU server, estimate (a) the prefill time for a 4,000-token prompt at 50% of peak compute, (b) the decode step time at batch size 1 with a short context, and (c) the total time for a 500-token answer.</p>`,
+        q: `<p>The running example has 70.6B parameters (141 GB in BF16) and runs on an 8-GPU server where each GPU has 990 TFLOP/s of dense BF16 compute and 3.35 TB/s of HBM bandwidth. Estimate (a) the prefill time for a 4,000-token prompt at 50% of peak compute, (b) the decode step time at batch size 1 with a short context, and (c) the total time for a 500-token answer.</p>`,
         a: `<ol><li>Prefill FLOPs ≈ 2 × 70.6B × 4,000 ≈ 5.6 × 10<sup>14</sup>. Achieved compute: 8 × 990 TFLOP/s × 0.5 ≈ 4.0 × 10<sup>15</sup> FLOP/s. Time ≈ <strong>0.14 s</strong>. (Attention adds little at 4K tokens.)</li><li>Decode: read 141 GB of weights at 8 × 3.35 = 26.8 TB/s ≈ <strong>5.3 ms</strong> per token, so at most about 190 tokens/s.</li><li>Answer: 0.14 s + 500 × 5.3 ms ≈ <strong>2.8 s</strong>. Decode dominates, even though prefill processed 8× more tokens. Real systems land below these bounds because of communication and overheads.</li></ol>`
       }
     ],
@@ -656,13 +656,13 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>On the 8-GPU server with tensor parallelism, estimate the decode step time and aggregate tokens/s at (a) batch 1 and (b) batch 64, with every sequence at 8K tokens of context. Assume perfect use of 3.35 TB/s per GPU.</p>`,
+        q: `<p>On the 8-GPU server with tensor parallelism, estimate the decode step time and aggregate tokens/s at (a) batch 1 and (b) batch 64, with every sequence at 8K (8,192) tokens of context. The running example has 141 GB of BF16 weights and 0.33 MB of KV cache per token, both split evenly across the GPUs. Assume perfect use of 3.35 TB/s per GPU.</p>`,
         a: `<ol><li>Weights per GPU: 141 / 8 ≈ 17.6 GB. KV per sequence: 8,192 × 0.33 MB ≈ 2.68 GB, so ≈ 0.34 GB per GPU.</li><li>(a) Batch 1: 17.6 + 0.34 ≈ 17.9 GB per GPU → 17.9 / 3.35 ≈ <strong>5.4 ms</strong> per step → about <strong>185 tokens/s</strong>.</li><li>(b) Batch 64: 17.6 + 64 × 0.34 ≈ 17.6 + 21.5 = 39.1 GB per GPU → ≈ <strong>11.7 ms</strong> per step → 64 / 0.0117 ≈ <strong>5,500 tokens/s</strong>.</li><li>Batching gave about 30× more throughput for about 2× the latency per token. At this context length, the KV cache is already the bigger read at batch 64.</li></ol>`
       }
     ],
     interview: [
       {
-        q: `<p>Your measured per-token decode latency on 8 GPUs is twice the HBM-bandwidth bound. Where could the time be going, and how would you find out?</p>`,
+        q: `<p>Your measured per-token decode latency for an 80-layer model with tensor parallelism on 8 GPUs is twice the HBM-bandwidth bound. Where could the time be going, and how would you find out?</p>`,
         a: `<ul><li><strong>Achieved bandwidth below peak:</strong> small matrix-vector kernels often reach only 60–80% of peak HBM bandwidth.</li><li><strong>Communication:</strong> 160 all-reduces per token (two per layer), each small and latency-bound.</li><li><strong>Kernel launch overhead:</strong> on the order of a thousand kernels per token; without CUDA Graphs, launch gaps leave the GPU idle.</li><li><strong>CPU-side work:</strong> scheduling, sampling synchronization, Python overhead between steps.</li><li><strong>Load imbalance:</strong> one slow GPU makes all the others wait at every all-reduce.</li></ul><p>To find out: capture a timeline with a profiler such as Nsight Systems and look for idle gaps between kernels, time inside communication calls, and per-kernel achieved bandwidth. Then compare the sum of kernel times with the step time, the same way you’d build a stall breakdown for a CPU.</p>`
       }
     ]
