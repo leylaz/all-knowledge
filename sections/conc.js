@@ -92,8 +92,8 @@ void barrier_wait(barrier_t *b, int *local_sense) {
   practice: {
     guided: [
       {
-        q: `<p>Trace two episodes of the barrier below with n = 2, count = 2, sense = 0, and both local senses 0. T0 arrives first each time.</p>`,
-        a: `<ol><li>Episode 1: both flip their local sense to 1. T0's fetch_sub returns 2, so it spins until sense == 1.</li><li>T1's fetch_sub returns 1, so it is last: it resets count to 2 and stores sense = 1. T0 sees 1 and leaves.</li><li>Episode 2: both flip local sense to 0. T0 decrements (returns 2) and spins until sense == 0.</li><li>T1 is last: count = 2, sense = 0. Both leave. No reinitialization was needed.</li></ol>`
+        q: `<p>Trace two episodes of the <code>barrier_wait</code> code on this page with n = 2, count = 2, sense = 0, and both local senses 0. T0 arrives first each time.</p>`,
+        a: `<ol><li>Episode 0: both flip their local sense to 1. T0's fetch_sub returns 2, so it spins until sense == 1.</li><li>T1's fetch_sub returns 1, so it is last: it resets count to 2 and stores sense = 1. T0 sees 1 and leaves.</li><li>Episode 1: both flip local sense to 0. T0 decrements (returns 2) and spins until sense == 0.</li><li>T1 is last: count = 2, sense = 0. Both leave. No reinitialization was needed.</li></ol>`
       }
     ],
     interview: [

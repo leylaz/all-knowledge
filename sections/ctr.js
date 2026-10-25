@@ -111,7 +111,7 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>A 32 KB cache with 64-byte lines walks down a column of a float matrix whose rows are 4096 bytes. How many sets does the walk use with a direct-mapped cache? With 8 ways? What fixes it?</p>`,
+        q: `<p>A 32 KB cache with 64-byte lines walks down each column in turn of a float matrix with 1024 rows of 4096 bytes. How many sets does the walk use with a direct-mapped cache? With 8 ways? What fixes it?</p>`,
         a: `<ol><li>Direct-mapped: 512 sets. Each step moves 4096 / 64 = 64 lines, so set index advances by 64; only 512 / 64 = <strong>8 sets</strong> are ever used, holding 8 lines.</li><li>8-way: 64 sets, and 4096 bytes is exactly 64 sets × 64 bytes, so every access maps to the <strong>same set</strong>, holding 8 lines. Still only 8 lines of reach.</li><li>With 1024 rows, the next column's reuse of each line comes after 1024 other lines: all misses either way.</li><li>Fix in software: pad each row by one line (4096 + 64 bytes) so successive rows land in different sets, or interchange loops to walk rows.</li></ol>`
       }
     ],

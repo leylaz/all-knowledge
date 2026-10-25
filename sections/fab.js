@@ -65,8 +65,8 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>High-NA EUV raises the numerical aperture from 0.33 to 0.55. With k<sub>1</sub> = 0.35, what single-exposure pitch can it print?</p>`,
-        a: `<ol><li>Half-pitch = k<sub>1</sub> × λ / NA = 0.35 × 13.5 / 0.55.</li><li>0.35 × 13.5 = 4.725, and 4.725 / 0.55 ≈ 8.6 nm.</li><li>Pitch = 2 × half-pitch ≈ <strong>17 nm</strong>, about half of what 0.33 NA EUV prints with a similar k<sub>1</sub>.</li></ol>`
+        q: `<p>EUV light has a wavelength λ = 13.5 nm. High-NA EUV raises the numerical aperture from 0.33 to 0.55. With k<sub>1</sub> = 0.35, what single-exposure pitch can it print, and how does that compare with 0.33 NA at the same k<sub>1</sub>?</p>`,
+        a: `<ol><li>Half-pitch = k<sub>1</sub> × λ / NA = 0.35 × 13.5 / 0.55.</li><li>0.35 × 13.5 = 4.725, and 4.725 / 0.55 ≈ 8.6 nm.</li><li>Pitch = 2 × half-pitch ≈ <strong>17 nm</strong>.</li><li>At 0.33 NA: 2 × 4.725 / 0.33 ≈ 28.6 nm. The ratio is 0.33 / 0.55 = 0.6, so High-NA prints about 60% of the 0.33 NA pitch.</li></ol>`
       }
     ],
     interview: [

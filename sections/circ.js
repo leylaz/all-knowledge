@@ -128,8 +128,8 @@ section({
         a: `<p>Setup failures depend on the clock period, so you can always fix them in silicon by lowering the frequency. Hold failures happen when new data races through a short path within the same clock edge; they don't depend on the period, so lowering the frequency doesn't help. A hold violation in silicon means the chip fails at any speed. Designers fix hold in design by inserting delay buffers on short paths.</p>`
       },
       {
-        q: `<p>How does adding a pipeline stage change the timing equation, and what's the overhead?</p>`,
-        a: `<p>Splitting the logic roughly halves t<sub>logic</sub> per stage, but each stage still pays t<sub>clk-q</sub> + t<sub>setup</sub> + skew + jitter. With 75 ps of overhead and 250 ps of logic, going from one to two stages takes the period from 325 ps to 200 ps: 1.6× the frequency, not 2×. The overhead fraction grows with depth, which is the circuit-level reason pipelining has diminishing returns.</p>`
+        q: `<p>A stage has 250 ps of logic and 75 ps of per-stage overhead (t<sub>clk-q</sub> + t<sub>setup</sub> + skew + jitter). You split its logic evenly into two stages. How does the timing equation change, and how much faster can the clock run?</p>`,
+        a: `<p>Splitting the logic halves t<sub>logic</sub> per stage, but each stage still pays t<sub>clk-q</sub> + t<sub>setup</sub> + skew + jitter. One stage: 250 + 75 = 325 ps. Two stages: 125 + 75 = 200 ps. That is 325 / 200 ≈ 1.6× the frequency, not 2×. The overhead fraction grows with depth, which is the circuit-level reason pipelining has diminishing returns.</p>`
       }
     ]
   }

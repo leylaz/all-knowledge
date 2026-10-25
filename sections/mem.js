@@ -159,7 +159,7 @@ section({
     guided: [
       {
         q: `<p>Roughly how many transistors are in the data array of a 32 KB SRAM cache built from 6T cells? What would the same capacity be in 1T1C DRAM cells?</p>`,
-        a: `<ol><li>Bits: 32 × 1024 × 8 = 262,144.</li><li>SRAM: 262,144 × 6 ≈ <strong>1.57 million transistors</strong>, before tags, decoders, and sense amps.</li><li>DRAM: 262,144 transistors plus 262,144 capacitors. The cell is far smaller, which is why DRAM is ~10–20× denser.</li></ol>`
+        a: `<ol><li>Bits: 32 × 1024 × 8 = 262,144.</li><li>SRAM: 262,144 × 6 ≈ <strong>1.57 million transistors</strong>, before tags, decoders, and sense amps.</li><li>DRAM: 262,144 transistors plus 262,144 capacitors. That is 6× fewer transistors per bit, and the capacitor is built above or beside the transistor, so the cell is smaller still. That is why DRAM is much denser.</li></ol>`
       }
     ],
     interview: [
@@ -276,13 +276,13 @@ bits 11..0   page offset</code></pre>
   practice: {
     guided: [
       {
-        q: `<p>A key-value store randomly accesses a 32 GB table on a core with a 2,048-entry L2 TLB. What fraction of accesses miss the TLB with 4 KB pages, with 2 MB pages, and with 1 GB pages (assume uniform random access, and that the TLB holds only data pages)?</p>`,
-        a: `<ol start="0"><li>4 KB pages: reach 2,048 × 4 KB = 8 MB. Hit fraction ≈ 8 MB / 32 GB ≈ 0.024%, so <strong>almost every access misses</strong>.</li><li>2 MB pages: reach 4 GB, so hit fraction ≈ 4 / 32 = 12.5%: about <strong>87.5% miss</strong>. Better per walk (fewer levels, smaller page tables that cache well), but still mostly misses.</li><li>1 GB pages: the table needs only 32 translations. Cores keep far fewer 1 GB entries than 4 KB ones (Skylake's L2 TLB has 16), so some misses can remain, but each walk is two or three references to tiny tables that stay cached: <strong>translation cost nearly disappears</strong>.</li><li>For random access over huge data, only 1 GB pages remove translation cost; 2 MB pages mainly make each walk cheaper.</li></ol>`
+        q: `<p>A key-value store randomly accesses a 32 GB table on a core whose L2 TLB has 2,048 entries for 4 KB or 2 MB pages and 16 entries for 1 GB pages. A 1 GB page walk reads only the top two page-table levels. What fraction of accesses miss the TLB with 4 KB pages, with 2 MB pages, and with 1 GB pages (assume uniform random access, and that the TLB holds only data pages)?</p>`,
+        a: `<ol start="0"><li>4 KB pages: reach 2,048 × 4 KB = 8 MB. Hit fraction ≈ 8 MB / 32 GB ≈ 0.024%, so <strong>almost every access misses</strong>.</li><li>2 MB pages: reach 4 GB, so hit fraction ≈ 4 / 32 = 12.5%: about <strong>87.5% miss</strong>. Better per walk (fewer levels, smaller page tables that cache well), but still mostly misses.</li><li>1 GB pages: the table needs only 32 translations, but only 16 fit. Hit fraction ≈ 16 / 32 = 50%, so <strong>about 50% miss</strong>. Each walk, though, reads only two levels, and those 32 entries sit in a few lines that stay cached, so translation cost nearly disappears.</li><li>For random access over huge data, only 1 GB pages remove translation cost; 2 MB pages mainly make each walk cheaper.</li></ol>`
       }
     ],
     interview: [
       {
-        q: `<p>A workload runs 30% slower inside a virtual machine than on bare metal, with no I/O involved. Counters show the same L2 TLB miss rate in both. Explain the gap and propose fixes.</p>`,
+        q: `<p>A workload runs 30% slower inside a virtual machine than on bare metal, with no I/O involved. The guest and host both use 4-level page tables. Counters show the same L2 TLB miss rate in both. Explain the gap and propose fixes.</p>`,
         a: `<p>The miss rate is the same, but each miss costs far more: a native walk is up to 4 dependent references, while a nested walk is up to 24, and the extra host-table lines compete for cache space, so more of those references miss. Confirm with page-walk cycles per miss (Intel's <code>DTLB_LOAD_MISSES.WALK_ACTIVE</code> divided by completed walks) inside and outside the VM. Fixes: back the guest with huge pages on the host (2 MB or 1 GB host pages remove most of the host dimension), use huge pages in the guest too, and make sure the host doesn't split those pages (for example, through memory overcommit or deduplication).</p>`
       }
     ]
@@ -362,7 +362,7 @@ bits 11..0   page offset</code></pre>
   practice: {
     guided: [
       {
-        q: `<p>DDR4-3200AA has timings 22-22-22 (tCL-tRCD-tRP) on a 1600 MHz clock. A workload's accesses are 60% row hits, 10% to closed rows, and 30% row conflicts. What is the average device latency?</p>`,
+        q: `<p>DDR4-3200AA has timings 22-22-22 (tCL-tRCD-tRP) on a 1600 MHz clock. A workload's accesses are 60% row hits, 10% to closed rows, and 30% row conflicts. The core sees about 80 ns of total load-to-use latency for a DRAM access. What is the average device latency, and how much would removing every row conflict save?</p>`,
         a: `<ol start="0"><li>Clock period: 1 / 1600 MHz = 0.625 ns, so each timing is 22 × 0.625 = 13.75 ns.</li><li>Row hit: 13.75 ns. Closed row: 2 × 13.75 = 27.5 ns. Conflict: 3 × 13.75 = 41.25 ns.</li><li>Average: 0.6 × 13.75 + 0.1 × 27.5 + 0.3 × 41.25 = 8.25 + 2.75 + 12.375 ≈ <strong>23.4 ns</strong>.</li><li>Turning every conflict into a hit (by better mapping or scheduling) would save 0.3 × 27.5 ≈ 8.3 ns per access: a large share of the device time, though a small share of the 80 ns or so the core sees.</li></ol>`
       }
     ],

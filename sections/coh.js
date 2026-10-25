@@ -46,8 +46,8 @@ section({
     ],
     interview: [
       {
-        q: `<p>Two threads each increment their own counter one million times, but the counters share a cache line. Describe the coherence traffic and its cost.</p>`,
-        a: `<p>Each write needs the line in M. When the threads interleave, every increment can require an ownership request that invalidates the other core's copy, so the line ping-pongs. Each transfer costs tens to over a hundred cycles, against about one cycle for a local increment, so this can be 10–100× slower. Padding each counter to its own line fixes it.</p>`
+        q: `<p>Two threads each increment their own counter one million times, but the counters share a cache line. On this chip a core-to-core line transfer takes about 100 cycles, and an increment of a counter that stays in the local L1 takes about 5 cycles (a load, an add, and a store forwarded to the next load). Describe the coherence traffic and bound its cost.</p>`,
+        a: `<p>Each write needs the line in M. When the threads interleave, every increment can require an ownership request that invalidates the other core's copy, so the line ping-pongs. In the worst case each increment waits for a 100-cycle transfer instead of a 5-cycle local update: up to 100 / 5 = 20× slower, about 2 × 10<sup>6</sup> × 100 = 2 × 10<sup>8</sup> cycles of transfers. In practice it is somewhat less, because a core often does several increments while it holds the line. Padding each counter to its own line fixes it.</p>`
       },
       {
         q: `<p>Why does the E state exist?</p>`,
@@ -146,7 +146,7 @@ section({
     ],
     interview: [
       {
-        q: `<p>A 60-core server chip has a 2 MB private L2 per core and a non-inclusive L3 with a snoop filter. How many lines must the filter be able to track, and what happens if it is built at half that size?</p>`,
+        q: `<p>A 60-core server chip has a 2 MB private L2 per core, 64-byte lines, and a non-inclusive L3 with a snoop filter. How many lines must the filter be able to track, and what happens if it is built at half that size?</p>`,
         a: `<p>Private capacity: 60 × 2 MB = 120 MB. In 64-byte lines: 120 MB / 64 B ≈ 1.97 million lines, and in practice more, because set-associativity conflicts mean the filter can't be 100% full. If it is built at half that size, then whenever cores' working sets fill their L2s, the filter must evict entries, and each eviction back-invalidates a line in some L2 that may be in active use. Those lines then miss in L2, refill from L3 or memory, and re-enter the filter, evicting something else. In a model, it shows up as L2 misses that a private-cache simulation can't explain; on silicon, as L2 miss rates that rise with core count even for per-core-private data. That's why filters are sized to cover all private capacity with associativity to spare.</p>`
       }
     ]
