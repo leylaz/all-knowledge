@@ -206,24 +206,154 @@ section({
   region: "pipe",
   title: "Instruction Fetch (IF)",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.1 Introduction: “A Simple Implementation of a RISC Instruction Set”.`,
+  sections: [
+    { id: "classic", label: "In the Classic 5-Stage Pipeline" },
+    { id: "parts", label: "The Parts of the Fetch Stage" },
+    { id: "icache", label: "The Instruction Cache and ITLB" },
+    { id: "miss", label: "When Fetch Misses" },
+    { id: "branches", label: "Fetch and Branches" },
+    { id: "exceptions", label: "Exceptions in Fetch" },
+    { id: "smc", label: "Self-Modifying Code" },
+    { id: "wide", label: "Fetch in Wider Cores" }
+  ],
   body: `
-<h3>In the Classic 5-Stage Pipeline</h3>
+<p>Instruction fetch (IF) is the first stage: it reads the instruction at the program counter and decides which address to fetch next. In the classic pipeline that is one cache read and one add. Everything else on this page (the instruction cache, the ITLB, misses, branches, and exceptions) is what it takes to keep that read going every cycle.</p>
+
+<h3 id="sec-classic">In the Classic 5-Stage Pipeline</h3>
 <ul>
 <li>The program counter (PC) is sent to instruction memory, which returns the instruction at that address.</li>
 <li>The PC is advanced to the next sequential instruction by adding 4, because every instruction is 4 bytes long.</li>
 </ul>
+<p>Hennessy and Patterson write the stage as two register transfers (Appendix C.3). The fetched instruction and the incremented PC go into the IF/ID pipeline register, and the PC is loaded with either PC + 4 or the target of a taken branch that has reached the stage where it's resolved:</p>
+<pre><code>IF/ID.IR       ← Mem[PC]
+IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
+                    EX/MEM.ALUOutput      <span class="cm"># branch target</span>
+                 else
+                    PC + 4</code></pre>
+<p>In that version, branches complete in MEM. The aggressive design on the <a href="#/stage-id">ID page</a> moves the comparison and target adder into ID, so the mux takes the target from ID instead and a taken branch costs 1 cycle instead of 3.</p>
+<div class="tbl"><svg viewBox="0 0 680 330" role="img" aria-label="The IF stage datapath. A next-PC mux chooses among PC plus 4, a branch target from ID, and an exception vector, and loads the PC register. The PC goes to the instruction cache, with the ITLB looked up in parallel, and to an adder that adds 4. The instruction goes into the IR field of the IF/ID pipeline register, and PC plus 4 goes into its NPC field and back to the mux." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrIF" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<polygon points="150,95 180,110 180,175 150,190" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<text x="165" y="86" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">Next-PC mux</text>
+<text x="12" y="119" style="fill:var(--muted);font-size:11px">branch target from ID</text>
+<text x="12" y="154" style="fill:var(--muted);font-size:11px">exception vector</text>
+<rect x="205" y="120" width="50" height="45" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<text x="230" y="147" text-anchor="middle" style="fill:var(--ink);font-size:13px;font-weight:600">PC</text>
+<rect x="320" y="35" width="150" height="60" rx="4" style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5"/>
+<text x="395" y="60" text-anchor="middle" style="fill:var(--ink);font-size:13px;font-weight:600">Instruction cache</text>
+<text x="395" y="79" text-anchor="middle" style="fill:var(--muted);font-size:11px">ITLB lookup in parallel</text>
+<rect x="320" y="150" width="80" height="45" rx="4" style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5"/>
+<text x="360" y="177" text-anchor="middle" style="fill:var(--ink);font-size:13px;font-weight:600">Add 4</text>
+<rect x="590" y="25" width="40" height="225" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<text x="610" y="17" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">IF/ID</text>
+<text x="610" y="69" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">IR</text>
+<text x="610" y="176" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">NPC</text>
+<text x="529" y="58" text-anchor="middle" style="fill:var(--muted);font-size:11px">instruction</text>
+<text x="460" y="165" text-anchor="middle" style="fill:var(--muted);font-size:11px">PC + 4</text>
+<text x="340" y="292" text-anchor="middle" style="fill:var(--muted);font-size:11px">PC + 4 (the default: predict not taken)</text>
+<circle cx="285" cy="142" r="3" style="fill:var(--muted)"/>
+<circle cx="520" cy="172" r="3" style="fill:var(--muted)"/>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M10,125 H148" marker-end="url(#arrIF)"/>
+<path d="M10,160 H148" marker-end="url(#arrIF)"/>
+<path d="M180,142 H203" marker-end="url(#arrIF)"/>
+<path d="M255,142 H285"/>
+<path d="M285,142 V65 H318" marker-end="url(#arrIF)"/>
+<path d="M285,142 V172 H318" marker-end="url(#arrIF)"/>
+<path d="M470,65 H588" marker-end="url(#arrIF)"/>
+<path d="M400,172 H588" marker-end="url(#arrIF)"/>
+<path d="M520,172 V300 H165 V188" marker-end="url(#arrIF)"/>
+</g>
+<text x="340" y="322" text-anchor="middle" style="fill:var(--muted);font-size:11px">The cache read and the add happen in parallel. The mux picks the next PC before the cycle ends.</text>
+</svg></div>
+
+<h3 id="sec-parts">The Parts of the Fetch Stage</h3>
+<ul>
+<li><strong>Program counter (PC).</strong> A register holding the address of the instruction being fetched. It's written every cycle unless the stage is stalled, in which case it holds its value so the same fetch is retried.</li>
+<li><strong>Incrementer.</strong> A dedicated adder that computes PC + 4. It's separate from the ALU, which belongs to EX, because both are needed in the same cycle (a structural hazard otherwise).</li>
+<li><strong>Next-PC mux.</strong> Chooses what the PC becomes: PC + 4, a branch or jump target from a later stage, a predicted target from a BTB (if there is one), or the exception handler's address. Its select lines come from later stages, so they're among the latest-arriving signals in the cycle.</li>
+<li><strong>Instruction memory.</strong> In any real pipeline, this is a separate L1 instruction cache, so IF and MEM can access memory in the same cycle (see the next section).</li>
+<li><strong>Instruction TLB (ITLB).</strong> Translates the PC's virtual page to a physical page, looked up in parallel with the cache read.</li>
+<li><strong>IF/ID pipeline register.</strong> Holds the instruction (IR) and PC + 4 (NPC) for ID. ID needs NPC to compute branch targets relative to the branch (see <a href="#/pipe-problems/pipe-regs">Pipeline Registers</a>). On a squash, it's loaded with a no-op instead.</li>
+</ul>
+
+<h3 id="sec-icache">The Instruction Cache and ITLB</h3>
+<p><strong>Why it's split from the data cache.</strong> With one memory, a load or store in MEM and a fetch in IF would collide every time, a structural hazard that would stall fetch on about a third of cycles in typical code. Separate instruction and data caches double the memory bandwidth, and each can be placed next to the logic that uses it (H&amp;P Appendix C.2 and Appendix B). Unified caches remain the norm from L2 outward.</p>
+<p><strong>What's different about it.</strong></p>
+<ul>
+<li><strong>Read-only from the pipeline's side.</strong> Fetch never writes it, so it needs no dirty bits or write policy, and an evicted line is simply dropped.</li>
+<li><strong>Lower miss rates.</strong> For the same size, instruction caches miss far less often than data caches, because code is reused in loops and runs sequentially (H&amp;P Appendix B compares them). Large server binaries are the exception (see <a href="#/fe-targets/footprint">Large Code Footprints</a>).</li>
+<li><strong>Sequential use of a line.</strong> A 64-byte line holds 16 fixed-length 4-byte instructions, so one miss serves the next 16 fetches if no branch leaves the line. Many designs keep the last line read in a <em>line buffer</em> and skip the array read while fetch stays in it, which saves energy.</li>
+<li><strong>Way prediction</strong> (H&amp;P Chapter 2) works well here for the same reason: consecutive fetches usually hit the same way, so the cache can read one way instead of all of them.</li>
+</ul>
+<p><strong>Typical sizes.</strong> Intel Golden Cove and AMD Zen 4 each have a 32 KB, 8-way instruction cache with 64-byte lines. Apple's large cores use much larger ones (192 KB on the M1's Firestorm cores).</p>
+<p><strong>The ITLB.</strong> Fetch uses virtual addresses, so every fetch needs a translation and a permission check (the page must be executable). Like the data side, the L1 instruction cache is usually <strong>virtually indexed, physically tagged</strong>: the set is chosen with page-offset bits, which don't need translation, while the ITLB translates the rest in parallel, and the physical tag is compared at the end. For 32 KB, 8 ways, and 64-byte lines there are 64 sets, so offset plus index is 6 + 6 = 12 bits, exactly a 4 KB page offset. That's why so many L1 caches are 32 KB and 8-way (see <a href="#/dcache">Data Cache</a> and <a href="#/tlb">TLBs and Page Walks</a>). An ITLB miss stalls fetch until the second-level TLB or a page walk supplies the translation. Large code footprints spread over many pages make ITLB misses common, which is why huge pages for code help.</p>
+
+<h3 id="sec-miss">When Fetch Misses</h3>
+<p>On an instruction cache miss, IF can't hand ID an instruction:</p>
+<ol start="0">
+<li>The PC and IF/ID hold their values, and ID receives a bubble (a no-op) each cycle. Instructions already in ID through WB keep moving and drain.</li>
+<li>The cache sends a request to the next level. When the line returns, it's written into the cache, the fetch is retried, and the pipeline refills behind it.</li>
+</ol>
+<p>Each miss costs about its full miss penalty, so instruction misses add to CPI as instruction misses per instruction × miss penalty, alongside data misses (H&amp;P Appendix B). Since instructions are used in order, the cache optimizations from H&amp;P Chapter 2 fit fetch especially well:</p>
+<ul>
+<li><strong>Critical word first and early restart.</strong> Return the word fetch asked for first and restart the pipeline as soon as it arrives, instead of waiting for the whole line.</li>
+<li><strong>Next-line prefetching.</strong> On a miss, also fetch the next sequential line. H&amp;P describe the common form: the requested line goes into the cache, and the next one into an <strong>instruction stream buffer</strong> (Jouppi, 1990), which is checked on the next miss and moved into the cache only if used, so a wrong prefetch doesn't evict anything.</li>
+<li><strong>Branch-directed prefetching.</strong> Wider cores go further, using the branch predictor's future fetch addresses as the prefetch list (see <a href="#/fe-decoupled/fdip">Fetch-Directed Prefetching</a>).</li>
+</ul>
+
+<h3 id="sec-branches">Fetch and Branches</h3>
+<p>IF has to pick the next PC before the current instruction is even decoded, so it can't know whether it just fetched a branch. The classic pipeline simply fetches PC + 4 every cycle, which amounts to predicting every branch not taken. When a branch turns out to be taken, the stage that resolves it sends the target to the next-PC mux, and the instructions fetched after the branch are squashed by loading no-ops into the pipeline registers (see <a href="#/branch-hazards">Branch Hazards</a>).</p>
+<p>To predict taken branches without waiting for decode, IF looks up a <strong>branch target buffer (BTB)</strong> with the PC in the same cycle as the cache read. A hit supplies a predicted target, which the next-PC mux uses for the following fetch (see <a href="#/branch-hazards/btb">The BTB and Decode Redirects</a>). A return address stack does the same for returns. In H&amp;P's terms (Chapter 3), these turn fetch into an <em>integrated instruction fetch unit</em>: branch prediction, instruction prefetch, and instruction memory access and buffering, run as one unit.</p>
+
+<h3 id="sec-exceptions">Exceptions in Fetch</h3>
+<p>H&amp;P list three exceptions that can occur in IF (Appendix C.4):</p>
+<ul>
+<li><strong>Page fault on instruction fetch.</strong> The ITLB and page walk find no valid mapping for the PC's page.</li>
+<li><strong>Misaligned access.</strong> The PC isn't a multiple of 4, for example after a jump through a bad register value.</li>
+<li><strong>Memory protection violation.</strong> The page is mapped but not executable, or not accessible at the current privilege level.</li>
+</ul>
+<p>The fetch can't complete, but the stage doesn't take the exception right away. It marks the instruction as faulting and passes it down the pipeline, and the exception is taken when that instruction reaches WB. That ordering matters because faults can happen out of order in time. A load followed by an add: the add can page-fault in IF a cycle before the load page-faults in MEM, even though the load is older. Handling exceptions only at WB, in program order, guarantees the load's fault is taken first, which is what makes them <em>precise</em> (see <a href="#/exceptions">Faults, Traps, Interrupts, and System Calls</a>). When the handler returns, fetch restarts at the faulting PC.</p>
+<p>A fetch fault on a wrong path, such as a mispredicted branch target in an unmapped page, must not be taken at all. Marking and carrying it handles this too: the squash removes the faulting instruction before it reaches WB.</p>
+
+<h3 id="sec-smc">Self-Modifying Code</h3>
+<p>Because the instruction cache is separate, a store that writes code goes to the data cache, and the instruction cache (and any instructions already fetched) may still hold the old bytes. JIT compilers, dynamic linkers, and debuggers setting breakpoints all write code, so ISAs define what happens:</p>
+<ul>
+<li><strong>x86</strong> keeps the instruction side coherent in hardware. The core detects stores to lines that are cached or already in flight in the front end, and flushes the pipeline from the modified instruction onward. That flush is expensive, so code that writes near code it's running is slow.</li>
+<li><strong>Arm</strong> leaves it to software: clean the data cache line to the point of unification (<code>DC CVAU</code>), wait for it (<code>DSB</code>), invalidate the instruction cache line (<code>IC IVAU</code>), wait again (<code>DSB</code>), and then execute an instruction synchronization barrier (<code>ISB</code>) so instructions fetched before the change are discarded.</li>
+<li><strong>RISC-V</strong> provides <code>FENCE.I</code>, which makes the hart's earlier stores visible to its own later instruction fetches.</li>
+</ul>
+
+<h3 id="sec-wide">Fetch in Wider Cores</h3>
+<p>A superscalar core has to fetch several instructions per cycle, and that turns this one-read stage into the front end. The problems, each covered in the Front End section:</p>
+<ul>
+<li><strong>Fetch blocks.</strong> Fetch reads an aligned window (16 or 32 bytes) per cycle. A block that crosses a line boundary, or a taken branch in the middle of one, cuts delivery short (see <a href="#/fe-decoupled/blocks">Fetch Blocks and Taken Branches</a>).</li>
+<li><strong>Prediction before decode.</strong> The predictor must find branches and their targets from the fetch address alone, through multi-level BTBs, a return stack, and an indirect predictor (see <a href="#/fe-targets">Branch Targets</a>).</li>
+<li><strong>Decoupling.</strong> A queue of predicted fetch addresses lets the predictor run ahead of the instruction cache and drive prefetching (see <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>).</li>
+<li><strong>Variable-length instructions.</strong> On x86, the next PC isn't PC + a constant, so finding instruction boundaries takes length decoding, predecode bits stored with the cache, and micro-op caches that skip fetch and decode on hot code (see <a href="#/fe-decode">Decoders and the Micro-op Cache</a>).</li>
+<li><strong>Instruction buffering.</strong> A queue between fetch and decode absorbs bubbles from misses and taken branches, so decode keeps busy while fetch catches up. Loop buffers go further: Intel's loop stream detector replays a tight loop from the decoded micro-op queue, letting fetch and decode idle.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>: Appendix C.1 to C.4 (the pipeline, its implementation, and exceptions), Appendix B (split caches and miss rates), Chapter 2 (way prediction, critical word first, instruction prefetching), Chapter 3 (branch-target buffers and integrated instruction fetch units) · Jouppi, "Improving Direct-Mapped Cache Performance by the Addition of a Small Fully-Associative Cache and Prefetch Buffers," ISCA 1990 · Arm, <em>Arm Architecture Reference Manual</em> (cache maintenance and <code>ISB</code>) · RISC-V, <em>Unprivileged ISA Specification</em> (<code>FENCE.I</code>)</p>
 `,
   practice: {
     guided: [
       {
         q: `<p>Starting at PC = 0x2000, the pipeline fetches one instruction per cycle. The instruction at 0x2008 is a taken branch to 0x3000, resolved at the end of ID. The fetch of 0x2000 happens in cycle 0. Which addresses are fetched in cycles 0–4, and which fetch is wasted?</p>`,
         a: `<ol start="0"><li>Cycle 0: 0x2000. Cycle 1: 0x2004. Cycle 2: 0x2008 (the branch). Each time, IF sets PC to PC + 4.</li><li>Cycle 3: the branch is in ID, while IF fetches 0x200C. At the end of cycle 3, ID writes 0x3000 into the PC.</li><li>Cycle 4: 0x3000.</li><li>The fetch of <strong>0x200C</strong> in cycle 3 is squashed: the 1-cycle taken-branch penalty.</li></ol>`
+      },
+      {
+        q: `<p>An in-order core runs a server workload at a CPI of 1.1 without instruction cache misses. The instruction cache misses 20 times per 1000 instructions. 80% of those misses hit in the L2 at 13 cycles, and the rest hit in the LLC at 40 cycles. Each miss stalls fetch for its full latency. What is the CPI, and what share of time goes to instruction misses? An instruction stream buffer then turns half of the L2-hit misses into hits. What speedup does it give?</p>`,
+        a: `<ol start="0"><li>Misses per instruction: 20 / 1000 = 0.02.</li><li>Average penalty per miss: 0.8 × 13 + 0.2 × 40 = 10.4 + 8 = 18.4 cycles.</li><li>Added CPI: 0.02 × 18.4 = 0.368, so CPI = 1.1 + 0.368 = <strong>1.468</strong>.</li><li>Share of time: 0.368 / 1.468 ≈ <strong>25%</strong>.</li><li>The stream buffer removes 0.02 × 0.4 × 13 = 0.104 CPI, giving 1.364. Speedup: 1.468 / 1.364 ≈ <strong>1.076</strong>, about 8%.</li><li>It only helps the cheaper misses, the sequential ones that hit in the L2. The LLC misses, at more than twice the cost per miss, are untouched, and they need a prefetcher that follows branches.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>Why is instruction fetch simple in MIPS but hard on x86?</p>`,
         a: `<p>MIPS instructions are always 4 bytes, so the next PC is PC + 4 before the instruction is even looked at, and fetching several instructions per cycle just means reading consecutive 4-byte words. x86 instructions are 1 to 15 bytes long, so the hardware can't know where the next instruction starts until it has worked out the current one's length. Wide x86 front ends need length-decoding logic, predecode bits stored in the instruction cache, and micro-op caches that store already-decoded instructions to skip this work on hot code.</p>`
+      },
+      {
+        q: `<p>A colleague proposes replacing the split L1 instruction and data caches with one unified L1 of the same total size and two read ports, arguing it adapts to workloads with big code or big data. What do you lose, and when would the unified cache win?</p>`,
+        a: `<p>What's lost:</p><ul><li><strong>Latency and energy.</strong> Two ports on one larger array make each access slower and more expensive than a read from a smaller single-ported array, and both are in critical loops (fetch every cycle, and load-to-use).</li><li><strong>Placement.</strong> Split caches sit next to the fetch unit and the load/store unit. A unified one is far from at least one of them, adding wire delay.</li><li><strong>Isolation.</strong> A data-streaming loop can evict hot code, turning a data-side problem into fetch stalls that nothing downstream can hide.</li><li><strong>Simplicity.</strong> The instruction side is read-only and can use its own line size, predecode bits, and way prediction tuned for sequential access.</li></ul><p>It wins on capacity: when code or data alone exceeds its half while the other half sits underused, the unified cache's miss rate is lower. That trade favors unified caches from L2 outward, where latency matters less and port conflicts are rarer, which is exactly how real hierarchies are built.</p>`
       }
     ]
   }
