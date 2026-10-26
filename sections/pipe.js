@@ -394,6 +394,21 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
 
 <h4>Way Selection</h4>
 <p>Here the guess decides which way is read at all. The predictor has to be read <em>before</em> the arrays, so its input must be available early: from the previous fetch block on the instruction side, or from the load's PC or a hash of its address on the data side.</p>
+<p><strong>How the guess is made.</strong> The guess has to exist before the arrays start, so fetch can't just read a field with the current set index in parallel with the arrays, as way prediction proper does. It takes the way from the first of these sources that applies:</p>
+<ul>
+<li><strong>Same line as the last fetch.</strong> When no branch was taken and the next fetch block is still in the line just read, the fetch unit knows it from the PC, and the way is the one that just hit. The line is almost never evicted in between, so this guess is almost always right, and it covers most fetches.</li>
+<li><strong>A next-way field stored with the fetch block.</strong> When fetch leaves the line, to the next sequential line or to a taken branch's target, the way comes from a field kept with the block that leads there: in the cache line itself, as in the Alpha 21264, or in the BTB or fetch target queue entry that supplies the target. That field is read during the current fetch, so the guess is ready a cycle before it's needed. It costs log<sub>2</sub>(N) bits per entry. One field per 16-byte fetch block of a 64 KB, 2-way cache is 4096 × 1 bit = 512 bytes.</li>
+<li><strong>A per-set MRU field.</strong> The fallback with no history, the same field as in way prediction proper, naming the way the set hit most recently. Inoue et al. (1999) used this MRU scheme. It needs the set index first, so unless the address is known a cycle early, it's read in series with the arrays and lengthens the hit time.</li>
+<li><strong>No guess.</strong> A redirect after a branch misprediction or an exception arrives with no stored way. The design can use the MRU field, or read all ways for that one access, which costs full energy once but never a second access.</li>
+</ul>
+<p><strong>How it's trained.</strong> The tag check after every access says whether the guess was right, and the field that made the guess is updated from it:</p>
+<ul>
+<li><strong>Correct guess.</strong> Nothing is written.</li>
+<li><strong>Hit in another way.</strong> The second access finds the line, and its way is written into the field that guessed. That field may sit in another structure (the previous block's line, the BTB, or the FTQ entry), so the fetch carries a pointer back to it, the same way a branch carries the predictor entry it will update.</li>
+<li><strong>Miss.</strong> The replacement policy picks the way the fill goes into, and that way is written into the field, since the new line is where the next access will go.</li>
+<li><strong>Stale fields.</strong> A fill evicts a line, and every field elsewhere that pointed at it is now wrong. Nothing searches for them. Each one mispredicts once and is fixed by the rule above. This is safe because the tag check always runs, so a wrong guess costs time and energy, never correctness.</li>
+<li><strong>Confidence (optional).</strong> A bit per field, set after a right guess and cleared after a wrong one. While it's clear, that access reads all ways in parallel. This spends some energy to avoid repeated second accesses on fields that keep flipping, such as a block whose branch alternates between taken and not taken, since one field can only hold the way of one successor.</li>
+</ul>
 <ol start="0">
 <li>The predictor is read and names one way.</li>
 <li>Only that way's tag and data arrays are enabled. Their wordlines fire and their sense amps switch, while the other ways stay idle.</li>
