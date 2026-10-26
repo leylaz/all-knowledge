@@ -34,6 +34,7 @@ section({
     { id: "ftq", label: "The Fetch Target Queue" },
     { id: "blocks", label: "Fetch Blocks and Taken Branches" },
     { id: "fdip", label: "Fetch-Directed Prefetching" },
+    { id: "btb-reach", label: "How the BTB Limits Prefetching" },
     { id: "overriding", label: "Fast and Slow Predictors" }
   ],
   body: `
@@ -61,7 +62,47 @@ section({
 <p>The fetch-block rounding also matters: a loop whose 40 bytes straddle two 32-byte windows takes 2 fetch cycles, and one that starts near the end of a window can need 3. Aligning hot loop heads is a classic compiler fix.</p>
 
 <h3 id="sec-fdip">Fetch-Directed Instruction Prefetching</h3>
-<p>Since the FTQ holds addresses the core will fetch soon, it doubles as a list of instruction cache lines to prefetch. <strong>Fetch-directed instruction prefetching (FDIP)</strong> walks the FTQ ahead of fetch, checks each line in the instruction cache, and requests the ones that miss. Its reach is limited by how far ahead the predictor runs, and that is limited by the BTB: an unknown branch can't be predicted taken, so the predictor falls through and the run-ahead path goes wrong. This is why server cores carry very large BTBs (many thousands of entries) and why research proposals such as Shotgun and Boomerang focus on filling the BTB ahead of time.</p>
+<p>Since the FTQ holds addresses the core will fetch soon, it doubles as a list of instruction cache lines to prefetch. <strong>Fetch-directed instruction prefetching (FDIP)</strong>, proposed in the same 1999 paper, works in three steps:</p>
+<ol start="0">
+<li><strong>Enqueue.</strong> Each FTQ entry names the cache lines its fetch block covers (one, or two if the block crosses a line boundary).</li>
+<li><strong>Filter.</strong> A prefetch engine walks the FTQ ahead of fetch and probes the instruction cache tags for each line, using tag-port cycles that fetch isn't using. Lines already present or already in flight are dropped. Without this filter, most prefetches would be for lines that hit anyway.</li>
+<li><strong>Issue.</strong> The remaining lines go to the L2 as prefetch requests, and their fills land in the instruction cache (or in a small prefetch buffer beside it, as in the original paper) before fetch gets there.</li>
+</ol>
+<p>FDIP keeps no metadata of its own. The branch predictor already is its model of the program, so it is accurate exactly as long as the predictor is right, and it can only reach as far as the predictor runs ahead. That makes the BTB, not the prefetcher, the structure that decides how much instruction cache latency gets hidden. Engineers at Arm (Ishii et al., 2021) showed that FDIP with a large enough BTB matches much more complex instruction prefetchers on server traces, which is why it's the baseline in current cores.</p>
+
+<h3 id="sec-btb-reach">How the BTB Limits Prefetching</h3>
+<p><strong>Lead.</strong> A prefetch hides a miss only if it's issued at least one miss latency before fetch needs the line. How early it's issued is the predictor's <em>lead</em> over fetch:</p>
+<div class="math">\\[ \\text{lead (cycles)} = \\frac{\\text{FTQ occupancy (fetch blocks)}}{\\text{fetch blocks consumed per cycle}} \\]</div>
+<p>A line is fully hidden when the lead is at least its miss latency. Otherwise, latency − lead cycles are still exposed. The FTQ depth caps the lead, so hiding L2 hits needs a modest queue, while hiding LLC hits, several times slower, needs a much deeper one. But the queue only helps if the predictor actually stays on the right path long enough to fill it.</p>
+<p><strong>What a BTB miss does to the lead.</strong> The predictor can only follow taken branches it knows about. When a taken branch misses in the BTB:</p>
+<ol start="0">
+<li>The predictor doesn't see the branch and continues sequentially. Every FTQ entry after that point is on the wrong path, and so is every prefetch FDIP issues from them. Those prefetches waste L2 bandwidth and can evict useful lines.</li>
+<li>Fetch reaches the block holding the branch, which is still on the correct path, and decode finds it. A direct jump, call, or return redirects at decode. A conditional branch that decode doesn't redirect, or an indirect branch, waits until it executes and mispredicts (see <a href="#/fe-targets/misses">BTB Misses and Decode Redirects</a>).</li>
+<li>The redirect flushes the FTQ and the predictor restarts at the target with an empty queue, so the lead is 0. If the target line isn't in the instruction cache, it misses with its full latency exposed, right behind the redirect bubble.</li>
+<li>The lead rebuilds only as fast as the predictor outruns fetch, so the lines in the first stretch after the target are prefetched too late to hide much.</li>
+</ol>
+<p>A BTB miss on a taken branch therefore costs twice: the redirect itself, and the instruction cache misses after it that FDIP would otherwise have hidden. The useful lead is bounded both by the FTQ depth and by the distance to the next BTB miss. A deeper FTQ does nothing for code that misses the BTB every few dozen fetch blocks.</p>
+<p><strong>The BTB has to cover more code than the instruction cache.</strong> FDIP exists to bring in lines that are <em>not</em> in the instruction cache, so the predictor must know the branches in code the instruction cache doesn't hold. The BTB's reach has to extend over the code that lives in the L2. As a rough sizing, assume one ever-taken branch per 64-byte line (only branches that are taken need entries):</p>
+<ul>
+<li>A 32 KB instruction cache is 512 lines, so about 512 entries cover it.</li>
+<li>A 1 MB L2 full of code is 16K lines, so covering it needs about 16K entries.</li>
+<li>Zen 4's 8.5K entries (1.5K + 7K) cover roughly half a megabyte of code under this assumption. Server workloads with several megabytes of hot code run past that, and their predictor keeps losing its lead.</li>
+</ul>
+<p><strong>The dependence runs both ways.</strong> A BTB miss is found only when decode sees the branch, and that needs the instruction bytes. If the line holding the branch also misses in the instruction cache, the redirect waits for that miss too. So BTB misses expose instruction cache misses, and instruction cache misses delay BTB-miss discovery. On large-footprint code the two stalls come back to back, which is why idealizing both together gains more than the sum of each alone (see the front-end-bound server trace in <a href="#/perf-find-cause/model-examples">Worked Examples in a Model</a>).</p>
+<p><strong>Filling the BTB from the instruction stream.</strong> A cache line holds the branches the BTB is missing, so a line arriving from the L2 can be predecoded and its branches inserted before the predictor needs them. Research designs build on this:</p>
+<ul>
+<li><strong>Confluence</strong> (Kaynak, Grot, and Falsafi, 2015) predecodes every line its instruction prefetcher brings in and fills a BTB organized by cache line from them. One prefetcher's metadata keeps both the instruction cache and the BTB filled.</li>
+<li><strong>Boomerang</strong> (Kumar et al., 2017) uses a basic-block BTB, where a miss is visible at prediction time instead of at decode. On a miss, the predictor stops instead of running down the fall-through path. The line is fetched and predecoded, the missing branch is inserted, and run-ahead resumes. Other branches found in prefetched lines are kept for later, too.</li>
+<li><strong>Shotgun</strong> (Kumar, Grot, and Nagarajan, 2018) splits the BTB by branch type. A large BTB for unconditional branches holds the program's coarse control flow, and each entry carries a bit vector of the cache lines used around its target, so one hit prefetches a whole code region. A small conditional-branch BTB is filled by predecoding those prefetched lines, and returns get their own small buffer.</li>
+</ul>
+<p>The simplest form, filling the BTB from predecoded instruction cache fills, is among the hardware fixes in <a href="#/fe-targets/footprint">Large Code Footprints</a>.</p>
+<p><strong>Modeling it:</strong></p>
+<ul>
+<li><strong>Don't let the predictor see branches the BTB doesn't hold.</strong> A trace-driven front end that takes the next PC from the trace after a BTB miss gives FDIP perfect run-ahead and overstates its coverage. After a BTB miss, the model has to predict fall-through addresses and issue wrong-path prefetches until decode or execute redirects.</li>
+<li><strong>Model the filter and the request limits:</strong> tag-probe bandwidth shared with fetch, and the number of instruction prefetches the L2 interface can have in flight.</li>
+<li><strong>Classify every prefetch</strong> as timely (the line arrived before fetch), late (fetch waited for part of the latency), or useless (wrong path or evicted before use). Many late prefetches mean the lead is too short. Many useless ones point at BTB misses or mispredicts.</li>
+<li><strong>Charge exposed instruction cache misses after a BTB-miss redirect correctly.</strong> They show up as instruction cache stalls, but a perfect-BTB experiment removes many of them. Run both idealizations alone and together before deciding which structure to grow.</li>
+</ul>
 
 <h3 id="sec-overriding">Fast and Slow Predictors</h3>
 <p>The most accurate predictors (TAGE and its relatives) need several cycles to read their tables and combine results. Waiting for them every cycle would add bubbles to every taken branch. Cores pair them instead:</p>
@@ -70,12 +111,16 @@ section({
 <li>A cycle or two later, the large predictor finishes. If it agrees, nothing happens. If it disagrees, it <strong>overrides</strong>: the few blocks fetched on the fast prediction are flushed and fetch redirects, costing a short bubble instead of a full mispredict.</li>
 </ol>
 <p>Jiménez, Keckler, and Lin analyzed this "overriding" arrangement in 2000. The performance model has to include it: an override is a front-end bubble of a few cycles, distinct from a full back-end mispredict.</p>
-<p class="refs">References: Reinman, Calder, and Austin, "Fetch Directed Instruction Prefetching," MICRO 1999 · Jiménez, Keckler, and Lin, "The Impact of Delay on the Design of Branch Predictors," MICRO 2000 · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3</p>`,
+<p class="refs">References: Reinman, Calder, and Austin, "Fetch Directed Instruction Prefetching," MICRO 1999 · Ishii, Lee, Nathella, and Sunwoo, "Re-establishing Fetch-Directed Instruction Prefetching: An Industry Perspective," ISPASS 2021 · Kaynak, Grot, and Falsafi, "Confluence: Unified Instruction Supply for Scale-Out Servers," MICRO 2015 · Kumar, Huang, Grot, and Nagarajan, "Boomerang: A Metadata-Free Architecture for Control Flow Delivery," HPCA 2017 · Kumar, Grot, and Nagarajan, "Blasting Through the Front-End Bottleneck with Shotgun," ASPLOS 2018 · Jiménez, Keckler, and Lin, "The Impact of Delay on the Design of Branch Predictors," MICRO 2000 · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3</p>`,
   practice: {
     guided: [
       {
         q: `<p>A hot loop is 7 instructions totaling 26 bytes, ending in a taken branch back to the top. The core fetches one aligned 32-byte window per cycle, follows one taken branch per cycle, and has 6-wide decode. A fetch queue sits between fetch and decode, and decode can take instructions from consecutive fetch blocks in the same cycle. The loop starts at an address ending in 0x1C. How many cycles per iteration does fetch need, and what changes if the loop is aligned to 32 bytes?</p>`,
         a: `<ol start="0"><li>The loop occupies bytes 0x1C to 0x1C + 26 − 1 = 0x35, so it crosses the boundary at 0x20.</li><li>The first window (0x00 to 0x1F) gives 4 bytes of the loop; the second (0x20 to 0x3F) gives the rest and ends at the taken branch.</li><li>Fetch needs <strong>2 cycles per iteration</strong>, so at most 7 / 2 = 3.5 instructions per cycle.</li><li>Aligned to 32 bytes, all 26 bytes fit in one window: <strong>1 cycle per iteration</strong>. Fetch now supplies 7 instructions per cycle, and one taken branch per cycle allows exactly that. Decode, at 6 per cycle, binds: the fetch queue fills and fetch stalls behind it, so throughput rises to <strong>6 instructions per cycle</strong> (7 / 6 ≈ 1.17 cycles per iteration).</li></ol>`
+      },
+      {
+        q: `<p>Your model's predictor produces 2 fetch blocks per cycle, fetch consumes 1 per cycle, and the FTQ holds 40 blocks. An instruction cache miss that hits in the L2 takes 15 cycles (Intel Golden Cove's L2 latency). After a redirect, the FTQ starts empty at the target, which is block 0. Ignore fetch stalls. On code that misses the BTB on a taken branch every 50 fetch blocks, what share of blocks can FDIP fully hide an L2 hit for? What if the BTB misses only every 400 blocks? Can FDIP fully hide an LLC hit of 50 cycles?</p>`,
+        a: `<ol start="0"><li>The predictor reaches block k at cycle k / 2, and fetch reaches it at cycle k, so block k's prefetch has a lead of k / 2 cycles.</li><li>FTQ occupancy is (predicted − fetched) = 2t − t = t blocks at cycle t, so it reaches 40 at cycle 40, when fetch is at block 40 and the predictor at block 80. Beyond block 80, the lead stays at 40 cycles.</li><li>Fully hiding 15 cycles needs k / 2 ≥ 15, so k ≥ 30. Blocks 0 to 29 after each redirect are only partly hidden, and block 0 not at all.</li><li>BTB miss every 50 blocks: blocks 30 to 49 are covered, <strong>20 / 50 = 40%</strong>.</li><li>Every 400 blocks: blocks 30 to 399, <strong>370 / 400 ≈ 92%</strong>. A better BTB raised coverage more than any change to the prefetcher could.</li><li>LLC hit: the lead never exceeds 40 cycles, so <strong>no</strong>, never fully. It needs an FTQ of at least 50 blocks, and then k ≥ 100, so the BTB must also go more than 100 blocks between misses.</li></ol>`
       }
     ],
     interview: [
