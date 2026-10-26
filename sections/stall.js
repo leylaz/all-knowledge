@@ -677,7 +677,7 @@ fx += dx * inv;  fy += dy * inv;  fz += dz * inv;</code></pre>
 <li><strong>Prove it.</strong>
 <ul>
 <li>Two dividers halve the bound to 5 cycles, and the model measures 5.2.</li>
-<li>A fully pipelined divider takes 2 cycles per pair, so the next bounds take over: issue width at 14 / 4 = 3.5 cycles and the 4-cycle accumulator chain, which now binds. The model measures 4.3.</li>
+<li>A fully pipelined divider accepts a new operation every cycle, so each pair occupies it for only 2 cycles (one <code>sqrtsd</code> + one <code>divsd</code>). Their latency overlaps with other pairs' work. The next bounds take over: issue width at 14 / 4 = 3.5 cycles and the 4-cycle accumulator chain, which now binds. The model measures 4.3.</li>
 </ul></li>
 <li><strong>Fixes.</strong> In software, vectorize and replace the square root and divide with an approximate reciprocal square root (<code>vrsqrt14pd</code> on AVX-512) plus one Newton step in FMAs, which never touches the divider. In hardware, a second or more pipelined divider is worth up to 10.1 / 4.3 ≈ 2.3×.</li>
 </ol>
