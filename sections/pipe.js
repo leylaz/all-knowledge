@@ -293,9 +293,122 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
 <h3 id="sec-way-pred">Way Prediction</h3>
 <p>A set-associative cache read in parallel reads the tag and data of every way in the set, compares all the tags, and only then muxes out the way that hit. The mux select is the last signal to arrive, so associativity costs both time and energy: an 8-way cache reads 8 blocks of data to use 1. <strong>Way prediction</strong> (H&amp;P Chapter 2, among the advanced optimizations that reduce hit time) adds a few bits that guess which way the next access will hit. H&amp;P describe two forms:</p>
 <ul>
-<li><strong>Way prediction proper.</strong> The guess sets the data mux early, so a correct guess hits in about the time of a direct-mapped cache. One tag compare, done in the same cycle as the data read, confirms it. On a wrong guess, the other ways' tags are checked in the next cycle, so a misprediction costs a longer hit, not a miss.</li>
-<li><strong>Way selection.</strong> The guess decides which way is read at all, so only one tag and one data way are powered. This saves energy, and a wrong guess pays for a second access to the other ways. H&amp;P cite Inoue et al. (1999): with a 4-way cache on SPEC95, way selection made average access time 1.04 times longer for the instruction cache and 1.13 times for the data cache, while cutting cache power to 0.28 and 0.35 of a normal 4-way cache.</li>
+<li><strong>Way prediction proper</strong> uses the guess to save time.</li>
+<li><strong>Way selection</strong> uses it to save energy.</li>
 </ul>
+<p>In the simplest form, H&amp;P's "block predictor bits," each set remembers the way it last hit, so the guess is "the most recently used way of this set." Fetch can do better by storing the guess with the fetch block that leads to the line (below).</p>
+
+<h4>Way Prediction Proper</h4>
+<p>The cache still reads every way, but the predictor drives the data mux instead of the tag compare. The predictor is read in the same cycle as the arrays, so it must be small and fast.</p>
+<ol start="0">
+<li>The set index reads the tag and data of every way, exactly as in a normal parallel read. The predictor is read at the same time.</li>
+<li>The predictor's guess sets the mux select, so the predicted way's data leaves the cache as soon as the data array is done, at about the hit time of a direct-mapped cache. It doesn't wait for any tag compare.</li>
+<li>In the same cycle, only the predicted way's tag is compared with the address tag. This compare no longer gates the data. It confirms it, like any other speculation: if it fails, whatever used the data is cancelled.</li>
+<li>If the guess was wrong, the other ways' tags are compared in the next cycle. If one matches, the mux is switched to it and the hit takes one cycle longer, and the predictor is updated to that way. If none match, it's an ordinary miss, and the predictor is set to the way the fill goes into.</li>
+</ol>
+<p>What it saves is mostly latency: the tag compare leaves the path to the data. It saves a little energy (one comparator fires instead of all of them), but every way's data array is still read on every access.</p>
+<div class="tbl"><svg viewBox="0 0 680 330" role="img" aria-label="Way prediction proper in a 4-way cache. All four tag arrays and all four data arrays are read. The way predictor guesses way 2 and drives the select of a 4-to-1 data mux directly, so data comes out at direct-mapped speed. Only way 2's tag is compared with the address tag, as a hit check. The other tags are compared in the next cycle only if the guess was wrong." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrWP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrWPt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker></defs>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5">
+<rect x="180" y="100" width="80" height="30" rx="3"/><rect x="180" y="140" width="80" height="70" rx="3"/>
+<rect x="300" y="100" width="80" height="30" rx="3"/><rect x="300" y="140" width="80" height="70" rx="3"/>
+<rect x="540" y="100" width="80" height="30" rx="3"/><rect x="540" y="140" width="80" height="70" rx="3"/>
+</g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
+<rect x="420" y="100" width="80" height="30" rx="3"/><rect x="420" y="140" width="80" height="70" rx="3"/>
+</g>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle">
+<text x="220" y="120">tag 0</text><text x="220" y="180">data 0</text>
+<text x="340" y="120">tag 1</text><text x="340" y="180">data 1</text>
+<text x="460" y="120" style="font-weight:600">tag 2</text><text x="460" y="180" style="font-weight:600">data 2</text>
+<text x="580" y="120">tag 3</text><text x="580" y="180">data 3</text>
+</g>
+<polygon points="180,250 620,250 590,276 210,276" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<text x="400" y="268" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">4-to-1 data mux</text>
+<rect x="10" y="240" width="130" height="44" rx="4" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<text x="75" y="258" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">Way predictor</text>
+<text x="75" y="274" text-anchor="middle" style="fill:var(--muted);font-size:11px">guess: way 2</text>
+<circle cx="520" cy="115" r="12" style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5"/>
+<text x="520" y="120" text-anchor="middle" style="fill:var(--ink);font-size:13px;font-weight:600">=</text>
+<text x="520" y="50" text-anchor="middle" style="fill:var(--muted);font-size:11px">address tag</text>
+<text x="520" y="240" text-anchor="middle" style="fill:var(--muted);font-size:11px">hit check</text>
+<text x="10" y="112" style="fill:var(--muted);font-size:11px">tags 0, 1, 3: compared</text>
+<text x="10" y="127" style="fill:var(--muted);font-size:11px">next cycle, only if wrong</text>
+<text x="400" y="316" text-anchor="middle" style="fill:var(--muted);font-size:11px">data out, at about direct-mapped speed</text>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M220,210 V248" marker-end="url(#arrWP)"/>
+<path d="M340,210 V248" marker-end="url(#arrWP)"/>
+<path d="M580,210 V248" marker-end="url(#arrWP)"/>
+<path d="M400,276 V300" marker-end="url(#arrWP)"/>
+<path d="M520,58 V101" marker-end="url(#arrWP)"/>
+<path d="M500,115 H508"/>
+<path d="M520,127 V226" marker-end="url(#arrWP)"/>
+</g>
+<g style="fill:none;stroke:var(--trace);stroke-width:2">
+<path d="M460,210 V248" marker-end="url(#arrWPt)"/>
+<path d="M140,262 H191" marker-end="url(#arrWPt)"/>
+</g>
+<text x="165" y="254" text-anchor="middle" style="fill:var(--trace);font-size:11px">select</text>
+</svg></div>
+
+<h4>Way Selection</h4>
+<p>Here the guess decides which way is read at all. The predictor has to be read <em>before</em> the arrays, so its input must be available early: from the previous fetch block on the instruction side, or from the load's PC or a hash of its address on the data side.</p>
+<ol start="0">
+<li>The predictor is read and names one way.</li>
+<li>Only that way's tag and data arrays are enabled. Their wordlines fire and their sense amps switch, while the other ways stay idle.</li>
+<li>The one tag is compared with the address tag. If it matches, the data is used as is, with no mux decision to wait for.</li>
+<li>If it doesn't match, a second access reads the remaining ways. That is a full array access, not just a late compare, because their data was never read, so a wrong guess costs more than in way prediction proper. Then it's a hit or a miss as usual, and the predictor is retrained.</li>
+</ol>
+<p>What it saves is energy: on a correct guess an N-way cache reads 1 way instead of N, so most of the array's read energy is gone. The costs are the bigger mispredict penalty, and a longer hit time if the predictor can't be read in an earlier stage. H&amp;P cite Inoue et al. (1999): with a 4-way cache on SPEC95, way selection made average access time 1.04 times longer for the instruction cache and 1.13 times for the data cache, while cutting cache power to 0.28 and 0.35 of a normal 4-way cache.</p>
+<div class="tbl"><svg viewBox="0 0 680 330" role="img" aria-label="Way selection in a 4-way cache. The way predictor is read first and enables only way 2. Ways 0, 1, and 3 are not read. Way 2's tag is compared with the address tag as a hit check, and way 2's data goes straight out with no mux. On a wrong guess, the other ways are read in a second access." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrWS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrWSt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker></defs>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3;opacity:.45">
+<rect x="180" y="100" width="80" height="30" rx="3"/><rect x="180" y="140" width="80" height="70" rx="3"/>
+<rect x="300" y="100" width="80" height="30" rx="3"/><rect x="300" y="140" width="80" height="70" rx="3"/>
+<rect x="540" y="100" width="80" height="30" rx="3"/><rect x="540" y="140" width="80" height="70" rx="3"/>
+</g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
+<rect x="420" y="100" width="80" height="30" rx="3"/><rect x="420" y="140" width="80" height="70" rx="3"/>
+</g>
+<g style="fill:var(--muted);font-size:12px;opacity:.7" text-anchor="middle">
+<text x="220" y="120">tag 0</text><text x="220" y="180">not read</text>
+<text x="340" y="120">tag 1</text><text x="340" y="180">not read</text>
+<text x="580" y="120">tag 3</text><text x="580" y="180">not read</text>
+</g>
+<text x="460" y="120" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">tag 2</text>
+<text x="460" y="180" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">data 2</text>
+<rect x="10" y="58" width="130" height="44" rx="4" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<text x="75" y="76" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">Way predictor</text>
+<text x="75" y="92" text-anchor="middle" style="fill:var(--muted);font-size:11px">read first</text>
+<text x="300" y="72" text-anchor="middle" style="fill:var(--trace);font-size:11px">enable way 2 only</text>
+<circle cx="520" cy="115" r="12" style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5"/>
+<text x="520" y="120" text-anchor="middle" style="fill:var(--ink);font-size:13px;font-weight:600">=</text>
+<text x="520" y="50" text-anchor="middle" style="fill:var(--muted);font-size:11px">address tag</text>
+<text x="520" y="240" text-anchor="middle" style="fill:var(--muted);font-size:11px">hit check</text>
+<text x="10" y="232" style="fill:var(--muted);font-size:11px">wrong guess: read ways 0, 1, 3</text>
+<text x="10" y="247" style="fill:var(--muted);font-size:11px">in a second access</text>
+<text x="460" y="316" text-anchor="middle" style="fill:var(--muted);font-size:11px">data out, no mux needed</text>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M520,58 V101" marker-end="url(#arrWS)"/>
+<path d="M500,115 H508"/>
+<path d="M520,127 V226" marker-end="url(#arrWS)"/>
+</g>
+<g style="fill:none;stroke:var(--trace);stroke-width:2">
+<path d="M140,80 H460 V98" marker-end="url(#arrWSt)"/>
+<path d="M460,210 V300" marker-end="url(#arrWSt)"/>
+</g>
+</svg></div>
+
+<p><strong>The two side by side.</strong></p>
+<div class="tbl"><table>
+<tr><th></th><th>Way prediction proper</th><th>Way selection</th></tr>
+<tr><td>Arrays read per access</td><td>All N tags and all N data ways</td><td>One tag and one data way</td></tr>
+<tr><td>Tag compares on a correct guess</td><td>1</td><td>1</td></tr>
+<tr><td>Hit time on a correct guess</td><td>About direct-mapped</td><td>About normal, longer if the predictor is read in series</td></tr>
+<tr><td>Cost of a wrong guess</td><td>About 1 cycle for the other compares</td><td>A second array access</td></tr>
+<tr><td>Main saving</td><td>Latency</td><td>Energy</td></tr>
+<tr><td>Predictor must be ready</td><td>In the same cycle as the array read</td><td>Before the array read</td></tr>
+</table></div>
 <p><strong>Why fetch predicts well.</strong> H&amp;P report accuracy above 90% for 2-way caches and above 80% for 4-way, with instruction caches doing better than data caches. Two reasons:</p>
 <ul>
 <li><strong>Fetch stays in a line.</strong> Most fetches read the same line as the previous one, so "same way as last time" is right until fetch leaves the line (the same reason the line buffer works).</li>
