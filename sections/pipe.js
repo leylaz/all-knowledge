@@ -314,7 +314,40 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
 <li>In the same cycle, only the predicted way's tag is compared with the address tag. This compare no longer gates the data. It confirms it, like any other speculation: if it fails, whatever used the data is cancelled.</li>
 <li>If the guess was wrong, the other ways' tags are compared in the next cycle. If one matches, the mux is switched to it and the hit takes one cycle longer, and the predictor is updated to that way. If none match, it's an ordinary miss, and the predictor is set to the way the fill goes into.</li>
 </ol>
-<p>What it saves is mostly latency: the tag compare leaves the path to the data. It saves a little energy (one comparator fires instead of all of them), but every way's data array is still read on every access.</p>
+<p><strong>What it buys: a shorter critical path.</strong> In a parallel read, the data arrays finish first and wait at the mux, because the select comes from a longer chain: read the tag array, compare the tags, then drive the select across a mux as wide as the data from every way. That tag chain, not the data read, sets the hit time. Way prediction replaces it with the predictor, a tiny array that's ready long before the data:</p>
+<ul>
+<li>Parallel read: hit time = max(data read, tag read + compare + select drive) + mux</li>
+<li>Way prediction: hit time = max(data read, predictor read + decode) + mux = data read + mux</li>
+</ul>
+<p>So a correct guess hits in about the time of a direct-mapped cache of the same size. The tag compare still happens, but beside the data path instead of in it.</p>
+<p><strong>An example.</strong> A 4-way instruction cache in a 4 GHz core (a 250 ps cycle), with illustrative delays of a realistic size:</p>
+<ul>
+<li>Data array read: 180 ps</li>
+<li>Tag array read: 140 ps</li>
+<li>Tag compare: 45 ps</li>
+<li>Driving the select across the mux: 35 ps</li>
+<li>Mux: 40 ps</li>
+<li>Predictor read and decode: 70 ps</li>
+<li>The predictor is right 85% of the time, and a wrong guess costs one extra cycle.</li>
+</ul>
+<ol start="0">
+<li>Parallel read: max(180, 140 + 45 + 35) + 40 = max(180, 220) + 40 = 260 ps. That misses the 250 ps cycle by 10 ps, so a hit takes 2 cycles, or the clock drops to 1 / 260 ps ≈ 3.85 GHz.</li>
+<li>With way prediction: max(180, 70) + 40 = 220 ps, which fits in one cycle with 30 ps to spare.</li>
+<li>Average hit time with way prediction: 0.85 × 1 + 0.15 × 2 = 1.15 cycles, against 2 cycles for the parallel read.</li>
+</ol>
+<p><strong>Three ways to spend the saving.</strong></p>
+<ul>
+<li><strong>Lower hit latency</strong> at the same clock, as in the example.</li>
+<li><strong>A higher clock</strong> at the same hit latency in cycles.</li>
+<li><strong>More associativity</strong> at the same hit time. Associativity normally lengthens the tag path (more compares, a wider mux), which is why H&amp;P favor small, simple first-level caches. Way prediction lets a cache keep a 4-way miss rate at nearly a direct-mapped hit time.</li>
+</ul>
+<p><strong>When it doesn't help.</strong></p>
+<ul>
+<li><strong>The data read is already the slowest path.</strong> In a large cache with few ways, or with a fast tag path, there's no tag chain to remove, and mispredictions only add cycles.</li>
+<li><strong>The saving doesn't remove a whole cycle or stage.</strong> In a cache whose hit already spans several pipeline stages, shaving 40 ps matters only if it removes a stage or allows a faster clock.</li>
+<li><strong>Energy is the goal.</strong> It saves little energy, one comparator instead of all of them, since every way's data array is still read. Way selection (below) is the energy version.</li>
+<li><strong>Variable hit time hurts the consumer.</strong> A hit that sometimes takes an extra cycle complicates whatever is scheduled around the fixed hit time, which matters most on the data side (see <a href="#/dcache/way-pred">Way Prediction in the Data Cache</a>).</li>
+</ul>
 <div class="tbl"><svg viewBox="0 0 680 330" role="img" aria-label="Way prediction proper in a 4-way cache. All four tag arrays and all four data arrays are read. The way predictor guesses way 2 and drives the select of a 4-to-1 data mux directly, so data comes out at direct-mapped speed. Only way 2's tag is compared with the address tag, as a hit check. The other tags are compared in the next cycle only if the guess was wrong." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
 <defs><marker id="arrWP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrWPt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker></defs>
 <g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5">
