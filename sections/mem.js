@@ -59,12 +59,115 @@ section({
 <li><strong>An approximate address.</strong> The base register XORed with the offset, available before the add finishes. Usually right, because carries rarely reach the bits used.</li>
 <li><strong>A hash of the virtual address.</strong> AMD's L1D caches (since Bulldozer, including every Zen core) store a small <strong>microtag</strong> (utag) with each line: a hash of linear-address bits above the page offset. A load hashes its linear address, compares the hash with the utags of the set's ways, and reads only the matching way. The full physical tag, ready after translation, then confirms the hit.</li>
 </ul>
+<p>The utag datapath, drawn with 4 ways for space (Zen 5's L1D has 12). The set index and the utag hash both come straight from the linear address, so the way is chosen while the DTLB is still translating. The physical tag check only confirms the hit.</p>
+<div class="tbl"><svg viewBox="0 0 680 345" role="img" aria-label="A utag way predictor in an L1 data cache, drawn with 4 ways. The linear address from the AGU splits into a page number, a set index, and an offset. The set index picks the set. The page number is hashed into the load's utag, which is compared with the stored utags of all 4 ways. Utag 3 matches, so only way 3's physical tag and data are read, while ways 0 to 2 are not read. In parallel, the DTLB translates the page number, and its physical tag is compared with way 3's tag as a hit check. Way 3's data goes out to the load." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrDU" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrDUt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker></defs>
+<text x="20" y="16" style="fill:var(--muted);font-size:11px">linear address, from the AGU</text>
+<rect x="20" y="24" width="400" height="28" style="fill:var(--code-bg);stroke:var(--muted);stroke-width:1.5"/>
+<rect x="420" y="24" width="120" height="28" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="540" y="24" width="120" height="28" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5"/>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle">
+<text x="220" y="43">page number (bits 47:12)</text><text x="480" y="43">set index (11:6)</text><text x="600" y="43">offset (5:0)</text>
+</g>
+<rect x="20" y="80" width="130" height="34" rx="4" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<text x="85" y="95" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">hash</text>
+<text x="85" y="108" text-anchor="middle" style="fill:var(--muted);font-size:11px">the load's utag</text>
+<rect x="200" y="80" width="130" height="34" rx="4" style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5"/>
+<text x="265" y="95" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">DTLB</text>
+<text x="265" y="108" text-anchor="middle" style="fill:var(--muted);font-size:11px">physical tag</text>
+<text x="480" y="86" text-anchor="middle" style="fill:var(--muted);font-size:11px">picks the set</text>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5">
+<rect x="160" y="150" width="90" height="26" rx="3"/><rect x="280" y="150" width="90" height="26" rx="3"/><rect x="400" y="150" width="90" height="26" rx="3"/>
+</g>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3;opacity:.45">
+<rect x="160" y="196" width="90" height="26" rx="3"/><rect x="160" y="232" width="90" height="60" rx="3"/>
+<rect x="280" y="196" width="90" height="26" rx="3"/><rect x="280" y="232" width="90" height="60" rx="3"/>
+<rect x="400" y="196" width="90" height="26" rx="3"/><rect x="400" y="232" width="90" height="60" rx="3"/>
+</g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
+<rect x="520" y="150" width="90" height="26" rx="3"/><rect x="520" y="196" width="90" height="26" rx="3"/><rect x="520" y="232" width="90" height="60" rx="3"/>
+</g>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle">
+<text x="205" y="167">utag 0</text><text x="325" y="167">utag 1</text><text x="445" y="167">utag 2</text>
+</g>
+<g style="fill:var(--muted);font-size:12px;opacity:.7" text-anchor="middle">
+<text x="205" y="213">tag 0</text><text x="205" y="266">not read</text>
+<text x="325" y="213">tag 1</text><text x="325" y="266">not read</text>
+<text x="445" y="213">tag 2</text><text x="445" y="266">not read</text>
+</g>
+<g style="fill:var(--ink);font-weight:600" text-anchor="middle">
+<text x="565" y="167" style="font-size:11px">utag 3: match</text><text x="565" y="213" style="font-size:12px">tag 3</text><text x="565" y="266" style="font-size:12px">data 3</text>
+</g>
+<g style="fill:var(--muted);font-size:11px">
+<text x="10" y="160">utags of all ways,</text><text x="10" y="174">compared with the hash</text>
+<text x="10" y="213">physical tags</text>
+<text x="10" y="258">data: only the</text><text x="10" y="272">matching way is read</text>
+</g>
+<circle cx="635" cy="209" r="11" style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5"/>
+<text x="635" y="214" text-anchor="middle" style="fill:var(--ink);font-size:13px;font-weight:600">=</text>
+<text x="635" y="316" text-anchor="middle" style="fill:var(--muted);font-size:11px">hit check</text>
+<text x="565" y="334" text-anchor="middle" style="fill:var(--muted);font-size:11px">data out</text>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M85,52 V78" marker-end="url(#arrDU)"/>
+<path d="M265,52 V78" marker-end="url(#arrDU)"/>
+<path d="M480,52 V72" marker-end="url(#arrDU)"/>
+<path d="M85,114 V136 H565"/>
+<path d="M205,136 V148" marker-end="url(#arrDU)"/>
+<path d="M325,136 V148" marker-end="url(#arrDU)"/>
+<path d="M445,136 V148" marker-end="url(#arrDU)"/>
+<path d="M565,136 V148" marker-end="url(#arrDU)"/>
+<path d="M330,97 H635 V196" marker-end="url(#arrDU)"/>
+<path d="M610,209 H624"/>
+<path d="M635,220 V300" marker-end="url(#arrDU)"/>
+</g>
+<path d="M565,292 V318" marker-end="url(#arrDUt)" style="fill:none;stroke:var(--trace);stroke-width:2"/>
+</svg></div>
 <p><strong>What the utag design gives up.</strong></p>
 <ul>
 <li><strong>A utag mismatch is a miss.</strong> If no utag matches, AMD treats the access as an L1 miss, even if the line is present under a different virtual address. Two virtual aliases of one physical line (shared memory mapped at different addresses, or two processes on SMT siblings) keep evicting each other's utag, and every switch looks like an L1 miss.</li>
 <li><strong>Utag collisions.</strong> Two lines in the same set with the same hash can't both be found, so one is evicted.</li>
 <li><strong>A side channel.</strong> Lipp et al. ("Take A Way," 2020) reverse-engineered the hash and used collisions and alias misses (attacks they call Collide+Probe and Load+Reload) to leak address information across processes and SMT siblings.</li>
 </ul>
+<p>How two aliases of one line keep missing. Addresses A and B are different linear addresses mapped to the same physical page, so the line never leaves the cache, yet only one of their utags can be stored:</p>
+<div class="tbl"><svg viewBox="0 0 680 260" role="img" aria-label="Utag alias ping-pong in three steps. Step 0: a load through address A finds the stored utag equal to utag of A, so it hits. Step 1: a load through address B computes utag of B, which doesn't match, so it is treated as a miss, the line is refilled from L2, and the stored utag becomes utag of B. Step 2: a load through A again doesn't match and misses again. A and B map to the same physical line, which stays in the cache the whole time." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrDA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle">
+<text x="115" y="20">step 0: load via A</text><text x="340" y="20">step 1: load via B</text><text x="565" y="20">step 2: load via A again</text>
+</g>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5">
+<rect x="55" y="32" width="120" height="28" rx="3"/><rect x="280" y="32" width="120" height="28" rx="3"/><rect x="505" y="32" width="120" height="28" rx="3"/>
+</g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
+<rect x="35" y="92" width="160" height="60" rx="4"/><rect x="260" y="92" width="160" height="60" rx="4"/><rect x="485" y="92" width="160" height="60" rx="4"/>
+</g>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle">
+<text x="115" y="51">address A</text><text x="340" y="51">address B</text><text x="565" y="51">address A</text>
+<text x="115" y="114" style="font-weight:600">physical line P</text><text x="340" y="114" style="font-weight:600">physical line P</text><text x="565" y="114" style="font-weight:600">physical line P</text>
+</g>
+<g style="fill:var(--muted);font-size:11px">
+<text x="123" y="80">utag(A)</text><text x="348" y="80">utag(B)</text><text x="573" y="80">utag(A)</text>
+</g>
+<g style="fill:var(--ink);font-size:11px" text-anchor="middle">
+<text x="115" y="136">stored utag: utag(A)</text><text x="340" y="136">stored utag: utag(A)</text><text x="565" y="136">stored utag: utag(B)</text>
+</g>
+<g style="font-size:12px;font-weight:600" text-anchor="middle">
+<text x="115" y="178" style="fill:var(--accent-green)">match: hit</text>
+<text x="340" y="178" style="fill:var(--accent-red)">mismatch: a miss</text>
+<text x="565" y="178" style="fill:var(--accent-red)">mismatch again: a miss</text>
+</g>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle">
+<text x="340" y="195">refill from L2</text><text x="340" y="210">stored utag becomes utag(B)</text>
+<text x="565" y="195">refill from L2</text><text x="565" y="210">stored utag becomes utag(A)</text>
+</g>
+<text x="340" y="245" text-anchor="middle" style="fill:var(--muted);font-size:11px">The data was in the cache all along. Every switch between A and B costs an L2 access.</text>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M115,60 V90" marker-end="url(#arrDA)"/>
+<path d="M340,60 V90" marker-end="url(#arrDA)"/>
+<path d="M565,60 V90" marker-end="url(#arrDA)"/>
+<path d="M200,122 H255" marker-end="url(#arrDA)"/>
+<path d="M425,122 H480" marker-end="url(#arrDA)"/>
+</g>
+</svg></div>
 <p><strong>What a wrong guess costs in an out-of-order core.</strong> The scheduler wakes a load's dependents early, so they arrive exactly when an L1 hit returns (see <a href="#/scheduler">Scheduler Queues</a>). A load that hits in a different way than predicted returns late, so those dependents are cancelled and replayed: the extra cycles plus wasted issue slots. A data-side predictor therefore has to be very accurate, or it must turn a mispredict into a clean miss, as the utag does, so the existing miss-replay path handles it.</p>
 <p><strong>Stores don't need it.</strong> A store writes the cache only after it commits, when it's off the critical path. So it can check tags first and then write just the one way that hit, which gets way selection's energy saving for free.</p>
 
