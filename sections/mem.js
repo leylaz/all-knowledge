@@ -32,19 +32,54 @@ section({
   id: "dcache",
   region: "mem",
   title: "Data Cache and Sectored Caches",
+  sections: [
+    { id: "non-blocking", label: "Non-Blocking Caches" },
+    { id: "sectored", label: "Sectored Caches" },
+    { id: "way-pred", label: "Way Prediction in the Data Cache" },
+    { id: "misses", label: "Classifying Misses" }
+  ],
   body: `
 <p>A set-associative cache splits an address into tag, index, and offset. Typical L1D choices are write-back, write-allocate, and LRU or pseudo-LRU replacement.</p>
-<h3>Non-Blocking Caches</h3>
+<h3 id="sec-non-blocking">Non-Blocking Caches</h3>
 <p>MSHRs track outstanding misses so hits continue; secondary misses to the same line merge into an existing MSHR. MSHR count caps memory-level parallelism.</p>
-<h3>Sectored Caches</h3>
+<h3 id="sec-sectored">Sectored Caches</h3>
 <p>One tag covers a large block split into sectors with their own valid (and often dirty) bits. A miss fetches only the missing sector.</p>
-<h3>Classifying Misses</h3>
-<p>Compulsory, capacity, conflict, and in multicore systems, coherence.</p>`,
+
+<h3 id="sec-way-pred">Way Prediction in the Data Cache</h3>
+<p>Way prediction guesses which way of the set will hit, so the cache reads one way instead of all of them (the mechanism, and the difference between way prediction and way selection, are on the <a href="#/stage-if/way-pred">Instruction Fetch</a> page). On the data side the payoff is larger and the problem is harder.</p>
+<p><strong>Why it pays more here.</strong></p>
+<ul>
+<li><strong>Load-to-use latency is in the critical loop.</strong> Almost every dependency chain goes through loads, so a cycle off the L1D hit time is worth more than a cycle almost anywhere else.</li>
+<li><strong>L1D caches are highly associative.</strong> They grow by adding ways to stay virtually indexed and physically tagged, so a parallel read touches many ways (12 on Zen 5, see <a href="#/zen5-core/ls">Load/Store Unit and L1D</a>).</li>
+</ul>
+<p><strong>Where it happens.</strong> In the load pipeline, right after address generation. The set index comes from page-offset bits, so set decode starts as soon as the address is computed, while the DTLB translates the page number in parallel. The way predictor has to answer in that same window, before the physical tag exists, so it can't use the physical address.</p>
+<p><strong>Why it's harder than on the fetch side.</strong> Fetch moves sequentially and can store the next way with the fetch block that leads to it. A load's address is only known after the AGU computes it, and consecutive loads jump around. So the predictor has to be indexed with something available early:</p>
+<ul>
+<li><strong>The load's PC.</strong> Known at issue, before the address. Works for loads that keep hitting the same line, such as a load of a global or a stack slot, but not for a load walking an array. Powell et al. (2001) studied PC-based way prediction for data-cache energy.</li>
+<li><strong>An approximate address.</strong> The base register XORed with the offset, available before the add finishes. Usually right, because carries rarely reach the bits used.</li>
+<li><strong>A hash of the virtual address.</strong> AMD's L1D caches (since Bulldozer, including every Zen core) store a small <strong>microtag</strong> (utag) with each line: a hash of linear-address bits above the page offset. A load hashes its linear address, compares the hash with the utags of the set's ways, and reads only the matching way. The full physical tag, ready after translation, then confirms the hit.</li>
+</ul>
+<p><strong>What the utag design gives up.</strong></p>
+<ul>
+<li><strong>A utag mismatch is a miss.</strong> If no utag matches, AMD treats the access as an L1 miss, even if the line is present under a different virtual address. Two virtual aliases of one physical line (shared memory mapped at different addresses, or two processes on SMT siblings) keep evicting each other's utag, and every switch looks like an L1 miss.</li>
+<li><strong>Utag collisions.</strong> Two lines in the same set with the same hash can't both be found, so one is evicted.</li>
+<li><strong>A side channel.</strong> Lipp et al. ("Take A Way," 2020) reverse-engineered the hash and used collisions and alias misses (attacks they call Collide+Probe and Load+Reload) to leak address information across processes and SMT siblings.</li>
+</ul>
+<p><strong>What a wrong guess costs in an out-of-order core.</strong> The scheduler wakes a load's dependents early, so they arrive exactly when an L1 hit returns (see <a href="#/scheduler">Scheduler Queues</a>). A load that hits in a different way than predicted returns late, so those dependents are cancelled and replayed: the extra cycles plus wasted issue slots. A data-side predictor therefore has to be very accurate, or it must turn a mispredict into a clean miss, as the utag does, so the existing miss-replay path handles it.</p>
+<p><strong>Stores don't need it.</strong> A store writes the cache only after it commits, when it's off the critical path. So it can check tags first and then write just the one way that hit, which gets way selection's energy saving for free.</p>
+
+<h3 id="sec-misses">Classifying Misses</h3>
+<p>Compulsory, capacity, conflict, and in multicore systems, coherence.</p>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 2 (way prediction and way selection) · Powell et al., "Reducing Set-Associative Cache Energy via Way-Prediction and Selective Direct-Mapping," MICRO 2001 · AMD, <em>Software Optimization Guide for AMD Family 17h Processors</em> (the L1D microtag) · Lipp et al., "Take A Way: Exploring the Security Implications of AMD's Cache Way Predictors," AsiaCCS 2020</p>`,
   practice: {
     guided: [
       {
         q: `<p>A 32 KB, 8-way L1D with 64-byte lines and 48-bit physical addresses. How many sets? How many offset, index, and tag bits?</p>`,
         a: `<ol start="0"><li>Lines: 32 KB / 64 B = 512. Sets: 512 / 8 = <strong>64</strong>.</li><li>Offset: log2(64) = <strong>6</strong> bits. Index: log2(64) = <strong>6</strong> bits.</li><li>Tag: 48 − 12 = <strong>36</strong> bits.</li><li>Note that index plus offset is 12 bits, exactly a 4 KB page offset. That matters for VIPT caches (next problem).</li></ol>`
+      },
+      {
+        q: `<p>An out-of-order core has a 32 KB, 8-way L1D. Two designs run at the same clock:</p><ul><li>Parallel read of all 8 ways: every L1D hit takes 5 cycles.</li><li>With a way predictor: a hit takes 4 cycles when the predicted way is right, and 3 cycles more when it's wrong. The predictor is right on 96% of hits.</li></ul><p>Loads are 30% of instructions, and 95% of loads hit in the L1D. Profiling shows that 15% of each cycle of L1D hit latency appears in run time, and the rest is hidden by the window. The parallel-read design runs at a CPI of 0.80. Ignoring replay costs and misses, what is the average hit latency with the predictor, and what speedup does it give?</p>`,
+        a: `<ol start="0"><li>Average hit latency with the predictor: 4 + 0.04 × 3 = <strong>4.12 cycles</strong>.</li><li>Saving per hit: 5 − 4.12 = 0.88 cycles.</li><li>Hits per instruction: 0.30 × 0.95 = 0.285.</li><li>Exposed cycles saved per instruction: 0.285 × 0.88 × 0.15 ≈ 0.0376.</li><li>CPI with the predictor: 0.80 − 0.0376 = 0.7624. Speedup: 0.80 / 0.7624 ≈ <strong>1.049</strong>, about 5%.</li><li>Replays shrink this: the 4% of hits that mispredict also cancel and reissue dependents that were woken for a 4-cycle hit.</li></ol>`
       }
     ],
     interview: [
@@ -55,6 +90,10 @@ section({
       {
         q: `<p>When would you choose a sectored cache, and when would it hurt?</p>`,
         a: `<p>Good: large blocks with streaming or dense access, where one tag per block saves storage and sector-only fills save bandwidth (common in L2/LLC and GPU caches). Bad: sparse access, where a block occupies a whole frame while only one sector is used, lowering effective capacity and raising misses.</p>`
+      },
+      {
+        q: `<p>You're adding a utag-style way predictor to the L1D of an out-of-order core model. Beyond the shorter average hit latency, what must the model capture to get IPC right?</p>`,
+        a: `<ul><li><strong>Replays.</strong> Dependents are woken for the predicted-hit latency. A late hit must cancel and reissue them under the model's real replay policy (selective or squash-all), costing issue slots and port bandwidth, not just latency.</li><li><strong>Alias and collision misses.</strong> A utag mismatch is a miss even when the line is present. The model needs per-line utags computed from virtual addresses, so workloads with shared mappings or SMT siblings show the extra L2 traffic.</li><li><strong>Training.</strong> Model when fills, prefetches, and hits in another way update the utags, and whether prefetched lines get a utag at all.</li><li><strong>Port and bank occupancy.</strong> A second access to read the remaining ways occupies a load pipe for another cycle.</li><li><strong>Interaction with store-to-load forwarding.</strong> A load that forwards from the store queue doesn't need the cache's data, so a utag miss on it may not matter.</li><li><strong>Energy.</strong> If the model reports power, count tag and data reads per way, not per access.</li></ul><p>Validate it the same way as any predictor: compare mispredictions and alias misses per thousand loads against hardware counters, and check that IPC moves the way hardware does on alias-heavy microbenchmarks.</p>`
       }
     ]
   }
