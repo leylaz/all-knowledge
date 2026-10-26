@@ -296,10 +296,18 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
 <li><strong>Way prediction proper</strong> uses the guess to save time.</li>
 <li><strong>Way selection</strong> uses it to save energy.</li>
 </ul>
-<p>In the simplest form, H&amp;P's "block predictor bits," each set remembers the way it last hit, so the guess is "the most recently used way of this set." Fetch can do better by storing the guess with the fetch block that leads to the line (below).</p>
 
 <h4>Way Prediction Proper</h4>
 <p>The cache still reads every way, but the predictor drives the data mux instead of the tag compare. The predictor is read in the same cycle as the arrays, so it must be small and fast.</p>
+<p><strong>How the guess is made.</strong> The predictor has to finish before the data array does, so it needs an input that's ready at the very start of the access. The set index is exactly that: it comes from page-offset bits, needs no translation, and is the same input the arrays use.</p>
+<ul>
+<li><strong>Storage.</strong> One small field per set holding a way number, log<sub>2</sub>(N) bits for an N-way cache (H&amp;P's "block predictor bits"). For a 32 KB, 8-way cache with 64-byte lines, that's 64 sets × 3 bits = 192 bits, a tiny array next to the tags.</li>
+<li><strong>Lookup.</strong> The set index reads the set's field while it also reads the tag and data arrays. A decoder turns the way number into a one-hot mux select, which is ready long before the data.</li>
+<li><strong>The guess.</strong> The way this set hit most recently, its most recently used (MRU) way. It works because accesses to a set cluster in time: fetch reads the same line several times in a row, and loops keep coming back to the same lines.</li>
+<li><strong>Training.</strong> On a hit in a different way, the field is rewritten with that way. On a miss, it's set to the way the replacement policy chose for the fill, since the new line is the one likely to be used next. The replacement state already tracks recency, so a design can read the MRU way from it instead of storing it separately: in a tree pseudo-LRU, each node bit points away from the most recent access, so following the opposite of every bit from the root leads to the MRU way.</li>
+<li><strong>Where it breaks.</strong> Two lines of the same set used alternately, such as code at two addresses that map to the same set, flip the MRU way on every access and mispredict every time.</li>
+</ul>
+<p>Fetch can do better than MRU by storing the guess with the fetch block that leads to the line, instead of with the set (see "Line and way prediction together" below).</p>
 <ol start="0">
 <li>The set index reads the tag and data of every way, exactly as in a normal parallel read. The predictor is read at the same time.</li>
 <li>The predictor's guess sets the mux select, so the predicted way's data leaves the cache as soon as the data array is done, at about the hit time of a direct-mapped cache. It doesn't wait for any tag compare.</li>
