@@ -8,6 +8,102 @@ section({
   cap: "Predicting the path, fetching it, and turning it into micro-ops",
   body: `
 <p>The front end decides which instructions the core works on next and delivers them as micro-ops to rename. In a modern core it is mostly a prediction machine: the branch predictor runs ahead of fetch, picking the path many cycles before any branch on it executes, and the instruction cache, decoders, and micro-op cache follow wherever it points.</p>
+<p>The units of a decoupled front end and how they connect. The branch prediction unit fills the fetch target queue with predicted fetch blocks, and everything after the queue consumes them: the instruction cache on the decode path, the micro-op cache on the bypass, and the prefetcher on the way to the L2.</p>
+<div class="tbl"><svg viewBox="0 0 680 385" role="img" aria-label="Block diagram of a decoupled front end. The branch prediction unit, holding the BTB, the direction predictor (TAGE), the indirect predictor (ITTAGE), and the return address stack, sends predicted fetch blocks into the fetch target queue. The queue feeds the instruction cache, which includes the ITLB, tags, and way prediction. Instruction cache misses go to the L2 cache, which fills the line back. The queue also sends prefetches (FDIP) to the L2 and lookups to the micro-op cache. Bytes from the instruction cache go to the instruction buffer for predecode, then to the decoders, then to the micro-op queue, which feeds rename in the back end. The decoders fill the micro-op cache, and micro-op cache hits go straight to the micro-op queue, skipping the instruction cache and decoders. Redirects return to the branch prediction unit from the decoders (BTB misses) and from the back end (mispredicts)." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrFE" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrFEt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker><marker id="arrFEr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--redirect)"/></marker></defs>
+<rect x="10" y="40" width="240" height="132" rx="5" style="fill:none;stroke:var(--pad);stroke-width:1.5;stroke-dasharray:5 4"/>
+<text x="22" y="58" style="fill:var(--pad);font-size:12px;font-weight:600">Branch prediction unit</text>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5">
+<rect x="22" y="68" width="106" height="42" rx="3"/><rect x="134" y="68" width="106" height="42" rx="3"/>
+<rect x="22" y="118" width="106" height="42" rx="3"/><rect x="134" y="118" width="106" height="42" rx="3"/>
+</g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
+<rect x="290" y="84" width="130" height="40" rx="3"/>
+<rect x="470" y="78" width="200" height="52" rx="3"/>
+<rect x="470" y="210" width="200" height="46" rx="3"/>
+<rect x="290" y="210" width="130" height="46" rx="3"/>
+<rect x="120" y="210" width="130" height="46" rx="3"/>
+<rect x="290" y="300" width="130" height="46" rx="3"/>
+</g>
+<g style="fill:none;stroke:var(--trace);stroke-width:1">
+<path d="M316,84 V124 M342,84 V124 M368,84 V124 M394,84 V124"/>
+</g>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5">
+<rect x="470" y="10" width="200" height="34" rx="3"/>
+<rect x="10" y="210" width="90" height="46" rx="3"/>
+</g>
+<g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle">
+<text x="75" y="86">BTB</text><text x="187" y="86">Direction</text>
+<text x="75" y="136">Indirect</text><text x="187" y="136">RAS</text>
+<text x="570" y="31">L2 cache</text>
+<text x="570" y="100">Instruction cache</text>
+<text x="570" y="230">Instruction buffer</text>
+<text x="355" y="230">Decoders</text>
+<text x="185" y="230">Micro-op queue</text>
+<text x="355" y="320">Micro-op cache</text>
+<text x="55" y="230">Rename</text>
+</g>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle">
+<text x="75" y="102">branch targets</text><text x="187" y="102">TAGE</text>
+<text x="75" y="152">ITTAGE</text><text x="187" y="152">returns</text>
+<text x="570" y="118">ITLB, tags, way prediction</text>
+<text x="570" y="246">predecode, boundaries</text>
+<text x="355" y="246">to micro-ops</text>
+<text x="185" y="246">feeds rename</text>
+<text x="355" y="336">decoded micro-ops</text>
+<text x="55" y="246">back end</text>
+<text x="355" y="142" style="fill:var(--ink);font-size:12px;font-weight:600">Fetch target queue</text>
+<text x="355" y="157">predicted fetch blocks</text>
+</g>
+<g style="fill:var(--muted);font-size:11px">
+<text x="394" y="55" text-anchor="end">prefetch (FDIP)</text>
+<text x="534" y="66" text-anchor="end">miss</text>
+<text x="606" y="66">fill</text>
+<text x="268" y="292" text-anchor="end">lookup</text>
+<text x="361" y="282">fill</text>
+</g>
+<g style="fill:var(--redirect);font-size:11px">
+<text x="62" y="195">mispredict redirect</text>
+<text x="318" y="201">decode redirect</text>
+</g>
+<g style="fill:none;stroke:var(--trace);stroke-width:2">
+<path d="M250,104 H286" marker-end="url(#arrFEt)"/>
+<path d="M420,104 H466" marker-end="url(#arrFEt)"/>
+<path d="M570,130 V206" marker-end="url(#arrFEt)"/>
+<path d="M470,233 H424" marker-end="url(#arrFEt)"/>
+<path d="M290,233 H254" marker-end="url(#arrFEt)"/>
+<path d="M120,233 H104" marker-end="url(#arrFEt)"/>
+<path d="M290,118 H272 V310 H286" marker-end="url(#arrFEt)"/>
+<path d="M290,336 H185 V260" marker-end="url(#arrFEt)"/>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M540,78 V48" marker-end="url(#arrFE)"/>
+<path d="M600,44 V74" marker-end="url(#arrFE)"/>
+<path d="M355,256 V296" stroke-dasharray="4 3" marker-end="url(#arrFE)"/>
+<path d="M400,84 V27 H466" stroke-dasharray="4 3" marker-end="url(#arrFE)"/>
+</g>
+<g style="fill:none;stroke:var(--redirect);stroke-width:1.5;stroke-dasharray:6 4">
+<path d="M55,210 V176" marker-end="url(#arrFEr)"/>
+<path d="M310,210 V186 H210 V176" marker-end="url(#arrFEr)"/>
+</g>
+<g style="font-size:11px;fill:var(--muted)">
+<rect x="10" y="366" width="12" height="12" rx="2" style="fill:var(--pad-soft);stroke:var(--pad)"/><text x="28" y="376">prediction</text>
+<rect x="110" y="366" width="12" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--trace)"/><text x="128" y="376">fetch and decode path</text>
+<path d="M260,372 H284" style="stroke:var(--redirect);stroke-width:1.5;stroke-dasharray:6 4"/><text x="290" y="376">redirect</text>
+<path d="M360,372 H384" style="stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3"/><text x="390" y="376">prefetch or fill</text>
+</g>
+</svg></div>
+<p>What each unit does, in the order a fetch block passes through them:</p>
+<ul>
+<li><strong>Branch prediction unit.</strong> Each cycle it takes the current fetch address and the global history and predicts one fetch block: the BTB finds the branches in it and their targets, the direction predictor decides whether conditional branches are taken, and the indirect predictor and return address stack supply targets the BTB can't (see <a href="#/fe-direction">Branch Direction Predictors</a> and <a href="#/fe-targets">Branch Targets</a>). The predicted next address feeds straight back in for the next cycle.</li>
+<li><strong>Fetch target queue.</strong> Holds the predicted blocks until fetch is ready for them, along with the history needed to repair the predictor. Its occupancy is how far the predictor runs ahead (see <a href="#/fe-decoupled/ftq">The Fetch Target Queue</a>).</li>
+<li><strong>Prefetcher.</strong> Probes the instruction cache tags with the addresses in the queue and sends the misses to the L2, so lines arrive before fetch reaches them (see <a href="#/fe-decoupled/fdip">Fetch-Directed Prefetching</a>).</li>
+<li><strong>Instruction cache.</strong> Read at the head of the queue, with the ITLB translating in parallel. The queue entry can carry the predicted way, so only one way is read (see <a href="#/stage-if/way-pred">Way Prediction</a>). A miss goes to the L2.</li>
+<li><strong>Instruction buffer and decoders.</strong> Predecode finds instruction boundaries, which is the hard part on x86, and the decoders turn instructions into micro-ops (see <a href="#/fe-decode">Decoders and the Micro-op Cache</a>).</li>
+<li><strong>Micro-op cache.</strong> Looked up with the same queue addresses. On a hit it delivers already-decoded micro-ops, skipping the instruction cache and decoders, which saves both latency and power. The decoders fill it on a miss.</li>
+<li><strong>Micro-op queue.</strong> Collects micro-ops from both paths and absorbs the difference between front-end delivery and the rate rename takes them.</li>
+<li><strong>Redirects.</strong> When decode finds a branch the BTB missed, or the back end resolves a mispredicted branch, the predictor restarts at the correct address. The fetch target queue and everything younger than the branch are flushed (see <a href="#/fe-targets/misses">BTB Misses and Decode Redirects</a>).</li>
+</ul>
 <p>When the front end falls behind, the back end starves however wide it is; when it predicts wrong, everything fetched after the bad prediction is thrown away. Front-end stalls take a large share of cycles on server workloads with large code footprints, and mispredicts are often the largest single loss on integer code with hard-to-predict branches.</p>
 <p>The classic 5-stage pipeline's view of branches is in <a href="#/branch-hazards">Branch Hazards</a>; these pages cover how a wide out-of-order core does it.</p>`,
   practice: {
