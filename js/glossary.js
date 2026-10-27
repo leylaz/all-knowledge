@@ -5,6 +5,10 @@
 const GLOSSARY = {
   "AMAT": { def: "Average memory access time: hit time + miss rate × miss penalty, applied level by level.", page: "cache-size" },
   "BTB": { def: "Branch target buffer: a cache from branch PC to predicted target, so fetch can redirect before the branch is decoded.", page: "fe-targets/btb" },
+  "FTQ": { def: "Fetch target queue: the queue of predicted fetch blocks between the branch predictor and instruction fetch.", page: "fe-decoupled/ftq" },
+  "fetch block": { def: "A run of bytes the predictor expects to execute in order, from a start address to the first predicted-taken branch or a size limit. One FTQ entry.", page: "fe-decoupled/groups" },
+  "fetch group": { def: "What the fetch stage delivers to decode in one cycle: at most one fetch window, and never past the end of the current fetch block.", page: "fe-decoupled/groups" },
+  "fetch window": { def: "The aligned chunk of bytes fetch reads from the instruction cache in one cycle, 32 bytes on recent x86 cores.", page: "fe-decoupled/ftq" },
   "CPI": { def: "Cycles per instruction, the inverse of IPC. A CPI stack splits it into a base plus a stall component per cause.", page: "pipelining" },
   "CPI stack": { def: "CPI split into a base component plus one stall component per cause (branch mispredicts, L2 misses, …), so the components add up to total CPI.", page: "perf-stage-stalls/accounting" },
   "DRAM": { def: "Dynamic RAM: one transistor and one capacitor per bit. Dense and cheap, but slow and needs refresh; used for main memory.", page: "sram-dram" },

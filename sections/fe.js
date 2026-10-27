@@ -139,6 +139,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
   sections: [
     { id: "why", label: "Why Decouple" },
     { id: "ftq", label: "The Fetch Target Queue" },
+    { id: "groups", label: "Fetch Blocks and Fetch Groups" },
     { id: "blocks", label: "Fetch Blocks and Taken Branches" },
     { id: "fdip", label: "Fetch-Directed Prefetching" },
     { id: "btb-reach", label: "How the BTB Limits Prefetching" },
@@ -157,8 +158,62 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <p>Reinman, Calder, and Austin proposed this organization in 1999; essentially every high-performance core since uses it (AMD since Zen, Intel's big cores, Arm's Cortex-X and Neoverse V lines, Apple's cores).</p>
 
 <h3 id="sec-ftq">The Fetch Target Queue</h3>
-<p>The <strong>fetch target queue (FTQ)</strong> holds predicted fetch blocks: a start address, an end (the predicted-taken branch or the end of a fetch window), and the predicted next address. Each entry also keeps what is needed to repair the predictor on a mispredict: the global history at prediction time and which table entries made the prediction.</p>
+<p>The <strong>fetch target queue (FTQ)</strong> holds predicted fetch blocks: a start address, an end (the predicted-taken branch, or the block's size limit, often the end of a fetch window), and the predicted next address. A <strong>fetch window</strong> is the aligned chunk of bytes fetch reads from the instruction cache in one cycle, 32 bytes on recent x86 cores, so a window always starts at an address whose low 5 bits are 0. The end is a position inside the block, not a second full address. Because a block can't run past its size limit, the end is stored as a small offset from the start of that aligned region (5 bits for a 32-byte window), along with a bit that says whether the block ended at a predicted-taken branch or simply ran out of room. Each entry also keeps what is needed to repair the predictor on a mispredict: the global history at prediction time (a copy, or a pointer into a circular history buffer), the return stack top, and which table entries made the prediction.</p>
+<div class="tbl"><svg viewBox="0 0 680 266" role="img" aria-label="Fields of one example FTQ entry, for the block from 0x4013 to a predicted-taken 2-byte jump at 0x4018. The first row holds the block itself, used by fetch and the prefetcher: start address (48 bits, 0x4013), end offset (5 bits, 25), ends-taken bit (1 bit, set), branch type (3 bits, direct jump), and next address (48 bits, 0x52A0). The second row holds side information: the predicted instruction cache way (3 bits for 8 ways, way 5), a global history pointer (10 bits, 412), the return stack top (6 bits, 17), and the provider, meaning which predictor entries made the prediction (TAGE table 3 and BTB way 1). The end offset counts from the 32-byte window base 0x4000, so the jump's last byte is 0x4019. A block that just runs out of window would have offset 31, the taken bit clear, and next address 0x4020." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="20" y="20" style="fill:var(--muted);font-size:12px;font-weight:600">One FTQ entry: the block from 0x4013 to a predicted-taken 2-byte jmp at 0x4018</text>
+<text x="20" y="48" style="fill:var(--trace);font-size:12px;font-weight:600">The block (used by fetch and the prefetcher)</text>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
+<rect x="20" y="56" width="150" height="62" rx="3"/><rect x="178" y="56" width="96" height="62" rx="3"/><rect x="282" y="56" width="96" height="62" rx="3"/><rect x="386" y="56" width="110" height="62" rx="3"/><rect x="504" y="56" width="156" height="62" rx="3"/>
+</g>
+<g style="fill:var(--ink);font-size:11px;font-weight:600" text-anchor="middle"><text x="95" y="74">Start address</text><text x="226" y="74">End offset</text><text x="330" y="74">Ends taken</text><text x="441" y="74">Branch type</text><text x="582" y="74">Next address</text></g>
+<g style="fill:var(--muted);font-size:10px" text-anchor="middle"><text x="95" y="89">48 bits</text><text x="226" y="89">5 bits</text><text x="330" y="89">1 bit</text><text x="441" y="89">3 bits</text><text x="582" y="89">48 bits</text></g>
+<g style="fill:var(--trace);font-size:12px;font-family:var(--mono)" text-anchor="middle"><text x="95" y="108">0x4013</text><text x="226" y="108">25</text><text x="330" y="108">1</text><text x="441" y="108">direct jmp</text><text x="582" y="108">0x52A0</text></g>
+<text x="20" y="146" style="fill:var(--pad);font-size:12px;font-weight:600">Side information (a way hint for fetch, the rest to repair and train the predictor)</text>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5">
+<rect x="20" y="154" width="120" height="62" rx="3"/><rect x="148" y="154" width="150" height="62" rx="3"/><rect x="306" y="154" width="120" height="62" rx="3"/><rect x="434" y="154" width="226" height="62" rx="3"/>
+</g>
+<g style="fill:var(--ink);font-size:11px;font-weight:600" text-anchor="middle"><text x="80" y="172">Predicted way</text><text x="223" y="172">History pointer</text><text x="366" y="172">Return stack top</text><text x="547" y="172">Provider</text></g>
+<g style="fill:var(--muted);font-size:10px" text-anchor="middle"><text x="80" y="187">3 bits (8 ways)</text><text x="223" y="187">10 bits</text><text x="366" y="187">6 bits</text><text x="547" y="187">which entries made the prediction</text></g>
+<g style="fill:var(--pad);font-size:12px;font-family:var(--mono)" text-anchor="middle"><text x="80" y="206">5</text><text x="223" y="206">412</text><text x="366" y="206">17</text><text x="547" y="206">TAGE T3, BTB way 1</text></g>
+<g style="fill:var(--muted);font-size:11px"><text x="20" y="242">End offset counts from the 32-byte window base 0x4000: the jmp's last byte is 0x4019 = 0x4000 + 25.</text>
+<text x="20" y="258">A block that just runs out of window has offset 31, the taken bit clear, and next address 0x4020.</text></g>
+</svg></div>
 <p>The occupancy of the FTQ is how far ahead the predictor is. On a mispredict, the queue is flushed along with everything younger than the branch, and the predictor restarts from the correct target with its history repaired.</p>
+
+<h3 id="sec-groups">Fetch Blocks and Fetch Groups</h3>
+<p>The two terms are easy to mix up because they often cover the same bytes, but they come from different halves of the decoupled front end:</p>
+<ul>
+<li><strong>A fetch block is a unit of prediction.</strong> The predictor produces it, and it is one FTQ entry: a run of bytes the predictor expects to execute in order, from a start address to the first predicted-taken branch or the block's size limit. Control flow sets its length.</li>
+<li><strong>A fetch group is a unit of delivery.</strong> It is what the fetch stage hands to predecode and decode in one cycle (BOOM calls it a fetch packet). Fetch bandwidth sets its length: at most one fetch window on most cores, and never past the end of the current block.</li>
+</ul>
+<p>When the size limit is one fetch window, a block is usually one group and the terms coincide. They come apart in both directions:</p>
+<ul>
+<li><strong>One block, several groups.</strong> A block allowed to be longer than one window (up to a cache line, for example) takes more than one cycle to fetch. Its FTQ entry stays at the head until its last group has been read.</li>
+<li><strong>Several blocks, one cycle.</strong> A core that follows more than one taken branch per cycle fetches more than one block per cycle. Zen 5 does this with two 32-byte fetches per cycle, one per decode cluster.</li>
+</ul>
+<p>The diagram shows the first case on a core whose predictor caps a block at one 64-byte line and whose fetch reads one aligned 32-byte window per cycle:</p>
+<div class="tbl"><svg viewBox="0 0 680 282" role="img" aria-label="Two fetch blocks split into four fetch groups. Two 64-byte cache lines are drawn, 0x4000 and 0x5280, each split into two 32-byte windows. Block 0 runs from 0x4008 to 0x402D, 38 bytes, and ends at a predicted-taken 2-byte conditional branch at 0x402C whose target is 0x5290. Block 1 runs from 0x5290 to 0x52BF, 48 bytes, and ends at the 64-byte cap. Fetch delivers one group per cycle, never crossing a window boundary: cycle 0 gets 0x4008 to 0x401F (24 bytes), cycle 1 gets 0x4020 to 0x402D (14 bytes), cycle 2 gets 0x5290 to 0x529F (16 bytes), and cycle 3 gets 0x52A0 to 0x52BF (32 bytes). That is 86 useful bytes in 4 cycles, 21.5 bytes per cycle against a 32-byte peak. The other bytes of each window are read and discarded." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrFG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--redirect)"/></marker></defs>
+<g style="stroke:var(--rule);stroke-width:1;stroke-dasharray:3 3"><path d="M40,72 V226"/><path d="M168,72 V226"/><path d="M296,72 V226"/><path d="M384,72 V226"/><path d="M512,72 V226"/><path d="M640,72 V226"/></g>
+<rect x="40" y="44" width="256" height="24" style="fill:var(--surface)"/><rect x="384" y="44" width="256" height="24" style="fill:var(--surface)"/>
+<g style="fill:var(--trace-soft)"><rect x="72" y="44" width="152" height="24"/><rect x="448" y="44" width="192" height="24"/></g>
+<rect x="216" y="44" width="8" height="24" style="fill:var(--redirect)"/>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5"><rect x="40" y="44" width="256" height="24"/><rect x="384" y="44" width="256" height="24"/><path d="M168,44 V68"/><path d="M512,44 V68"/></g>
+<path d="M220,44 C240,16 430,16 448,42" style="fill:none;stroke:var(--redirect);stroke-width:1.5" marker-end="url(#arrFG)"/>
+<text x="334" y="14" text-anchor="middle" style="fill:var(--redirect);font-size:11px">jcc at 0x402C, predicted taken to 0x5290</text>
+<g style="fill:var(--muted);font-size:10px;font-family:var(--mono)" text-anchor="middle"><text x="40" y="82">0x4000</text><text x="168" y="82">0x4020</text><text x="296" y="82">0x4040</text><text x="384" y="82">0x5280</text><text x="512" y="82">0x52A0</text><text x="640" y="82">0x52C0</text></g>
+<text x="40" y="112" style="fill:var(--pad);font-size:12px;font-weight:600">Fetch blocks: one FTQ entry each, cut by the predictor</text>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"><rect x="72" y="120" width="152" height="26" rx="3"/><rect x="448" y="120" width="192" height="26" rx="3"/></g>
+<g style="fill:var(--ink);font-size:11px;font-weight:600" text-anchor="middle"><text x="148" y="137">Block 0: 38 B</text><text x="544" y="137">Block 1: 48 B</text></g>
+<g style="fill:var(--muted);font-size:10px" text-anchor="middle"><text x="148" y="160">ends at the taken jcc</text><text x="544" y="160">ends at the 64-byte cap</text></g>
+<text x="40" y="188" style="fill:var(--trace);font-size:12px;font-weight:600">Fetch groups: what each fetch cycle delivers, at most one 32-byte window</text>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"><rect x="72" y="196" width="94" height="26" rx="3"/><rect x="170" y="196" width="54" height="26" rx="3"/><rect x="448" y="196" width="62" height="26" rx="3"/><rect x="514" y="196" width="126" height="26" rx="3"/></g>
+<g style="fill:var(--ink);font-size:11px;font-weight:600" text-anchor="middle"><text x="119" y="213">Cycle 0</text><text x="197" y="213">Cycle 1</text><text x="479" y="213">Cycle 2</text><text x="577" y="213">Cycle 3</text></g>
+<g style="fill:var(--muted);font-size:10px" text-anchor="middle"><text x="119" y="236">24 B</text><text x="197" y="236">14 B</text><text x="479" y="236">16 B</text><text x="577" y="236">32 B</text></g>
+<g style="fill:var(--muted);font-size:11px"><text x="40" y="258">2 blocks, 4 groups: 86 useful bytes in 4 cycles, 21.5 bytes per cycle against a 32-byte peak.</text>
+<text x="40" y="274">Unshaded bytes in each window are read and discarded.</text></g>
+</svg></div>
+<p>For modeling, count both. FTQ occupancy and the lead formula below are in blocks, but fetch bandwidth and the bubbles that starve decode are in groups. Average useful bytes per group, against the window size, shows how much bandwidth taken branches and misaligned targets waste.</p>
 
 <h3 id="sec-blocks">Fetch Blocks and Taken Branches</h3>
 <p>Fetch reads one aligned window per cycle (32 bytes on recent x86 cores) and stops at the first predicted-taken branch, because the next bytes come from somewhere else. That gives two front-end limits that show up in tight loops and branchy code:</p>
