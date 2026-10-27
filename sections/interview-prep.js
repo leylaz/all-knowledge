@@ -80,19 +80,20 @@ section({
 </ol>
 
 <h3 id="sec-numbers">Numbers Worth Knowing</h3>
-<p>Interview answers land better with real numbers. These are public figures for three well-documented cores; the questions on these pages use them.</p>
+<p>Interview answers land better with real numbers. These are public figures for four well-documented cores, and the questions on these pages use them.</p>
 <div class="tbl"><table>
-<tr><th></th><th>Intel Skylake (2015)</th><th>AMD Zen 4 (2022)</th><th>Intel Golden Cove (2021)</th></tr>
-<tr><td>Rename / dispatch width</td><td>4</td><td>6</td><td>6</td></tr>
-<tr><td>ROB entries</td><td>224</td><td>320</td><td>512</td></tr>
-<tr><td>Load / store queue</td><td>72 / 56</td><td>88 / 64</td><td>192 / 114</td></tr>
-<tr><td>Integer / FP physical registers</td><td>180 / 168</td><td>224 / 192</td><td>280 / 332</td></tr>
-<tr><td>Loads per cycle</td><td>2</td><td>3</td><td>3</td></tr>
-<tr><td>FMA units, latency</td><td>2, 4 cycles</td><td>2, 4 cycles</td><td>2, 4 cycles</td></tr>
-<tr><td>L1D / L2 load-to-use</td><td>4–5 / about 12 cycles</td><td>4 / about 14 cycles</td><td>5 / about 15 cycles</td></tr>
+<tr><th></th><th>Intel Skylake (2015)</th><th>AMD Zen 4 (2022)</th><th>Intel Golden Cove (2021)</th><th>AMD Zen 5 (2024)</th></tr>
+<tr><td>Rename / dispatch width</td><td>4</td><td>6</td><td>6</td><td>8</td></tr>
+<tr><td>ROB entries</td><td>224</td><td>320</td><td>512</td><td>448</td></tr>
+<tr><td>Load / store queue</td><td>72 / 56</td><td>88 / 64</td><td>192 / 114</td><td>64 uncompleted / 104</td></tr>
+<tr><td>Integer / FP physical registers</td><td>180 / 168</td><td>224 / 192</td><td>280 / 332</td><td>240 / 384</td></tr>
+<tr><td>Loads per cycle</td><td>2</td><td>3</td><td>3</td><td>4 (2 vector)</td></tr>
+<tr><td>FMA units, latency</td><td>2, 4 cycles</td><td>2, 4 cycles</td><td>2, 4 cycles</td><td>2 (512-bit), 4 cycles</td></tr>
+<tr><td>L1D / L2 load-to-use</td><td>4–5 / about 12 cycles</td><td>4 / about 14 cycles</td><td>5 / about 15 cycles</td><td>4 / at least 14 cycles</td></tr>
+<tr><td>L2 TLB entries (4 KB pages)</td><td>1,536</td><td>3,072</td><td>2,048</td><td>4,096</td></tr>
 </table></div>
 <p>Rules of thumb: DRAM latency is about 80–100 ns, which is 400–500 cycles at 5 GHz. A branch misprediction costs about 15–20 cycles on recent big cores when the branch resolves promptly. A cache line is 64 bytes.</p>
-<p class="refs">Sources:</p><ul class="refs"><li>Intel 64 and IA-32 Architectures Optimization Reference Manual</li><li>AMD Software Optimization Guide for the Zen 4 microarchitecture</li><li>Intel Architecture Day 2021</li><li>Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Chapter 3</li></ul>`
+<p class="refs">Sources:</p><ul class="refs"><li>Intel 64 and IA-32 Architectures Optimization Reference Manual</li><li>AMD Software Optimization Guide for the Zen 4 microarchitecture</li><li>AMD Software Optimization Guide for the Zen 5 microarchitecture (publication 58455)</li><li>Intel Architecture Day 2021</li><li>Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Chapter 3</li></ul>`
 }, [
 {
   id: "intv-pipeline",
