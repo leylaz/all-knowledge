@@ -89,8 +89,8 @@ function pipelineSVG() {
    Die proportions come from AMD's published areas (66.3 mm2 CCD, about
    3.84 mm2 per core, about 25 mm2 of L3). Dashed blocks are not labeled in
    the annotation, so their placement inside a partition is inferred.
-   Colors are fixed in the dark and light themes (a chip is dark in both);
-   the pink theme swaps in pastels via the g-<group> classes. */
+   Colors are fixed in the Night theme; the pink (Mili) theme swaps in
+   pastels via the g-<group> classes. */
 
 const Z4_GROUPS = {
   fe:   { name: "Front end",                  fill: "#1D3F7A", stroke: "#4F7FD6" },

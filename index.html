@@ -8,36 +8,24 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Literata:opsz,wght@7..72,400;7..72,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script>
-  /* Dark by default; a saved choice from the header switch wins. */
-  (function () { var t = "dark"; try { t = localStorage.getItem("theme") || "dark"; } catch (e) {}
-    document.documentElement.setAttribute("data-theme", t === "light" || t === "pink" ? t : "dark"); })();
+  /* Night by default; a saved Mili choice from the header switch wins. */
+  (function () { var t = "night"; try { t = localStorage.getItem("theme") || "night"; } catch (e) {}
+    document.documentElement.setAttribute("data-theme", t === "pink" ? "pink" : "night"); })();
 </script>
 <style>
 :root {
-  --paper: #F3F5F9; --surface: #FFFFFF; --ink: #121A27; --muted: #566278;
-  --rule: #D4DBE6; --trace: #1F4E9C; --trace-soft: #E2EAF7; --pad: #A97F16;
-  --pad-soft: #F7EFD9; --code-bg: #E8EDF5; --code-comment: #2B7A4B; --redirect: #B5322E;
-  --accent-red: #B5322E; --accent-green: #1F7A57;
+  /* Night: deep aqua blues with blush and dark pink accents. */
+  --paper: #061A21; --surface: #0B2530; --ink: #EAF4F5; --muted: #9DBAC2;
+  --rule: #1B3F4B; --trace: #F4A9BF; --trace-soft: #123642; --pad: #E3699A;
+  --pad-soft: #2A1424; --code-bg: #082029; --code-comment: #6FD6C8; --redirect: #FF6F7D;
+  --accent-red: #FF6F7D; --accent-green: #5BD3A8;
+  --n-aqua: #3FB8C4; --n-glow-aqua: rgba(63, 184, 196, .10); --n-glow-pink: rgba(227, 105, 154, .09);
   --sans: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
   --serif: "Literata", Georgia, "Times New Roman", serif;
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
-  color-scheme: light; box-sizing: border-box;
+  color-scheme: dark; box-sizing: border-box;
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not([data-theme="pink"]) {
-    --paper: #080D14; --surface: #0F1723; --ink: #E4EBF4; --muted: #95A4B8;
-    --rule: #223249; --trace: #7FA8F0; --trace-soft: #16243B; --pad: #D1AE55;
-    --pad-soft: #1B1810; --code-bg: #0C1420; --code-comment: #6FCB98; --redirect: #EE6B6B;
-    --accent-red: #EE6B6B; --accent-green: #4FC28F; color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --paper: #080D14; --surface: #0F1723; --ink: #E4EBF4; --muted: #95A4B8;
-  --rule: #223249; --trace: #7FA8F0; --trace-soft: #16243B; --pad: #D1AE55;
-  --pad-soft: #1B1810; --code-bg: #0C1420; --code-comment: #6FCB98; --redirect: #EE6B6B;
-  --accent-red: #EE6B6B; --accent-green: #4FC28F; color-scheme: dark;
 }
 :root[data-theme="pink"] {
   /* Pastel palette after a Notion "pastel dashboard": blush, lavender, sky,
@@ -383,12 +371,26 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .theme-btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: .88rem; font-weight: 600; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 11px; cursor: pointer; }
 .theme-btn:hover { border-color: var(--trace); color: var(--trace); }
 .theme-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.theme-btn span + svg { transform: scaleX(-1); }
 /* Chip zoom bar */
 .chip-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 10px; font-size: .86rem; color: var(--muted); }
 .chip-zoom { font: inherit; font-size: .88rem; font-weight: 600; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
 .chip-zoom:hover { border-color: var(--trace); color: var(--trace); }
 .chip-zoom[aria-pressed="true"] { background: var(--trace-soft); border-color: var(--trace); }
 svg.chip { touch-action: pan-x pan-y; }
+/* Night theme: aqua depths with blush and dark pink glints */
+[data-theme="night"] body { background: radial-gradient(1100px 620px at 8% -8%, var(--n-glow-aqua), transparent 70%), radial-gradient(900px 560px at 100% 0%, var(--n-glow-pink), transparent 70%), var(--paper); background-attachment: fixed; }
+[data-theme="night"] header.top { background: rgba(6, 26, 33, .82); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border-bottom-color: rgba(227, 105, 154, .28); }
+[data-theme="night"] .brand { color: var(--trace); }
+[data-theme="night"] .theme-btn { color: var(--trace); border-color: rgba(244, 169, 191, .35); }
+[data-theme="night"] .theme-btn:hover { background: var(--pad-soft); border-color: var(--pad); color: #FFD3E0; }
+[data-theme="night"] .die { border-color: rgba(227, 105, 154, .55); border-radius: 12px; }
+[data-theme="night"] .floor .block:nth-child(4n+1) { border-top-color: var(--n-aqua); }
+[data-theme="night"] .chip .die-bg { fill: #04141A; stroke: #2A5A66; }
+[data-theme="night"] .chip .core-edge { fill: #082029; stroke: #1F4A56; }
+[data-theme="night"] .chip .core-tag text { fill: var(--trace); }
+[data-theme="night"] .chip .ext-ln { stroke: var(--pad); }
+[data-theme="night"] .chip .ext:hover .ext-t { fill: var(--trace); }
 /* Pink theme: pastel dashboard look */
 [data-theme="pink"] .intro h1, [data-theme="pink"] .note h1, [data-theme="pink"] .block h2,
 [data-theme="pink"] .stack-fig h2, [data-theme="pink"] .practice > h2 { font-family: var(--mono); font-weight: 500; letter-spacing: -0.02em; }
