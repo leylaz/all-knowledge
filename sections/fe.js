@@ -221,7 +221,46 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <li><strong>Taken branches per cycle.</strong> Most cores follow one taken branch per cycle; AMD's Zen 5 can follow two. A loop body with a taken branch every 3 instructions can't fetch more than 3 instructions per cycle on a one-taken core, however wide the decoders are.</li>
 <li><strong>Taken-branch bubbles.</strong> Following a taken branch with no lost cycle needs the target in the same cycle the branch is found. Small, fast BTBs (an L0 or L1 BTB) give zero-bubble redirects; a target found in a larger second-level BTB costs one or more bubble cycles.</li>
 </ul>
+<div class="tbl"><svg viewBox="0 0 680 220" role="img" aria-label="Fetch timing after a predicted-taken branch, for three BTB read latencies, over cycles 0 to 4. In every row, cycle 0 fetches block A, which ends in a taken branch to T. With a 1-cycle BTB, the target is ready in time and cycle 1 fetches T, so there are 0 bubbles. With a 2-cycle BTB, cycle 1 is a bubble and T is fetched in cycle 2. With a 3-cycle BTB, cycles 1 and 2 are bubbles and T is fetched in cycle 3. If every block ends in a taken branch, fetch delivers 1, 1/2, or 1/3 blocks per cycle." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<g style="fill:var(--muted);font-size:11px;font-weight:600" text-anchor="middle"><text x="255" y="20">Cycle 0</text><text x="345" y="20">Cycle 1</text><text x="435" y="20">Cycle 2</text><text x="525" y="20">Cycle 3</text><text x="615" y="20">Cycle 4</text></g>
+<g style="fill:var(--ink);font-size:11px;font-weight:600"><text x="10" y="47">Target in a 1-cycle BTB</text><text x="10" y="97">Target in a 2-cycle BTB</text><text x="10" y="147">Target in a 3-cycle BTB</text></g>
+<g style="fill:var(--muted);font-size:10px"><text x="10" y="62">0 bubbles</text><text x="10" y="112">1 bubble</text><text x="10" y="162">2 bubbles</text></g>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"><rect x="212" y="32" width="86" height="36" rx="3"/><rect x="212" y="82" width="86" height="36" rx="3"/><rect x="212" y="132" width="86" height="36" rx="3"/></g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
+<rect x="302" y="32" width="86" height="36" rx="3"/><rect x="392" y="32" width="86" height="36" rx="3"/><rect x="482" y="32" width="86" height="36" rx="3"/><rect x="572" y="32" width="86" height="36" rx="3"/>
+<rect x="392" y="82" width="86" height="36" rx="3"/><rect x="482" y="82" width="86" height="36" rx="3"/><rect x="572" y="82" width="86" height="36" rx="3"/>
+<rect x="482" y="132" width="86" height="36" rx="3"/><rect x="572" y="132" width="86" height="36" rx="3"/>
+</g>
+<g style="fill:none;stroke:var(--redirect);stroke-width:1.5;stroke-dasharray:4 3"><rect x="302" y="82" width="86" height="36" rx="3"/><rect x="302" y="132" width="86" height="36" rx="3"/><rect x="392" y="132" width="86" height="36" rx="3"/></g>
+<g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle">
+<text x="255" y="49">A</text><text x="255" y="99">A</text><text x="255" y="149">A</text>
+<text x="345" y="55">T</text><text x="435" y="55">T+1</text><text x="525" y="55">T+2</text><text x="615" y="55">T+3</text>
+<text x="435" y="105">T</text><text x="525" y="105">T+1</text><text x="615" y="105">T+2</text>
+<text x="525" y="155">T</text><text x="615" y="155">T+1</text>
+</g>
+<g style="fill:var(--pad);font-size:10px" text-anchor="middle"><text x="255" y="62">taken branch</text><text x="255" y="112">taken branch</text><text x="255" y="162">taken branch</text></g>
+<g style="fill:var(--redirect);font-size:11px" text-anchor="middle"><text x="345" y="105">bubble</text><text x="345" y="155">bubble</text><text x="435" y="155">bubble</text></g>
+<g style="fill:var(--muted);font-size:11px"><text x="10" y="194">A ends in a predicted-taken branch to T, and T+1 is the block after T. A bubble delivers nothing useful.</text>
+<text x="10" y="210">If every block ends in a taken branch (a tight loop), fetch delivers 1, 1/2, or 1/3 blocks per cycle.</text></g>
+</svg></div>
 <p>The fetch-block rounding also matters: a loop whose 40 bytes straddle two 32-byte windows takes 2 fetch cycles, and one that starts near the end of a window can need 3. Aligning hot loop heads is a classic compiler fix.</p>
+<div class="tbl"><svg viewBox="0 0 680 272" role="img" aria-label="The same 40-byte loop at two start addresses, with 32-byte fetch windows starting at 0x401000, 0x401020, 0x401040, and 0x401060. Aligned at 0x401000, the loop covers bytes 0x401000 to 0x401027: cycle 0 fetches 32 bytes and cycle 1 fetches 8 bytes, so 2 fetch cycles per iteration. Starting at 0x40101C, it covers 0x40101C to 0x401043: cycle 0 fetches 4 bytes, cycle 1 fetches 32 bytes, and cycle 2 fetches 4 bytes, so 3 fetch cycles per iteration. In both rows the loop ends in a 2-byte taken jcc back to the top. A 40-byte loop needs a third cycle whenever it starts at offset 25 or later in a window." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrLA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--redirect)"/></marker></defs>
+<g style="fill:var(--ink);font-size:12px;font-weight:600"><text x="52" y="22">Loop at 0x401000 (aligned): 2 fetch cycles per iteration</text><text x="52" y="142">Loop at 0x40101C: 3 fetch cycles per iteration</text></g>
+<g style="fill:var(--surface);stroke:none"><rect x="52" y="50" width="576" height="24"/><rect x="52" y="170" width="576" height="24"/></g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
+<rect x="53" y="50" width="190" height="24"/><rect x="245" y="50" width="46" height="24"/>
+<rect x="221" y="170" width="22" height="24"/><rect x="245" y="170" width="190" height="24"/><rect x="437" y="170" width="22" height="24"/>
+</g>
+<g style="fill:var(--redirect)"><rect x="279" y="51" width="11" height="22"/><rect x="447" y="171" width="11" height="22"/></g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5"><rect x="52" y="50" width="576" height="24"/><rect x="52" y="170" width="576" height="24"/><path d="M244,50 V74 M436,50 V74 M244,170 V194 M436,170 V194"/></g>
+<g style="fill:none;stroke:var(--redirect);stroke-width:1.5"><path d="M285,50 C270,30 70,30 56,48" marker-end="url(#arrLA)"/><path d="M453,170 C438,150 236,150 224,168" marker-end="url(#arrLA)"/></g>
+<g style="fill:var(--redirect);font-size:10px"><text x="298" y="46">taken jcc back to the top</text><text x="466" y="166">taken jcc back to the top</text></g>
+<g style="fill:var(--muted);font-size:10px;font-family:var(--mono)" text-anchor="middle"><text x="52" y="88">0x401000</text><text x="244" y="88">0x401020</text><text x="436" y="88">0x401040</text><text x="628" y="88">0x401060</text><text x="52" y="208">0x401000</text><text x="244" y="208">0x401020</text><text x="436" y="208">0x401040</text><text x="628" y="208">0x401060</text></g>
+<g style="fill:var(--trace);font-size:11px;font-weight:600" text-anchor="middle"><text x="148" y="106">Cycle 0: 32 B</text><text x="268" y="106">Cycle 1: 8 B</text><text x="232" y="226">Cycle 0: 4 B</text><text x="340" y="226">Cycle 1: 32 B</text><text x="448" y="226">Cycle 2: 4 B</text></g>
+<g style="fill:var(--muted);font-size:11px"><text x="52" y="248">A 40-byte loop needs a third cycle whenever it starts at offset 25 or later in a window (25 + 40 − 1 = 64).</text>
+<text x="52" y="262">Unshaded bytes in each fetched window are read and discarded.</text></g>
+</svg></div>
 
 <h3 id="sec-fdip">Fetch-Directed Instruction Prefetching</h3>
 <p>Since the FTQ holds addresses the core will fetch soon, it doubles as a list of instruction cache lines to prefetch. <strong>Fetch-directed instruction prefetching (FDIP)</strong>, proposed in the same 1999 paper, works in three steps:</p>
