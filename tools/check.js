@@ -57,6 +57,11 @@ function checkAnchors(where, page) {
 REGIONS.forEach(r => checkAnchors("r/" + r.id, r));
 NOTES.forEach(n => checkAnchors(n.id, n));
 
+/* ---------- Interview pages: both tabs hold questions ---------- */
+for (const n of NOTES.filter(n => n.region === "intv" && !n.private))
+  for (const [t, name] of [["c", "Conceptual"], ["m", "Math"]])
+    if (!(n.body || "").includes(`data-qid="${n.id}-${t}1"`)) err(n.id, `the ${name} tab has no questions`);
+
 /* ---------- Links ---------- */
 const ROUTES = new Set(["", "flagged", "drill"]);
 function checkHref(where, href) {

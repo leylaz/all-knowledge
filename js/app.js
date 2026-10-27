@@ -115,8 +115,10 @@ function sideNav(curId, curSec) {
 function tocHTML(page, base) {
   const secs = pageSections(page);
   if (!secs.length) return "";
-  return `<nav class="toc" aria-label="On this page"><span>On This Page:</span>${secs.filter(s => !s.group).map(s =>
-    `<a href="#/${base}/${s.id}">${s.label}</a>`).join("")}</nav>`;
+  /* Tabbed pages repeat their headings in each tab, so their group labels
+     (the tab names) stay in the list to tell the two apart. */
+  return `<nav class="toc" aria-label="On this page"><span>On This Page:</span>${secs.filter(s => page.tabs || !s.group).map(s =>
+    s.group ? `<span>${s.group}:</span>` : `<a href="#/${base}/${s.id}">${s.label}</a>`).join("")}</nav>`;
 }
 
 function practiceHTML(p) {
@@ -478,11 +480,30 @@ function showResults(term) {
     (hits.length > MAX ? `<p class="more">Showing the first ${MAX}. Add a word to narrow it down.</p>` : "");
 }
 
+/* ---------- Tabs ----------
+   The interview pages split their questions into a Conceptual and a Math
+   panel. A tab button shows its panel, and jumping to a section inside a
+   hidden panel opens that panel first. */
+function showTab(panel) {
+  const box = panel.parentElement;
+  box.querySelectorAll(":scope > .tab-panel").forEach(p => { p.hidden = p !== panel; });
+  box.querySelectorAll(":scope > .tabs .tab-btn").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === panel.dataset.tab)));
+}
+app.addEventListener("click", e => {
+  const btn = e.target.closest(".tab-btn");
+  if (!btn) return;
+  const panel = btn.closest(".tabs").parentElement.querySelector(`:scope > .tab-panel[data-tab="${btn.dataset.tab}"]`);
+  if (panel) showTab(panel);
+});
+
 function goToSection(sec) {
   window.scrollTo(0, 0);
   if (!sec) return;
   const el = document.getElementById("sec-" + sec);
-  if (el) el.scrollIntoView({ block: "start" });
+  if (!el) return;
+  const panel = el.closest(".tab-panel");
+  if (panel && panel.hidden) showTab(panel);
+  el.scrollIntoView({ block: "start" });
 }
 
 function route() {
