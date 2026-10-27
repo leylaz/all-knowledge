@@ -75,7 +75,7 @@ section({
 <h3 id="sec-order">Study Order</h3>
 <ol start="0">
 <li><strong>Fundamentals:</strong> <a href="#/intv-pipeline">Pipeline Flow and Width</a>, <a href="#/intv-renaming">Renaming and Dependences</a>, <a href="#/intv-rob">The ROB and Retirement</a>, <a href="#/intv-sched">Scheduling and Execution</a>, <a href="#/intv-arith">Arithmetic and Floating Point</a>.</li>
-<li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>.</li>
+<li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-fe">Front End and Fetch</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-mem">Caches, TLBs and DRAM</a>, <a href="#/intv-coh">Coherence and Consistency</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>.</li>
 <li><strong>Your own experience:</strong> <a href="#/intv-sim">Building a Performance Model in C</a>, <a href="#/intv-design">Open-Ended Design Problems</a>. Connect every answer here to a decision or bug from your own simulator.</li>
 </ol>
 
@@ -934,6 +934,216 @@ Q(`<p>How would you tell a branch-prediction bottleneck from a memory bottleneck
 <p>The interaction: a mispredicted branch that depends on a miss is both. To separate them, use the simulator’s ability to idealize: run with a perfect predictor, with a perfect cache, and with both. If perfect prediction gains 5%, perfect cache 30%, and both 50%, the effects are not additive, and the interaction (branches waiting on misses) is itself a target, for example for prefetching the data the branch depends on.</p>`, "medium"),
 },
 {
+  id: "intv-fe",
+  title: "Front End and Fetch",
+  body: `
+<p>Background: <a href="#/r/fe">Front End and Branch Prediction</a>, <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>, <a href="#/fe-targets">Branch Targets</a>, <a href="#/fe-decode">Decoders and the Op Cache</a>, <a href="#/stage-if/way-pred">Way Prediction</a>.</p>
+<h3 id="sec-decouple">Decoupling and Run-Ahead</h3>` +
+Q(`<p>In a coupled front end, an instruction cache miss stops the branch predictor too. What changes when a fetch target queue (FTQ) sits between them? Name two front-end losses the queue can’t hide.</p>`,
+`<p>The predictor no longer waits for fetch:</p>
+<ul>
+<li><strong>It runs ahead during misses.</strong> While fetch waits on the instruction cache, the predictor keeps producing fetch blocks, so their addresses are known early and can drive prefetching (FDIP).</li>
+<li><strong>Short predictor bubbles disappear.</strong> A second-level BTB lookup or an override costs nothing if the queue still holds blocks for fetch.</li>
+</ul>
+<p>What it can’t hide:</p>
+<ul>
+<li><strong>Mispredicts and BTB misses.</strong> Everything queued after a wrong prediction is flushed and the lead drops to 0. A taken branch missing from the BTB is invisible, so the predictor runs down the fall-through path until decode or execute redirects.</li>
+<li><strong>Tight loops.</strong> When every block ends in a taken branch, each prediction needs the one before it, the predictor can’t get ahead, and the queue stays nearly empty. Every taken-branch bubble then reaches fetch.</li>
+<li><strong>Long misses.</strong> An instruction cache miss longer than the queue’s lead still starves decode.</li>
+</ul>`, "easy") +
+Q(`<p>A fetch block and a fetch group often cover the same bytes. Define each, then say which unit you’d count in for FTQ occupancy, the prefetch lead, decode starvation, and taken branches followed per cycle.</p>`,
+`<ul>
+<li><strong>Fetch block:</strong> the unit of prediction. The predictor produces it and it is one FTQ entry, from a start address to the first predicted-taken branch or the block’s size limit. Control flow sets its length.</li>
+<li><strong>Fetch group:</strong> the unit of delivery. It is what fetch hands to decode in one cycle: at most one fetch window, and never past the end of the current block. Fetch bandwidth sets its length.</li>
+</ul>
+<p>Units:</p>
+<ul>
+<li><strong>FTQ occupancy:</strong> blocks, one per entry.</li>
+<li><strong>Lead:</strong> occupancy in blocks divided by blocks consumed per cycle. A block longer than one window holds the FTQ head for several cycles, so it is consumed at less than one per cycle and the lead is longer than the block count suggests.</li>
+<li><strong>Decode starvation:</strong> groups, since a bubble is a cycle with no group or a short one. Useful bytes per group against the window size shows how much bandwidth taken branches and misaligned targets waste.</li>
+<li><strong>Taken branches per cycle:</strong> blocks, since each taken branch ends one.</li>
+</ul>`, "easy") +
+Q(`<p>A fast single-cycle predictor is overridden two cycles later by a TAGE predictor when they disagree. In a tight loop the override bubbles show up directly in IPC. On a large server binary with the same override rate, they mostly don’t. Why? How should a model charge an override so it gets both cases right?</p>`,
+`<p>The bubble happens at the predictor, not at fetch. Whether it reaches decode depends on how much work is already queued:</p>
+<ul>
+<li><strong>Tight loop:</strong> every block ends in a taken branch, so each prediction needs the previous one and the FTQ stays nearly empty. A 2-cycle override becomes 2 cycles with nothing to fetch.</li>
+<li><strong>Server code:</strong> the predictor is often far ahead, because it kept running during earlier instruction cache misses. Fetch keeps reading older FTQ entries while the predictor redirects, and the override flushes only the blocks predicted after the fast prediction, so the bubble is absorbed.</li>
+</ul>
+<p>In the model:</p>
+<ul>
+<li>Charge the override at the predictor as lost prediction cycles, and flush only the blocks predicted since the fast prediction, never the back end.</li>
+<li>Let the FTQ, fetch queue, and decode queue absorb it. The accounting at rename then sees it only when it actually starves rename: as front-end latency in cycles with nothing delivered, and as front-end bandwidth otherwise.</li>
+<li>Count overrides separately from full mispredicts, since their costs differ by about an order of magnitude.</li>
+</ul>`, "hard") +
+`<h3 id="sec-fetch">Fetch Bandwidth and Alignment</h3>` +
+M(`<p>A hot loop is 12 instructions in 52 bytes, ending in a taken branch to its top. It runs from the legacy decode path, which fetches one aligned 32-byte window per cycle, and rename is 6 wide.</p>
+<ul>
+<li>(a) How many cycles per iteration does it take at each start offset (0 to 31) within its window?</li>
+<li>(b) If the start offset is equally likely to be any byte from 0 to 31, what is the expected cycles per iteration?</li>
+<li>(c) What do 16-byte and 32-byte alignment of the loop head give?</li>
+</ul>`,
+`<ol start="0">
+<li>Windows touched = ⌊(offset + 52 − 1) / 32⌋ + 1.</li>
+<li><strong>(a)</strong> Offsets 0 to 12 give offset + 51 ≤ 63, so 2 windows. Offsets 13 to 31 give 3 windows. Rename needs 12 / 6 = 2 cycles per iteration, so the loop takes <strong>2 cycles</strong> at offsets 0 to 12 (fetch and rename tie) and <strong>3 cycles</strong> at offsets 13 to 31, where fetch binds.</li>
+<li><strong>(b)</strong> (13 × 2 + 19 × 3) / 32 = 83 / 32 ≈ <strong>2.59 cycles</strong>.</li>
+<li><strong>(c)</strong> 32-byte alignment always gives offset 0: <strong>2 cycles</strong>, 1.30× faster than the expected unaligned case. 16-byte alignment gives offset 0 or 16 with equal odds: (2 + 3) / 2 = <strong>2.5 cycles</strong>, barely better than chance, because a 52-byte loop fits in 2 windows only at offsets up to 12.</li>
+<li>This is how a loop can slow down by a third with no source change, and why aligning loop heads to 32 bytes helps this loop where 16-byte alignment doesn’t.</li>
+</ol>`, "medium") +
+`<h3 id="sec-prefetch">Prefetching and BTB Reach</h3>` +
+Q(`<p>Fetch-directed instruction prefetching (FDIP) keeps no tables of its own. Why is that its main strength? Why does it also mean that the BTB, not the prefetcher, decides how much instruction cache latency gets hidden?</p>`,
+`<p><strong>Strength:</strong> the branch predictor already is a model of the program’s control flow. FDIP just reads future addresses from the FTQ, filters out lines that are present or in flight, and requests the rest. It needs no extra storage or training, and it follows calls and far taken branches that next-line and stream prefetchers can’t. Engineers at Arm (Ishii et al., 2021) showed that FDIP with a large enough BTB matches far more complex prefetchers on server traces.</p>
+<p><strong>Why the BTB decides:</strong> FDIP is accurate exactly as long as the predictor is right, and it reaches only as far as the predictor runs ahead.</p>
+<ul>
+<li>A taken branch missing from the BTB sends the predictor down the fall-through path. FDIP then issues wrong-path prefetches, and the eventual redirect flushes the FTQ and resets the lead to 0.</li>
+<li>So the useful lead is bounded by the FTQ depth and by the distance to the next BTB miss.</li>
+<li>The lines FDIP exists to fetch are the ones not in the instruction cache, so the BTB has to know the branches in code that only the L2 holds. Its reach must cover more code than the instruction cache does.</li>
+</ul>
+<p>That’s why research designs (Confluence, Boomerang, Shotgun) attack BTB capacity and BTB filling rather than the prefetcher itself.</p>`, "medium") +
+Q(`<p>Your trace-driven front-end model takes the next PC from the trace after every branch, including taken branches that miss in the BTB. FDIP coverage looks excellent. What is the model getting wrong, and what does fixing it change in the results?</p>`,
+`<p>The trace tells the model the correct path when the real predictor couldn’t know it. In hardware, a taken branch missing from the BTB is invisible. The predictor continues sequentially and FDIP prefetches wrong-path lines. Only when decode finds the branch (direct jumps and calls), or execute resolves it (indirect branches and some conditionals), does fetch redirect, with an empty FTQ. The model gives FDIP perfect run-ahead across every BTB miss.</p>
+<p><strong>Fix:</strong> after a BTB miss, make the model predict fall-through blocks, send their prefetches through the real filter and L2 request limits, and redirect at decode or execute with the right latency, flushing the FTQ.</p>
+<p><strong>What changes:</strong></p>
+<ul>
+<li>Coverage drops, most of all for the lines just after each redirect target, where the lead is 0.</li>
+<li>Wrong-path prefetches use L2 bandwidth and can evict useful lines.</li>
+<li>Decode redirect cycles appear as a front-end cost.</li>
+<li>A perfect-BTB experiment now shows a real gain that the broken model hid, which can change which structure looks worth growing.</li>
+</ul>`, "hard") +
+Q(`<p>On a database trace, your model classifies FDIP prefetches as 55% timely, 30% late, and 15% useless. What does each of the last two point at? Which experiments separate the causes, and how would you decide between a deeper FTQ and a larger BTB?</p>`,
+`<ul>
+<li><strong>Late</strong> (fetch waited for part of the latency): the lead is too short. Either the FTQ sits at its cap (the occupancy histogram is pinned at the maximum), or redirects keep resetting it (the lead is near 0 right after redirects, and BTB misses and mispredicts come close together).</li>
+<li><strong>Useless</strong> (wrong path, or evicted before use): wrong-path prefetches after BTB misses or mispredicts, or prefetches so early that the line is gone before fetch arrives.</li>
+</ul>
+<p>Experiments:</p>
+<ol start="0">
+<li>Classify each late prefetch by its distance in blocks from the last redirect.</li>
+<li>Run a deeper FTQ alone, a larger BTB alone, and both together, and record the late and useless fractions and IPC for each.</li>
+<li>Attribute useless prefetches to their cause: after a BTB miss, after a mispredict, or evicted.</li>
+</ol>
+<p>Decision: if late prefetches cluster just after redirects, the lead never reaches the cap, so a deeper FTQ can’t help and the BTB is the lever. If the FTQ is often full and late prefetches are spread evenly, depth helps, and it’s cheap because entries are small. Useless prefetches that track BTB misses also point at the BTB.</p>`, "hard") +
+Q(`<p>In your model, a perfect BTB gains 6% on a server trace and a perfect instruction cache gains 5%, but both together gain 16%. Why is the combination worth more than the sum? What would you tell a team that can afford to improve only one of them?</p>`,
+`<p>The two stalls feed each other:</p>
+<ul>
+<li>A BTB miss is found only when decode sees the branch, which needs the instruction bytes. If that line also misses in the instruction cache, the redirect waits for the miss too.</li>
+<li>After the redirect, the FTQ is empty, so the target and the lines after it are fetched with no lead and their misses are fully exposed.</li>
+</ul>
+<p>With only a perfect BTB, the remaining instruction cache misses still stall. With only a perfect instruction cache, BTB misses still cost redirects, just shorter ones. Removing both also removes the interaction, worth 16 − 6 − 5 = 5% here.</p>
+<p>Advice:</p>
+<ul>
+<li>Ideal structures aren’t options. Evaluate realistic sizes of each, and both together, because part of the interaction carries over.</li>
+<li>A larger BTB also lets FDIP hide more instruction cache misses, so the BTB option usually captures part of the cache’s gain. The reverse effect is weaker.</li>
+<li>Look for something that hits both: predecoding instruction cache fills into the BTB, or profile-guided layout (BOLT), which shrinks the footprint for both structures.</li>
+<li>Attribute stall cycles correctly before deciding: instruction cache misses exposed right after a BTB redirect are part of the BTB’s cost.</li>
+</ul>`, "hard") +
+M(`<p>After a redirect, your model’s predictor produces 2 fetch blocks per cycle, starting with block 0 in cycle 0, into a 24-entry FTQ. An instruction cache miss that hits in the L2 costs 14 cycles (AMD Zen 4’s L2 latency), and FDIP issues each block’s prefetch in the cycle it is predicted.</p>
+<ul>
+<li>(a) Every block fits in one 32-byte fetch window, so fetch consumes one block per cycle. Which blocks get the full 14 cycles of lead, and what is the steady-state lead?</li>
+<li>(b) Blocks average 48 bytes, so each takes 1.5 fetch cycles on average. Answer the same questions.</li>
+<li>(c) Back to (a), but the decode queue is full for the first 20 cycles after the redirect, so fetch reads nothing until cycle 20.</li>
+<li>(d) Can any of these fully hide an L3 hit of 50 cycles?</li>
+</ul>`,
+`<ol start="0">
+<li><strong>(a)</strong> Block k is predicted at about cycle k / 2 and fetched at cycle k, so its lead is about k / 2. Full hiding needs k / 2 ≥ 14, so blocks from about 28 on. Occupancy grows by 1 per cycle (2 in, 1 out) and reaches 24 at cycle 24. After that, the predictor can only add a block when fetch removes one, and the lead stays at 24 / 1 = <strong>24 cycles</strong>.</li>
+<li><strong>(b)</strong> Block k is fetched at cycle 1.5k, so its lead is 1.5k − k / 2 = k. Blocks from 14 on are fully hidden. Occupancy grows by 2 − 2/3 = 4/3 per cycle and fills at cycle 18. The steady-state lead is 24 / (2/3) = <strong>36 cycles</strong>. Each entry now holds more fetch time, so the same queue gives a longer lead.</li>
+<li><strong>(c)</strong> The predictor fills all 24 entries by cycle 12, then waits. Fetch starts at cycle 20, so block k (k ≤ 23) is fetched at cycle 20 + k, at least 20 cycles after its prediction. <strong>Every block is hidden, including block 0</strong>, whose miss overlapped with the stall. After that, the predictor refills at fetch’s rate and the lead settles at 24 cycles. A back-end stall turns into lead.</li>
+<li><strong>(d)</strong> No. The lead never exceeds 24 cycles in (a) or 36 in (b). Hiding 50 cycles needs at least 50 entries at one block per cycle, and the predictor has to stay on the right path long enough to fill them.</li>
+</ol>`, "medium") +
+M(`<p>A server trace has 9 BTB misses on taken branches per 1,000 instructions. 70% of them are direct jumps and calls that decode redirects, at 8 cycles each. The other 30% are conditional branches that mispredict when they execute, at 17 cycles each. After 40% of the BTB-miss redirects, the target line misses in the instruction cache and hits in the L2 at 14 cycles, fully exposed because the FTQ restarted empty. The CPI without any of these costs is 0.50.</p>
+<ul>
+<li>(a) What is the CPI, and what share of it do BTB misses cause?</li>
+<li>(b) A stall breakdown charges the exposed instruction cache misses to the instruction cache. What fraction of the BTB’s cost does that hide?</li>
+<li>(c) Doubling the BTB halves its misses. What speedup does it give? What speedup would a team estimate if it believed the instruction cache misses would stay?</li>
+</ul>`,
+`<ol start="0">
+<li>Decode redirects: 9 × 0.7 = 6.3 per 1,000 instructions × 8 = 50.4 cycles.</li>
+<li>Mispredicts: 9 × 0.3 = 2.7 × 17 = 45.9 cycles.</li>
+<li>Exposed instruction cache misses: 9 × 0.4 = 3.6 × 14 = 50.4 cycles.</li>
+<li><strong>(a)</strong> Total 146.7 cycles per 1,000 instructions, 0.147 CPI. CPI = 0.50 + 0.147 = <strong>0.647</strong>, and BTB misses cause 0.147 / 0.647 ≈ <strong>23%</strong> of it.</li>
+<li><strong>(b)</strong> 50.4 / 146.7 ≈ <strong>34%</strong> of the BTB’s cost shows up under the instruction cache.</li>
+<li><strong>(c)</strong> Halving every term: CPI = 0.50 + 0.073 = 0.573, a speedup of 0.647 / 0.573 ≈ <strong>1.13</strong>. If only the redirects and mispredicts halved: 0.50 + 0.048 + 0.050 = 0.599, a speedup of about <strong>1.08</strong>. Misattributing the exposed misses makes the BTB look about 40% less valuable than it is.</li>
+</ol>`, "hard") +
+`<h3 id="sec-decode">Decode and the Op Cache</h3>` +
+Q(`<p>Why do x86 cores keep an op cache in front of their decoders, while Arm removed the macro-op cache when the Cortex-A715 dropped 32-bit support?</p>`,
+`<p><strong>x86:</strong> instructions are 1 to 15 bytes long, so finding their boundaries takes length decoding and predecode bits, and wide decoders are expensive in power and area. The op cache skips all of that on hot code:</p>
+<ul>
+<li>More bandwidth: Zen 5 delivers up to 12 instructions per cycle from its op cache, against 4 per thread from its decoders.</li>
+<li>No length-changing-prefix stalls or decoder-slot limits.</li>
+<li>Less power, since the decoders idle on hits.</li>
+<li>A shorter refill path after a mispredict.</li>
+</ul>
+<p><strong>Arm:</strong> every AArch64 instruction is 4 bytes, so wide decode is cheap. Once the A715 no longer had to decode AArch32 as well, decode was cheap enough that the cache stopped paying for its area and power, and Arm widened the decoders instead. Apple’s cores decode 8 instructions per cycle with no op cache at all.</p>`, "easy") +
+Q(`<p>Zen 5 dispatches 8 macro-ops per cycle, but one thread decodes at most 4 instructions per cycle from the instruction cache. What does that imply for loop unrolling, for code that doesn’t fit in the op cache, and for turning on SMT?</p>`,
+`<ul>
+<li><strong>The op cache is the only path to full width</strong> for one thread. It holds about 6K instructions and delivers up to 12 per cycle. Code running from the decoders is capped at 4, half of dispatch.</li>
+<li><strong>Unrolling</strong> helps only while the loop still fits in the op cache under its entry rules (up to 6 instructions per entry, from at most two adjacent lines, with limited immediate slots). Past that, it moves the loop to the decoders and halves delivery.</li>
+<li><strong>Large hot code</strong> (beyond about 6K instructions, or 3K per thread with SMT) is front-end bound on one thread.</li>
+<li><strong>SMT:</strong> each thread owns one decode cluster, so the core decodes 8 per cycle in total. Decoder-bound code gets hardware that one thread can’t use. For op-cache-resident kernels that saturate the ports, SMT halves the front end per thread, and AMD suggests turning it off for them.</li>
+</ul>`, "medium") +
+Q(`<p>How many slots does <code>add [rbx], rax</code> take at rename, and how many at the execution ports, on Zen 5 and on an Intel core? What goes wrong if a model uses x86 instruction counts for both the rename bound and the port bounds?</p>`,
+`<ul>
+<li><strong>Zen 5:</strong> one macro-op through dispatch and retire, carrying two micro-ops: a combined load and store-address operation, and the add.</li>
+<li><strong>Intel:</strong> 2 fused-domain µops at rename and retire, and 4 unfused µops at the ports: load, add, store address, and store data.</li>
+</ul>
+<p>Using instruction counts for everything:</p>
+<ul>
+<li>Rename and retire bounds are off wherever fusion or cracking changes the count. A compare and branch fuse into one, while read-modify-write and fast path double instructions take more than one.</li>
+<li>Port bounds undercount badly for memory-operand instructions, whose load and store micro-ops use their own pipes.</li>
+</ul>
+<p>The model should track macro-ops (fused µops) per instruction for rename and retire, and micro-ops (unfused µops) per macro-op for the ports, by instruction class.</p>`, "medium") +
+M(`<p>On Zen 5, one thread gets up to 12 instructions per cycle from the op cache and 4 per cycle from the decoders, and dispatch takes 8 macro-ops per cycle. Assume one macro-op per instruction and that the two paths average out over time.</p>
+<ul>
+<li>(a) What op cache hit rate (the fraction of instructions it delivers) lets the front end keep up with dispatch?</li>
+<li>(b) Each switch between the two paths costs 1 cycle, and a switch happens every 50 instructions on average. What hit rate is needed now? How many instructions per cycle does the front end deliver at the hit rate from (a)?</li>
+</ul>`,
+`<ol start="0">
+<li>Front-end cycles per instruction: h / 12 + (1 − h) / 4. Dispatch needs at most 1 / 8.</li>
+<li><strong>(a)</strong> h / 12 + 1/4 − h / 4 = 1/8, so 1/4 − h / 6 = 1/8 and h = <strong>0.75</strong>.</li>
+<li><strong>(b)</strong> Add 1 / 50 = 0.02 cycles per instruction: 1/4 − h / 6 + 0.02 = 1/8, so h / 6 = 0.145 and h = <strong>0.87</strong>.</li>
+<li>At h = 0.75 with switches: 0.125 + 0.02 = 0.145 cycles per instruction, about <strong>6.9 instructions per cycle</strong>, 14% below dispatch.</li>
+<li>A 75% hit rate sounds high, but it leaves a quarter of a thread’s instructions on a path one third as wide, and switches raise the bar further. In real code the misses and switches cluster in large-footprint phases, which is why the op cache should be modeled as a real cache with its indexing and entry rules, not as a hit rate.</li>
+</ol>`, "medium") +
+`<h3 id="sec-way">Way Prediction</h3>` +
+Q(`<p>For each of these, choose way prediction proper, way selection, or neither, and justify it: (a) the 32 KB, 8-way L1I of a 5 GHz desktop core, (b) the L1I of a low-power in-order core, (c) the 48 KB, 12-way L1D of an out-of-order core.</p>`,
+`<ul>
+<li><strong>(a) Way prediction proper</strong>, or a next-way field stored with the fetch block and used for timing. In an 8-way parallel read, the tag compare and the select drive set the hit time, and the predictor takes them off the critical path. Fetch predicts well because it stays in a line and leaves it predictably, and a one-cycle bubble is absorbed by the fetch queue and the FTQ. Energy is secondary.</li>
+<li><strong>(b) Way selection.</strong> Energy matters most, the cycle has slack, and the guess can come from the previous fetch (same line, or a next-way field) a cycle early. A wrong guess costs a second access, which a small fetch queue mostly absorbs at this core’s low IPC.</li>
+<li><strong>(c) Way selection driven by a virtual-address hash</strong>, as AMD’s utag does, with a mismatch turned into an ordinary miss. Reading 12 ways per load costs a lot of energy, and the guess has to be ready before the physical tag. A predictor that sometimes returns data a cycle late would break the scheduler’s fixed load-to-use wakeup and force replays, so a data-side predictor must be very accurate or turn its mistakes into clean misses that the existing miss path already handles.</li>
+</ul>`, "hard") +
+Q(`<p>A per-set MRU way predictor on an instruction cache mispredicts every access when two hot code lines in the same set are used alternately. Why? Why does storing the next way with the fetch block fix it? Name a case the fetch-block scheme still gets wrong, and explain why a stale prediction is never a correctness problem.</p>`,
+`<p><strong>Why MRU fails:</strong> it stores one way per set. Alternating lines A and B in set s flips the field to each line’s way in turn, so the next access, to the other line, always finds the wrong way: 100% mispredicts.</p>
+<p><strong>Why the next-way field works:</strong> the guess is stored with the block that leads to the line (in the previous block’s line, or in the BTB or FTQ entry). The block leading to A always names A’s way and the block leading to B names B’s, so both stay right even though they share a set.</p>
+<p><strong>Still wrong:</strong></p>
+<ul>
+<li>A block with several successors (a branch that alternates between taken and not taken, an indirect call, a return) has one field for several possible next lines.</li>
+<li>After a refill puts a line in a different way, every field pointing at it mispredicts once before it is retrained.</li>
+</ul>
+<p><strong>Never incorrect:</strong> the tag check always runs. A wrong guess costs a second access and retrains the field. It never delivers wrong data.</p>`, "hard") +
+M(`<p>A 5 GHz core (200 ps cycle) has an 8-way instruction cache with these delays: data array read 150 ps, tag array read 115 ps, tag compare 40 ps, driving the select across the output mux 45 ps, the mux 35 ps, and a way predictor read and decode 60 ps. The predictor is right on 88% of fetches, and a wrong guess costs one extra cycle.</p>
+<ul>
+<li>(a) How many cycles does a hit take with a parallel read, and with way prediction?</li>
+<li>(b) Compare the average hit time in nanoseconds of way prediction at 5 GHz with a parallel-read design that lowers the clock until a hit fits in one cycle.</li>
+</ul>`,
+`<ol start="0">
+<li><strong>(a)</strong> Parallel read: max(150, 115 + 40 + 45) + 35 = max(150, 200) + 35 = 235 ps, more than 200, so <strong>2 cycles</strong>. Way prediction: max(150, 60) + 35 = 185 ps, so <strong>1 cycle</strong> with 15 ps to spare.</li>
+<li>Average with way prediction: 0.88 × 1 + 0.12 × 2 = 1.12 cycles = <strong>0.224 ns</strong>.</li>
+<li><strong>(b)</strong> Fitting the parallel read in one cycle needs 1 / 235 ps ≈ 4.26 GHz, for a hit of <strong>0.235 ns</strong>. (Keeping 5 GHz with 2-cycle hits gives 0.40 ns.)</li>
+<li>Way prediction gives slightly faster hits than the slower clock and keeps the whole core at 5 GHz, 17% faster for everything else. The price is a variable hit time, the predictor and its training, and the one-cycle recovery that H&amp;P warn is hard to fit at high clock rates.</li>
+</ol>`, "medium") +
+M(`<p>A low-power core’s 8-way instruction cache uses way selection. Per way, a tag read costs 1.2 pJ and a data read 5.0 pJ, and the predictor read costs 0.4 pJ. On a wrong guess the other 7 ways are read in a second cycle. Each fetch reads 16 bytes, 4 instructions.</p>
+<ul>
+<li>(a) Without a confidence bit, the guess is right on 90% of fetches. Find the energy per fetch and the extra fetch cycles per fetch, and compare with an 8-way parallel read.</li>
+<li>(b) A confidence bit marks 8% of fetches low-confidence, and those read all 8 ways at once. The rest guess right 97% of the time. Find the same two numbers.</li>
+<li>(c) 40% of extra fetch cycles reach decode, and the core’s CPI is 0.8. What does each option cost in performance?</li>
+</ul>`,
+`<ol start="0">
+<li>One way costs 1.2 + 5.0 = 6.2 pJ. A parallel read costs 8 × 6.2 = 49.6 pJ, with no extra cycles.</li>
+<li><strong>(a)</strong> Right guess: 0.4 + 6.2 = 6.6 pJ. Wrong guess: 6.6 + 7 × 6.2 = 50.0 pJ. Average: 0.9 × 6.6 + 0.1 × 50.0 = <strong>10.94 pJ</strong>, 78% less than the parallel read. Extra cycles: <strong>0.10 per fetch</strong>.</li>
+<li><strong>(b)</strong> Low confidence: 0.4 + 49.6 = 50.0 pJ. High confidence: 0.97 × 6.6 + 0.03 × 50.0 = 7.90 pJ. Average: 0.08 × 50.0 + 0.92 × 7.90 = 4.00 + 7.27 = <strong>11.27 pJ</strong>, 3% more than (a). Extra cycles: 0.92 × 0.03 ≈ <strong>0.028 per fetch</strong>, 72% fewer.</li>
+<li><strong>(c)</strong> Per instruction, (a) adds 0.10 / 4 × 0.4 = 0.010 cycles, <strong>1.25%</strong> of a 0.8 CPI. (b) adds 0.028 / 4 × 0.4 ≈ 0.0028 cycles, <strong>0.35%</strong>.</li>
+<li>The confidence bit trades 3% of fetch energy for most of the lost cycles, usually a good trade.</li>
+</ol>`, "hard"),
+},
+{
   id: "intv-lsq",
   title: "Loads, Stores and Memory Ordering",
   body: `
@@ -1058,6 +1268,259 @@ Q(`<p>How would you test a load/store queue model for correctness when accesses 
 <li><strong>Ordering scenarios:</strong><ul><li>Load before the older store’s address resolves, then aliasing</li><li>Several older stores to the same address (the youngest older must win)</li><li>Stores with address known but data not</li></ul></li>
 <li><strong>Golden reference:</strong> run random load/store streams over a small address range (to force collisions) and check every load’s value against an in-order functional model. Even a timing-only model can track byte-level “which store produced this byte” and compare that.</li>
 <li><strong>Invariants:</strong><ul><li>Retired stores drain in order</li><li>No load completes with data from a younger store</li><li>Violations always trigger a flush from the load</li></ul></li>
+</ol>`, "medium"),
+},
+{
+  id: "intv-mem",
+  title: "Caches, TLBs and DRAM",
+  body: `
+<p>Background: <a href="#/r/mem">Memory Hierarchy</a>, <a href="#/r/ctr">Cache Trade-Offs</a>, <a href="#/dcache/way-pred">Way Prediction in the Data Cache</a>, <a href="#/tlb">TLBs and Page Walks</a>, <a href="#/dram-ctrl">DRAM Controllers and Scheduling</a>.</p>
+<h3 id="sec-cache">Cache Organization and Policy</h3>` +
+Q(`<p>Zen 5 grew its L1D from 32 KB, 8-way to 48 KB, 12-way, keeping 64 sets. Why add ways instead of sets, and what does that cost?</p>`,
+`<p>With 64-byte lines and 64 sets, offset plus index is 6 + 6 = 12 bits, exactly the 4 KB page offset. The set is chosen from bits that need no translation, so the cache can be virtually indexed and physically tagged, with the DTLB lookup in parallel and no aliasing. 128 sets would need bit 12, which is translated, so the design would need synonym handling or a slower physically indexed access.</p>
+<p>The cost: a parallel read now touches 12 ways of tags and data, which takes more energy per load and a wider output mux on the load-to-use path. That is why the L1D’s utag way predictor matters: a load reads only the predicted way.</p>`, "easy") +
+Q(`<p>How would you classify every L1D miss in your model as compulsory, capacity, conflict, or coherence? What does each class tell you to change?</p>`,
+`<ul>
+<li><strong>Compulsory:</strong> the first reference to the line in the run. Keep a set of every line ever seen.</li>
+<li><strong>Capacity:</strong> misses that a fully associative LRU cache of the same size would also take. Run that shadow cache on the same access stream.</li>
+<li><strong>Conflict:</strong> misses the real cache takes that the shadow cache doesn’t.</li>
+<li><strong>Coherence:</strong> the line was present but invalidated by another core’s write. Record why each line left the cache.</li>
+</ul>
+<p>What each points to: compulsory misses to prefetching or larger lines, capacity misses to a larger cache or software blocking, conflict misses to associativity, index hashing, or padding, and coherence misses to data layout (false sharing) or fewer shared writes.</p>
+<p>Caveat: the split depends on the shadow cache’s policy. A real policy can beat fully associative LRU on scans, giving a negative conflict count, so treat the classes as a guide rather than exact.</p>`, "medium") +
+Q(`<p>A database’s 2 MB hot index shares a 32 MB LLC with table scans that stream 64 MB between index lookups. Under LRU, the index keeps missing. Explain why, and describe two replacement policies that fix it.</p>`,
+`<p>LRU inserts every scanned line at the most-recently-used position. A 64 MB scan pushes each index line down to LRU and out before its next use, even though the index alone would fit easily.</p>
+<ul>
+<li><strong>RRIP</strong> (SRRIP, BRRIP, or DRRIP choosing between them by set dueling): new lines are inserted with a “distant re-reference” prediction and are evicted first unless they are hit again. Scan lines are never hit again, so they churn through a small part of each set, while index lines, promoted on every hit, stay.</li>
+<li><strong>Insertion policies</strong> (LIP, BIP, and DIP choosing by set dueling): insert new lines at the LRU position (BIP occasionally at MRU), with the same effect.</li>
+<li><strong>PC-based predictors</strong> (SHiP, Hawkeye): learn that the scan’s load PCs bring in lines that are never reused, and insert those at low priority.</li>
+</ul>
+<p>Software options: non-temporal hints on the scan, or way partitioning (Intel’s Cache Allocation Technology) that confines the scanning thread to a few ways.</p>`, "medium") +
+Q(`<p>A stride prefetcher with 90% accuracy raises IPC on every benchmark when it runs alone. On a 32-core mix of the same benchmarks, throughput drops. How can an accurate prefetcher hurt, and what would you measure?</p>`,
+`<p>Accuracy counts prefetches that were used, not what they cost everyone else:</p>
+<ul>
+<li><strong>Bandwidth:</strong> with 32 cores, DRAM is near saturation. Prefetches, even useful ones, raise the load, latency climbs up the loaded-latency curve, and every core’s demand misses slow down. A prefetch of data that would have been fetched in time anyway adds traffic and nothing else.</li>
+<li><strong>Shared LLC pollution:</strong> prefetched lines evict other cores’ useful data.</li>
+<li><strong>Occupancy:</strong> prefetches hold MSHRs and L2 and LLC queue entries that demand misses then wait for.</li>
+<li><strong>Timeliness under load:</strong> prefetches issued too early are evicted by other cores’ traffic before use.</li>
+</ul>
+<p>Measure each core’s slowdown alone versus in the mix, DRAM bandwidth and loaded latency with the prefetcher on and off, LLC misses of each core to lines evicted by another core’s prefetches, and MSHR and queue occupancy by prefetches. Fixes: throttle on bandwidth and pollution feedback (feedback-directed prefetching), insert prefetched lines at low replacement priority, and coordinate throttling across cores.</p>`, "hard") +
+M(`<p>A 1 MB, 16-way L2 with 64-byte lines and 48-bit physical addresses stores, per line, the tag plus 4 state bits.</p>
+<ul>
+<li>(a) How large is the tag array?</li>
+<li>(b) A sectored version uses 128-byte lines made of two 64-byte sectors, each with its own 4 state bits. How large is its tag array?</li>
+<li>(c) A workload’s hot data is 700 KB of 64-byte records, but only every other record is hot, so each 128-byte block holds one hot sector. Which design holds the hot data?</li>
+</ul>`,
+`<ol start="0">
+<li><strong>(a)</strong> 1 MB / 64 B = 16,384 lines, in 16,384 / 16 = 1,024 sets. Offset 6 bits and index 10 bits leave a 48 − 16 = 32-bit tag. 36 bits × 16,384 = 589,824 bits = <strong>72 KB</strong>, 7% of the data array.</li>
+<li><strong>(b)</strong> 8,192 tags in 512 sets: offset 7 and index 9 bits leave a 32-bit tag again. 32 + 2 × 4 = 40 bits × 8,192 = 327,680 bits = <strong>40 KB</strong>, saving 32 KB.</li>
+<li><strong>(c)</strong> The plain cache holds 16,384 lines, so 700 KB of hot lines fit. The sectored cache has only 8,192 tags, and each hot sector uses a whole one, so it holds at most 8,192 × 64 B = <strong>512 KB</strong> of hot data and misses on the rest. Sectoring saves tag area when access is dense and halves effective capacity when it is sparse.</li>
+</ol>`, "medium") +
+`<h3 id="sec-way">Way Prediction in the Data Cache</h3>` +
+Q(`<p>Two processes on the SMT siblings of an AMD core read a shared-memory buffer mapped at different virtual addresses in each. Profiling shows a high L1D miss rate, though the buffer is only 16 KB. Explain it, say how you’d confirm it, and why AMD chose to treat a utag mismatch as a miss.</p>`,
+`<p>The L1D’s utag is a hash of linear (virtual) address bits. One physical line reached through two virtual addresses has two different utags, but only one can be stored with the line. An access through the other mapping finds no matching utag, which counts as an L1 miss: it goes to the L2, and the line is retagged under the new hash. Then the other thread misses on its next access. The line never leaves the L2, so the symptom is L1 misses that all hit in L2 on a tiny buffer.</p>
+<p><strong>Confirm:</strong> a microbenchmark that maps the buffer at the same virtual address in both processes (or uses two threads of one process). The misses should vanish. In a model, compute per-line utags from virtual addresses so the effect appears.</p>
+<p><strong>Why a miss:</strong> it turns a way mispredict into a clean miss that the existing miss and replay path already handles. The scheduler wakes dependents for a fixed L1 hit latency, and a “late hit in another way” would need a new replay case in a critical timing loop. The costs are alias and collision misses, and the side channel shown in “Take A Way” (2020).</p>`, "hard") +
+Q(`<p>Why does a way misprediction cost more in the L1D of an out-of-order core than in its instruction cache? Why don’t stores need a way predictor at all?</p>`,
+`<ul>
+<li><strong>Data side:</strong> the scheduler wakes a load’s dependents speculatively so they arrive exactly when an L1 hit returns. A late hit means they issued too early, so they are cancelled and replayed, wasting issue slots and port bandwidth. Load-to-use latency also sits on almost every dependency chain.</li>
+<li><strong>Instruction side:</strong> a one-cycle fetch bubble is usually absorbed by the fetch queue or the FTQ.</li>
+<li><strong>Stores</strong> write the cache only after they commit, off the critical path. They can check the tags first and write just the way that hit, which gets way selection’s energy saving with no prediction.</li>
+</ul>`, "medium") +
+M(`<p>Two SMT threads alternate reading a shared buffer through different virtual mappings, as in the utag question in the Conceptual tab. Each thread does 350 loads per 1,000 instructions, and 12 of them per 1,000 instructions touch a line last accessed through the other mapping. Each of those becomes a 14-cycle L2 hit instead of a 4-cycle L1 hit, and 30% of the extra latency shows up in run time. Each thread runs at CPI 0.9 without the problem, on a 4.5 GHz core.</p>
+<ul>
+<li>(a) What does the aliasing cost each thread?</li>
+<li>(b) How much extra L2-to-L1 traffic does each thread cause?</li>
+</ul>`,
+`<ol start="0">
+<li><strong>(a)</strong> Each alias adds (14 − 4) × 0.3 = 3 exposed cycles. 12 per 1,000 instructions gives 36 cycles per 1,000, or 0.036 CPI. CPI rises from 0.9 to 0.936, about <strong>4% slower</strong>.</li>
+<li><strong>(b)</strong> Each thread retires 4.5 × 10<sup>9</sup> / 0.936 ≈ 4.8 × 10<sup>9</sup> instructions per second, so 0.012 × 4.8 × 10<sup>9</sup> ≈ 5.8 × 10<sup>7</sup> extra fills, × 64 B ≈ <strong>3.7 GB/s</strong>.</li>
+<li>The fix is free: map the buffer at the same virtual address in both processes, or share it between threads of one process.</li>
+</ol>`, "medium") +
+`<h3 id="sec-tlb">Address Translation</h3>` +
+Q(`<p>How can a workload hit in the L3 on most accesses and still miss in the TLB on most of them?</p>`,
+`<p>TLB reach is entries × page size. With 4 KB pages, Zen 5’s 4,096-entry L2 DTLB reaches 16 MB and Zen 4’s 3,072 entries reach 12 MB, less than a 32 MB L3. A random-access working set of 20 to 30 MB fits in the L3 but spans more pages than the TLB covers, so most accesses also pay for a page walk. 2 MB pages raise the reach 512-fold.</p>`, "easy") +
+Q(`<p>Why should a model send page-walk reads through the cache hierarchy instead of charging a fixed walk latency? What other walker details set translation throughput?</p>`,
+`<p>A walk is a chain of dependent loads, and its cost depends on where the page-table entries are: the upper levels are almost always in the page-walk caches, while the leaf entries sit in L1 or L2 for small footprints and in L3 or DRAM for large random ones. A fixed latency is wrong in both directions, and it misses that page-table lines compete with data for cache capacity and bandwidth (huge pages shrink the tables so they stay cached).</p>
+<p>Throughput details:</p>
+<ul>
+<li>The number of walkers, which caps overlapping TLB misses the way MSHRs cap overlapping cache misses (Intel went from one to two in Broadwell, and Zen 5 has six).</li>
+<li>Page-walk cache sizes for each level.</li>
+<li>Whether walks start for speculative loads, and any translation prefetching.</li>
+<li>The page sizes the production system would really use.</li>
+</ul>`, "medium") +
+Q(`<p>On silicon, backing a graph-analytics workload with 2 MB pages makes it 15% faster. Your model, which charges a fixed 30 cycles per L2 TLB miss, predicts 1%. What is the model missing?</p>`,
+`<ul>
+<li><strong>Walk cost isn’t fixed.</strong> A leaf entry is 8 bytes per 4 KB page, so a 48 GB footprint needs about 96 MB of leaf entries, which don’t fit in cache: many walks go to DRAM, hundreds of cycles each. With 2 MB pages there are 512× fewer entries, and they stay cached.</li>
+<li><strong>The walk is on the critical path.</strong> The data load can’t issue until its walk finishes, so walk latency adds to every random access.</li>
+<li><strong>Walker count.</strong> With few walkers, walks queue, and the walker bound (misses × walk latency / walkers) can be the bottleneck rather than the data MSHRs.</li>
+<li><strong>Cache pollution.</strong> Page-table lines evict data and add traffic.</li>
+<li><strong>Setup.</strong> The model may hand out the wrong page size for the baseline, or ignore how the OS maps memory.</li>
+</ul>
+<p>Fix: model walks as loads through the hierarchy, with the real walker count and page-walk caches and page tables built from the real mapping. Validate with a pointer chase over a huge array at each page size.</p>`, "hard") +
+M(`<p>A graph kernel does independent random 8-byte reads over a 48 GB array, and every read misses to DRAM (400 cycles). The core keeps up to 16 data misses in flight and has 6 page walkers. The L2 DTLB holds 4,096 entries for 4 KB or 2 MB pages (as on Zen 5), plus a 1,024-entry array for 1 GB pages. A walk finds the upper levels in the page-walk cache and reads only the leaf entry. With 4 KB pages, that entry comes from DRAM 60% of the time and from L3 (50 cycles) otherwise. With 2 MB pages it always hits in L3. Considering only the miss and walk bounds, find the cycles per read with 4 KB, 2 MB, and 1 GB pages.</p>`,
+`<ol start="0">
+<li>Data bound: 400 / 16 = 25 cycles per read.</li>
+<li><strong>4 KB pages:</strong> the reach is 16 MB against 48 GB, so essentially every read walks. Walk = 0.6 × 400 + 0.4 × 50 = 260 cycles. Walker bound: 260 / 6 ≈ 43.3. T = max(25, 43.3) = <strong>43.3 cycles</strong>, bound by the walkers.</li>
+<li><strong>2 MB pages:</strong> 48 GB / 2 MB = 24,576 pages against 4,096 entries, so 1 − 4,096 / 24,576 ≈ 83% of reads still miss the TLB. Each walk costs 50 cycles: 0.83 × 50 / 6 ≈ 6.9. T = <strong>25 cycles</strong>, bound by data misses, 1.73× faster.</li>
+<li><strong>1 GB pages:</strong> 48 pages, all in the 1,024-entry array, so no walks. T = <strong>25 cycles</strong>, no better than 2 MB here.</li>
+<li>2 MB pages win not by hitting in the TLB (83% still miss) but by making walks cheap: their 24,576 leaf entries take 192 KB and stay cached, while 4 KB pages need 12.6 million entries, about 96 MB.</li>
+</ol>`, "hard") +
+`<h3 id="sec-dram">DRAM and Bandwidth</h3>` +
+Q(`<p>Why is a fixed DRAM latency fine for modeling a pointer-chasing benchmark but badly wrong for a bandwidth-heavy one?</p>`,
+`<p>Pointer chasing has one miss in flight at a time, so the controller is lightly loaded, requests rarely queue, and latency stays near idle. Bandwidth-heavy code keeps many misses in flight: queues build, bank conflicts multiply, and latency rises steeply as utilization nears 70 to 90% of peak. A fixed latency gives such code no bandwidth ceiling and too low a latency at the same time. Use a DRAM model with banks, row buffers, and timing constraints, and validate its latency-versus-bandwidth curve (with a tool like Intel’s Memory Latency Checker), not just its idle latency.</p>`, "easy") +
+Q(`<p>In your model, a kernel that reads one 64-byte line every 8 KB gets a third of the bandwidth of a sequential stream, though both read the same number of lines. Explain it in terms of the DRAM address mapping, and say how controllers avoid it.</p>`,
+`<p>The controller takes the channel, bank group, and bank from fixed address bits above the column bits. A power-of-two stride such as 8 KB leaves those bits unchanged, or cycles them through a few values. So every access lands in the same channel and bank, each in a different row: every access is a row conflict (precharge, activate, read) in one bank, serialized by the bank’s row cycle time, while the other banks and channels sit idle. A sequential stream hits open rows and spreads over banks and channels.</p>
+<p>Fixes:</p>
+<ul>
+<li>XOR the bank and channel bits with higher row bits, so strides spread across banks.</li>
+<li>Interleave channels on low address bits.</li>
+<li>In software, pad arrays so their strides aren’t powers of two.</li>
+</ul>
+<p>In the model, implement the real controller’s mapping. Row-hit rate and bank spread are very sensitive to it.</p>`, "hard") +
+Q(`<p>Your DRAM model shows periodic read-latency spikes of several hundred nanoseconds during a store-heavy phase, though average bandwidth is well below peak. What causes them, and what would you measure or change?</p>`,
+`<p><strong>Write drain.</strong> The controller buffers writes and, when the write queue passes a high watermark, switches the bus to writes and drains down to a low watermark. Switching the bus direction costs turnaround time, so writes are drained in batches, and reads wait through each batch. All-bank refresh blocks the rank in the same way.</p>
+<p><strong>Measure:</strong> read latency over time against write-queue occupancy, drain start and stop events, and refresh events. The spikes should line up with drains.</p>
+<p><strong>Change:</strong></p>
+<ul>
+<li>Tune the watermarks: smaller batches trade more turnarounds for shorter waits.</li>
+<li>Let old reads interrupt a drain, with a cap.</li>
+<li>Use DDR5’s same-bank refresh so other banks keep working.</li>
+<li>Reduce write traffic upstream: write-combining, and non-temporal stores that avoid read-for-ownership traffic.</li>
+</ul>
+<p>The spikes matter for tail latency even when the average looks fine.</p>`, "hard") +
+M(`<p>DDR5-6000 with 30-38-38 timings (tCL-tRCD-tRP, a common desktop kit) runs its bus clock at 3,000 MHz. Under an open-page policy, a workload’s accesses are 45% row hits, 15% to closed rows, and 40% row conflicts.</p>
+<ul>
+<li>(a) What is the average device latency?</li>
+<li>(b) A closed-page policy precharges after every access, so every access finds its row closed. Assume the precharge is always hidden. Which policy wins here?</li>
+<li>(c) In general, when does open-page win?</li>
+</ul>`,
+`<ol start="0">
+<li>Clock period 1 / 3,000 MHz ≈ 0.333 ns, so tCL = 10.0 ns, tRCD = 12.67 ns, and tRP = 12.67 ns.</li>
+<li>Row hit 10.0 ns. Closed row tRCD + tCL = 22.67 ns. Conflict tRP + tRCD + tCL = 35.33 ns.</li>
+<li><strong>(a)</strong> 0.45 × 10.0 + 0.15 × 22.67 + 0.40 × 35.33 = 4.50 + 3.40 + 14.13 ≈ <strong>22.0 ns</strong>.</li>
+<li><strong>(b)</strong> Closed page: always 22.67 ns. Open page wins, but only by about 0.6 ns, 3%.</li>
+<li><strong>(c)</strong> Open minus closed = h × (10.0 − 22.67) + c × (35.33 − 22.67) = 12.67 × (c − h), since tRCD = tRP here. Open page wins exactly when <strong>row hits outnumber row conflicts</strong>. Real controllers adapt, closing a row after a timeout or when no queued request targets it.</li>
+</ol>`, "medium") +
+M(`<p>A Zen 5 core can track 124 outstanding misses, and idle DRAM latency is 90 ns.</p>
+<ul>
+<li>(a) By Little’s law, how much bandwidth could one core draw?</li>
+<li>(b) The core’s chiplet connects to the I/O die over a link that reads 32 bytes per fabric clock at 2.0 GHz. What bounds a single core now, and how many misses does it actually need in flight?</li>
+<li>(c) The desktop part has two 64-bit channels of DDR5-6000 and sustains about 80% of peak. How many cores does it take to saturate DRAM?</li>
+</ul>`,
+`<ol start="0">
+<li><strong>(a)</strong> 124 × 64 B / 90 ns = 7,936 B / 90 ns ≈ <strong>88 GB/s</strong>.</li>
+<li><strong>(b)</strong> The link moves 32 B × 2.0 GHz = <strong>64 GB/s</strong>, below 88, so it binds. At 64 GB/s and 90 ns, Little’s law needs 64 × 90 = 5,760 B in flight, <strong>90 lines</strong>. (Once the link queues, latency rises above 90 ns, and the extra miss slots absorb it.)</li>
+<li><strong>(c)</strong> Peak is 2 × 6,000 MT/s × 8 B = 96 GB/s, so about 77 GB/s sustained. One chiplet’s link (64 GB/s) can’t saturate it, but two cores on different chiplets (128 GB/s of link) can. So <strong>2 cores</strong>, if they are on different chiplets.</li>
+<li>Real single-core bandwidth is usually lower still, because L2 and L3 miss queues and the prefetchers limit how many of those slots fill. The point stands: on desktop parts, a core or two can saturate memory.</li>
+</ol>`, "hard"),
+},
+{
+  id: "intv-coh",
+  title: "Coherence and Consistency",
+  body: `
+<p>Background: <a href="#/r/coh">Coherence</a>, <a href="#/moesi">MOESI, MESIF, and Snoop Filters</a>, <a href="#/coh-transient">Transient States and Protocol Races</a>, <a href="#/consistency">Memory Consistency Models in Hardware</a>.</p>
+<h3 id="sec-protocol">Protocols and States</h3>` +
+Q(`<p>In MESIF, why does exactly one sharer hold a clean shared line in the F state, and which sharer gets it?</p>`,
+`<p>A new reader can get a clean shared line from another cache faster than from memory, but if every sharer answered, all but one reply would be wasted traffic. F names a single responder, and the other sharers stay silent in S. The newest requester usually receives F, and the previous holder drops to S, because the newest copy is the least likely to be evicted soon. If the F copy is evicted, the next request is served by the LLC or memory.</p>`, "easy") +
+Q(`<p>A core holding a line in E can write it without telling anyone. Why can’t a core in S? What does the upgrade cost with snooping and with a directory?</p>`,
+`<p>E guarantees there are no other copies, so moving to M silently is safe. S means other caches may hold copies, and they must be invalidated before the write, or two cores could see different values (the single-writer invariant).</p>
+<ul>
+<li><strong>Snooping:</strong> the core broadcasts an upgrade. Every cache checks its tags and drops its copy, and the write proceeds once the request is ordered on the interconnect (and acknowledged, if the interconnect isn’t atomic).</li>
+<li><strong>Directory:</strong> the request goes to the line’s home, which sends invalidations to each recorded sharer and tells the requester how many acknowledgments to expect. The sharers acknowledge directly to the requester. The critical path is requester → home → sharer → requester, plus the home’s lookup.</li>
+</ul>
+<p>That cost is why E exists: private data that is read and then written never needs the upgrade.</p>`, "medium") +
+`<h3 id="sec-scale">Snoop Filters and Directories</h3>` +
+Q(`<p>When Intel grew the private L2 from 256 KB to 1 MB per core in Skylake-SP, it also changed the shared LLC from inclusive to non-inclusive, with a separate snoop filter. Why do those two changes belong together?</p>`,
+`<p>An inclusive LLC holds a copy of every line in the private caches. With 1 MB of L2 per core and 1.375 MB of LLC per core, it would spend most of its capacity duplicating the L2s, leaving little room for shared and victim data. Its evictions would also back-invalidate hot L2 lines often.</p>
+<p>A non-inclusive LLC holds mostly L2 victims, so the effective capacity is close to L2 plus LLC. But the LLC tags no longer record what the private caches hold, so a separate snoop filter (tags and presence bits, no data) must track every private line. That costs far less per tracked line than duplicating the data. It has to be sized for all private capacity with associativity to spare, or its own evictions back-invalidate lines that cores are still using.</p>`, "hard") +
+M(`<p>A 96-core chip has a 1 MB private L2 per core with 64-byte lines, and a sparse directory with one entry per line held in a private cache. Compare the sharer-tracking bits per entry and in total for:</p>
+<ul>
+<li>(a) a full bit vector</li>
+<li>(b) four limited pointers plus an overflow bit that falls back to broadcast</li>
+<li>(c) a coarse vector with one bit per cluster of 8 cores</li>
+</ul>
+<p>What does each send when a core writes a line that 20 other cores share?</p>`,
+`<ol start="0">
+<li>Entries: 96 × 1 MB / 64 B = 1,572,864.</li>
+<li><strong>(a)</strong> 96 bits each, 1,572,864 × 96 ≈ 151 million bits = <strong>18 MiB</strong>.</li>
+<li><strong>(b)</strong> Each pointer names one of 96 cores in 7 bits: 4 × 7 + 1 = 29 bits, about <strong>5.4 MiB</strong>.</li>
+<li><strong>(c)</strong> 96 / 8 = 12 bits, <strong>2.25 MiB</strong>.</li>
+<li>Write to a line with 20 sharers: (a) sends exactly <strong>20</strong> invalidations. (b) has overflowed its 4 pointers, so it broadcasts to all <strong>95</strong> other cores. (c) invalidates every core in each cluster with a sharer, from 24 messages if the sharers are packed into 3 clusters up to 95 if they are spread over all 12.</li>
+<li>Real directories also overprovision entries beyond the private line count, to absorb conflicts in their own sets.</li>
+</ol>`, "medium") +
+M(`<p>A 64-core chip runs at 3 GHz. Each core runs at IPC 1.5 with 20 L2 misses per 1,000 instructions.</p>
+<ul>
+<li>(a) With broadcast snooping, how many snoop lookups per cycle must each core’s L2 tags handle, and how many snoop messages cross the network per cycle?</li>
+<li>(b) A snoop filter forwards only the 4% of misses to lines that another private cache holds, to 1.5 caches on average. What are the two rates now?</li>
+</ul>`,
+`<ol start="0">
+<li>Misses per core per cycle: 1.5 × 0.02 = 0.03. Chip-wide: 64 × 0.03 = 1.92 per cycle.</li>
+<li><strong>(a)</strong> Each core sees every other core’s misses: 63 × 0.03 ≈ <strong>1.9 snoops per cycle</strong>, nearly two tag lookups per cycle on top of its own accesses, far more tag bandwidth than an L2 has to spare. The network carries 1.92 × 63 ≈ <strong>121 snoop messages per cycle</strong>.</li>
+<li><strong>(b)</strong> Forwarded probes: 1.92 × 0.04 × 1.5 ≈ <strong>0.12 per cycle</strong> chip-wide, or about <strong>0.002 per core per cycle</strong>, roughly a thousand times fewer.</li>
+<li>That is the case for directories and snoop filters at high core counts.</li>
+</ol>`, "medium") +
+`<h3 id="sec-races">Transient States and Races</h3>` +
+Q(`<p>Why can’t a cache that has sent a GetM for a line simply be in M, or stay in I, until the reply arrives?</p>`,
+`<p>M is wrong because the cache has no data yet and other caches may still hold copies, so writing would break the single-writer invariant. I is wrong because the cache has a request outstanding: if a forwarded request or an invalidation for the line arrives in the meantime, it must know it is mid-transaction so it can stall, acknowledge, or merge correctly. It needs a transient state, IM<sup>AD</sup> in the primer’s naming: going from I to M, waiting for data and acknowledgments.</p>`, "easy") +
+Q(`<p>A cache in IM<sup>A</sup> (it has the data and is waiting for acknowledgments) receives a Fwd-GetM for a later writer and stalls it. Explain how that stall could deadlock the system if every message shares one network, and why separate virtual networks with responses that always sink prevent it.</p>`,
+`<p>The stalled Fwd-GetM sits at the head of the cache’s input queue. The acknowledgments the cache needs to reach M arrive on the same queue, behind it, so they can never be consumed. The cache never reaches M, so it never handles the forward, and other caches whose messages back up behind it stall too: deadlock.</p>
+<p>With separate virtual networks (requests, forwarded requests, responses), each with its own buffers, the acknowledgments travel on the response network and can’t be blocked by the stalled forward. Responses always sink: consuming one never requires sending a message that could block. So the response network always drains, the transaction completes, and the stalled forward proceeds.</p>`, "hard") +
+Q(`<p>Eight cores spin on a lock in a directory-based system. Compare the coherence traffic of test-and-set spinning and test-and-test-and-set spinning, both while the lock is held and at the moment it is released. What does a queue lock change?</p>`,
+`<p><strong>Test-and-set:</strong> every spin is an atomic read-modify-write that needs the line in M. While the lock is held, the line moves from spinner to spinner, each attempt an ownership request, an invalidation, and a data transfer. The holder’s releasing store must also get the line back in M, queued behind the spinners’ requests, so even the release is delayed.</p>
+<p><strong>Test-and-test-and-set:</strong> spinners use plain loads until the lock looks free, so they all hold the line in S and spin in their own L1 with no traffic while it is held. At release, the holder’s store invalidates all 7 sharers. All 7 then re-read it (7 transfers from the new owner), see it free, and all try the atomic: 7 ownership requests, serialized. One wins, and the rest fail and return to reading. That is a burst of transfers per handoff, but none while the lock is held.</p>
+<p><strong>Queue locks</strong> (MCS) give each waiter its own line to spin on, so a handoff is a single transfer. Backoff also shrinks the burst. A performance model needs per-line busy states and serialization at the directory to cost any of these correctly.</p>`, "hard") +
+M(`<p>A hot lock line lives at one directory slice. Each acquire is a transaction that keeps the line’s directory entry busy for 60 ns, and requests to a busy line wait. 32 cores each try to acquire the lock about once every 2 µs, at random times.</p>
+<ul>
+<li>(a) What fraction of the time is the entry busy?</li>
+<li>(b) Treating it as an M/D/1 queue, what is the average wait before a transaction starts?</li>
+<li>(c) What happens if each core’s rate rises by 10%?</li>
+</ul>`,
+`<ol start="0">
+<li><strong>(a)</strong> Arrivals: 32 / 2,000 ns = 0.016 per ns. Utilization ρ = 0.016 × 60 = <strong>0.96</strong>.</li>
+<li><strong>(b)</strong> For M/D/1, the mean wait is W = ρ S / (2 (1 − ρ)) = 0.96 × 60 / (2 × 0.04) = <strong>720 ns</strong>, twelve times the service time. Each acquire takes about 780 ns, not 60.</li>
+<li><strong>(c)</strong> ρ = 1.056, above 1: the queue grows without bound. In practice cores slow down as they wait, and acquisitions saturate at 1 / 60 ns ≈ 16.7 million per second chip-wide.</li>
+<li>A model without per-line busy states and queuing at the directory charges 60 ns where the real system pays more than ten times as much.</li>
+</ol>`, "hard") +
+`<h3 id="sec-order">Consistency Models</h3>` +
+Q(`<p>Thread 0 writes data and then sets a flag. Thread 1 waits for the flag and then reads the data. Why can thread 1 see the flag set and still read stale data on Arm, but not on x86? What is the cheapest correct fix on Arm?</p>`,
+`<p>x86’s TSO keeps stores in order and loads in order: if the flag is visible, the data is too, and thread 1’s loads stay ordered. Arm’s model lets independent stores become visible out of order and independent loads complete out of order, so either side can break the pattern.</p>
+<p>The cheapest fix is a store-release for the flag (<code>stlr</code>) and a load-acquire to read it (<code>ldar</code>, or <code>ldapr</code>). Release orders every earlier access before the flag store, and acquire orders the flag load before every later access. That is cheaper than full <code>dmb</code> barriers on both sides. An address dependency from the flag to the data also orders them at no cost, if the code’s structure allows it.</p>`, "medium") +
+Q(`<p>An out-of-order x86 core executes loads out of order, yet TSO requires loads to appear in program order. How does it stay correct? What does it cost when the check fails, and how could the same idea make sequential consistency nearly as fast as TSO?</p>`,
+`<p>Loads execute speculatively as soon as their addresses are ready, and the load queue keeps each load’s address until it retires. If an invalidation (another core’s write) or an eviction hits a line that a completed but unretired load has read, while an older load is still incomplete, the reordering might be visible. The core then squashes that load and everything younger and re-executes: a memory-ordering machine clear.</p>
+<p>The cost is a full flush, like a mispredict, and it grows with the window size. Counters such as Intel’s MACHINE_CLEARS.MEMORY_ORDERING show it, and frequent clears point at true sharing of hot lines.</p>
+<p>For SC, the remaining relaxation in TSO is a load passing an older buffered store. An SC machine can let loads do that speculatively too, and roll back if a conflicting coherence event arrives before the store commits. Gniady, Falsafi, and Vijaykumar (1999) showed that with enough speculation buffering, SC comes close to relaxed models. What costs performance is waiting for order, not order itself.</p>`, "hard") +
+Q(`<p>In the IRIW litmus test, two threads each write one location, and two reader threads read both locations in opposite orders. Arm and RISC-V forbid the outcome where the readers disagree on which write came first, while POWER allows it. What property does that reflect, and what hardware arrangement would allow it?</p>`,
+`<p>The property is multi-copy atomicity: a store becomes visible to all other cores at the same moment. Then, once each reader’s two loads are ordered (by acquire, a barrier, or a dependency), both readers must agree on the order of the two writes.</p>
+<p>POWER isn’t multi-copy atomic: a store can become visible to some cores before others. One arrangement that causes this is cores or hardware threads that share a store buffer or a cache through which stores pass, and forward stores to each other before they are visible to everyone. A reader next to the first writer sees x first, while a reader next to the second writer sees y first. Forbidding the outcome means no core may read a store before it is visible to all, for example by not forwarding between SMT threads from a shared store buffer before commit. The payoff is much simpler reasoning for programmers and tools.</p>`, "hard") +
+Q(`<p>Why does a full fence on x86 cost tens of cycles even when no stores are pending? Why do lock-free algorithms prefer acquire and release orderings?</p>`,
+`<p><code>mfence</code> must drain the store buffer and keep later loads from executing until it has, which serializes the memory pipeline. Even with an empty buffer this costs tens of cycles on recent x86 cores, and with buffered store misses it costs hundreds.</p>
+<p>Acquire and release order only what they need to. Under TSO, plain x86 loads and stores already behave as acquire and release, so those orderings are free. On Arm, <code>ldar</code> and <code>stlr</code> are cheaper than a full <code>dmb</code>. Locks use locked read-modify-write instructions, which also drain the buffer but combine that with the atomic operation.</p>`, "easy") +
+M(`<p>A producer on an x86 core publishes each message by writing 64 bytes (8 stores) into a ring-buffer slot, then the slot’s ready flag, then executing <code>mfence</code>. At the fence, the store buffer holds those 9 stores. Stores commit to L1 in order, one per cycle when they hit. The slot’s line and the flag’s line both miss, since the consumer read them last, and each needs a 60-cycle ownership transfer. The fence costs 30 cycles on top of the drain.</p>
+<ul>
+<li>(a) How long does the fence take if each ownership request starts only when its store reaches the head of the buffer, and if both start early?</li>
+<li>(b) At 4 GHz, what message rate does the fence allow?</li>
+<li>(c) Is the fence needed?</li>
+</ul>`,
+`<ol start="0">
+<li><strong>(a)</strong> In order: 60 cycles for the slot’s line, 8 commits, then 60 for the flag’s line and 1 commit, about 129 cycles, plus 30: about <strong>160 cycles</strong>. With both ownership requests started early, they overlap: about 60 + 9 + 30 ≈ <strong>100 cycles</strong>.</li>
+<li><strong>(b)</strong> At most 4 × 10<sup>9</sup> / 160 = <strong>25 million</strong> messages per second, or 40 million with early ownership requests, before counting the producer’s own work.</li>
+<li><strong>(c)</strong> No. Under TSO, stores become visible in program order, so a consumer that sees the flag and then reads the slot sees the message: the message-passing outcome is forbidden on x86. A fence is needed only to order a store before a later load (the store-buffering pattern, as in Dekker-style locks). Without it, the producer keeps working while the stores drain, and throughput is set by the ownership transfers, which overlap with other work. On Arm, the flag would need a store-release.</li>
+</ol>`, "hard") +
+`<h3 id="sec-sharing">Sharing Costs</h3>` +
+Q(`<p>How would you find false sharing in a C performance model, and on an x86 server with performance counters?</p>`,
+`<p><strong>Model:</strong> record, per line, which bytes each core writes. Flag coherence misses (a line invalidated by another core’s write) where the invalidating write and the missing access touch disjoint bytes, and report them by line and PC.</p>
+<p><strong>Silicon:</strong> count loads that hit a line modified in another core’s cache (HITM events), and use <code>perf c2c</code> to group them by cache line and by the offsets each thread touches. Different threads hitting disjoint offsets of one hot line is false sharing.</p>
+<p><strong>Fix:</strong> pad or align per-thread data to separate lines. Use 128 bytes on Intel cores whose spatial prefetcher fetches lines in pairs.</p>`, "medium") +
+M(`<p>Sixteen threads each increment their own 8-byte counter, and the 16 counters are packed into two 64-byte lines, 8 per line. Each thread increments once every 50 ns between other work. A line transfer between cores takes 70 ns, and transfers of one line are serialized.</p>
+<ul>
+<li>(a) Estimate each thread’s increment rate.</li>
+<li>(b) What does padding cost in memory, and what rate does it give?</li>
+</ul>`,
+`<ol start="0">
+<li>Demand per line: 8 threads × 1 / 50 ns = 0.16 increments per ns. The line can move at most once per 70 ns, about 0.014 per ns, so it is saturated more than ten times over.</li>
+<li><strong>(a)</strong> With the line saturated, each thread waits for the other 7 transfers before its own: about 8 × 70 = <strong>560 ns per increment</strong>, 11× slower than the 50 ns it wanted.</li>
+<li><strong>(b)</strong> One counter per line takes 16 × 64 B = <strong>1 KB</strong> instead of 128 B, and each thread is back to one increment per 50 ns plus an L1 hit. Even 2 KB, with 128-byte padding, is trivial next to an 11× slowdown.</li>
 </ol>`, "medium"),
 },
 {
