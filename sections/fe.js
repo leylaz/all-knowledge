@@ -5,11 +5,19 @@
 section({
   id: "fe",
   name: "Front End and Branch Prediction",
-  cap: "Predicting the path, fetching it, and turning it into micro-ops",
+  cap: "Predicting the path, fetching it, and turning it into macro-ops",
   body: `
-<p>The front end decides which instructions the core works on next and delivers them as micro-ops to rename. In a modern core it is mostly a prediction machine: the branch predictor runs ahead of fetch, picking the path many cycles before any branch on it executes, and the instruction cache, decoders, and micro-op cache follow wherever it points.</p>
-<p>The units of a decoupled front end, laid out the way AMD's Zen 5 arranges them (after Chips and Cheese's diagram). The branch predictor writes predicted fetch windows into the fetch queue and looks them up in the op cache, up to two windows per cycle. Op cache hits go straight to the macro-op queue (macro-ops are AMD's term for micro-ops). Misses fetch from the instruction cache, which feeds two decode clusters, one per predicted window, and the decoded macro-ops fill the op cache on their way to the macro-op queue. Not drawn: the fetch-directed prefetcher and the redirects from decode and the back end.</p>
-<div class="tbl"><svg viewBox="0 0 680 480" role="img" aria-label="Block diagram of the AMD Zen 5 front end. The branch predictor holds a 16K-entry L1 BTB, an 8K-entry L2 BTB, an indirect target array, and a 52-entry return stack. It sends predicted fetch windows to the fetch queue and, two ranges per cycle, to the op cache (6K entries, 16-way). Op cache misses go to the fetch queue, which reads the ITLB (64 entries L1, 2048 entries L2) and the 32 KB 8-way L1 instruction cache. The instruction cache exchanges 64 bytes per cycle with the L2 cache. Two 32-byte-per-cycle paths leave the instruction cache, each into its own instruction queue, which sends 4 instructions per cycle into a 4-wide decode cluster. Decode clusters 0 and 1 share the microcode unit between them. Each cluster sends 4 macro-ops per cycle to the macro-op queue and also fills the op cache. The op cache sends 12 macro-ops per cycle (two 6-wide paths) to the macro-op queue, which sends 8 macro-ops per cycle to rename." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<p>The front end decides which instructions the core works on next and delivers them as macro-ops to rename. In a modern core it is mostly a prediction machine: the branch predictor runs ahead of fetch, picking the path many cycles before any branch on it executes, and the instruction cache, decoders, and op cache follow wherever it points.</p>
+<div class="callout"><strong>Macro-ops and micro-ops.</strong> This section uses AMD's terms, matching the Zen 5 diagram below. The two words name two levels of the same work, and vendors draw the line differently:
+<ul>
+<li><strong>Macro-op (AMD).</strong> The unit that decode produces and the front end delivers to rename. Dispatch, the ROB, and retire count macro-ops. (Zen 3's and Zen 4's op caches stored macro-ops. Zen 5's stores decoded instructions instead, see <a href="#/fe-decode/uop-cache">The Op Cache</a>.) Most x86 instructions become one macro-op, some become two (AMD's guides call these fast path single and fast path double), and an instruction that needs more is sequenced by the microcode unit.</li>
+<li><strong>Micro-op (AMD).</strong> The unit an execution pipe or address-generation unit actually executes. A macro-op carries up to two micro-ops and is split into them at the schedulers. <code>add rax, [rbx]</code> is one macro-op (one dispatch slot, one ROB entry) holding two micro-ops, a load and an add.</li>
+<li><strong>Intel</strong> says "micro-op" (µop) for both levels and separates them by domain. A fused-domain µop is what decode, the micro-op cache, rename, and retire count, so it plays the role of AMD's macro-op. Unfused-domain µops are what the ports execute, like AMD's micro-ops. Intel's "macro" means something else again: its manuals call x86 instructions macro-instructions, and macro-fusion merges two of them (a compare and a conditional branch) into one µop.</li>
+<li><strong>Arm</strong> splits it the way AMD does. Decode produces macro-ops (MOPs), which are cracked into micro-ops (µOPs) at dispatch, and Arm's decoded-op cache is a macro-op (MOP) cache.</li>
+</ul>
+Widths in this section (decode output, the macro-op queue, rename) are in macro-ops unless they say otherwise. Zen 5's op cache is the exception, since it counts instructions. Where a page discusses an Intel core, it uses Intel's terms and says so.</div>
+<p>The units of a decoupled front end, laid out the way AMD's Zen 5 arranges them (after Chips and Cheese's diagram). The branch predictor writes predicted fetch windows into the fetch queue and looks them up in the op cache, up to two windows per cycle. Op cache hits go straight to the macro-op queue. Misses fetch from the instruction cache, which feeds two decode clusters, one per predicted window, and the decoded macro-ops fill the op cache on their way to the macro-op queue. Not drawn: the fetch-directed prefetcher and the redirects from decode and the back end.</p>
+<div class="tbl"><svg viewBox="0 0 680 480" role="img" aria-label="Block diagram of the AMD Zen 5 front end. The branch predictor holds a 16K-entry L1 BTB, an 8K-entry L2 BTB, an indirect target array, and a 52-entry return stack. It sends predicted fetch windows to the fetch queue and, two ranges per cycle, to the op cache (6K instructions in 64 sets × 16 ways). Op cache misses go to the fetch queue, which reads the ITLB (64 entries L1, 2048 entries L2) and the 32 KB 8-way L1 instruction cache. The instruction cache exchanges 64 bytes per cycle with the L2 cache. Two 32-byte-per-cycle paths leave the instruction cache, each into its own instruction queue, which sends 4 instructions per cycle into a 4-wide decode cluster. Decode clusters 0 and 1 share the microcode unit between them. Each cluster sends 4 macro-ops per cycle to the macro-op queue and also fills the op cache. The op cache sends up to 12 instructions per cycle (two 6-wide paths) to the macro-op queue, which sends 8 macro-ops per cycle to rename." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
 <defs><marker id="arrFE" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrFEt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker></defs>
 <text x="10" y="24" style="fill:var(--muted);font-size:12px;font-weight:600">AMD Zen 5</text>
 <rect x="10" y="40" width="160" height="188" rx="5" style="fill:none;stroke:var(--pad);stroke-width:1.5;stroke-dasharray:5 4"/>
@@ -55,10 +63,10 @@ section({
 <text x="90" y="212">52 entries</text>
 <text x="326" y="108">64 L1, 2048 L2</text>
 <text x="523" y="108">32 KB, 8-way</text>
-<text x="120" y="316">6K entries, 16-way</text>
+<text x="120" y="316">6K instructions</text>
 <text x="351.5" y="283">D0</text><text x="380.5" y="283">D1</text><text x="409.5" y="283">D2</text><text x="438.5" y="283">D3</text>
 <text x="561.5" y="283">D0</text><text x="590.5" y="283">D1</text><text x="619.5" y="283">D2</text><text x="648.5" y="283">D3</text>
-<text x="200" y="396">12 macro-ops (2 × 6 wide)</text>
+<text x="200" y="396">12 instructions (2 × 6 wide)</text>
 </g>
 <g style="fill:var(--muted);font-size:11px" text-anchor="end">
 <text x="387" y="150">32 B/cycle</text><text x="597" y="150">32 B/cycle</text>
@@ -102,9 +110,9 @@ section({
 <li><strong>Fetch target queue.</strong> Holds the predicted blocks until fetch is ready for them, along with the history needed to repair the predictor. Its occupancy is how far the predictor runs ahead (see <a href="#/fe-decoupled/ftq">The Fetch Target Queue</a>).</li>
 <li><strong>Prefetcher.</strong> Probes the instruction cache tags with the addresses in the queue and sends the misses to the L2, so lines arrive before fetch reaches them (see <a href="#/fe-decoupled/fdip">Fetch-Directed Prefetching</a>).</li>
 <li><strong>Instruction cache.</strong> Read at the head of the queue, with the ITLB translating in parallel. The queue entry can carry the predicted way, so only one way is read (see <a href="#/stage-if/way-pred">Way Prediction</a>). A miss goes to the L2.</li>
-<li><strong>Instruction buffer and decoders.</strong> Predecode finds instruction boundaries, which is the hard part on x86, and the decoders turn instructions into micro-ops (see <a href="#/fe-decode">Decoders and the Micro-op Cache</a>).</li>
-<li><strong>Micro-op cache.</strong> Looked up with the same queue addresses. On a hit it delivers already-decoded micro-ops, skipping the instruction cache and decoders, which saves both latency and power. The decoders fill it on a miss.</li>
-<li><strong>Micro-op queue.</strong> Collects micro-ops from both paths and absorbs the difference between front-end delivery and the rate rename takes them.</li>
+<li><strong>Instruction queues and decoders.</strong> Predecode finds instruction boundaries, which is the hard part on x86, and the decoders turn instructions into macro-ops. Zen 5 has two 4-wide decode clusters, each with its own instruction queue and each taking a different predicted fetch window, and the two share the microcode unit (see <a href="#/fe-decode">Decoders and the Op Cache</a>).</li>
+<li><strong>Op cache.</strong> Looked up with the predicted fetch addresses. On a hit it delivers already-decoded instructions, skipping the instruction cache and decoders, which saves both latency and power. The decoders fill it on a miss.</li>
+<li><strong>Macro-op queue.</strong> Collects macro-ops from both paths and absorbs the difference between front-end delivery and the rate rename takes them.</li>
 <li><strong>Redirects.</strong> When decode finds a branch the BTB missed, or the back end resolves a mispredicted branch, the predictor restarts at the correct address. The fetch target queue and everything younger than the branch are flushed (see <a href="#/fe-targets/misses">BTB Misses and Decode Redirects</a>).</li>
 </ul>
 <p>When the front end falls behind, the back end starves however wide it is; when it predicts wrong, everything fetched after the bad prediction is thrown away. Front-end stalls take a large share of cycles on server workloads with large code footprints, and mispredicts are often the largest single loss on integer code with hard-to-predict branches.</p>
@@ -118,8 +126,8 @@ section({
     ],
     interview: [
       {
-        q: `<p>A team doubles the back end's width (rename, ports, ROB) on a core whose front end delivers at most 6 micro-ops per cycle from the micro-op cache. On a server workload with a large code footprint, IPC barely moves. Why, and what would you measure first?</p>`,
-        a: `<p>The front end caps throughput before the back end does. On large-footprint code, the micro-op cache and instruction cache miss often, so delivery drops to the legacy decoders and then to zero during instruction cache and BTB misses; doubling the back end only raises a ceiling the workload never reaches. Measure top-down level 1 first: if front-end-bound slots dominate, split them into latency (instruction cache, ITLB, and BTB misses, redirects) and bandwidth (micro-op cache misses, decoder limits). The fixes are front-end ones: a larger BTB to run further ahead, fetch-directed instruction prefetching, a larger instruction cache or micro-op cache, and code layout (profile-guided optimization, hot/cold splitting).</p>`
+        q: `<p>A team doubles the back end's width (rename, ports, ROB) on a core whose front end delivers at most 6 macro-ops per cycle from the op cache. On a server workload with a large code footprint, IPC barely moves. Why, and what would you measure first?</p>`,
+        a: `<p>The front end caps throughput before the back end does. On large-footprint code, the op cache and instruction cache miss often, so delivery drops to the decoders and then to zero during instruction cache and BTB misses. Doubling the back end only raises a ceiling the workload never reaches. Measure top-down level 1 first: if front-end-bound slots dominate, split them into latency (instruction cache, ITLB, and BTB misses, redirects) and bandwidth (op cache misses, decoder limits). The fixes are front-end ones: a larger BTB to run further ahead, fetch-directed instruction prefetching, a larger instruction cache or op cache, and code layout (profile-guided optimization, hot/cold splitting).</p>`
       }
     ]
   }
@@ -379,75 +387,77 @@ section({
 {
   id: "fe-decode",
   region: "fe",
-  title: "Decoders and the Micro-op Cache",
+  title: "Decoders and the Op Cache",
   sections: [
     { id: "decode", label: "What Decode Does" },
     { id: "x86", label: "Variable-Length Decode on x86" },
-    { id: "uop-cache", label: "The Micro-op Cache" },
+    { id: "uop-cache", label: "The Op Cache" },
     { id: "fusion", label: "Fusion and Cracking" },
     { id: "arm", label: "Fixed-Length ISAs" },
     { id: "model", label: "Modeling Decode" }
   ],
   body: `
-<p>Decode turns instruction bytes into the micro-ops the back end schedules. On a fixed-length ISA it's simple and wide; on x86 it's one of the hardest parts of the core, which is why x86 cores cache decoded micro-ops and bypass the decoders whenever they can.</p>
+<p>Decode turns instruction bytes into the macro-ops that rename and dispatch send to the back end (AMD's term, see the note on macro-ops and micro-ops in the <a href="#/r/fe">section overview</a>). On a fixed-length ISA it's simple and wide. On x86 it's one of the hardest parts of the core, which is why x86 cores cache decoded ops and bypass the decoders whenever they can.</p>
 
 <h3 id="sec-decode">What Decode Does</h3>
 <ul>
 <li><strong>Find instruction boundaries</strong> in the fetched bytes (trivial for fixed-length encodings).</li>
-<li><strong>Translate</strong> each instruction into one or more micro-ops: opcode, source and destination registers, immediate, and the port class it needs.</li>
+<li><strong>Translate</strong> each instruction into one or two macro-ops: opcode, source and destination registers, immediate, and the micro-ops each macro-op will be split into at the schedulers.</li>
 <li><strong>Detect branches</strong> the predictor didn't know about and redirect fetch (see <a href="#/fe-targets/misses">BTB misses and decode redirects</a>).</li>
-<li><strong>Handle complex instructions</strong> by sending them to a microcode sequencer that emits a longer micro-op sequence from a ROM.</li>
+<li><strong>Handle complex instructions</strong> by sending them to the microcode unit, which emits a longer macro-op sequence from a ROM.</li>
 </ul>
 
 <h3 id="sec-x86">Variable-Length Decode on x86</h3>
 <p>x86 instructions are 1 to 15 bytes, and the length depends on prefixes, the opcode, the ModRM and SIB bytes, and the immediate size. Finding where instruction <em>n</em> + 1 starts requires knowing the length of instruction <em>n</em>, so decoding several instructions per cycle needs either a serial chain of length decoders or speculative decoding at every byte offset. Cores combine two tricks:</p>
 <ul>
 <li><strong>Predecode bits:</strong> when a line is filled into the instruction cache, it is scanned once and start-of-instruction bits are stored alongside it, so later fetches find boundaries immediately.</li>
-<li><strong>Asymmetric decoders:</strong> a few simple decoders handle instructions that produce one micro-op, and one complex decoder handles those that produce several; anything longer goes to microcode. Intel's Golden Cove has 6 decoders fed by 32 bytes per cycle.</li>
+<li><strong>Two decode clusters:</strong> Zen 5 splits its 8 decoders into two clusters of 4, each with its own instruction queue and each decoding a separate 32-byte fetch window, so each only has to find boundaries within its own window. Only the first of a cluster's four slots can decode an instruction longer than 10 bytes, and the two clusters share one microcode unit. AMD's optimization guide says one thread decodes at most 4 instructions per cycle, and in SMT mode each thread owns a cluster, so all 8 decoders work at once only with two threads (Agner Fog's tests suggest one thread can sometimes use both, on the two sides of a taken branch). For a single thread, the op cache is the path to full width.</li>
 </ul>
+<p>Intel organizes its decoders differently, and in Intel's terms: one complex decoder handles instructions that produce up to 4 µops, the simple decoders handle only 1-µop instructions, and anything longer goes to the microcode sequencer. Its decoders all work on one fetch window, so a taken branch ends the decode group.</p>
 <p>Some encodings defeat the shortcuts. A <strong>length-changing prefix</strong> (the 0x66 operand-size prefix on an instruction with a 16-bit immediate) changes how long the instruction is after the predecoder has guessed, and Intel cores stall decode for a few cycles each time one appears.</p>
 
-<h3 id="sec-uop-cache">The Micro-op Cache</h3>
-<p>The <strong>micro-op cache</strong> (Intel's decoded stream buffer, AMD's op cache) stores the micro-ops for recently decoded code, indexed by instruction address. When fetch hits in it, the decoders are skipped entirely:</p>
+<h3 id="sec-uop-cache">The Op Cache</h3>
+<p>The <strong>op cache</strong> (AMD's name, used here) stores recently decoded code, indexed by instruction address. Zen 3's and Zen 4's op caches held macro-ops. Zen 5's entries hold decoded instructions (or fused pairs) instead, which packs code more densely, and they become macro-ops in the macro-op queue. Intel's equivalent is the decoded stream buffer, or micro-op cache, which stores fused-domain µops. When fetch hits in it, the decoders are skipped entirely:</p>
 <ul>
-<li><strong>More bandwidth:</strong> Golden Cove delivers 8 micro-ops per cycle from its 4K-entry micro-op cache versus 6 from the decoders; Zen 4 delivers 9 from a 6.75K-entry op cache versus 4 instructions from its decoders.</li>
-<li><strong>Fewer hazards:</strong> length decoding, prefix penalties, and decoder asymmetry don't apply on a hit.</li>
+<li><strong>More bandwidth:</strong> Zen 5 delivers up to 12 instructions per cycle from its 6K-instruction op cache (two 6-wide pipes) versus 4 per cycle for one thread from its decoders. Intel's Lion Cove delivers 12 µops per cycle from its micro-op cache versus 8 from its decoders.</li>
+<li><strong>Fewer hazards:</strong> length decoding, prefix penalties, and decoder limits don't apply on a hit.</li>
 <li><strong>Less power:</strong> the decoders are among the most power-hungry parts of an x86 front end, and they idle on hits.</li>
-<li><strong>A shorter pipeline:</strong> skipping decode stages shortens the mispredict refill path when the correct target is in the micro-op cache.</li>
+<li><strong>A shorter pipeline:</strong> skipping decode stages shortens the mispredict refill path when the correct target is in the op cache.</li>
 </ul>
-<p>The cost: it's organized by code region (Intel's maps 32- or 64-byte code windows to a few ways of micro-op lines), so some code shapes fit poorly (many micro-ops in one window, long immediates that take two slots), and switching between it and the legacy decoders costs a cycle or more. Microcoded instructions are typically stored as a pointer into the microcode ROM rather than as micro-ops.</p>
-<p>A smaller relative is the <strong>loop buffer</strong> (Intel's loop stream detector): a short queue after decode that replays a small loop's micro-ops without fetching or decoding them again.</p>
+<p>The cost: it's organized by code region, and each entry has limits. A Zen 5 entry holds up to 6 instructions from at most two adjacent 64-byte lines, with six 32-bit immediate or displacement slots (a 64-bit value takes two). Intel's maps 32- or 64-byte windows to a few ways of µop lines. So some code shapes fit poorly (many instructions in one window, long immediates that take extra slots), and switching between it and the decoders costs a cycle or more. Microcoded instructions are typically stored as a pointer into the microcode ROM rather than as their full decoded sequence.</p>
+<p>A smaller relative is the <strong>loop buffer</strong> (Intel's loop stream detector): a short queue after decode that replays a small loop's decoded ops without fetching or decoding them again.</p>
 
 <h3 id="sec-fusion">Fusion and Cracking</h3>
-<p>Decode is where the micro-op count is decided, and the count is what rename width is measured in:</p>
+<p>Decode is where the macro-op count is decided, and macro-ops are what rename width is measured in. How many micro-ops each macro-op carries is decided here too:</p>
 <ul>
-<li><strong>Macro-fusion:</strong> a compare or test followed by a conditional branch becomes one micro-op (x86 cores; some Arm cores fuse similar pairs).</li>
-<li><strong>Micro-fusion:</strong> a load combined with an ALU operation (<code>add rax, [rbx]</code>) travels as one micro-op through rename and retire but issues as two to the ports.</li>
-<li><strong>Cracking:</strong> a read-modify-write to memory (<code>add [rbx], rax</code>) becomes a load, an add, and a store address and store data pair.</li>
+<li><strong>Branch fusion:</strong> a compare or test followed by a conditional branch becomes one macro-op. Intel calls this macro-fusion (some Arm cores fuse similar pairs).</li>
+<li><strong>Load-op:</strong> a load combined with an ALU operation (<code>add rax, [rbx]</code>) is one macro-op through rename and retire but carries two micro-ops, a load and an add, which the schedulers issue separately. Intel calls this micro-fusion.</li>
+<li><strong>Load-op-store:</strong> a read-modify-write to memory (<code>add [rbx], rax</code>) is still one macro-op on Zen, with two micro-ops: a combined load and store address operation, and the add. Intel splits it into 2 fused-domain µops, which become 4 at the ports (load, add, store address, store data).</li>
+<li><strong>Cracking:</strong> a fast path double instruction becomes two macro-ops, and anything longer becomes a microcode sequence.</li>
 </ul>
-<p>That is why a performance model must count fused micro-ops for rename and retire bounds and unfused ones for port bounds (see <a href="#/perf-bounds/be-bounds">Back-End Bounds</a>).</p>
+<p>That is why a performance model must count macro-ops for rename and retire bounds and micro-ops for port bounds (Intel's fused and unfused µops, see <a href="#/perf-bounds/be-bounds">Back-End Bounds</a>).</p>
 
 <h3 id="sec-arm">Fixed-Length ISAs</h3>
-<p>With every AArch64 instruction 4 bytes long, boundaries are known in advance, so wide decode is cheap: Apple's Firestorm cores decode 8 instructions per cycle with no micro-op cache. Arm went further on its own cores: when the Cortex-A715 dropped 32-bit (AArch32) support, Arm removed its macro-op cache and widened the decoders instead, because decode had become cheap enough that the cache no longer paid for its area and power. RISC-V's compressed extension brings back 2-byte instructions, so wide RISC-V decoders need some of the same boundary-finding logic as x86, though only for two lengths.</p>
+<p>With every AArch64 instruction 4 bytes long, boundaries are known in advance, so wide decode is cheap: Apple's Firestorm cores decode 8 instructions per cycle with no op cache. Arm went further on its own cores: when the Cortex-A715 dropped 32-bit (AArch32) support, Arm removed its macro-op cache and widened the decoders instead, because decode had become cheap enough that the cache no longer paid for its area and power. Arm's terms match AMD's: its decoders produce macro-ops, and the macro-op cache held them. RISC-V's compressed extension brings back 2-byte instructions, so wide RISC-V decoders need some of the same boundary-finding logic as x86, though only for two lengths.</p>
 
 <h3 id="sec-model">Modeling Decode</h3>
 <ul>
-<li>Model the micro-op cache as a real cache with the design's indexing and capacity rules, not a hit rate, because its misses cluster on exactly the large-footprint code where the front end matters.</li>
-<li>Model the switch penalty between the micro-op cache and legacy decode; code that bounces between them loses more than either path alone.</li>
-<li>Track micro-ops per instruction by instruction class (fusion, cracking, microcode), since it changes every downstream width limit.</li>
+<li>Model the op cache as a real cache with the design's indexing and capacity rules, not a hit rate, because its misses cluster on exactly the large-footprint code where the front end matters.</li>
+<li>Model the switch penalty between the op cache and the decoders. Code that bounces between them loses more than either path alone.</li>
+<li>Track macro-ops per instruction and micro-ops per macro-op by instruction class (fusion, load-op, cracking, microcode). The first sets the rename and retire limits, and the second sets the port limits.</li>
 </ul>
-<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3 · Intel, <em>Intel 64 and IA-32 Architectures Optimization Reference Manual</em> (decoded ICache, length-changing prefixes, macro-fusion) · AMD, <em>Software Optimization Guide for the AMD Zen 4 Microarchitecture</em> (op cache) · Arm, Cortex-A715 announcement (2022)</p>`,
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3 · Intel, <em>Intel 64 and IA-32 Architectures Optimization Reference Manual</em> (decoded ICache, length-changing prefixes, macro-fusion) · AMD, <em>Software Optimization Guide for the AMD Zen 5 Microarchitecture</em> (macro-ops, micro-ops, op cache, branch fusion) · Chips and Cheese, Zen 5 front-end articles (decode clusters) · Arm, Cortex-A715 announcement (2022)</p>`,
   practice: {
     guided: [
       {
-        q: `<p>A hot loop on a Golden Cove-like core has 24 instructions averaging 5 bytes, which become 30 fused micro-ops. Rename is 6 wide. Compare cycles per iteration from the micro-op cache (8 micro-ops per cycle) and from the legacy path (32 bytes fetched and 6 instructions or 6 micro-ops decoded per cycle).</p>`,
-        a: `<ol start="0"><li>Micro-op cache: 30 / 8 = 3.75 cycles.</li><li>Legacy path: fetch 24 × 5 = 120 bytes / 32 = 3.75 → 4 cycles; decoders 24 instructions / 6 = 4 cycles, but they deliver at most 6 micro-ops per cycle, so 30 / 6 = 5 cycles.</li><li>Rename: 30 / 6 = <strong>5 cycles</strong> either way.</li><li>So throughput is the same, 5 cycles per iteration, because rename binds. The micro-op cache still helps: it saves decode power, avoids prefix and length-decode stalls, and refills faster after a mispredict. It raises throughput only when the legacy path is the narrowest stage.</li></ol>`
+        q: `<p>A hot loop on a Golden Cove-like core has 24 instructions averaging 5 bytes, which become 30 fused-domain µops (Intel's counterpart of macro-ops). Rename is 6 wide. Compare cycles per iteration from the µop cache (8 µops per cycle) and from Intel's legacy decode path (32 bytes fetched and 6 instructions or 6 µops decoded per cycle).</p>`,
+        a: `<ol start="0"><li>µop cache: 30 / 8 = 3.75 cycles.</li><li>Legacy path: fetch 24 × 5 = 120 bytes / 32 = 3.75 → 4 cycles; decoders 24 instructions / 6 = 4 cycles, but they deliver at most 6 µops per cycle, so 30 / 6 = 5 cycles.</li><li>Rename: 30 / 6 = <strong>5 cycles</strong> either way.</li><li>So throughput is the same, 5 cycles per iteration, because rename binds. The µop cache still helps: it saves decode power, avoids prefix and length-decode stalls, and refills faster after a mispredict. It raises throughput only when the legacy path is the narrowest stage.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>On an Intel core, adding one unrelated instruction elsewhere in a function makes a hot loop 2.5× slower. The loop uses 16-bit arithmetic with immediates (<code>add ax, 0x1234</code>). What's the likely mechanism, and how would you confirm and fix it?</p>`,
-        a: `<p>The loop probably moved: the new instruction shifted its alignment so it no longer fits the micro-op cache's per-window limits (or now straddles windows it can't hold), and it runs from the legacy decoders. There, every 16-bit-immediate instruction carries a length-changing prefix, and each one stalls predecode for a few cycles, so a loop full of them slows down several-fold. Confirm with counters: micro-ops delivered from the decoded cache versus the legacy decoders (Intel's <code>IDQ.DSB_UOPS</code> and <code>IDQ.MITE_UOPS</code>) and the length-changing-prefix stall counter (<code>ILD_STALL.LCP</code>). Fixes: use 32-bit operations and registers (no 0x66 prefix), load the constant into a register first, or align the loop (<code>-falign-loops</code>) so it stays in the micro-op cache.</p>`
+        a: `<p>The loop probably moved: the new instruction shifted its alignment so it no longer fits the µop cache's (decoded stream buffer's) per-window limits (or now straddles windows it can't hold), and it runs from the legacy decoders. There, every 16-bit-immediate instruction carries a length-changing prefix, and each one stalls predecode for a few cycles, so a loop full of them slows down several-fold. Confirm with counters: µops delivered from the µop cache versus the legacy decoders (Intel's <code>IDQ.DSB_UOPS</code> and <code>IDQ.MITE_UOPS</code>) and the length-changing-prefix stall counter (<code>ILD_STALL.LCP</code>). Fixes: use 32-bit operations and registers (no 0x66 prefix), load the constant into a register first, or align the loop (<code>-falign-loops</code>) so it stays in the µop cache.</p>`
       }
     ]
   }
