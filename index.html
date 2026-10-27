@@ -17,9 +17,9 @@
   /* Night: deep aqua blues with blush and dark pink accents. */
   --paper: #061A21; --surface: #0B2530; --ink: #EAF4F5; --muted: #9DBAC2;
   --rule: #1B3F4B; --trace: #F4A9BF; --trace-soft: #123642; --pad: #E3699A;
-  --pad-soft: #2A1424; --code-bg: #082029; --code-comment: #6FD6C8; --redirect: #FF6F7D;
-  --accent-red: #FF6F7D; --accent-green: #5BD3A8;
-  --n-aqua: #3FB8C4; --n-glow-aqua: rgba(63, 184, 196, .10); --n-glow-pink: rgba(227, 105, 154, .09);
+  --pad-soft: #2A1424; --code-bg: #082029; --code-comment: #6FD6C8; --redirect: #3FB8C4;
+  --accent-red: #E3699A; --accent-green: #5FD3C8;
+  --n-aqua: #3FB8C4; --n-blue: #6FA8DC; --n-glow-aqua: rgba(63, 184, 196, .10); --n-glow-pink: rgba(227, 105, 154, .09);
   --sans: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
   --serif: "Literata", Georgia, "Times New Roman", serif;
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -339,15 +339,15 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 @media (max-width: 860px) { .fp-legend .hint { margin-left: 0; flex-basis: 100%; } }
 
 
-/* Chip floorplan (fixed dark palette) */
+/* Chip floorplan (fixed Night palette) */
 .chip { min-width: 760px; }
-.chip .core-edge { fill: #0D141D; stroke: #2E4257; stroke-width: 1; }
+.chip .core-edge { fill: #082029; stroke: #1F4A56; stroke-width: 1; }
 .chip .dblk { cursor: pointer; }
 .chip .dblk .b { stroke-width: 1.2; transition: filter .15s; }
 .chip .tex { pointer-events: none; }
-.chip .dl { font-size: 12.5px; font-weight: 600; fill: #EEF3F9; }
+.chip .dl { font-size: 12.5px; font-weight: 600; fill: #EAF4F5; }
 .chip .dl.sm { font-size: 11px; }
-.chip .ds { font-size: 10.5px; fill: #B9C6D6; }
+.chip .ds { font-size: 10.5px; fill: #B4D0D6; }
 .chip .dblk:hover .b, .chip .dblk:focus-visible .b { filter: brightness(1.45) saturate(1.1); }
 .chip .dblk:focus-visible .b { stroke: #FFFFFF; stroke-width: 2; }
 .chip .dblk:focus-visible, .chip .dghost:focus-visible, .chip a:focus-visible { outline: none; }
@@ -355,15 +355,15 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .chip .dghost .gl { opacity: .5; transition: opacity .15s; }
 .chip .dghost:hover .gl, .chip .dghost:focus-visible .gl { opacity: .85; }
 .chip .dghost:focus-visible .core-edge { stroke: #FFFFFF; }
-.chip .gname { font-size: 12px; font-weight: 700; fill: #DCE5EF; letter-spacing: .04em; }
-.chip .core-tag text { font-size: 10.5px; font-weight: 700; fill: #8FB4E8; letter-spacing: .08em; pointer-events: auto; }
+.chip .gname { font-size: 12px; font-weight: 700; fill: #CFE6EA; letter-spacing: .04em; }
+.chip .core-tag text { font-size: 10.5px; font-weight: 700; fill: #F4A9BF; letter-spacing: .08em; pointer-events: auto; }
 .chip .core-tag:hover text { fill: #FFFFFF; }
-.chip .pins rect { fill: #C9A54A; stroke: #8A6E25; stroke-width: .8; }
+.chip .pins rect { fill: #F4A9BF; stroke: #A84F74; stroke-width: .8; }
 .chip .ext { cursor: pointer; }
-.chip .ext-ln { stroke: #C2503F; stroke-width: 2.5; fill: none; }
+.chip .ext-ln { stroke: #E3699A; stroke-width: 2.5; fill: none; }
 .chip .ext-t { font-size: 15px; font-weight: 600; fill: var(--ink); }
 .chip .ext-t.sm { font-size: 13px; fill: var(--muted); }
-.chip .ext:hover .ext-t { fill: #C2503F; }
+.chip .ext:hover .ext-t { fill: #F4A9BF; }
 .chip-legend .sw { border-width: 1.5px; }
 
 
@@ -371,7 +371,6 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .theme-btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: .88rem; font-weight: 600; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 11px; cursor: pointer; }
 .theme-btn:hover { border-color: var(--trace); color: var(--trace); }
 .theme-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.theme-btn span + svg { transform: scaleX(-1); }
 /* Chip zoom bar */
 .chip-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 10px; font-size: .86rem; color: var(--muted); }
 .chip-zoom { font: inherit; font-size: .88rem; font-weight: 600; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
@@ -385,12 +384,9 @@ svg.chip { touch-action: pan-x pan-y; }
 [data-theme="night"] .theme-btn { color: var(--trace); border-color: rgba(244, 169, 191, .35); }
 [data-theme="night"] .theme-btn:hover { background: var(--pad-soft); border-color: var(--pad); color: #FFD3E0; }
 [data-theme="night"] .die { border-color: rgba(227, 105, 154, .55); border-radius: 12px; }
-[data-theme="night"] .floor .block:nth-child(4n+1) { border-top-color: var(--n-aqua); }
-[data-theme="night"] .chip .die-bg { fill: #04141A; stroke: #2A5A66; }
-[data-theme="night"] .chip .core-edge { fill: #082029; stroke: #1F4A56; }
-[data-theme="night"] .chip .core-tag text { fill: var(--trace); }
-[data-theme="night"] .chip .ext-ln { stroke: var(--pad); }
-[data-theme="night"] .chip .ext:hover .ext-t { fill: var(--trace); }
+[data-theme="night"] .floor .block:nth-child(4n+4) { border-top-color: var(--n-blue); }
+[data-theme="night"] .layer.sys { --edge: var(--n-aqua); }
+[data-theme="night"] .stack-key i.sys { background: var(--n-aqua); }
 /* Pink theme: pastel dashboard look */
 [data-theme="pink"] .intro h1, [data-theme="pink"] .note h1, [data-theme="pink"] .block h2,
 [data-theme="pink"] .stack-fig h2, [data-theme="pink"] .practice > h2 { font-family: var(--mono); font-weight: 500; letter-spacing: -0.02em; }
@@ -435,6 +431,7 @@ svg.chip { touch-action: pan-x pan-y; }
 [data-theme="pink"] .chip .dblk:hover .b, [data-theme="pink"] .chip .dblk:focus-visible .b { filter: saturate(1.9) brightness(.97); }
 [data-theme="pink"] .chip .dblk:focus-visible .b, [data-theme="pink"] .chip .dghost:focus-visible .core-edge { stroke: #37352F; }
 [data-theme="pink"] .chip .ext-ln { stroke: var(--trace); }
+[data-theme="pink"] .chip .core-tag text { fill: var(--trace); }
 [data-theme="pink"] .chip .ah-chip-p { fill: var(--trace); }
 [data-theme="pink"] .chip .ext:hover .ext-t { fill: var(--trace); }
 [data-theme="pink"] .chip-legend .sw.g-fe { background: #D2E9F9 !important; border-color: #7FB3DE !important; }

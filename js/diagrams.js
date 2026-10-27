@@ -89,18 +89,18 @@ function pipelineSVG() {
    Die proportions come from AMD's published areas (66.3 mm2 CCD, about
    3.84 mm2 per core, about 25 mm2 of L3). Dashed blocks are not labeled in
    the annotation, so their placement inside a partition is inferred.
-   Colors are fixed in the Night theme; the pink (Mili) theme swaps in
-   pastels via the g-<group> classes. */
+   Colors are fixed in the Night palette (aquas, pinks, a hint of blue);
+   the pink (Mili) theme swaps in pastels via the g-<group> classes. */
 
 const Z4_GROUPS = {
-  fe:   { name: "Front end",                  fill: "#1D3F7A", stroke: "#4F7FD6" },
-  ooo:  { name: "Dispatch, OoO, integer",     fill: "#17543E", stroke: "#3DB386" },
-  fp:   { name: "FP and SIMD",                fill: "#7A1F2B", stroke: "#E0606E" },
-  lsu:  { name: "Load/store, prefetch",       fill: "#12505A", stroke: "#36AFC0" },
-  sram: { name: "SRAM and ROM arrays",        fill: "#2A2D63", stroke: "#7C84DA" },
-  coh:  { name: "Ring, coherence",            fill: "#4A2558", stroke: "#B474CF" },
-  io:   { name: "Die-to-die I/O",             fill: "#5C211C", stroke: "#D2614C" },
-  misc: { name: "Pervasive: power, clocks, debug", fill: "#24313F", stroke: "#7890A8" }
+  fe:   { name: "Front end",                  fill: "#163A5C", stroke: "#6FA8DC" },
+  ooo:  { name: "Dispatch, OoO, integer",     fill: "#0D4650", stroke: "#3FB8C4" },
+  fp:   { name: "FP and SIMD",                fill: "#5A1F3D", stroke: "#E3699A" },
+  lsu:  { name: "Load/store, prefetch",       fill: "#175A60", stroke: "#8FE0E3" },
+  sram: { name: "SRAM and ROM arrays",        fill: "#4A2838", stroke: "#F4A9BF" },
+  coh:  { name: "Ring, coherence",            fill: "#3A1C2C", stroke: "#C9809E" },
+  io:   { name: "Die-to-die I/O",             fill: "#0F2D3C", stroke: "#7FC4D6" },
+  misc: { name: "Pervasive: power, clocks, debug", fill: "#162B33", stroke: "#6E909A" }
 };
 
 /* Core 0, traced in the annotation image's pixel space (the core spans
@@ -201,11 +201,11 @@ function floorplanSVG() {
   <div class="fp-scroll"><svg class="fp chip zoomed" viewBox="${Z4_CORE.join(" ")}" role="group" aria-label="Zen 4 core complex die floorplan, 8 cores. Each block links to its notes.">
     <defs>
       <pattern id="sram" width="6" height="6" patternUnits="userSpaceOnUse"><path class="sram-ln" d="M6 0H0V6" fill="none" stroke="#FFFFFF" stroke-opacity=".08" stroke-width="1"/></pattern>
-      <marker id="ah-chip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-chip-p" d="M0,0 L10,5 L0,10 z" fill="#C2503F"/></marker>
+      <marker id="ah-chip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-chip-p" d="M0,0 L10,5 L0,10 z" fill="#E3699A"/></marker>
     </defs>
 
     <text class="ext-t sm" x="820" y="26">Zen 4 CCD · 8 cores · 32 MB shared L3</text>
-    <rect class="die-bg" x="40" y="40" width="1560" height="1000" rx="3" fill="#080D13" stroke="#3A5068"/>
+    <rect class="die-bg" x="40" y="40" width="1560" height="1000" rx="3" fill="#04141A" stroke="#2A5A66"/>
     <text class="gname" x="${DIE_L + 2}" y="60" text-anchor="start">Core 0</text>
 
     ${cores}
