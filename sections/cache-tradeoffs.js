@@ -24,7 +24,7 @@ section({
     guided: [
       {
         q: `<p>A workload's L1 miss rate barely changes when you double L1 size, double associativity, or change replacement policy, but nearly halves when you double line size. What kind of workload is it?</p>`,
-        a: `<ol start="0"><li>Insensitive to size, associativity, and replacement means there is little reuse to capture.</li><li>Sensitive to line size means each miss brings in data that is used soon after: strong spatial locality.</li><li>That is a <strong>streaming</strong> workload. A good prefetcher would give the same benefit without changing the line size.</li></ol>`
+        a: `<ol><li>Insensitive to size, associativity, and replacement means there is little reuse to capture.</li><li>Sensitive to line size means each miss brings in data that is used soon after: strong spatial locality.</li><li>That is a <strong>streaming</strong> workload. A good prefetcher would give the same benefit without changing the line size.</li></ol>`
       }
     ],
     interview: [
@@ -65,7 +65,7 @@ section({
     guided: [
       {
         q: `<p>A 32 KB L1D has a 4% miss rate and a 4-cycle hit; L1 misses cost 14 cycles. Doubling it to 64 KB adds 1 cycle of hit latency. Using the √2 rule, is it worth it?</p>`,
-        a: `<ol start="0"><li>√2 rule: new miss rate ≈ 4% / √2 ≈ 2.83%.</li><li>Old AMAT = 4 + 0.04 × 14 = 4.56 cycles.</li><li>New AMAT = 5 + 0.0283 × 14 ≈ 5.40 cycles.</li><li><strong>Worse.</strong> The extra cycle on every hit outweighs the saved misses. This is why L1 sizes have stayed small while L2 and LLC grew.</li></ol>`
+        a: `<ol><li>√2 rule: new miss rate ≈ 4% / √2 ≈ 2.83%.</li><li>Old AMAT = 4 + 0.04 × 14 = 4.56 cycles.</li><li>New AMAT = 5 + 0.0283 × 14 ≈ 5.40 cycles.</li><li><strong>Worse.</strong> The extra cycle on every hit outweighs the saved misses. This is why L1 sizes have stayed small while L2 and LLC grew.</li></ol>`
       }
     ],
     interview: [
@@ -112,7 +112,7 @@ section({
     guided: [
       {
         q: `<p>A 32 KB cache with 64-byte lines walks down each column in turn of a float matrix with 1024 rows of 4096 bytes. How many sets does the walk use with a direct-mapped cache? With 8 ways? What fixes it?</p>`,
-        a: `<ol start="0"><li>Direct-mapped: 512 sets. Each step moves 4096 / 64 = 64 lines, so set index advances by 64; only 512 / 64 = <strong>8 sets</strong> are ever used, holding 8 lines.</li><li>8-way: 64 sets, and 4096 bytes is exactly 64 sets × 64 bytes, so every access maps to the <strong>same set</strong>, holding 8 lines. Still only 8 lines of reach.</li><li>With 1024 rows, the next column's reuse of each line comes after 1024 other lines: all misses either way.</li><li>Fix in software: pad each row by one line (4096 + 64 bytes) so successive rows land in different sets, or interchange loops to walk rows.</li></ol>`
+        a: `<ol><li>Direct-mapped: 512 sets. Each step moves 4096 / 64 = 64 lines, so set index advances by 64; only 512 / 64 = <strong>8 sets</strong> are ever used, holding 8 lines.</li><li>8-way: 64 sets, and 4096 bytes is exactly 64 sets × 64 bytes, so every access maps to the <strong>same set</strong>, holding 8 lines. Still only 8 lines of reach.</li><li>With 1024 rows, the next column's reuse of each line comes after 1024 other lines: all misses either way.</li><li>Fix in software: pad each row by one line (4096 + 64 bytes) so successive rows land in different sets, or interchange loops to walk rows.</li></ol>`
       }
     ],
     interview: [
@@ -155,7 +155,7 @@ section({
     guided: [
       {
         q: `<p>Memory latency is 100 cycles and the bus moves 16 bytes per cycle. Compute the miss penalty for 64-, 128-, and 256-byte lines. Then compute bandwidth efficiency for random 8-byte reads.</p>`,
-        a: `<ol start="0"><li>Penalty = latency + line / bandwidth: 64 B → 104 cycles, 128 B → 108, 256 B → 116 (or less with critical-word-first).</li><li>Random 8-byte reads use 8 of each line's bytes: 8 / 64 = <strong>12.5%</strong>, 8 / 128 = 6.25%, 8 / 256 = 3.1%.</li><li>Streaming reads use every byte, so efficiency is 100% at any size, and larger lines halve the miss count.</li></ol>`
+        a: `<ol><li>Penalty = latency + line / bandwidth: 64 B → 104 cycles, 128 B → 108, 256 B → 116 (or less with critical-word-first).</li><li>Random 8-byte reads use 8 of each line's bytes: 8 / 64 = <strong>12.5%</strong>, 8 / 128 = 6.25%, 8 / 256 = 3.1%.</li><li>Streaming reads use every byte, so efficiency is 100% at any size, and larger lines halve the miss count.</li></ol>`
       }
     ],
     interview: [
@@ -206,7 +206,7 @@ section({
     guided: [
       {
         q: `<p>A 4-entry fully associative cache sees the repeating pattern A B C D E A B C D E. What's the hit rate with LRU? With LRU insertion (new lines inserted at the LRU position, promoted to MRU on a hit)?</p>`,
-        a: `<ol start="0"><li>LRU: each access evicts the line needed four accesses later, the next one in the cycle. <strong>0% hits.</strong></li><li>LRU insertion: after A B C D fill, E evicts D and is inserted at LRU. A, B, C then hit and move to MRU. D misses and evicts E (still at LRU), and E misses and evicts D.</li><li>Steady state: A, B, C hit; D and E miss. <strong>3 / 5 = 60% hits.</strong> Keeping part of a too-large working set beats losing all of it.</li></ol>`
+        a: `<ol><li>LRU: each access evicts the line needed four accesses later, the next one in the cycle. <strong>0% hits.</strong></li><li>LRU insertion: after A B C D fill, E evicts D and is inserted at LRU. A, B, C then hit and move to MRU. D misses and evicts E (still at LRU), and E misses and evicts D.</li><li>Steady state: A, B, C hit; D and E miss. <strong>3 / 5 = 60% hits.</strong> Keeping part of a too-large working set beats losing all of it.</li></ol>`
       }
     ],
     interview: [
@@ -252,7 +252,7 @@ section({
     guided: [
       {
         q: `<p>An L1 has 8 banks. Assuming random bank selection, what is the chance that 2 accesses in the same cycle conflict? 4 accesses?</p>`,
-        a: `<ol start="0"><li>P(no conflict) = B! / ((B − k)! × B<sup>k</sup>).</li><li>k = 2: 1 − (8 × 7) / 64 = <strong>12.5%</strong> conflict.</li><li>k = 4: 1 − (8 × 7 × 6 × 5) / 4096 ≈ <strong>59%</strong> conflict.</li><li>Random banking works for 2 accesses per cycle, but supporting 3–4 loads per cycle needs more banks, smarter mapping, or replication.</li></ol>`
+        a: `<ol><li>P(no conflict) = B! / ((B − k)! × B<sup>k</sup>).</li><li>k = 2: 1 − (8 × 7) / 64 = <strong>12.5%</strong> conflict.</li><li>k = 4: 1 − (8 × 7 × 6 × 5) / 4096 ≈ <strong>59%</strong> conflict.</li><li>Random banking works for 2 accesses per cycle, but supporting 3–4 loads per cycle needs more banks, smarter mapping, or replication.</li></ol>`
       }
     ],
     interview: [
@@ -294,7 +294,7 @@ section({
     guided: [
       {
         q: `<p>A loop stores 1 GB once and never reads it back. Compare memory traffic with write-allocate versus no-write-allocate (or non-temporal stores).</p>`,
-        a: `<ol start="0"><li>Write-allocate: each line is first read from memory (1 GB read), then written back when evicted (1 GB written): <strong>2 GB</strong> of traffic.</li><li>No-write-allocate or non-temporal stores: writes go straight out through write-combining buffers: <strong>1 GB</strong>.</li><li>Half the traffic, and the cache isn't polluted with lines nobody reads.</li></ol>`
+        a: `<ol><li>Write-allocate: each line is first read from memory (1 GB read), then written back when evicted (1 GB written): <strong>2 GB</strong> of traffic.</li><li>No-write-allocate or non-temporal stores: writes go straight out through write-combining buffers: <strong>1 GB</strong>.</li><li>Half the traffic, and the cache isn't polluted with lines nobody reads.</li></ol>`
       }
     ],
     interview: [

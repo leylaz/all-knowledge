@@ -22,7 +22,7 @@ section({
     guided: [
       {
         q: `<p>Design A runs 1.2 billion instructions at CPI 0.8 and 3.0 GHz. Design B runs 1.0 billion at CPI 1.0 and 3.2 GHz. Which is faster?</p>`,
-        a: `<ol start="0"><li>A: 1.2e9 × 0.8 / 3.0e9 = 0.32 s.</li><li>B: 1.0e9 × 1.0 / 3.2e9 ≈ 0.3125 s.</li><li><strong>B is faster</strong> despite its worse CPI.</li></ol>`
+        a: `<ol><li>A: 1.2e9 × 0.8 / 3.0e9 = 0.32 s.</li><li>B: 1.0e9 × 1.0 / 3.2e9 ≈ 0.3125 s.</li><li><strong>B is faster</strong> despite its worse CPI.</li></ol>`
       }
     ],
     interview: [
@@ -67,17 +67,17 @@ section({
     guided: [
       {
         q: `<p>Design B's speedups over A on three benchmarks are 1.10, 1.00, and 0.90. Give the arithmetic and geometric means.</p><p>Separately, a CPI stack: base 0.5, branch 0.3, L2 0.2, memory 0.6. If you halve memory stalls, what's the speedup?</p>`,
-        a: `<ol start="0"><li>Arithmetic mean = 1.00. Geometric mean = (1.1 × 1.0 × 0.9)^(1/3) = 0.99^(1/3) ≈ <strong>0.997</strong>. Use the geomean for ratios; its ranking doesn't depend on which design is the baseline.</li><li>Total CPI = 1.6. New CPI = 1.6 − 0.3 = 1.3. Speedup = 1.6 / 1.3 ≈ <strong>1.23×</strong>.</li></ol>`
+        a: `<ol><li>Arithmetic mean = 1.00. Geometric mean = (1.1 × 1.0 × 0.9)^(1/3) = 0.99^(1/3) ≈ <strong>0.997</strong>. Use the geomean for ratios; its ranking doesn't depend on which design is the baseline.</li><li>Total CPI = 1.6. New CPI = 1.6 − 0.3 = 1.3. Speedup = 1.6 / 1.3 ≈ <strong>1.23×</strong>.</li></ol>`
       },
       {
         q: `<p>Your simulator takes 6 hours on a SimPoint region of 100 million instructions and reports 40 million cycles for a 3 GHz target. What’s the target IPC and time for the region? A colleague says “the design is slow, it took 6 hours.” What’s wrong with that?</p>`,
-        a: `<ol start="0"><li>IPC = 100M / 40M = <strong>2.5</strong>.</li><li>Target time = 40 × 10<sup>6</sup> / 3 × 10<sup>9</sup> ≈ <strong>13.3 ms</strong>.</li><li>The 6 hours is host time: it measures the simulator’s speed (here roughly 4,600 target instructions per second), not the modeled CPU. To estimate the whole benchmark, weight each region’s CPI by its SimPoint weight and multiply by the total instruction count.</li></ol>`
+        a: `<ol><li>IPC = 100M / 40M = <strong>2.5</strong>.</li><li>Target time = 40 × 10<sup>6</sup> / 3 × 10<sup>9</sup> ≈ <strong>13.3 ms</strong>.</li><li>The 6 hours is host time: it measures the simulator’s speed (here roughly 4,600 target instructions per second), not the modeled CPU. To estimate the whole benchmark, weight each region’s CPI by its SimPoint weight and multiply by the total instruction count.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>Your model predicts +8% IPC for a feature, but RTL simulation of the same workloads shows +2%. How do you find the gap?</p>`,
-        a: `<ol start="0"><li>Confirm it's the same workload: same binary, region, warmup, and configuration.</li><li>Compare event counts per structure (misses, replays, stall cycles by resource) between model and RTL.</li><li>Narrow it down with directed microbenchmarks that exercise just the feature.</li><li>Check modeling assumptions: latencies, port counts, arbitration, queue sizes, and corner cases RTL implements that the model idealizes.</li><li>Fix the model or flag the RTL as a performance bug, and add the case to a correlation regression suite.</li></ol>`
+        a: `<ol><li>Confirm it's the same workload: same binary, region, warmup, and configuration.</li><li>Compare event counts per structure (misses, replays, stall cycles by resource) between model and RTL.</li><li>Narrow it down with directed microbenchmarks that exercise just the feature.</li><li>Check modeling assumptions: latencies, port counts, arbitration, queue sizes, and corner cases RTL implements that the model idealizes.</li><li>Fix the model or flag the RTL as a performance bug, and add the case to a correlation regression suite.</li></ol>`
       }
     ]
   }
@@ -112,7 +112,7 @@ section({
     guided: [
       {
         q: `<p>A top-down breakdown: retiring 30%, frontend-bound 35%, bad speculation 10%, backend-bound 25%. What kind of workload is this, and what do you check next?</p>`,
-        a: `<ol start="0"><li>Frontend-bound dominates: the core is starved of instructions.</li><li>Likely a large code footprint (server, browser, interpreter, JIT).</li><li>Check L1I and L2 instruction MPKI, iTLB misses, BTB misses, and decode or micro-op cache behavior.</li><li>Features to evaluate: bigger BTB, instruction prefetching (fetch-directed prefetching with a decoupled frontend), bigger L1I or micro-op cache.</li></ol>`
+        a: `<ol><li>Frontend-bound dominates: the core is starved of instructions.</li><li>Likely a large code footprint (server, browser, interpreter, JIT).</li><li>Check L1I and L2 instruction MPKI, iTLB misses, BTB misses, and decode or micro-op cache behavior.</li><li>Features to evaluate: bigger BTB, instruction prefetching (fetch-directed prefetching with a decoupled frontend), bigger L1I or micro-op cache.</li></ol>`
       }
     ],
     interview: [
@@ -183,11 +183,11 @@ section({
     guided: [
       {
         q: `<p>Compute a SPEC-style score for three benchmarks. Reference times: 1000 s, 2000 s, 1500 s. Measured: 250 s, 800 s, 300 s.</p>`,
-        a: `<ol start="0"><li>Ratios (reference / measured): 4.0, 2.5, 5.0.</li><li>Score = geometric mean = (4.0 × 2.5 × 5.0)^(1/3) = 50^(1/3) ≈ <strong>3.68</strong>.</li></ol>`
+        a: `<ol><li>Ratios (reference / measured): 4.0, 2.5, 5.0.</li><li>Score = geometric mean = (4.0 × 2.5 × 5.0)^(1/3) = 50^(1/3) ≈ <strong>3.68</strong>.</li></ol>`
       },
       {
         q: `<p>A SPECrate run uses 64 copies of one benchmark. The reference machine ran one copy in 1000 s; your system finishes all 64 copies in 400 s. What’s the ratio? Running one copy alone takes 300 s. What does that tell you?</p>`,
-        a: `<ol start="0"><li>Rate ratio = 64 × 1000 / 400 = <strong>160</strong>.</li><li>One copy alone takes 300 s, but with 64 copies each takes about 400 s, so each copy is about 33% slower under load. Ideal scaling would give 64 × 1000 / 300 ≈ 213; you’re getting 75% of that. Look at shared LLC misses, DRAM bandwidth, and the all-core clock speed.</li></ol>`
+        a: `<ol><li>Rate ratio = 64 × 1000 / 400 = <strong>160</strong>.</li><li>One copy alone takes 300 s, but with 64 copies each takes about 400 s, so each copy is about 33% slower under load. Ideal scaling would give 64 × 1000 / 300 ≈ 213; you’re getting 75% of that. Look at shared LLC misses, DRAM bandwidth, and the all-core clock speed.</li></ol>`
       }
     ],
     interview: [
@@ -201,7 +201,7 @@ section({
       },
       {
         q: `<p>Simulating ref is too slow, so a teammate evaluated a new prefetcher using the train inputs and reports +5% IPC. Do you trust it?</p>`,
-        a: `<ol start="0"><li>Not yet. Train inputs often have smaller working sets and shorter, different phases, and a prefetcher is very sensitive to footprint and access patterns. A gain that shows up when data almost fits in the L2 may disappear, or reverse, when the working set is DRAM-sized.</li><li>Check that train and ref behave alike for these benchmarks (MPKI, footprint, basic-block profiles), or better, run SimPoints taken from ref.</li><li>Never report a train-based number as a SPEC result or estimate.</li></ol>`
+        a: `<ol><li>Not yet. Train inputs often have smaller working sets and shorter, different phases, and a prefetcher is very sensitive to footprint and access patterns. A gain that shows up when data almost fits in the L2 may disappear, or reverse, when the working set is DRAM-sized.</li><li>Check that train and ref behave alike for these benchmarks (MPKI, footprint, basic-block profiles), or better, run SimPoints taken from ref.</li><li>Never report a train-based number as a SPEC result or estimate.</li></ol>`
       }
     ]
   }
@@ -263,7 +263,7 @@ section({
     guided: [
       {
         q: `<p>A 4-wide core with a 256-entry ROB runs 1,000 instructions at a steady dispatch rate of 4 when nothing goes wrong. In that stretch there are 5 mispredicts (resolution 10 cycles, front-end refill 12), 2 instruction cache misses to L2 (16 cycles each), and 3 DRAM misses (300 cycles each); the second and third are 60 instructions apart, the first is 600 instructions before them. Estimate the cycles and IPC with interval analysis.</p>`,
-        a: `<ol start="0"><li>Steady state: 1,000 / 4 = 250 cycles.</li><li>Mispredicts: 5 × (10 + 12) = 110 cycles.</li><li>Instruction cache misses: 2 × 16 = 32 cycles.</li><li>DRAM misses: the second and third are within one ROB (60 &lt; 256 instructions), so they overlap and count once; the first is 600 instructions away, so it is isolated. Two groups: 2 × 300 = 600 cycles.</li><li>Total ≈ 250 + 110 + 32 + 600 = <strong>992 cycles</strong>, IPC ≈ <strong>1.0</strong>. Memory is 60% of the time; doubling the ROB to 512 wouldn't merge the first miss (600 apart), but a prefetcher that covered it would save 300 cycles.</li></ol>`
+        a: `<ol><li>Steady state: 1,000 / 4 = 250 cycles.</li><li>Mispredicts: 5 × (10 + 12) = 110 cycles.</li><li>Instruction cache misses: 2 × 16 = 32 cycles.</li><li>DRAM misses: the second and third are within one ROB (60 &lt; 256 instructions), so they overlap and count once; the first is 600 instructions away, so it is isolated. Two groups: 2 × 300 = 600 cycles.</li><li>Total ≈ 250 + 110 + 32 + 600 = <strong>992 cycles</strong>, IPC ≈ <strong>1.0</strong>. Memory is 60% of the time; doubling the ROB to 512 wouldn't merge the first miss (600 apart), but a prefetcher that covered it would save 300 cycles.</li></ol>`
       }
     ],
     interview: [
@@ -329,7 +329,7 @@ section({
 </ul>
 
 <h3 id="sec-process">A Correlation Process</h3>
-<ol start="0">
+<ol>
 <li><strong>Align configurations:</strong> same binary, same inputs, same compiler flags, same memory configuration and frequency, prefetchers and SMT set the same.</li>
 <li><strong>Microbenchmarks first,</strong> until every structure's latency, size, and bandwidth match.</li>
 <li><strong>Then small kernels</strong> (loops from real code) that combine two or three effects.</li>
@@ -342,7 +342,7 @@ section({
     guided: [
       {
         q: `<p>A model and the silicon give these IPCs on four workloads: A 2.10 vs 2.00, B 1.32 vs 1.20, C 0.62 vs 0.80, D 3.04 vs 3.20 (model first). Compute each error, the mean absolute percentage error, and the bias. Is the workload ranking preserved?</p>`,
-        a: `<ol start="0"><li>A: (2.10 − 2.00) / 2.00 = +5%. B: (1.32 − 1.20) / 1.20 = +10%. C: (0.62 − 0.80) / 0.80 = −22.5%. D: (3.04 − 3.20) / 3.20 = −5%.</li><li>Mean absolute error: (5 + 10 + 22.5 + 5) / 4 ≈ <strong>10.6%</strong>.</li><li>Bias: (5 + 10 − 22.5 − 5) / 4 ≈ <strong>−3.1%</strong>: small on average, because errors in both directions cancel.</li><li>Ranking: silicon D &gt; A &gt; B &gt; C; model D &gt; A &gt; B &gt; C. <strong>Preserved.</strong></li><li>C is the one to investigate: the lowest-IPC workload is usually memory-bound, so a 22% pessimistic error points at the memory system (MLP, prefetcher, or DRAM latency) rather than the core.</li></ol>`
+        a: `<ol><li>A: (2.10 − 2.00) / 2.00 = +5%. B: (1.32 − 1.20) / 1.20 = +10%. C: (0.62 − 0.80) / 0.80 = −22.5%. D: (3.04 − 3.20) / 3.20 = −5%.</li><li>Mean absolute error: (5 + 10 + 22.5 + 5) / 4 ≈ <strong>10.6%</strong>.</li><li>Bias: (5 + 10 − 22.5 − 5) / 4 ≈ <strong>−3.1%</strong>: small on average, because errors in both directions cancel.</li><li>Ranking: silicon D &gt; A &gt; B &gt; C; model D &gt; A &gt; B &gt; C. <strong>Preserved.</strong></li><li>C is the one to investigate: the lowest-IPC workload is usually memory-bound, so a 22% pessimistic error points at the memory system (MLP, prefetcher, or DRAM latency) rather than the core.</li></ol>`
       }
     ],
     interview: [
@@ -415,7 +415,7 @@ section({
     guided: [
       {
         q: `<p>A CPU-bound task runs on a core that drops its clock by 20% and its voltage by 10%. Ignoring leakage, how do dynamic power, run time, and dynamic energy for the task change?</p>`,
-        a: `<ol start="0"><li>Power ∝ V<sup>2</sup> f: 0.9<sup>2</sup> × 0.8 = 0.81 × 0.8 = <strong>0.648</strong>, a 35% cut.</li><li>Time: a CPU-bound task scales with 1 / f, so 1 / 0.8 = <strong>1.25×</strong> as long.</li><li>Energy = power × time: 0.648 × 1.25 = <strong>0.81</strong>, a 19% saving. It equals the V<sup>2</sup> ratio, as expected: energy per operation depends on voltage, not frequency.</li><li>If the task were memory-bound, its time would grow less than 25%, and the energy saving would be larger.</li></ol>`
+        a: `<ol><li>Power ∝ V<sup>2</sup> f: 0.9<sup>2</sup> × 0.8 = 0.81 × 0.8 = <strong>0.648</strong>, a 35% cut.</li><li>Time: a CPU-bound task scales with 1 / f, so 1 / 0.8 = <strong>1.25×</strong> as long.</li><li>Energy = power × time: 0.648 × 1.25 = <strong>0.81</strong>, a 19% saving. It equals the V<sup>2</sup> ratio, as expected: energy per operation depends on voltage, not frequency.</li><li>If the task were memory-bound, its time would grow less than 25%, and the energy saving would be larger.</li></ol>`
       }
     ],
     interview: [

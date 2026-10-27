@@ -56,7 +56,7 @@ section({
 
 <h3 id="sec-answer">How to Answer Out Loud</h3>
 <p>Aim for 30 to 90 seconds per question. For any performance question, use the same four beats:</p>
-<ol start="0">
+<ol>
 <li><strong>Predict:</strong> say what you expect to happen (faster, slower, no change, and roughly how much).</li>
 <li><strong>Mechanism:</strong> explain the causal chain: which structure fills, which instruction waits on what.</li>
 <li><strong>Conditions:</strong> say when your prediction would be wrong (what kind of workload, what other limit).</li>
@@ -73,7 +73,7 @@ section({
 <p>Every question is tagged <strong>Easy</strong>, <strong>Medium</strong>, or <strong>Hard</strong>. Across the section the split is about 20% easy, 35% medium, and 45% hard, and each page follows roughly the same mix. Hard questions involve multi-step math, a trap, or an open-ended trade-off. The numbers in the trickiest answers were checked with a small cycle-level simulation or a script.</p>
 
 <h3 id="sec-order">Study Order</h3>
-<ol start="0">
+<ol>
 <li><strong>Fundamentals:</strong> <a href="#/intv-pipeline">Pipeline Flow and Width</a>, <a href="#/intv-renaming">Renaming and Dependences</a>, <a href="#/intv-rob">The ROB and Retirement</a>, <a href="#/intv-sched">Scheduling and Execution</a>, <a href="#/intv-arith">Arithmetic and Floating Point</a>.</li>
 <li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-fe">Front End and Fetch</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-mem">Caches, TLBs and DRAM</a>, <a href="#/intv-coh">Coherence and Consistency</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>.</li>
 <li><strong>Your own experience:</strong> <a href="#/intv-sim">Building a Performance Model in C</a>, <a href="#/intv-design">Open-Ended Design Problems</a>. Connect every answer here to a decision or bug from your own simulator.</li>
@@ -131,7 +131,7 @@ Q(`<p>An instruction can sit in each of these states for a long time: waiting to
 <li><strong>Retired but not finished:</strong> a store. It retires from the ROB once its address and data are known, then waits in the store buffer until it can write the L1, which may take a whole cache miss.</li>
 </ul>`, "easy") +
 M(`<p>A hash-table probe loop: each iteration is one load that misses to DRAM (400 cycles, address independent of other iterations) plus 20 single-cycle instructions that all use the loaded value. Compare time per iteration on:</p><ul><li>(a) A 2-wide in-order core that stalls on first use of a missing load</li><li>(b) A 6-wide out-of-order core with a 512-entry ROB and 16 L1D miss buffers (MSHRs)</li><li>(c) A 4-wide out-of-order core with a 224-entry ROB and 12 MSHRs</li></ul><p>Assume the physical register file, scheduler, and load queue are big enough never to fill before the ROB. Ignore DRAM bandwidth, then say when you can’t. For that, the cores run at 5 GHz, and an 8-core desktop chip has dual-channel DDR5-5600 (89.6 GB/s peak). Finally, redo (b) and (c) if the 6-wide core has 280 integer physical registers and the 4-wide core 180, each with 16 architectural registers.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a) In-order:</strong> the load issues, the first dependent stalls for the full miss, then the 20 dependents go 2 per cycle: about 400 + 10 = <strong>410 cycles per iteration</strong>. The next iteration’s load is behind the dependents in program order, so misses never overlap.</li>
 <li><strong>(b) 6-wide OoO:</strong> three bounds, take the largest.
 <ul>
@@ -148,7 +148,7 @@ About 25 cycles per iteration: <strong>16× faster</strong> than in-order.</li>
 M(`<p>Model time per instruction as a function of pipeline depth <em>k</em>:</p>
 <p class="eq">T(<em>k</em>) = (CPI<sub>0</sub> + <em>h</em>·<em>k</em>) × (<em>t</em><sub>L</sub> / <em>k</em> + <em>t</em><sub>o</sub>)</p>
 <p>where <em>t</em><sub>L</sub> = 3,400 ps of total logic delay, <em>t</em><sub>o</sub> = 20 ps of latch and clock-skew overhead per stage, CPI<sub>0</sub> = 0.40 without hazards, and <em>h</em> = 0.02 cycles of hazard stall per instruction per stage (mispredicts and dependent-operation stalls get longer with depth). Today <em>k</em> = 19. (a) Derive the optimal depth. (b) How much faster is it, at what clock frequency? (c) Why does nobody build it?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Expand: T = CPI<sub>0</sub><em>t</em><sub>L</sub>/<em>k</em> + CPI<sub>0</sub><em>t</em><sub>o</sub> + <em>h</em><em>t</em><sub>L</sub> + <em>h</em><em>t</em><sub>o</sub><em>k</em>. Set dT/d<em>k</em> = −CPI<sub>0</sub><em>t</em><sub>L</sub>/<em>k</em>² + <em>h</em><em>t</em><sub>o</sub> = 0:
 <p class="eq"><em>k</em>* = √(CPI<sub>0</sub><em>t</em><sub>L</sub> / (<em>h</em><em>t</em><sub>o</sub>)) = √(0.40 × 3,400 / (0.02 × 20)) = √3,400 ≈ <strong>58 stages</strong></p>
 Substituting back gives a neat minimum: T* = (√(CPI<sub>0</sub><em>t</em><sub>o</sub>) + √(<em>h</em><em>t</em><sub>L</sub>))² = (√8 + √68)² ≈ 122.6 ps.</li>
@@ -156,7 +156,7 @@ Substituting back gives a neat minimum: T* = (√(CPI<sub>0</sub><em>t</em><sub>
 <li><strong>(c)</strong> The model counts only time. Dynamic power is roughly C·V²·f: the latch and clock-tree capacitance grows with <em>k</em>, and <em>f</em> grows 2.5×, so power rises several-fold for a 27% gain, far past any thermal limit. The model also assumes <em>h</em> is constant, but some loops can’t be pipelined at all (single-cycle ALU-plus-bypass and wakeup–select loops), so their stall cost grows faster than linearly with depth. And CPI doubles, so the processor spends more of its time and energy on wrong-path and stalled work. Because the time curve is flat, a much shallower pipeline loses little performance and saves a lot of power, which is why real cores sit around 15–20 stages and why Prescott’s 31-stage design was abandoned.</li>
 </ol>`, "hard") +
 M(`<p>Adding a pipeline stage to the load path lets the clock rise from 5.0 to 5.3 GHz, but load-to-use latency grows from 4 to 5 cycles and the mispredict penalty from 17 to 18 cycles. A latency sweep on your workload shows each extra cycle of load-to-use latency adds 0.035 to CPI. The workload runs at CPI 0.50 with 6 mispredicts per 1,000 instructions. Is the change worth it? At what frequency would it break even?</p>`,
-`<ol start="0">
+`<ol>
 <li>New CPI = 0.50 + 0.035 (load latency) + 6/1,000 × 1 (one more cycle per mispredict) = <strong>0.541</strong>.</li>
 <li>Time per instruction: before 0.50 / 5.0 GHz = 0.1000 ns; after 0.541 / 5.3 GHz = 0.1021 ns. The change is about <strong>2% slower</strong>: the 6% frequency gain is eaten by an 8.2% CPI increase.</li>
 <li>Break-even frequency: 5.0 × 0.541 / 0.50 = <strong>5.41 GHz</strong>.</li>
@@ -195,7 +195,7 @@ Q(`<p>Four instructions all read the result of the same load and are otherwise i
 `<p>Yes. They depend on the same producer, not on each other, so once the load’s result is available all four wake up together, and they can issue together if there are four suitable ports and the bypass network can deliver the value to all of them.</p>
 <p>The subtlety is <em>when</em> they wake. Schedulers wake load consumers speculatively, assuming an L1 hit (for example, issuing them so they meet the data exactly 5 cycles after the load on Golden Cove). If the load misses, those consumers issued too early and must be cancelled and replayed. So on a miss they don’t just wait; they waste issue slots first. That replay traffic is one reason a single missing load can cost more than its own latency.</p>`, "medium") +
 M(`<p>On Skylake (2 FMA units, 4-cycle latency, fully pipelined, 2 loads per cycle), a dot product is written as <code>for (i) acc = fma(a[i], b[i], acc);</code> with AVX2 vectors. What throughput does it get? How many accumulators would reach the FMA peak? And would it then actually reach the peak?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>One accumulator:</strong> every FMA depends on the previous one through <code>acc</code>, so it runs at 1 FMA per 4 cycles, 0.25 per cycle, which is 8 times below the peak of 2 per cycle.</li>
 <li><strong>Accumulators needed:</strong> latency × throughput = 4 cycles × 2 per cycle = <strong>8 independent accumulators</strong> to keep both pipelines full (Little’s law).</li>
 <li><strong>The trap:</strong> each FMA needs two loads (<code>a[i]</code> and <code>b[i]</code>), and Skylake does 2 loads per cycle. So the loop can sustain only <strong>1 FMA per cycle</strong>, half the FMA peak, even with 8 accumulators. It’s load-bound. Matrix multiply reaches the FMA peak only because register blocking reuses each loaded value in several FMAs.</li>
@@ -207,13 +207,13 @@ Q(`<p>Integer multiply on Skylake has 3-cycle latency and a throughput of 1 per 
 <p>The divider is not pipelined, so independence doesn’t help: one divide at a time, about 1,000 × 14 = <strong>14,000 cycles</strong>, while the rest of the window fills with instructions waiting for divide results. Options: divide by a constant becomes a multiply by a precomputed reciprocal and a shift (compilers do this automatically), hoist a common divisor and multiply by its reciprocal in FP if precision allows, or, as a hardware designer, add a second divider or a higher-radix divider if workloads justify the area.</p>`, "easy") +
 M(`<p>A core with a fixed 4-byte instruction encoding fetches one aligned 32-byte block (8 instructions) per cycle and stops at the first taken branch in the block. A hot loop is 10 instructions (40 bytes) ending in a taken backward branch. The predictor supplies the target with no bubble, and decode keeps up. (a) What is the fetch-limited IPC if the loop starts at byte offset 0, 24, or 28 within a block? (b) Repeat with a 1-cycle bubble after every taken branch. (c) What alignment rule should the compiler follow, and when doesn’t alignment matter?</p>`,
 `<p>A loop starting at offset <em>s</em> occupies bytes <em>s</em> to <em>s</em> + 39, and each fetch cycle covers one 32-byte block, so cycles per iteration = number of blocks touched.</p>
-<ol start="0">
+<ol>
 <li><strong>(a)</strong> Offset 0: blocks [0, 32) and [32, 64), 8 + 2 instructions: 2 cycles, IPC <strong>5</strong>. Offset 24: [24, 32) gives 2 instructions, [32, 64) gives 8: still 2 cycles, IPC <strong>5</strong>. Offset 28: [28, 32) gives 1, [32, 64) gives 8, [64, 68) gives 1: 3 cycles, IPC <strong>3.33</strong>.</li>
 <li><strong>(b)</strong> Add a cycle per iteration: 10 / 3 = <strong>3.33</strong>, 3.33, and 10 / 4 = <strong>2.5</strong>.</li>
 <li><strong>(c)</strong> The loop touches 2 blocks when <em>s</em> + 40 ≤ 64, i.e. <em>s</em> ≤ 24, and 3 blocks otherwise. In general a loop of <em>B</em> bytes needs ⌈<em>B</em>/32⌉ blocks at best and one more if it straddles an extra boundary; aligning the loop head to a 32-byte boundary always gets the minimum (compilers do this with options like <code>-falign-loops=32</code>, padding with no-ops). Alignment stops mattering when the loop is fed from a decoded-uop cache or loop buffer instead of the fetch unit, or when the back end is slower than even the worst-case fetch rate (here, IPC below 2.5).</li>
 </ol>`, "hard") +
 M(`<p>A core has 6-wide dispatch, 8-wide retire, a 320-entry ROB, and unlimited execution ports. A loop iteration has 12 instructions: a load with an independent address, one instruction using the loaded value, one floating-point add on a loop-carried chain (4-cycle latency, one per iteration), and 9 independent single-cycle instructions. Every 4th iteration’s load misses in L2. Assume physical registers, the scheduler, and the load queue never fill before the ROB. (a) What is the IPC if those misses hit in L3 at 50 cycles? (b) If they go to DRAM at 400 cycles? (c) What ROB size would restore full speed with DRAM misses, and what else would have to grow? (d) How many MSHRs does each case need, and what happens with only 5?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Bounds that don’t depend on memory:</strong> width: 12 / 6 = 2 cycles per iteration; recurrence: the FP add chain allows one iteration per 4 cycles. So IPC ≤ 12 / 4 = <strong>3</strong>.</li>
 <li><strong>(a) L3, 50 cycles.</strong> By Little’s law the window must hold IPC × (time an instruction waits to retire). Instructions behind a miss wait about 50 cycles, so 3 × 50 = 150 entries < 320. The ROB isn’t the limit: IPC = <strong>3</strong>.</li>
 <li><strong>(b) DRAM, 400 cycles.</strong> Now 3 × 400 = 1,200 entries would be needed, but only 320 exist, so the ROB limits: IPC ≈ 320 / 400 = <strong>0.8</strong>. More precisely, misses come every 48 instructions, and the window advances in whole miss-to-miss chunks: when a miss at the head returns, retirement runs up to the next miss, and dispatch can reach 7 misses (336 instructions) further. So about 336 instructions retire per 400 cycles: IPC ≈ <strong>0.84</strong>. A cycle-level simulation of this loop gives 0.83.</li>
@@ -222,7 +222,7 @@ M(`<p>A core has 6-wide dispatch, 8-wide retire, a 320-entry ROB, and unlimited 
 </ol>
 <p>The pattern to remember: on memory-bound code, IPC ≈ min(window / latency, MSHRs × instructions-per-miss / latency, the compute bounds).</p>`, "hard") +
 M(`<p>A front end delivers up to 8 uops per cycle from a uop cache and ends each fetch at a taken branch. There is a taken branch every 9 uops. 70% of taken branches are predicted by a small zero-bubble BTB; 30% need the main BTB, which adds a 3-cycle bubble. (a) How many uops per cycle does the front end deliver? (b) What if the main-BTB bubble were 1 cycle? (c) What if fetch were 16 uops wide? (d) Would a bigger uop queue between the front end and rename help?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> The trap is granularity. A 9-uop block needs <strong>2</strong> fetch cycles (8, then 1), not 9/8 = 1.125, because fetch can’t continue past the taken branch into the next block. Expected bubble: 0.3 × 3 = 0.9 cycles. So 9 uops per 2.9 cycles = <strong>3.10 uops/cycle</strong>. The naive answer, 9 / (1.125 + 0.9) = 4.44, is 43% too high.</li>
 <li><strong>(b)</strong> 2 + 0.3 = 2.3 cycles: <strong>3.91</strong>.</li>
 <li><strong>(c)</strong> 1 + 0.9 = 1.9 cycles: <strong>4.74</strong>. Wider fetch helps here mainly because the 9-uop blocks now fit in one cycle.</li>
@@ -236,7 +236,7 @@ M(`<p>A front end has a uop cache that delivers 8 uops per cycle and legacy deco
 </ul>
 <p>At 80%, switching is 8 / 22.55 = <strong>35%</strong> of front-end time, more than the slow decoding itself (20%). Without the switch penalty, 80% would give 100 / 14.55 = 6.87 uops/cycle. So the lesson is that how <em>often</em> you fall out of the uop cache matters more than how slowly the legacy path decodes: longer runs, fewer transitions. Code layout that keeps hot code together (fewer, longer legacy runs) or a larger uop cache both attack the switch count.</p>`, "hard") +
 M(`<p>The front end delivers 6 uops per cycle, except that an L1 instruction-cache miss every 500 uops stops delivery for 14 cycles (an L2 hit). A uop queue decouples the front end from rename. (a) If the back end averages 4 uops per cycle, how many queue entries hide the miss completely? (b) If the back end could average 5.5 uops per cycle, how big must the queue be?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> During the 14-cycle gap the back end drains 14 × 4 = <strong>56 uops</strong>, so the queue needs 56 entries buffered. Check that it refills between misses: it refills at 6 − 4 = 2 uops per cycle, so 28 cycles, and misses come every 500 / 4 = 125 cycles. It refills in time, so 56 entries hide the misses completely.</li>
 <li><strong>(b)</strong> Trap: no queue is big enough. The front end’s <em>average</em> rate is 500 uops per (500/6 + 14) = 97.3 cycles = <strong>5.14 uops/cycle</strong>, below the 5.5 the back end wants. Equivalently, each gap drains 77 uops and refilling at 0.5 per cycle would take 154 cycles, but the queue never fills, so the front end runs at full speed and the next miss arrives after 500 / 6 ≈ 83 cycles. The queue empties for good and the core runs at 5.14.</li>
 </ol>
@@ -250,26 +250,26 @@ M(`<p>Each instruction depends on the instruction immediately before it with pro
 </ul>
 <p>As width grows, this approaches the mean run length 1 / 0.3 = <strong>3.33</strong>: doubling width from 4 to 8 gains only 24%. An out-of-order core isn’t limited to consecutive instructions: here every dependence chain is short (the chance that a chain continues is only 0.3), so with a reasonable window it can find <em>w</em> ready instructions almost every cycle and get close to the full width. This is the classic argument for why wide in-order issue doesn’t pay.</p>`, "hard") +
 M(`<p>An integer back end has 6 single-cycle ALUs. A result can be bypassed from either of the 2 pipeline stages after execution, before it is readable from the register file. (a) How many sources does each ALU input select from, and how many bypass paths are there in total? (b) Same for 4 ALUs. (c) Split the 6 ALUs into two clusters of 3 with full bypass inside a cluster and one extra cycle to cross (as the Alpha 21264 did). How many fast paths remain? (d) If dependent instructions land in different clusters half the time, how fast does a chain of dependent adds run, and how do designs avoid that?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Sources per input: 6 ALUs × 2 stages = 12 bypass values, plus the register file: a <strong>13-to-1 mux</strong> per input. Paths: 12 inputs (6 ALUs × 2 operands) × 12 sources = <strong>144</strong>.</li>
 <li><strong>(b)</strong> 8 inputs × 8 sources = <strong>64</strong>. 1.5× the ALUs costs 2.25× the paths: the bypass network grows with the square of width, and the long wires are slow as well as large.</li>
 <li><strong>(c)</strong> Per cluster: 6 inputs × 6 sources = 36; two clusters: <strong>72</strong> fast paths, half of the full network. Cross-cluster values arrive a cycle later.</li>
 <li><strong>(d)</strong> Each dependence link costs 1 cycle half the time and 2 cycles the other half: 1.5 cycles on average, so a chain runs at 2/3 of its speed, a 33% loss for chain-bound code. Designs steer an instruction to the cluster of its producer (or its most critical producer) at dispatch, which recovers most of the loss but risks load imbalance between clusters, so steering heuristics balance both.</li>
 </ol>`, "hard") +
 M(`<p>A loop issues one integer divide every 20 instructions; apart from that, the core would run it at IPC 4. The divider has 14-cycle latency and is not pipelined. (a) Does the divider limit performance, and to what IPC? (b) How many dividers would it take to reach IPC 4? (c) Now divides are one per 80 instructions, so divider utilization is 0.7. Using the M/D/1 queueing formula W = ρ·S / (2(1 − ρ)), what is the average wait for the divider? Is that the right model for a loop?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Demand: 4 / 20 = 0.2 divides per cycle. Capacity: 1 / 14 = 0.071. Utilization would be 2.8, so the divider binds: one divide per 14 cycles means 20 instructions per 14 cycles, <strong>IPC 1.43</strong>.</li>
 <li><strong>(b)</strong> Two dividers: 20 instructions per 7 cycles = 2.86, still bound. Three: capacity 3/14 = 0.214 ≥ 0.2, so <strong>3 dividers</strong> reach IPC 4, at 93% utilization. A pipelined divider (or a higher-radix one with a shorter initiation interval) is usually cheaper than three copies.</li>
 <li><strong>(c)</strong> 4 / 80 = 0.05 divides per cycle × 14 = ρ = 0.7. W = 0.7 × 14 / (2 × 0.3) ≈ <strong>16.3 cycles</strong> average wait, plus 14 of service. But M/D/1 assumes random (Poisson) arrivals. In a loop the divides arrive like clockwork, one every 20 cycles, and a deterministic arrival stream with ρ &lt; 1 never queues at all: the wait is <strong>0</strong>. Queueing formulas are useful for irregular code (divides clustered by data-dependent control flow); for loops, think in terms of steady-state throughput. Either way, out-of-order execution hides the wait as long as enough independent work fits in the window: about (16 + 14) × 4 = 120 instructions here.</li>
 </ol>`, "hard") +
 M(`<p>Traversing a linked list: each node visit is one load of the next pointer (5-cycle L1 hit) plus 3 single-cycle instructions that use the node but don’t feed the next pointer. The core is 6-wide with 3 load ports. (a) What IPC does one list get? (b) If the program traverses <em>k</em> independent lists interleaved, how many does it take to reach full width? (c) Now the lists are in DRAM (400 cycles per node) and the core has 16 L1 miss buffers. What IPC do 8 lists get, and what is the most possible?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> The loop-carried chain is the pointer load: 5 cycles per node, 4 instructions per node, so IPC = 4 / 5 = <strong>0.8</strong>, no matter how wide the core is.</li>
 <li><strong>(b)</strong> <em>k</em> independent chains give 4<em>k</em> / 5 IPC until another limit binds. Width: 4<em>k</em> / 5 ≤ 6, so <em>k</em> = 7.5. Loads: <em>k</em> per 5 cycles ≤ 3 per cycle, so up to 15 lists. So <strong>8 lists</strong> reach the 6-wide limit (7 lists give 5.6).</li>
 <li><strong>(c)</strong> Each list now yields 4 instructions per 400 cycles = 0.01 IPC. 8 lists: <strong>0.08</strong>. More lists help linearly until the 16 miss buffers fill: at most 16 × 0.01 = <strong>0.16 IPC</strong>. The ROB is not the limit (by Little’s law, 0.16 × 400 = 64 entries). Past that point only lower latency, prefetching (hard for pointers), or restructuring the data (arrays instead of lists) helps.</li>
 </ol>`, "hard") +
 M(`<p>Loads are 30% of instructions and hit in the L1 92% of the time. The scheduler issues load-dependent instructions assuming a hit; on a miss, an average of 2.4 dependents (direct and indirect) have already issued and must be cancelled and reissued. On a 6-wide issue machine running at IPC 2.5, what fraction of issue bandwidth is wasted? When would this matter?</p>`,
-`<ol start="0">
+`<ol>
 <li>Misses per 1,000 instructions: 1,000 × 0.30 × 0.08 = 24. Wasted issues: 24 × 2.4 = 57.6 per 1,000 instructions.</li>
 <li>Cycles per 1,000 instructions: 1,000 / 2.5 = 400, so issue capacity is 400 × 6 = 2,400 slots. Waste: 57.6 / 2,400 = <strong>2.4% of capacity</strong>, or 57.6 / 1,057.6 = 5.4% of the issues actually performed.</li>
 </ol>
@@ -288,7 +288,7 @@ Q(`<p>A load on a mispredicted path touches an unmapped address and would page-f
 `<p>Nothing visible. The fault is recorded in the load’s ROB entry and raised only if that instruction reaches the ROB head as the oldest instruction. Here the branch resolves first, the load is squashed, and the fault disappears with it. That’s what “precise exceptions” buys: architectural state looks as if instructions ran one at a time in order.</p>
 <p>Meltdown: on some cores a load to a kernel address that would fault still returned data to dependent instructions transiently, before the fault was raised at retirement. Those instructions were squashed, but they had already touched cache lines indexed by the secret data, and the attacker recovered it by timing cache accesses. Architectural state was precise; microarchitectural state (the cache) wasn’t restored. Fixed cores don’t forward data from faulting loads.</p>`, "medium") +
 Q(`<p>After a change to your model, IPC drops 8% across several benchmarks. How do you determine whether the regression came from the front end, the scheduler, the execution units, or retirement?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Make it reproducible:</strong> same binaries, same simulation points, same warm-up; confirm the drop isn’t noise by checking that all simulation points move the same way.</li>
 <li><strong>Slot accounting before and after:</strong> compare front-end bound, bad speculation, back-end bound, and retiring. The category that grew is where to look.</li>
 <li><strong>Drill down:</strong> front end: fetch bubbles, i-cache or BTB misses, decode-queue empty cycles. Scheduler: queue-full stalls by queue, and cycles with ready-but-not-issued instructions. Execution: per-port utilization, divider busy. Retirement: cycles where the ROB head is complete but retirement bandwidth was exhausted (rare), versus head-not-complete cycles classified by the head instruction’s type.</li>
@@ -296,7 +296,7 @@ Q(`<p>After a change to your model, IPC drops 8% across several benchmarks. How 
 <li>Bisect the change itself if it bundled several modifications.</li>
 </ol>`, "medium") +
 M(`<p>Skylake is 4-wide. Over 10<sup>9</sup> cycles you measure, using the classic Top-Down event names: <code>UOPS_ISSUED.ANY</code> = 2.6 × 10<sup>9</sup>, <code>UOPS_RETIRED.RETIRE_SLOTS</code> = 2.2 × 10<sup>9</sup>, <code>INT_MISC.RECOVERY_CYCLES</code> = 5 × 10<sup>7</sup>, <code>IDQ_UOPS_NOT_DELIVERED.CORE</code> = 7 × 10<sup>8</sup>, and 2.0 × 10<sup>9</sup> instructions retired. (a) Compute the four top-level categories and the IPC. (b) Estimate the most that perfect branch prediction could speed this up, and explain why the real gain would be smaller. (c) What does the gap between uops and instructions tell you?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Slots = 4 × 10<sup>9</sup>.
 <ul>
 <li>Retiring = 2.2 / 4 = <strong>55%</strong>.</li>
@@ -335,14 +335,14 @@ M(`<p>An unrolled loop has 8 copies of this body, each with its own address, and
 add r2, r1, r6
 st  r2, [r7 + 8i]</code></pre>
 <p>Estimate the time for all 8 copies on (a) a CDC 6600-style scoreboard machine, which issues in order and stalls issue on a WAW hazard, with no renaming; (b) an out-of-order core with renaming and a large window. (c) How would a compiler rescue the scoreboard machine, and why isn’t that enough in general?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a) Scoreboard:</strong> copy 1’s <code>ld r1</code> has a WAW hazard with copy 0’s <code>ld r1</code>, which is still outstanding, so issue stalls, and in-order issue blocks everything behind it. Each copy’s load waits for the previous copy’s load to finish: about 8 × 400 = <strong>3,200 cycles</strong>. (A scoreboard also stalls a write on a WAR hazard, which would bite next if the registers were reused differently.)</li>
 <li><strong>(b) Renaming:</strong> each <code>ld r1</code> gets a fresh physical register, so all 8 loads issue within a few cycles and their misses overlap: about 400 + a few cycles, roughly <strong>8× faster</strong> (given at least 8 miss buffers).</li>
 <li><strong>(c)</strong> The compiler can allocate different registers to each copy (r1, r8, r9, …), which removes the WAW and lets the scoreboard overlap the misses too. But that needs 16 architectural registers for 8 copies instead of 2, it only works for code the compiler can see and unroll, and the compiler doesn’t know which loads will miss. Renaming does the same thing dynamically, for any code, with as many “registers” as the physical register file has.</li>
 </ol>`, "hard") +
 `<h3 id="sec-mech">Rename Mechanics</h3>` +
 Q(`<p>Rename the sequence from Q1. Initial map: r<em>n</em> → p<em>n</em> for every architectural register. Free list, in order: p32, p33, p34, p35. Give each renamed instruction, the final map, and the physical register each instruction frees when it commits. What happens to the next instruction that writes a register?</p>`,
-`<ol start="0">
+`<ol>
 <li>I0: r1 gets p32, old mapping p1. <code>ld p32, 0(p2)</code>. Frees <strong>p1</strong> at commit.</li>
 <li>I1: sources r1→p32, r4→p4; r3 gets p33, old p3. <code>add p33, p32, p4</code>. Frees <strong>p3</strong>.</li>
 <li>I2: sources p5, p6; r1 gets p34, old <strong>p32</strong>. <code>mul p34, p5, p6</code>. Frees <strong>p32</strong>.</li>
@@ -371,7 +371,7 @@ I1: sub r2, r1, r1
 I2: mul r1, r2, r1
 I3: add r3, r1, r2</code></pre>
 <p>Rename all four in one cycle. For each instruction give its renamed form and its old mapping. Which map-table entries are actually written at the end of the cycle? How many intra-group comparisons does the hardware make, and which ones match?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>I0:</strong> sources come from the table: r2→p2, r3→p3. Destination r1 gets p40; old mapping <strong>p1</strong> (from the table). <code>add p40, p2, p3</code></li>
 <li><strong>I1:</strong> both sources are r1, which I0 writes in the same group, so both take <strong>p40</strong>, not the table’s p1. Destination r2 gets p41; old mapping p2. <code>sub p41, p40, p40</code></li>
 <li><strong>I2:</strong> source r2 comes from I1 (<strong>p41</strong>); source r1 comes from I0 (<strong>p40</strong>). Destination r1 gets p42, and its old mapping is <strong>p40</strong>, I0’s new register, not the table’s p1. <code>mul p42, p41, p40</code></li>
@@ -380,7 +380,7 @@ I3: add r3, r1, r2</code></pre>
 <p><strong>Table writes:</strong> r1 is written by I0 and I2, so only I2’s mapping is written. Final table: r1→<strong>p42</strong>, r2→p41, r3→p43. p40 never appears in the table, yet it is live: I1 and I2 read it, and it is freed when I2 commits. At commit, I0 frees p1, I1 frees p2, I2 frees p40, I3 frees p3.</p>
 <p><strong>Comparisons:</strong> sources: slot <em>k</em> compares its 2 sources against <em>k</em> older destinations: 2 × (0 + 1 + 2 + 3) = 12. Destinations: slot <em>k</em> compares against <em>k</em> older destinations: 0 + 1 + 2 + 3 = 6. Total <strong>18</strong>.</p><p>Matches:</p><ul><li>I1’s two sources vs. I0 (2)</li><li>I2’s r2 vs. I1 and r1 vs. I0 (2)</li><li>I3’s r1 vs. I0 and I2, and r2 vs. I1 (3)</li><li>I2’s destination vs. I0’s (1)</li></ul><p>That’s 8 matches. The classic bug: giving I3 the I0 match because it was found first.</p>`, "hard") +
 M(`<p>Generalize the 4-wide rename-group question in the Conceptual tab to <em>n</em>-wide rename where every instruction has two sources and one destination. (a) How many intra-group comparators are needed for <em>n</em> = 4, 6, and 8? (b) How many map-table ports? (c) If the area of a multiported array grows with the square of its port count, how much bigger is the 6-wide and the 8-wide map table than the 4-wide one, for the same number of entries? (d) Name two ways designers avoid paying this.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a) Comparators.</strong> Sources: slot <em>k</em> has 2 sources × <em>k</em> older destinations, summed over <em>k</em> = 0 … <em>n</em>−1: 2 · <em>n</em>(<em>n</em>−1)/2 = <em>n</em>(<em>n</em>−1). Destinations: <em>n</em>(<em>n</em>−1)/2. Total <strong>3<em>n</em>(<em>n</em>−1)/2</strong>: <strong>18</strong> for 4-wide, <strong>45</strong> for 6-wide, <strong>84</strong> for 8-wide. Each compares two architectural register numbers (4 bits for 16 registers, 5 for 32). Going from 4 to 8 wide multiplies the comparators by 84 / 18 ≈ 4.7.</li>
 <li><strong>(b) Ports:</strong> 3<em>n</em> reads + <em>n</em> writes = 4<em>n</em>: 16, 24, and 32 ports.</li>
 <li><strong>(c) Area:</strong> (24 / 16)² = <strong>2.25×</strong> for 6-wide, (32 / 16)² = <strong>4×</strong> for 8-wide. Access time also grows, because longer wordlines and bitlines are slower, and rename is often a timing-critical stage.</li>
@@ -391,7 +391,7 @@ Q(`<p>x86 <code>inc</code> writes every arithmetic flag except the carry flag. W
 <p><strong>Partial registers:</strong> writing <code>al</code> leaves bits 8–63 of <code>rax</code> unchanged. Either <code>al</code> is renamed separately and a later read of <code>rax</code> needs a merge (older Intel cores stalled for several cycles; newer ones insert a merge uop), or the write to <code>al</code> is treated as a read-modify-write of <code>rax</code>, which adds a dependence on the old value.</p>
 <p><strong>Why <code>eax</code> is fine:</strong> x86-64 defines that writing a 32-bit register zero-extends into the full 64-bit register, so the write fully defines <code>rax</code> and needs no old value. That rule was chosen precisely to avoid this dependence; 8- and 16-bit writes kept the old behavior for compatibility.</p>`, "medium") +
 M(`<p>A 6-wide rename stage can take at most 4 registers from the free list per cycle. Each instruction needs a destination register with probability 0.7, independently. Rename handles instructions in order and stops at the first one that would need a fifth register. (a) Give a quick upper bound on throughput. (b) A colleague computes the expected number renamed per cycle for a fresh group of 6 random instructions and gets 5.41. Why is the true steady-state rate lower, and what is it?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Registers needed: 0.7 per instruction; supplied: at most 4 per cycle. So throughput ≤ 4 / 0.7 = <strong>5.71</strong>, and ≤ 6 from the width.</li>
 <li><strong>(b)</strong> The instruction that ends a group early is, by construction, one that needs a register. So the next cycle does <em>not</em> start with a random instruction; it starts with one known to need a register, and such cycles average only 5.23. A two-state Markov chain (does this cycle start with a known register writer or not?) gives a stationary probability of 0.47 for the “known writer” state, so the steady-state rate is 0.53 × 5.41 + 0.47 × 5.23 ≈ <strong>5.33</strong>. A direct simulation of 2 million random instructions agrees (5.33).</li>
 </ol>
@@ -407,7 +407,7 @@ Q(`<p>Your model frees a physical register one cycle too early in a rare corner 
 `<p>With real values: silent data corruption. The register gets reallocated and overwritten while some reader still needs the old value, or after a squash restores a mapping to it. The program computes wrong results, and you catch it only by comparing committed values against a functional reference.</p>
 <p>In a timing-only model the symptom is much quieter: dependences come out wrong. A consumer may wake on the new producer’s broadcast of the reused tag and issue too early, or a restored mapping points at a register marked “ready” by an unrelated instruction. IPC goes up slightly and plausibly, which is the dangerous part. This is why timing models need invariant checks (see the next question) and why carrying values, or cross-checking dependence edges against a functional model, is worth the cost.</p>`, "medium") +
 Q(`<p>How would you detect a physical register leak or a double free in a C cycle-level model?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Explicit state per register:</strong> keep an enum per physical register (FREE, SPECULATIVE, COMMITTED) and assert on every transition: allocate only from FREE, free only from a state that allows it. A double free trips the assert immediately at the bad call site.</li>
 <li><strong>Conservation invariant every cycle (debug builds):</strong> free-list size + registers mapped by the committed map + destinations of in-flight instructions = total registers, with every register counted exactly once.</li>
 <li><strong>Drain check:</strong> after a full pipeline flush or at the end of simulation, the free list must hold exactly total − architectural registers.</li>
@@ -419,7 +419,7 @@ Q(`<p>A branch near the ROB head mispredicts with 300 younger instructions in fl
 <p><strong>Checkpoints</strong> copy the whole map table at each branch at rename time; recovery is a single-cycle copy back. The squashed instructions’ physical registers must still be returned, but with a circular free list that’s just restoring the head pointer saved with the checkpoint.</p>
 <p>Limits: each checkpoint is a full copy of the table, so there are only a handful. When they run out, rename stalls at the next branch, or the design falls back to a walk. Common compromises: checkpoint only low-confidence branches, or rebuild from the committed map plus a forward walk. Being able to model all three lets you measure the penalty difference instead of guessing.</p>`, "medium") +
 M(`<p>A core checkpoints the rename map at every branch and has 8 checkpoints. A checkpoint is freed when its branch <em>resolves</em> (not when it commits). One instruction in 6 is a branch, and branches resolve on average 20 cycles after rename, but a branch that depends on a load missing to DRAM waits for its 400-cycle latency. (a) What is the highest sustainable IPC before rename starts stalling for checkpoints? (b) The core is meant to sustain IPC 4. How many checkpoints does it need? (c) A designer proposes checkpointing only low-confidence branches, which are 10% of branches but cause 80% of mispredicts. What happens to the checkpoint requirement, and what does it cost?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a) Little’s law:</strong> unresolved branches in flight = branch rate × time to resolve = (IPC / 6) × 20 = 3.33 × IPC. With 8 checkpoints, 3.33 × IPC ≤ 8, so <strong>IPC ≤ 2.4</strong>. Above that, rename stalls whenever a ninth branch arrives.</li>
 <li><strong>(b)</strong> At IPC 4: (4 / 6) × 20 ≈ <strong>13.3</strong> branches in flight on average, so at least 14 checkpoints, and in practice more, because Little’s law gives the <em>average</em>. A branch that depends on a load missing to DRAM holds its checkpoint for over 400 cycles, and a few of those at once eat most of the pool. Size for the tail, not the mean.</li>
 <li><strong>(c)</strong> Checkpointed branches in flight drop to 10% of 13.3 ≈ <strong>1.3</strong> on average, so a handful of checkpoints is plenty. The cost is the other 20% of mispredicts: their branches have no checkpoint, so recovery falls back to a slower method (walking the ROB, or rebuilding from the committed map), adding cycles to those mispredicts. Estimate the trade-off as (mispredicts on unchecked branches per 1,000 instructions) × (extra recovery cycles), against the rename stalls that 8 checkpoints-for-every-branch would cause. The confidence estimator’s quality decides whether this wins.</li>
@@ -434,7 +434,7 @@ I2: sub r2, r1, r3
 I3: add r1, r2, r2
 I4: mul r1, r1, r1</code></pre>
 <p>All five are renamed, then I0 commits, then I1 is found to be mispredicted. (a) Give the map and the free list just before recovery. (b) Recover using the checkpoint. (c) Recover instead by walking the ROB and undoing mappings: in which order must you walk, and what goes wrong in the other order? (d) Rename the first correct-path instruction, <code>I5: sub r3, r1, r2</code>.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Renaming:</strong> I0: r1→p10 (old p1). Checkpoint at I1: map {r1: p10, r2: p2, r3: p3}, head at p11. I2: r2→p11 (old p2). I3: r1→p12 (old p10). I4: r1→p13 (old p12).</li>
 <li><strong>(a)</strong> Map: r1→<strong>p13</strong>, r2→p11, r3→p3. I0’s commit freed p1 (its old mapping), appended at the tail, so the free list is p14, p1.</li>
 <li><strong>(b)</strong> Copy the checkpoint: r1→p10, r2→p2, r3→p3. Restore the head to where p11 was: the free list is now p11, p12, p13, p14, p1. The squashed registers are back, and p1, freed after the checkpoint, is kept.</li>
@@ -442,7 +442,7 @@ I4: mul r1, r1, r1</code></pre>
 <li><strong>(d)</strong> I5 reads r1→p10 and r2→p2; r3 gets the head of the free list, <strong>p11</strong>, with old mapping p3: <code>sub p11, p10, p2</code>.</li>
 </ol>`, "hard") +
 M(`<p>Recovery walks the ROB at 8 entries per cycle, overlapped with the 15-cycle front-end refill, so it costs extra only when the walk takes longer than 15 cycles. At a mispredict, the number of younger instructions to undo is uniformly distributed from 0 to 300 (mean 150). (a) A colleague estimates the extra cost from the mean. What do they get? (b) What is the true average extra cost? (c) At 5 mispredicts per 1,000 instructions and IPC 3, how much time does this add?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Mean walk: 150 / 8 = 18.75 cycles, so extra = 18.75 − 15 = <strong>3.75 cycles</strong> per mispredict.</li>
 <li><strong>(b)</strong> The walk time X = N/8 is uniform on 0 to 37.5 cycles, and the extra cost is max(0, X − 15). Its average is (1 / 37.5) ∫ from 15 to 37.5 of (x − 15) dx = 22.5² / (2 × 37.5) = <strong>6.75 cycles</strong>, 1.8× the estimate. The cost function is convex (zero below 15, linear above), so by Jensen’s inequality the average of the cost is larger than the cost of the average: long walks cost a lot and short walks don’t give anything back.</li>
 <li><strong>(c)</strong> 5 × 6.75 = 33.75 extra cycles per 1,000 instructions, against 1,000 / 3 = 333 base cycles: about <strong>10% more time</strong>. That’s a strong case for checkpoints, at least on low-confidence branches.</li>
@@ -464,25 +464,25 @@ Q(`<p>Can renaming improve performance on a workload dominated by a long chain o
 </ul>
 <p>Rename can shorten some chains in a different way: move elimination and zero idioms (<code>mov</code> handled by remapping, <code>xor r,r</code> recognized as zero) execute at rename with zero latency, removing links from the chain.</p>`, "easy") +
 M(`<p>A core with 32 architectural integer and 32 architectural vector registers has 280 integer and 332 vector physical registers and a 512-entry ROB. In a hot loop, 55% of instructions write an integer register, 20% write a vector register, and 25% write no register. (a) How many instructions can be in flight, and which structure limits it? (b) How many integer physical registers would make the ROB the limit? (c) A colleague says a physical register is held until its last reader has read it, so you need extra registers on top of your answer. Is that right?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Physical registers in use = committed mappings (one per architectural register, always) + one per in-flight instruction with a destination. Integer: (280 − 32) / 0.55 = 248 / 0.55 ≈ <strong>451</strong> instructions. Vector: (332 − 32) / 0.20 = <strong>1,500</strong>. ROB: 512. The integer register file limits the window to about <strong>451</strong>, so 61 ROB entries are never used in this loop.</li>
 <li><strong>(b)</strong> 32 + 0.55 × 512 = 313.6, so <strong>314</strong> integer registers. (A phase where every instruction writes an integer register would need 32 + 512 = 544, which is why designers size for typical mixes and accept stalls in dense phases.)</li>
 <li><strong>(c) No.</strong> With free-at-commit, a register is held from rename of its producer until the <em>next writer</em> of the same architectural register commits. At any instant, every register in use is either a committed mapping (32 of them) or the destination of an in-flight instruction, so the formula above is exact; when the producer commits, its register becomes the committed mapping and the previous one is freed, keeping the count. Readers never extend the lifetime beyond this, because all readers of a value are older than the next writer and commit before it. Two things do change the count: early-release schemes free registers sooner (lowering it), and move elimination (next question) lets two architectural registers share one physical register, which breaks this simple accounting.</li>
 </ol>`, "hard") +
 M(`<p>A loop has 12 instructions per iteration on a 6-wide core. Its loop-carried chain is <code>add r3, r1, r4</code> → <code>mov r1, r3</code> → <code>add r5, r1, r6</code> → <code>mov r1, r5</code> (then back to the first add in the next iteration). All other instructions are independent, and adds and moves take 1 cycle when executed. (a) What IPC does the loop reach without move elimination, and with it? (b) Move elimination breaks the rule that a physical register is freed when the next writer of its architectural register commits. Show how, and what hardware fixes it.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a) Without elimination:</strong> the chain is 4 operations of 1 cycle = 4 cycles per iteration, so IPC = 12 / 4 = <strong>3</strong>. <strong>With elimination:</strong> each <code>mov</code> is done at rename by pointing r1 at the source’s physical register, with zero latency, so the chain is 2 cycles. But the width bound is also 12 / 6 = 2 cycles, because the eliminated moves still use rename slots and ROB entries. So IPC = 12 / max(2, 2) = <strong>6</strong>, a 2× speedup, now limited by width rather than the chain.</li>
 <li><strong>(b)</strong> After <code>mov r1, r3</code> is eliminated, r1 and r3 both map to the same physical register, say p50. Later, when an instruction that overwrites r3 commits, the normal rule frees r3’s old register, p50, but r1 still maps to it. If p50 is reallocated, r1 is silently corrupted.</li>
 </ol>
 <p>The fix is a <strong>reference count</strong> per physical register (or a small table tracking registers with multiple mappings): elimination increments it, each commit of an overwriting instruction decrements it, and the register is freed only at zero. Recovery must also restore the counts for squashed eliminations. Because this tracking hardware is limited, real cores eliminate only some moves: when it is full, the move simply executes on an ALU. That variability is why microbenchmarks of move latency on recent cores sometimes show a mix of 0 and 1 cycles.</p>`, "hard") +
 M(`<p>A 6-wide issue stage reads source operands from the physical register file. After bypassing, each issued instruction needs 0, 1, or 2 register-file reads with probability 0.30, 0.45, and 0.25, independently. (a) How many reads per cycle are needed on average at full issue? (b) The design has only 8 read ports instead of 12. In what fraction of full-issue cycles is that not enough? With 10 ports? (c) What happens in those cycles, and roughly what do the fewer ports save?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> 0 × 0.30 + 1 × 0.45 + 2 × 0.25 = 0.95 reads per instruction, so <strong>5.7</strong> per cycle at 6-wide issue, under half of the 12 worst-case reads.</li>
 <li><strong>(b)</strong> The total reads for 6 instructions is a sum of 6 independent variables; convolving the distribution gives P(more than 8) = <strong>6.1%</strong> and P(more than 10) = <strong>0.29%</strong>. (For comparison, P(more than 6) is 33%, so 6 ports would be too few.)</li>
 <li><strong>(c)</strong> In an over-subscribed cycle, port arbitration lets the oldest instructions through and holds (or replays) the rest for a cycle, losing at least one issue slot. Since full-issue cycles are themselves a minority at typical IPC 2–3, the overall loss with 8 ports is usually well under 1%. The savings: with 6 write ports, the file goes from 18 to 14 ports, and since area grows roughly with ports², it shrinks to about (14 / 18)² ≈ 60%, with shorter access time too. This is why real register files have fewer read ports than 2 × issue width.</li>
 </ol>`, "hard") +
 M(`<p>A Golden Cove-like core has 280 integer physical registers and a 512-entry ROB; x86-64 has 16 architectural integer registers per thread. In a phase where 60% of instructions write an integer register: (a) how many instructions can be in flight with one thread, and what limits it? (b) With two SMT threads, each statically given half the ROB, what limits each thread now? (Ignore flags and microcode temporaries.)</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Registers in use = committed mappings + in-flight destinations. (280 − 16) / 0.6 = <strong>440</strong> instructions, fewer than the 512 ROB entries, so the register file binds.</li>
 <li><strong>(b)</strong> Each thread needs its own committed mappings: 2 × 16 = 32. In-flight capacity: (280 − 32) / 0.6 ≈ <strong>413</strong> instructions total, about 207 per thread if they share evenly, below each thread’s 256-entry ROB share. So under SMT the register file still binds, and more tightly per thread. A larger ROB partition would do nothing for either thread.</li>
 </ol>
@@ -495,7 +495,7 @@ M(`<p>A Golden Cove-like core has 280 integer physical registers and a 512-entry
 <p>Background: <a href="#/rob">Reorder Buffer</a>, <a href="#/rob-sizing">Sizing the Reorder Buffer</a>, <a href="#/latency-tolerance">Memory Latency Tolerance</a>.</p>
 <h3 id="sec-basics">Why the ROB Exists</h3>` +
 Q(`<p>Tomasulo’s algorithm already executes instructions out of order with reservation stations. What two problems does adding a reorder buffer solve that Tomasulo alone can’t?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Precise exceptions.</strong> Without a ROB, instructions update registers as they finish, so when one faults, younger instructions may already have changed state and older ones may not have finished. There is no clean point to restart from. The ROB holds results (or mappings) until every older instruction has finished, then commits them in order.</li>
 <li><strong>Speculation recovery.</strong> To execute past unresolved branches, the core must be able to undo everything after a mispredicted branch. With a ROB, nothing past the branch has committed, so recovery just discards the younger entries.</li>
 </ol>
@@ -518,7 +518,7 @@ Q(`<p>What happens when the ROB is full? Does fetch stop immediately?</p>`,
 `<p>Allocation (rename/dispatch) stalls: no new instruction can enter the back end without a ROB entry. Fetch and decode keep running until the queues between them and rename fill up, then they stall too. Execution and retirement continue normally; the stall ends as soon as the head retires and frees entries. A full ROB is usually a symptom (the head is waiting on something slow), not a cause.</p>`, "easy") +
 `<h3 id="sec-retire">Retirement and Commit</h3>` +
 M(`<p>On Golden Cove (512-entry ROB, 6-wide allocation), a load at the ROB head misses to DRAM: 80 ns at 5 GHz. The code behind it is independent of the load and would otherwise run at the full 6 per cycle. Assume no other structure (physical registers, load queue, scheduler) fills before the ROB. How many cycles does allocation stall, and what is the effective IPC over the miss? Then: what if a second, independent miss is 50 instructions behind the first? What if its address depends on the first load?</p><p>(e) When the miss finally returns, how long does it take to retire the backlog at 8 per cycle, and does allocation stall while it drains?</p>`,
-`<ol start="0">
+`<ol>
 <li>Miss latency: 80 ns × 5 GHz = <strong>400 cycles</strong>.</li>
 <li>The ROB fills in 512 / 6 ≈ <strong>85 cycles</strong>, then allocation stalls for about 400 − 85 = <strong>315 cycles</strong> until the load returns and retirement restarts.</li>
 <li>About 512 instructions get through in about 400 cycles: effective IPC ≈ <strong>1.3</strong>, against a peak of 6.</li>
@@ -538,7 +538,7 @@ Q(`<p>Golden Cove retires up to 8 instructions per cycle but allocates only 6. W
 <p>Retirement is also comparatively cheap to widen: it reads the ROB in order and updates the committed map, with no wakeup or select logic.</p>`, "medium") +
 `<h3 id="sec-sizing">Sizing the ROB</h3>` +
 Q(`<p>You double the ROB from 256 to 512 entries and a benchmark gets no faster. Give four distinct explanations and the statistic that separates each.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Another structure fills first:</strong> physical registers, scheduler, load queue, or store queue. Check allocation-stall cycles by resource; ROB-full cycles stay near zero.</li>
 <li><strong>Dependence-bound misses:</strong> pointer chasing, where each miss depends on the last. Check average outstanding L1D misses (MLP): it stays near 1 no matter the window size.</li>
 <li><strong>The window never fills:</strong> front-end bound code or frequent mispredicts. Check the ROB occupancy histogram and instructions between mispredicts. At 10 mispredicts per 1,000 instructions, there are about 100 instructions between flushes, so a 512-entry window is never filled with useful work.</li>
@@ -546,7 +546,7 @@ Q(`<p>You double the ROB from 256 to 512 entries and a benchmark gets no faster.
 </ol>
 <p>A fifth, simulator-specific one: the workload fits in cache in the simulated region, so there are no long-latency events to overlap. Check that the simulation points are representative.</p>`, "hard") +
 Q(`<p>Design an experiment to choose the ROB size for a new core.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Workloads:</strong> a diverse suite (SPEC CPU int and FP, plus server and client traces), with several simulation points per benchmark and proper warm-up of caches and predictors.</li>
 <li><strong>Sweep:</strong> for example 192, 256, 320, 384, 512, 640 entries. Run two variants: (a) other window structures scaled in proportion (registers, scheduler, LSQ), and (b) only the ROB grown. Variant (b) alone mostly measures whichever other structure becomes the limit.</li>
 <li><strong>Measure:</strong> IPC per benchmark, plus ROB-full cycles and MLP, to explain each curve.</li>
@@ -586,7 +586,7 @@ M(`<p>Your statistics say average ROB occupancy is 180 of 512 entries, so a coll
 `<p>If the ROB is full (512) in 25% of cycles, the other 75% average x where 0.25 × 512 + 0.75 × x = 180, so x ≈ <strong>69</strong>. The occupancy is bimodal: nearly full during memory-bound phases (a miss at the head, the window filling behind it), and mostly empty during the rest (refilling after mispredicts, compute phases with short lifetimes).</p>
 <p>Shrinking to 256 would cap exactly the memory-bound phases, which are where a large window earns its keep by overlapping misses; the average hides that. Growing it helps only if, in those full phases, more independent misses lie beyond the current window. What you need is the occupancy histogram, the stall cycles attributed to a full ROB with the head instruction’s type, average outstanding misses during full-ROB phases, and ultimately a sweep. Never size a structure from its average occupancy.</p>`, "hard") +
 M(`<p>A core would sustain IPC 4 if nothing missed, and has a 320-entry ROB. Loads are 25% of instructions: 90% hit in L1, 8% hit in L2 (14 cycles), 2% go to DRAM (400 cycles). (a) Which misses can the ROB hide? (b) Estimate the IPC if DRAM misses are isolated and never overlap. (c) Estimate it if DRAM misses come in independent clusters of 4 close together.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> A full window holds about 320 / 4 = 80 cycles of work, so latencies well under 80 cycles are hidden when the work behind them is independent. L2 hits (14) are hidden; DRAM misses (400) are not.</li>
 <li><strong>(b)</strong> DRAM misses per 1,000 instructions: 250 × 0.02 = 5. Each exposes about 400 − 80 = 320 cycles: 1,600 cycles. Base: 1,000 / 4 = 250 cycles. Total 1,850 cycles: <strong>IPC ≈ 0.54</strong>.</li>
 <li><strong>(c)</strong> Four misses close together overlap, so each cluster costs about one exposure: 5 / 4 = 1.25 clusters × 320 = 400 cycles. Total 650 cycles: <strong>IPC ≈ 1.54</strong>, nearly 3× better with the same miss count.</li>
@@ -627,7 +627,7 @@ Q(`<p>Can a completely full scheduler deadlock, with every entry waiting and not
 `<p><strong>Not from operand dependences alone.</strong> Dispatch is in order, so every instruction in the scheduler depends only on older instructions. Take the oldest instruction in the scheduler: all its producers are older still, so they have either completed or already issued and are executing. Its operands will therefore become ready in bounded time, it will issue, and the machine makes progress.</p>
 <p><strong>Deadlock comes from resources, not data:</strong> it happens when an older instruction needs a resource that only younger instructions can release, and they release it only at retirement, which waits on the older instruction. Examples: younger loads holding all the miss-tracking or load-buffer entries until they retire while the oldest load needs one; a replay queue full of younger instructions; any structure allocated out of order and freed in order. The standard fixes are to guarantee forward progress for the oldest instruction (reserve an entry for it, or let it bypass the shared resource) or to flush younger instructions to free the resource. Interviewers like this question because it tests whether you know <em>why</em> in-order dispatch matters.</p>`, "hard") +
 M(`<p>Some Intel cores bind each uop to a specific execution port when it is allocated, not when it issues. Take two equivalent ALU ports, and assume each cycle exactly two ALU uops become ready, with nothing else waiting. (a) If binding picks a port at random, what is the throughput? (b) Does alternating ports at allocation fix it? (c) Why bind early at all?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> The two ready uops are on the same port with probability 1/2, in which case only one issues. Expected issue: 2 × 1/2 + 1 × 1/2 = <strong>1.5 per cycle</strong>, a 25% loss against the 2 the hardware could do.</li>
 <li><strong>(b)</strong> Only partly. Alternating balances the <em>allocation</em> order, but instructions become ready in dataflow order, not allocation order: two uops that become ready in the same cycle may still have been bound to the same port. Real designs balance using counts of pending uops per port at allocation time, which reduces but does not eliminate collisions.</li>
 <li><strong>(c)</strong> With early binding, each port’s select logic only arbitrates among its own uops, a small independent circuit. Late binding needs a select that considers every port for every ready uop in the same cycle, which is larger and harder to fit in the one-cycle wakeup–select loop. Early binding trades some throughput for a faster, simpler scheduler.</li>
@@ -639,7 +639,7 @@ I1: r4 = r5 + r6
 I2: r7 = r1 + r4
 I3: r8 = r9 + r10</code></pre>
 <p>(a) Give the issue cycle of each. (b) Does 4-wide issue help? (c) Replace I0 with a load whose result is available 10 cycles after it issues. (d) What changes without the bypass, if a result can be read only two cycles after issue?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Cycle 0: I0, I1, and I3 are ready; oldest first picks I0 and I1. Cycle 1: I2 (both producers finished) and I3. Done in 2 cycles.</li>
 <li><strong>(b)</strong> No. Cycle 0: I0, I1, I3; cycle 1: I2. Still 2 cycles, because I0 → I2 is a chain of two 1-cycle operations. The critical path, not the width, sets the floor.</li>
 <li><strong>(c)</strong> Cycle 0: I0 (load) and I1. Cycle 1: I3. I2 waits for the load until <strong>cycle 10</strong>. Width is irrelevant; the load latency dominates. With 2-wide issue, I3 was ready at cycle 0 but lost to I1, which costs nothing here because I3 isn’t on the critical path.</li>
@@ -658,7 +658,7 @@ Q(`<p>After issue, the pipeline is: register read (R), execute (E), writeback (W
 </ul>
 <p>So <strong>2 bypass levels</strong>. With a 2-cycle register read (R1, R2): producer E at t+3, W at t+4, readable from t+5. Consumers issued at t+1, t+2, and t+3 execute at t+4, t+5, and t+6, and all of them read the register file too early (at t+2, t+3, and t+4), so they need <strong>3 bypass levels</strong>; only the consumer issued at t+4 reads the file. Every extra register-read stage adds a bypass level, and each level multiplies the mux inputs by the number of producing units, one reason designers fight to keep register read to one cycle.</p>`, "hard") +
 M(`<p>A loop computes the sequence x = a·x + b 1,000 times (64-bit integers, wrapping on overflow). Multiply takes 3 cycles, add 1 cycle; there is one fully pipelined multiplier and the core is 4-wide. (a) How many cycles does it take? (b) Restructure it using the recurrence two steps at a time. How many cycles now, and what must be precomputed? (c) How far can you push this, and what limits it?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Each step is a multiply then an add on the loop-carried chain: 4 cycles per step, about <strong>4,000 cycles</strong>, with the multiplier busy only a quarter of the time.</li>
 <li><strong>(b)</strong> Two steps at once: x<sub>n+2</sub> = a(a·x<sub>n</sub> + b) + b = A·x<sub>n</sub> + B with A = a² and B = a·b + b, precomputed once. Run two independent chains, one for even and one for odd indices (starting from x<sub>0</sub> and x<sub>1</sub>): each chain advances one step per 4 cycles, so 2 values per 4 cycles: about <strong>2,000 cycles</strong>. Wrapping 64-bit arithmetic is a ring, so the algebra is exact.</li>
 <li><strong>(c)</strong> With <em>k</em> interleaved chains (A = a<sup><em>k</em></sup>, B = b(a<sup><em>k</em>−1</sup> + … + 1)), you get <em>k</em> values per 4 cycles until the multiplier saturates at one multiply per cycle, at <em>k</em> = 4: about <strong>1,000 cycles</strong>. Width isn’t the limit (2 instructions per value, 4-wide). This is the general trick for latency-bound recurrences: trade more total work or precomputation for independent chains.</li>
@@ -695,7 +695,7 @@ for (each ready entry e, oldest first) {
 }</code></pre>
 <p>Points worth saying out loud:</p><ul><li><code>continue</code>, not <code>break</code>, when a class is full, so younger instructions of other classes can still go</li><li>A divide occupies an ALU port slot only in the cycle it issues</li><li>Skipping an instruction must not reorder anything</li><li>If real hardware binds instructions to specific ports at allocation (as Intel cores do), model that binding, because it can leave a ready instruction waiting for a busy port while an equivalent port is free</li></ul>`, "medium") +
 M(`<p>At IPC 4, instructions spend this long in the scheduler between dispatch and issue: 70% about 2 cycles, 25% about 10 cycles (waiting on L1 or L2 hits), and 5% about 400 cycles (waiting, directly or through a chain, on DRAM misses). (a) What is the average occupancy? (b) How much of it is the 5%? (c) What happens with a 60-entry scheduler, and what does that suggest about scheduler design?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Average wait: 0.7 × 2 + 0.25 × 10 + 0.05 × 400 = 1.4 + 2.5 + 20 = 23.9 cycles. Little’s law: 4 × 23.9 ≈ <strong>96 entries</strong>, close to Skylake’s 97-entry scheduler.</li>
 <li><strong>(b)</strong> 4 × 0.05 × 400 = <strong>80 entries</strong>, 84% of the scheduler, held by the 5% of instructions waiting on DRAM and doing nothing.</li>
 <li><strong>(c)</strong> 60 entries can support at most 60 / 23.9 ≈ <strong>2.5 IPC</strong> with this mix. Since the long waiters dominate the occupancy, scheduler size is really set by miss handling. That motivates designs that move miss-dependent instructions out of the scheduler into a cheap buffer and bring them back when the data arrives, rather than growing the expensive wakeup CAM.</li>
@@ -720,20 +720,20 @@ Q(`<p>When can an in-order core be competitive with an out-of-order core? Give t
 <li><strong>Bandwidth-bound streaming:</strong> if both cores saturate DRAM bandwidth, the out-of-order core’s extra parallelism has nothing to buy.</li>
 </ul>`, "easy") +
 M(`<p>On Skylake, FMAs use ports 0 and 1, vector shuffles only port 5, scalar shifts ports 0 and 6, taken branches only port 6, and simple integer ALU operations any of ports 0, 1, 5, and 6. A loop iteration has 2 FMAs, 2 shuffles, 1 shift, 1 taken branch, and 2 simple ALU operations (8 uops). (a) What is the minimum cycles per iteration? Give a valid port assignment. (b) Add a third shuffle. Now what? (c) How would you see this in counters, and fix it?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> 8 uops on 4 ALU ports need at least 2 cycles (and the 4-wide front end also needs 2). Port 5 must run both shuffles: 2 cycles. Assignment over 2 cycles:<ul><li>Port 0: FMA, shift</li><li>Port 1: FMA, ALU</li><li>Port 5: shuffle, shuffle</li><li>Port 6: branch, ALU</li></ul> <strong>2 cycles, 4 uops per cycle.</strong></li>
 <li><strong>(b)</strong> Three shuffles need port 5 for <strong>3 cycles</strong>, and nothing else can help. 9 uops in 3 cycles = 3 per cycle, while the front end could deliver them in 2.25 cycles and the other three ports sit idle a third of the time.</li>
 <li><strong>(c)</strong> Per-port dispatch counters show port 5 at about 1 uop per cycle and the others well below, with ready uops waiting. Fixes: replace a shuffle with an instruction that runs elsewhere (a blend, or a broadcast folded into a load), restructure the data layout so fewer shuffles are needed, or move to a core with shuffle units on more ports.</li>
 </ol>`, "hard") +
 M(`<p>A dot-product loop does, per element, 2 loads, 1 FMA into an accumulator, 1 index increment, and 1 fused compare-and-branch: 5 macro-ops (AMD's unit for dispatch width). The core is Zen 4-like: 6-wide, 3 loads per cycle, 2 FMA pipes with 4-cycle latency. (a) What is the resource bound in cycles per element? (b) The recurrence bound with one accumulator? (c) Unrolled by 8 with 8 accumulators (one index increment and one branch per 8 elements): cycles per element, and which resource binds?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong><ul><li>Loads: 2 / 3 = 0.67 cycles</li><li>FMA: 1 / 2 = 0.5</li><li>Width: 5 / 6 = 0.83</li></ul> Resource bound = <strong>0.83 cycles per element</strong> (width).</li>
 <li><strong>(b)</strong> Every FMA depends on the previous one through the accumulator: <strong>4 cycles per element</strong>, nearly 5× worse than the resource bound.</li>
 <li><strong>(c)</strong> Per 8 elements: 16 loads, 8 FMAs, 1 add, 1 branch = 26 macro-ops. Width: 26 / 6 = 4.33 cycles. Loads: 16 / 3 = 5.33. FMA: 8 / 2 = 4. Recurrence: each accumulator is updated once per 8 elements: 4 cycles. The maximum is <strong>5.33 cycles per 8 elements = 0.67 per element</strong>, load-bound. The FMA units are 75% busy at best; only reusing loaded values across several FMAs (as matrix multiply does) reaches the FMA peak.</li>
 </ol>
 <p>This is the same calculation compilers do for modulo scheduling: the initiation interval is the maximum of the resource bound and the recurrence bound.</p>`, "hard") +
 M(`<p>A loop sums the elements above a threshold: <code>if (x[i] &gt; t) s += x[i];</code>. On random data the branch is taken 50% of the time, unpredictably; a mispredict costs 17 cycles. (a) Estimate cycles per element for the branchy version and for a branchless version <code>s += (x[i] &gt; t) ? x[i] : 0</code> using a conditional move. (b) What if the data is sorted? (c) For a running maximum, <code>m = (x[i] &gt; m) ? x[i] : m</code>, explain why the branchless version can be about 2× <em>slower</em> than the branch even on random data.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Branchy: 0.5 × 17 = <strong>8.5 cycles of mispredicts per element</strong>, about 9 cycles in total. Branchless: the select depends only on x[i], not on s, so it’s off the loop-carried chain; the chain is just the add, 1 cycle per element, and throughput is about 1 cycle per element: roughly <strong>9× faster</strong>.</li>
 <li><strong>(b)</strong> Sorted data makes the branch almost perfectly predictable, so both versions run at about 1 cycle per element.</li>
 <li><strong>(c)</strong> In the max loop the conditional move is <em>on</em> the chain: compare m, then select into m: 2 cycles per element. On random data the running maximum changes rarely (about ln <em>n</em> times over <em>n</em> elements), so the branch is almost always not taken and well predicted, and the predicted branch breaks the dependence: the core doesn’t wait for m to know what to do next. That gives about 1 cycle per element, 2× faster than the branchless version. Branchless code wins when the branch is unpredictable and the select is off the critical path; it loses when the branch is predictable and the select sits on a loop-carried chain.</li>
@@ -768,7 +768,7 @@ M(`<p>Three candidate pairs could share one SMT core. IPC alone and IPC together
 <li>Pair Z: B alone 0.6, D alone 0.5. Together: B 0.45, D 0.42.</li>
 </ul>
 <p>Compute each pair’s weighted speedup and maximum slowdown. Which pairings would you schedule, and why does combined IPC mislead?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>X:</strong> 2.0 / 2.4 + 0.5 / 0.6 = 0.83 + 0.83 = <strong>1.67</strong>. Slowdowns 1.20× and 1.20×. Combined IPC 2.5.</li>
 <li><strong>Y:</strong> 1.3 / 2.4 + 1.2 / 2.2 = 0.54 + 0.55 = <strong>1.09</strong>. Slowdowns 1.85× and 1.83×. Combined IPC also 2.5.</li>
 <li><strong>Z:</strong> 0.45 / 0.6 + 0.42 / 0.5 = 0.75 + 0.84 = <strong>1.59</strong>. Slowdowns 1.33× and 1.19×. Combined IPC 0.87.</li>
@@ -781,7 +781,7 @@ M(`<p>A loop does 4 operations per element. Then, for 1% of elements (unpredicta
 <li>(b) 16-lane masked code that runs both paths for every vector and blends them (2 slots): cycles per element and speedup?</li>
 <li>(c) Masked code that skips the long path when no lane needs it (a test and a branch, 1 slot) and mispredicts each time it doesn’t skip?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Slots: 4 + 0.01 × 60 + 0.99 × 2 + 1 = 7.58, so 7.58 / 4 = 1.90 cycles, plus 0.01 × 15 = 0.15: <strong>2.05 cycles per element</strong>.</li>
 <li><strong>(b)</strong> Per vector: 4 + 60 + 2 + 2 = 68 slots for 16 elements, 4.25 per element, 1.06 cycles. Speedup 2.05 / 1.06 ≈ <strong>1.9×</strong>, though 16 lanes promised up to 16×, because every element now pays for the rare path.</li>
 <li><strong>(c)</strong> P(no lane takes the long path) = 0.99<sup>16</sup> ≈ 0.85. Per vector: 4 + 2 + 2 + 1 + 0.15 × 60 = 17.9 slots, 1.12 per element, 0.28 cycles. Mispredicts: 0.15 × 15 / 16 ≈ 0.14 cycles per element. Total ≈ 0.42 cycles, a speedup of about <strong>4.9×</strong>.</li>
@@ -795,14 +795,14 @@ M(`<p>A loop does 4 operations per element. Then, for 1% of elements (unpredicta
 <p>Background: <a href="#/r/arith">Computer Arithmetic</a>, especially <a href="#/fp-rounding">Rounding, Exceptions, and Error</a>, <a href="#/int-units">Integer Arithmetic Units</a>, and <a href="#/fp-units">Floating-Point Units and the FMA Pipeline</a>. Latencies below are from Agner Fog’s instruction tables.</p>
 <h3 id="sec-fmt">Formats and Numerics</h3>` +
 M(`<p>A colleague stores 64-bit event IDs in a <code>float</code> column to save space, arguing that “FP32 has about 7 significant digits, so 123,456,789 only loses its last digit or two.” What is actually stored for 123,456,789, and is the argument sound for IDs?</p>`,
-`<ol start="0">
+`<ol>
 <li>2<sup>26</sup> = 67,108,864 ≤ 123,456,789 &lt; 2<sup>27</sup>, so the ULP is 2<sup>26 − 23</sup> = 8.</li>
 <li>123,456,789 / 8 = 15,432,098.625, which rounds to 15,432,099, so the stored value is <strong>123,456,792</strong>, off by 3.</li>
 <li>The relative error (2.4 × 10<sup>−8</sup>) is as small as promised, so for a measurement the argument is fine. For an ID it isn’t: every float here stands for 8 neighboring integers, so 123,456,789 and 123,456,790 become the same key. IDs need exact integers, and FP32 is exact only up to 2<sup>24</sup>.</li>
 </ol>`, "easy") +
 M(`<p>Activations are quantized to FP8 E4M3 with one scale per tensor, chosen so the largest magnitude maps to 448. Most values lie within ±1, but one channel has an outlier of 300. What happens to activations of 0.002 and 0.0005, with and without the outlier? What would you change?</p>`,
 `<p>E4M3 facts: smallest normal 2<sup>−6</sup> = 0.015625, subnormal spacing 2<sup>−9</sup> ≈ 0.00195, 3 fraction bits (at most 6.25% relative error for a normal number).</p>
-<ol start="0">
+<ol>
 <li><strong>With the outlier:</strong> scale s = 300 / 448 ≈ 0.67, so a value x is stored as x / 0.67.
 <ul><li>0.002 → 0.00299, a subnormal: 0.00299 / 0.00195 = 1.53 rounds to 2 spacings = 0.0039, which dequantizes to 0.0026. That’s <strong>31% high</strong>.</li>
 <li>0.0005 → 0.00075, below half the smallest subnormal (0.00098), so it becomes <strong>0</strong>.</li></ul></li>
@@ -819,7 +819,7 @@ M(`<p>A FIR filter multiplies Q15 samples by Q15 coefficients and sums 64 produc
 <li>(b) How many guard bits does a 40-bit DSP accumulator give, and how many taps can it sum with no chance of overflow?</li>
 <li>(c) Why do Arm’s SDOT and x86’s VPDPBUSD accumulate INT8 products into 32 bits?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Q15 × Q15 is Q30. Its magnitude is at most 1, which is 2<sup>30</sup> in Q30 units, so a signed product needs 32 bits. The sum of 64 can reach 64 × 2<sup>30</sup> = 2<sup>36</sup>, which needs <strong>38 bits</strong> signed.</li>
 <li><strong>(b)</strong> 40 − 32 = <strong>8 guard bits</strong>. The largest positive value is 2<sup>39</sup> − 1, so it can sum up to <strong>511</strong> worst-case products (512 of them would reach exactly 2<sup>39</sup>).</li>
 <li><strong>(c)</strong> An INT8 product fits in 16 bits (at most 255 × 128 = 32,640 for u8 × s8). A matrix multiply sums thousands of them: 4,096 products need about 16 + 12 = 28 bits. 32-bit accumulators hold that with headroom, while the older 16-bit path (VPMADDUBSW) saturates and silently gives wrong answers.</li>
@@ -834,7 +834,7 @@ Q(`<p>On Golden Cove, a vector FP add has 2-cycle latency when its result feeds 
 <li><strong>Measurement:</strong> time a long dependent chain of <code>vaddps</code> (expect 2 cycles each), then a chain alternating <code>vaddps</code> and a 1-cycle op such as <code>vandps</code> or a move into another domain. Subtract the known cost of the other op to get the add-to-other latency.</li>
 </ul>`, "medium") +
 M(`<p>A hash-table benchmark does independent lookups, each with about 8 cycles of other work and one <code>hash % nbuckets</code> on 64-bit operands, where <code>nbuckets</code> is a prime near 1,000,000. Estimate the cost per lookup on Skylake (64-bit <code>DIV</code>: latency 35–88, reciprocal throughput 21–83) and Ice Lake (latency 15, reciprocal throughput 10). Skylake’s 32-bit DIV has 26-cycle latency and a reciprocal throughput of 6. How would you fix it?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Which limit applies:</strong> lookups are independent, so the divide’s latency overlaps and the divider’s <em>throughput</em> is the bound, unless the ROB fills first.</li>
 <li><strong>Skylake:</strong> a random 64-bit hash divided by about 2<sup>20</sup> gives a quotient of about 44 bits, toward the slow end of the range. Expect roughly 60–80 cycles per lookup set by the divider, against 8 cycles of other work: <strong>about 8–10× slower</strong> than without the modulo.</li>
 <li><strong>Ice Lake:</strong> about 10 cycles per lookup, slightly above the 8 cycles of other work. The divide goes from dominant to roughly breaking even.</li>
@@ -846,7 +846,7 @@ M(`<p>A hash-table benchmark does independent lookups, each with about 8 cycles 
 <li><strong>Modeling lesson:</strong> a model calibrated on Skylake would overestimate this benchmark’s run time on Ice Lake by several times. Divider latency and throughput should be per-core parameters, ideally a function of quotient length.</li>
 </ol>`, "hard") +
 M(`<p>On Zen 4, 256-bit FMAs have 4-cycle latency and issue 2 per cycle, while 512-bit FMAs are double-pumped: 4-cycle latency, 1 per cycle. (a) Compare peak FP32 FLOPs per cycle and the minimum number of accumulators for each width. (b) An SGEMM micro-kernel nevertheless often runs faster with AVX-512 on Zen 4. AVX2 has 16 architectural vector registers and AVX-512 has 32. Give the reasons, with numbers.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> AVX2: 2 × 8 lanes × 2 = 32 FLOPs per cycle. AVX-512: 1 × 16 × 2 = <strong>32 FLOPs per cycle, the same</strong>. Accumulators = latency × issue rate: 4 × 2 = 8 ymm registers, versus 4 × 1 = 4 zmm registers.</li>
 <li><strong>(b) More registers, bigger tile:</strong> AVX2 has 16 architectural vector registers, AVX-512 has 32. With a tile of 2 B vectors and broadcast A values, AVX2 fits a 6 × 2-vector tile (12 accumulators + 2 B + 1 broadcast = 15 registers), doing 12 FMAs per 2 B loads and 6 broadcasts: 8 loads per 12 FMAs, or 0.67. AVX-512 fits 14 × 2 (28 + 2 + 1 = 31 registers): 16 loads per 28 FMAs, or 0.57. Fewer loads per FLOP leaves more slack on the load ports and the L1.</li>
 <li><strong>Half the instructions per FLOP:</strong> at peak, AVX2 issues 2 FMAs plus about 1.3 loads per cycle, AVX-512 1 FMA plus about 0.6 loads. That leaves much more of Zen 4’s 6-wide rename and its scheduler and ROB capacity for loop overhead, prefetches, and packing code, so the kernel stays closer to peak.</li>
@@ -864,7 +864,7 @@ M(`<p>At <code>-O3</code> without <code>-ffast-math</code>, GCC does not vectori
 <li><strong>Without <code>-ffast-math</code>:</strong> write the reassociation explicitly (several accumulators in the source, combined at the end), use <code>#pragma omp simd reduction(+:s)</code>, or allow <code>-fassociative-math</code> for just that file. All of these give a fixed, deterministic order, unlike <code>-ffast-math</code>, which also enables FTZ and drops NaN and infinity handling for the whole program.</li>
 </ul>`, "medium") +
 M(`<p>Kahan summation computes, per element, <code>y = x[i] - c; t = s + y; c = (t - s) - y; s = t;</code>. With FP add latency 3 and two 256-bit FP add pipes (16 FP32 adds per cycle, as on Zen 4), what is its throughput as written, compared with a naive single-accumulator sum? How do you get compensated accuracy at close to vectorized speed?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Find the loop-carried cycle.</strong> c<sub>i</sub> → y<sub>i+1</sub> = x − c<sub>i</sub> → t<sub>i+1</sub> = s<sub>i</sub> + y<sub>i+1</sub> → t<sub>i+1</sub> − s<sub>i</sub> → c<sub>i+1</sub> = (t − s) − y. That’s <strong>4 dependent adds per element</strong>, and s is on the cycle too, since s<sub>i+1</sub> = t<sub>i+1</sub>.</li>
 <li><strong>As written:</strong> 4 × 3 = <strong>12 cycles per element</strong>, versus 3 for the naive sum, which is itself latency bound. So Kahan is 4× slower than a naive scalar sum and about 200× slower than a vectorized one.</li>
 <li><strong>Fix:</strong> run independent Kahan sums in parallel, one per vector lane and several vectors deep, and combine them at the end (with a final compensated combination). Each element then costs 4 adds of throughput, not latency: 4 adds × 1/16 cycle each at 16 adds per cycle = 0.25 cycles per element. That’s about 4× slower than a vectorized naive sum, and usually hidden behind memory bandwidth.</li>
@@ -887,7 +887,7 @@ M(`<p>A CPU socket with 12 channels of DDR5-4800 (460.8 GB/s peak, about 80% sus
 <li>(b) At the INT4 rate, how much of the socket’s FP32 compute do the matrix-vector products use?</li>
 <li>(c) What breaks this estimate for long contexts and for larger batches?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li>Sustained bandwidth ≈ 0.8 × 460.8 ≈ 369 GB/s.</li>
 <li><strong>(a)</strong> BF16: 8.03 × 10<sup>9</sup> × 2 B = 16.1 GB per token, about <strong>23 tokens/s</strong>. INT8: 8.03 GB, about <strong>46 tokens/s</strong>. INT4: 4 + 32 / 128 = 4.25 bits per weight, 8.03 × 10<sup>9</sup> × 4.25 / 8 ≈ 4.27 GB, about <strong>86 tokens/s</strong>.</li>
 <li><strong>(b)</strong> Each token needs about 2 FLOPs per parameter, 16.1 GFLOP, so 86 tokens/s needs about 1.4 TFLOP/s. Peak is 96 × 3.5 GHz × 2 pipes × 8 FP32 lanes × 2 ≈ 10.8 TFLOP/s, so about <strong>13%</strong>: firmly memory-bound, with room for the dequantization work.</li>
@@ -901,7 +901,7 @@ M(`<p>A CPU socket with 12 channels of DDR5-4800 (460.8 GB/s peak, about 80% sus
 <p>Background: <a href="#/branch-hazards">Branch Hazards</a>, <a href="#/stage-if">Instruction Fetch</a>.</p>
 <h3 id="sec-cost">The Cost of a Mispredict</h3>` +
 M(`<p>A workload runs at IPC 3.0 if every branch were predicted correctly. 20% of instructions are branches, prediction accuracy is 97%, and each mispredict costs 17 cycles. What is the real IPC? What would raising accuracy to 98% buy?</p><p>Then: suppose 4 of the 6 MPKI resolve promptly (17-cycle penalty), but 2 MPKI are branches that depend on L2 misses and resolve 60 cycles later than usual. What is the IPC now?</p>`,
-`<ol start="0">
+`<ol>
 <li>Mispredicts per 1,000 instructions (MPKI): 1,000 × 0.20 × 0.03 = <strong>6</strong>.</li>
 <li>Extra cycles per instruction: 6 × 17 / 1,000 = 0.102.</li>
 <li>CPI: 1/3.0 + 0.102 = 0.333 + 0.102 = 0.435, so IPC ≈ <strong>2.30</strong>, a 23% loss.</li>
@@ -910,7 +910,7 @@ M(`<p>A workload runs at IPC 3.0 if every branch were predicted correctly. 20% o
 <p>The lesson: one point of accuracy is worth about 8% here, and the higher the base IPC, the more each mispredict costs relative to useful work. That’s why predictor research chases fractions of a percent. Also quote MPKI, not accuracy: accuracy hides how many branches there are.</p>
 <p><strong>Late-resolving branches:</strong> 4 × 17 + 2 × (17 + 60) = 68 + 154 = 222 extra cycles per 1,000 instructions. CPI = 0.333 + 0.222 = 0.555, so IPC ≈ <strong>1.80</strong> (versus 2.30 when all mispredicts resolve promptly). In this simple additive model, the 2 late MPKI cost more than twice what the other 4 do, which is why improving prediction on branches that depend on cache misses is worth the most.</p>`, "hard") +
 Q(`<p>Why can a predictor with 99% accuracy still cost a lot of performance? Give two separate reasons.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>The penalty isn’t fixed.</strong> The quoted 15–20 cycles assumes the branch resolves soon after it’s fetched. A branch whose condition depends on a load that misses to DRAM resolves hundreds of cycles later, and the whole time the core is fetching the wrong path. The cost is resolution time plus refill, so a few mispredicts on miss-dependent branches can dominate.</li>
 <li><strong>Branch density and averages.</strong> 99% of a branch every 5 instructions is still 2 MPKI. And the 1% isn’t spread evenly: a few hard, data-dependent branches (for example in a sort, a decision tree, or a compression loop) can mispredict 30% of the time and account for nearly all the losses.</li>
 </ol>
@@ -923,7 +923,7 @@ Q(`<p>Why do cores predict branches at all? Suppose a branch occurs every 5 inst
 `<p>Each group of 5 instructions would cost at least 15 cycles, so IPC ≤ 5 / 15 = <strong>0.33</strong>, no matter how wide the core. Prediction lets fetch continue down the likely path, and the cost becomes (mispredicts × penalty) instead of (branches × resolution time). With 95% accuracy, only 1 in 20 branches pays the 15 cycles.</p>`, "easy") +
 `<h3 id="sec-predictors">Predictor Structures</h3>` +
 Q(`<p>A loop branch is taken 3 times then not taken once, repeating (pattern T T T N). What is the misprediction rate with (a) a 1-bit last-outcome predictor, (b) a 2-bit saturating counter, (c) a predictor using the branch’s own last 4 outcomes as history?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>1-bit:</strong> it predicts the last outcome. It mispredicts the N (last was T) and then the first T after it (last was N): <strong>2 of 4, 50%</strong>.</li>
 <li><strong>2-bit:</strong> in steady state the counter sits at strongly taken. The N moves it to weakly taken (mispredict), the next T is still predicted taken (correct) and moves it back: <strong>1 of 4, 25%</strong>. The hysteresis costs one mispredict per loop exit instead of two.</li>
 <li><strong>History of 4:</strong> each position in the pattern has a distinct recent history (for example, after T T T the next is always N), so each history pattern indexes its own counter and learns: <strong>about 0%</strong> after warm-up. In general, loops with a fixed trip count up to about the history length become perfectly predictable.</li>
@@ -954,7 +954,7 @@ Q(`<p>Which structure predicts each kind of control transfer: a conditional dire
 Q(`<p>A taken direct branch is not in the BTB. What happens, and why is that usually cheaper than a direction mispredict?</p>`,
 `<p>Fetch doesn’t know a branch is there, so it continues sequentially. When the instruction is decoded, the front end sees a direct branch, computes its target from the encoding, and (if predicted or known taken) redirects fetch from decode. That costs the depth of the front end up to decode, a handful of cycles, instead of waiting until the branch executes and flushing the back end. Indirect branches are the exception: their target is only known at execution, so a BTB miss on one costs a full mispredict.</p>`, "easy") +
 M(`<p>A TAGE-like predictor has a base table of 4K 2-bit counters plus 4 tagged tables of 1K entries, each entry with a 3-bit counter, a 2-bit “useful” counter, and a 9-bit tag. (a) What is the total storage? (b) Why tags? If 300 hot branches hash into one untagged 1K-entry table, what fraction of them share an entry with at least one other? (c) What does a 9-bit tag buy?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Base: 4,096 × 2 = 8,192 bits. Tagged: 4 × 1,024 × (3 + 2 + 9) = 57,344 bits. Total <strong>65,536 bits = 8 KB</strong>.</li>
 <li><strong>(b)</strong> For a given branch, the chance that none of the other 299 lands in its entry is (1 − 1/1,024)<sup>299</sup> ≈ e<sup>−0.29</sup>, so about <strong>25%</strong> of branches share an entry. And that understates the pressure: with history-indexed tables, each branch occupies one entry per distinct history pattern, so the effective number of “contexts” is far larger than 300. Shared untagged entries interfere destructively: one branch trains the counter the other way.</li>
 <li><strong>(c)</strong> With a tag, a lookup that lands on another branch’s entry usually sees a tag mismatch and falls back to a shorter table instead of using the wrong counter. A random 9-bit tag matches by accident only 1 time in 512 (about 0.2%). Aliasing turns from silent wrong predictions into misses and reallocations.</li>
@@ -967,7 +967,7 @@ Q(`<p>An inner loop always runs exactly 7 iterations (numbered 0 to 6). Its body
 </ul>
 <p>With 13 bits, iterations 0–5 each see the N at a different position, and iteration 6 sees 13 T’s, a unique pattern, so after training every prediction is correct. With 12 bits, iteration 5 also sees 12 T’s and shares iteration 6’s pattern, so the two collide and at least one of them mispredicts every time the loop runs. If the trip count varies, no history length helps; that’s what dedicated loop predictors (iteration counters) are for.</p>`, "hard") +
 Q(`<p>A bytecode interpreter dispatches with a single indirect jump at the top of its loop (<code>goto *table[op]</code>). The program being interpreted is a loop over a fixed sequence of 8 different opcodes. (a) With a BTB that remembers only each jump’s last target, what is the misprediction rate? (b) “Threaded” dispatch puts a copy of the indirect jump at the end of every handler. Now? (c) What does a history-based indirect predictor do for the single-jump version?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Consecutive opcodes are always different, so the last target is always wrong: <strong>100%</strong> mispredicted.</li>
 <li><strong>(b)</strong> Each handler’s own jump always goes to the same successor in this program, so each site’s last target is right: about <strong>0%</strong> after warm-up. Mispredicts return only for opcodes that appear in several places with different successors.</li>
 <li><strong>(c)</strong> A predictor that hashes recent branch history (or the path of recent targets) with the jump address sees a different history at each position in the sequence, so it can predict the single shared jump almost perfectly too. Modern indirect predictors largely erased the old advantage of threaded code; measurements on recent cores confirm interpreters mispredict far less than folklore says.</li>
@@ -981,7 +981,7 @@ M(`<p>You have a 32 KB budget for a direction predictor.</p>
 <li>(b) A perceptron predictor with 8-bit weights, 63 history bits, and a bias weight: how many perceptrons fit?</li>
 <li>(c) A server workload has about 4,000 hot static branches. Which design suffers more from aliasing, and what can each learn that the other can’t?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> 32 KB × 8 = 262,144 bits / 2 = 131,072 = 2<sup>17</sup> entries, a 17-bit index, so at most <strong>17 history bits</strong> XORed with the PC.</li>
 <li><strong>(b)</strong> Each perceptron is 64 × 8 = 512 bits, so 262,144 / 512 = <strong>512 perceptrons</strong>.</li>
 <li><strong>(c)</strong> The perceptron puts about 4,000 / 512 ≈ 8 branches on each row, and branches with different correlations fight over the same weights: much heavier aliasing. gshare spreads each branch over many counters, one per history pattern.</li>
@@ -1003,7 +1003,7 @@ Q(`<p>Why can a larger instruction window make each misprediction more expensive
 </ul>
 <p>So a bigger window pays off only if the branch predictor is good enough that the window is actually filled with correct-path work. At high MPKI the average distance between mispredicts is shorter than the window, and the extra entries are mostly wrong-path.</p>`, "medium") +
 M(`<p>The front end delivers 6 uops per cycle when not stalled. A mispredicted branch resolves on average 25 cycles after it is fetched, there are 8 mispredicts per 1,000 instructions, and the correct path averages 1.1 uops per instruction. What fraction of fetched uops could be wrong-path? Why is that an upper bound, and why does it matter even when it doesn’t cost time?</p>`,
-`<ol start="0">
+`<ol>
 <li>Correct-path uops per 1,000 instructions: 1,100.</li>
 <li>Wrong-path uops per mispredict: at most 6 × 25 = 150, so 8 × 150 = 1,200 per 1,000 instructions.</li>
 <li>Wrong-path fraction: up to 1,200 / 2,300 ≈ <strong>52%</strong> of everything fetched.</li>
@@ -1011,7 +1011,7 @@ M(`<p>The front end delivers 6 uops per cycle when not stalled. A mispredicted b
 <p>It’s an upper bound because the front end doesn’t always run at full speed on the wrong path: it can stall when the back end fills up, miss in the i-cache, or hit another branch, and the ROB caps how much is in flight. But even the real number is large. Wrong-path work mostly overlaps with the correct path’s stall time, so its cost shows up less in time than in energy: fetching, decoding, renaming, and often executing hundreds of uops that are thrown away. That’s why better prediction often saves more power than performance.</p>`, "hard") +
 M(`<p>A short if–else has 3 instructions on each side. The branchy version executes the branch plus one side (4 instructions); the if-converted version executes both sides plus a select (7 instructions). The core runs this code at 4 instructions per cycle, and a mispredict costs 17 cycles. Above what misprediction rate does if-conversion win (a) if the select is off the critical path, and (b) if it adds 1 cycle to a loop-carried chain? (c) Why do compilers often choose wrong?</p>`,
 `<p>Branchy: 4 / 4 = 1 cycle + <em>p</em> × 17. If-converted: 7 / 4 = 1.75 cycles, plus 1 cycle if the select lengthens the critical chain.</p>
-<ol start="0">
+<ol>
 <li><strong>(a)</strong> 1 + 17<em>p</em> = 1.75, so <em>p</em> = <strong>4.4%</strong>.</li>
 <li><strong>(b)</strong> 1 + 17<em>p</em> = 2.75, so <em>p</em> = <strong>10.3%</strong>.</li>
 <li><strong>(c)</strong> The compiler doesn’t know the misprediction rate. Profiles give taken frequencies, not mispredict rates: a branch taken 50% of the time can be perfectly predictable if it alternates, and a 90/10 branch with random outcomes mispredicts about 10%. The right choice also depends on the core (penalty, width) and on whether the select lands on a critical chain, which static heuristics see poorly.</li>
@@ -1030,14 +1030,14 @@ M(`<p>Your TAGE predictor’s longest history is 1,024 branches. Up to 128 predi
 <li>(b) Compare checkpointing a pointer per block with copying the whole history per block.</li>
 <li>(c) TAGE computes its indices and tags from folded histories that are updated incrementally. With 12 tables, each with 3 folded registers of 11 bits on average, what else must a checkpoint hold, or what must recovery do instead?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> It must hold the 1,024 bits the longest table reads plus up to 128 × 2 = 256 speculative bits: <strong>1,280 bits</strong>. Indexing 1,280 positions (or 2,048, for power-of-two wraparound) takes an <strong>11-bit pointer</strong>.</li>
 <li><strong>(b)</strong> Pointers: 128 × 11 = 1,408 bits, 176 bytes. Full copies: 128 × 1,024 = 131,072 bits, <strong>16 KB</strong>, about 93× more, and each copy would have to be written in the cycle the block is predicted.</li>
 <li><strong>(c)</strong> The folded registers are 12 × 3 × 11 = 396 bits per checkpoint. Checkpointing them costs 128 × 396 = 50,688 bits, about <strong>6.2 KB</strong>. The alternative is to undo them: each update shifts a new bit in and the bit at its table’s history length out, so recovery can reverse the updates for the squashed bits by reading them back from the circular buffer, at a few cycles per bit. Recovery sits on the mispredict path, so many designs pay for the checkpoints.</li>
 </ol>`, "hard") +
 `<h3 id="sec-eval">Evaluating a Predictor</h3>` +
 Q(`<p>Design an experiment to evaluate a new branch predictor. Why report both MPKI and IPC?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Workloads:</strong> SPEC CPU int (branch-heavy), plus server and browser traces with large code footprints, where BTB capacity and indirect branches matter.</li>
 <li><strong>Warm-up:</strong> large predictors need tens of millions of instructions to train. Use long warm-up or continuous traces, or you’ll undercount a big predictor’s benefit.</li>
 <li><strong>Fast step:</strong> a trace-driven predictor simulator for MPKI across many configurations and storage budgets, against a baseline such as a TAGE of the same storage.</li>
@@ -1106,7 +1106,7 @@ M(`<p>A hot loop is 12 instructions in 52 bytes, ending in a taken branch to its
 <li>(b) If the start offset is equally likely to be any byte from 0 to 31, what is the expected cycles per iteration?</li>
 <li>(c) What do 16-byte and 32-byte alignment of the loop head give?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li>Windows touched = ⌊(offset + 52 − 1) / 32⌋ + 1.</li>
 <li><strong>(a)</strong> Offsets 0 to 12 give offset + 51 ≤ 63, so 2 windows. Offsets 13 to 31 give 3 windows. Rename needs 12 / 6 = 2 cycles per iteration, so the loop takes <strong>2 cycles</strong> at offsets 0 to 12 (fetch and rename tie) and <strong>3 cycles</strong> at offsets 13 to 31, where fetch binds.</li>
 <li><strong>(b)</strong> (13 × 2 + 19 × 3) / 32 = 83 / 32 ≈ <strong>2.59 cycles</strong>.</li>
@@ -1139,7 +1139,7 @@ Q(`<p>On a database trace, your model classifies FDIP prefetches as 55% timely, 
 <li><strong>Useless</strong> (wrong path, or evicted before use): wrong-path prefetches after BTB misses or mispredicts, or prefetches so early that the line is gone before fetch arrives.</li>
 </ul>
 <p>Experiments:</p>
-<ol start="0">
+<ol>
 <li>Classify each late prefetch by its distance in blocks from the last redirect.</li>
 <li>Run a deeper FTQ alone, a larger BTB alone, and both together, and record the late and useless fractions and IPC for each.</li>
 <li>Attribute useless prefetches to their cause: after a BTB miss, after a mispredict, or evicted.</li>
@@ -1166,7 +1166,7 @@ M(`<p>After a redirect, your model’s predictor produces 2 fetch blocks per cyc
 <li>(c) Back to (a), but the decode queue is full for the first 20 cycles after the redirect, so fetch reads nothing until cycle 20.</li>
 <li>(d) Can any of these fully hide an L3 hit of 50 cycles?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Block k is predicted at about cycle k / 2 and fetched at cycle k, so its lead is about k / 2. Full hiding needs k / 2 ≥ 14, so blocks from about 28 on. Occupancy grows by 1 per cycle (2 in, 1 out) and reaches 24 at cycle 24. After that, the predictor can only add a block when fetch removes one, and the lead stays at 24 / 1 = <strong>24 cycles</strong>.</li>
 <li><strong>(b)</strong> Block k is fetched at cycle 1.5k, so its lead is 1.5k − k / 2 = k. Blocks from 14 on are fully hidden. Occupancy grows by 2 − 2/3 = 4/3 per cycle and fills at cycle 18. The steady-state lead is 24 / (2/3) = <strong>36 cycles</strong>. Each entry now holds more fetch time, so the same queue gives a longer lead.</li>
 <li><strong>(c)</strong> The predictor fills all 24 entries by cycle 12, then waits. Fetch starts at cycle 20, so block k (k ≤ 23) is fetched at cycle 20 + k, at least 20 cycles after its prediction. <strong>Every block is hidden, including block 0</strong>, whose miss overlapped with the stall. After that, the predictor refills at fetch’s rate and the lead settles at 24 cycles. A back-end stall turns into lead.</li>
@@ -1178,7 +1178,7 @@ M(`<p>A server trace has 9 BTB misses on taken branches per 1,000 instructions. 
 <li>(b) A stall breakdown charges the exposed instruction cache misses to the instruction cache. What fraction of the BTB’s cost does that hide?</li>
 <li>(c) Doubling the BTB halves its misses. What speedup does it give? What speedup would a team estimate if it believed the instruction cache misses would stay?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li>Decode redirects: 9 × 0.7 = 6.3 per 1,000 instructions × 8 = 50.4 cycles.</li>
 <li>Mispredicts: 9 × 0.3 = 2.7 × 17 = 45.9 cycles.</li>
 <li>Exposed instruction cache misses: 9 × 0.4 = 3.6 × 14 = 50.4 cycles.</li>
@@ -1219,7 +1219,7 @@ M(`<p>On Zen 5, one thread gets up to 12 instructions per cycle from the op cach
 <li>(a) What op cache hit rate (the fraction of instructions it delivers) lets the front end keep up with dispatch?</li>
 <li>(b) Each switch between the two paths costs 1 cycle, and a switch happens every 50 instructions on average. What hit rate is needed now? How many instructions per cycle does the front end deliver at the hit rate from (a)?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li>Front-end cycles per instruction: h / 12 + (1 − h) / 4. Dispatch needs at most 1 / 8.</li>
 <li><strong>(a)</strong> h / 12 + 1/4 − h / 4 = 1/8, so 1/4 − h / 6 = 1/8 and h = <strong>0.75</strong>.</li>
 <li><strong>(b)</strong> Add 1 / 50 = 0.02 cycles per instruction: 1/4 − h / 6 + 0.02 = 1/8, so h / 6 = 0.145 and h = <strong>0.87</strong>.</li>
@@ -1247,7 +1247,7 @@ M(`<p>A 5 GHz core (200 ps cycle) has an 8-way instruction cache with these dela
 <li>(a) How many cycles does a hit take with a parallel read, and with way prediction?</li>
 <li>(b) Compare the average hit time in nanoseconds of way prediction at 5 GHz with a parallel-read design that lowers the clock until a hit fits in one cycle.</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Parallel read: max(150, 115 + 40 + 45) + 35 = max(150, 200) + 35 = 235 ps, more than 200, so <strong>2 cycles</strong>. Way prediction: max(150, 60) + 35 = 185 ps, so <strong>1 cycle</strong> with 15 ps to spare.</li>
 <li>Average with way prediction: 0.88 × 1 + 0.12 × 2 = 1.12 cycles = <strong>0.224 ns</strong>.</li>
 <li><strong>(b)</strong> Fitting the parallel read in one cycle needs 1 / 235 ps ≈ 4.26 GHz, for a hit of <strong>0.235 ns</strong>. (Keeping 5 GHz with 2-cycle hits gives 0.40 ns.)</li>
@@ -1259,7 +1259,7 @@ M(`<p>A low-power core’s 8-way instruction cache uses way selection. Per way, 
 <li>(b) A confidence bit marks 8% of fetches low-confidence, and those read all 8 ways at once. The rest guess right 97% of the time. Find the same two numbers.</li>
 <li>(c) 40% of extra fetch cycles reach decode, and the core’s CPI is 0.8. What does each option cost in performance?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li>One way costs 1.2 + 5.0 = 6.2 pJ. A parallel read costs 8 × 6.2 = 49.6 pJ, with no extra cycles.</li>
 <li><strong>(a)</strong> Right guess: 0.4 + 6.2 = 6.6 pJ. Wrong guess: 6.6 + 7 × 6.2 = 50.0 pJ. Average: 0.9 × 6.6 + 0.1 × 50.0 = <strong>10.94 pJ</strong>, 78% less than the parallel read. Extra cycles: <strong>0.10 per fetch</strong>.</li>
 <li><strong>(b)</strong> Low confidence: 0.4 + 49.6 = 50.0 pJ. High confidence: 0.97 × 6.6 + 0.03 × 50.0 = 7.90 pJ. Average: 0.08 × 50.0 + 0.92 × 7.90 = 4.00 + 7.27 = <strong>11.27 pJ</strong>, 3% more than (a). Extra cycles: 0.92 × 0.03 ≈ <strong>0.028 per fetch</strong>, 72% fewer.</li>
@@ -1275,7 +1275,7 @@ M(`<p>A low-power core’s 8-way instruction cache uses way selection. Per way, 
 <h3 id="sec-basics">Why Loads and Stores Are Special</h3>` +
 Q(`<p>Register dependences are known at rename. Why aren’t memory dependences, and what two separate correctness problems does that create for an out-of-order core?</p>`,
 `<p>A register dependence is visible in the instruction encoding: the names match. A memory dependence depends on <em>addresses</em>, which are computed at execution time, possibly from loads that haven’t returned. So at rename the core can’t know whether a load reads what an older store writes.</p>
-<ol start="0">
+<ol>
 <li><strong>Single-thread correctness:</strong> a load must return the value of the youngest older store to the same bytes, or memory if none. If it executes before an older store whose address is unknown, it may read stale data. That’s what the store queue (search for older stores) and violation detection solve.</li>
 <li><strong>Multi-core ordering:</strong> the consistency model limits which reorderings other cores may observe. On x86 (TSO), loads must appear to execute in order with respect to each other. Cores still execute loads out of order, but they watch for invalidations of lines read by speculatively completed loads and replay if another core wrote one before the load would have been allowed to execute.</li>
 </ol>`, "medium") +
@@ -1297,7 +1297,7 @@ I3: mov r8, qword [rbx]       ; 8-byte load covering I2 and 6 more bytes</code><
 <p><strong>I3 can’t forward.</strong> Only 2 of its 8 bytes come from the store; the other 6 must come from the cache, and the store-queue forwarding path can’t merge two sources. The load waits until I2 commits and writes the L1, then reads the merged line. This is a store-forwarding stall: roughly 10–20 cycles more than a successful forward, and potentially much more if I2 is stuck behind a miss in the store buffer.</p>
 <p>Where this shows up in practice: code that writes a struct field by field and then reads it back with one wide (vectorized) load.</p>`, "medium") +
 M(`<p>A load’s address is known, but an older store’s address is not. Describe three policies the core could use and the performance risk of each.</p><p>Then put numbers on it:</p><ul><li>30% of instructions are loads</li><li>2% of loads truly depend on an older store whose address is unknown when the load is ready</li><li>A violation costs 20 cycles</li><li>Waiting conservatively delays the 30% of loads that sit behind an unresolved store by 6 cycles each, fully exposed</li></ul><p>A predictor catches 95% of the true dependences and falsely delays 1% of loads. Compare the three policies in cycles per 1,000 instructions.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Conservative: wait</strong> until every older store address is known. Never wrong, but loads sit behind slow address computations even when they’d almost never conflict. Loads are often on the critical path, so this costs a lot.</li>
 <li><strong>Always speculate:</strong> issue the load now. When the older store’s address resolves, it searches the load queue for younger loads that already executed to overlapping bytes; a hit is an ordering violation, and the core squashes from the load and refetches. Fast when conflicts are rare; each violation costs about a mispredict.</li>
 <li><strong>Predict:</strong> a memory dependence predictor (for example, store sets) learns which loads have conflicted with which stores, and makes only those loads wait for those specific stores, speculating everywhere else.</li>
@@ -1315,7 +1315,7 @@ Q(`<p>When an ordering violation is detected, why does the core squash and refet
 Q(`<p>A store to address A is in the store queue, not yet written to the cache, and a younger load reads A. Where must the load get its data, and why can’t it simply read the cache?</p>`,
 `<p>From the store, through store-to-load forwarding. The cache still holds the old value, because the store only writes the cache after it retires (and after any older stores drain). Reading the cache would return stale data and break single-thread program order. The load searches the store queue for the youngest older store to the same bytes and takes its data; only if no older store matches does it use the cache.</p>`, "easy") +
 M(`<p>A loop compiled at -O0 keeps its counter in memory: each iteration loads it, adds 1, and stores it back. Store-to-load forwarding takes about 5 cycles on this 4-wide Skylake-class core. (a) How many cycles per iteration does this chain cost, and what IPC does an 8-instruction iteration get? (b) At -O2 the counter lives in a register. What limits the loop now? (c) What is memory renaming, and what would it do here?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> The loop-carried chain runs through memory: load (about 5 cycles, forwarded from the previous iteration’s store) plus add (1): about <strong>6 cycles per iteration</strong>, so IPC = 8 / 6 ≈ <strong>1.33</strong>.</li>
 <li><strong>(b)</strong> The chain is a 1-cycle add, so the loop becomes width-bound: 8 instructions at 4 per cycle = 2 cycles per iteration. A 3× speedup, not 6×: removing the chain moves the bottleneck to width.</li>
 <li><strong>(c)</strong> Memory renaming predicts that a load will read the value of a specific older store and connects the load’s result directly to the store’s source register at rename, like an eliminated move. The store-forwarding latency disappears from the chain, which returns to the 1-cycle add. Some recent x86 cores do this for stack accesses, which is exactly where unoptimized and register-starved code spills and reloads.</li>
@@ -1334,7 +1334,7 @@ Q(`<p>You built a new memory dependence predictor. What statistics would you col
 </ul>
 <p>Bounds: an <strong>oracle</strong> (perfect disambiguation: loads wait exactly when they truly alias) is the upper bound; <strong>always wait</strong> and <strong>always speculate</strong> are the lower bounds. Report how much of the gap between the best simple policy and the oracle the predictor closes. If the oracle gains only 1% on your workloads, no predictor is worth much there.</p>`, "medium") +
 M(`<p>A Golden Cove-class core has a 192-entry load queue, a 114-entry store queue, and handles up to 3 loads and 2 stores per cycle. (a) How many address comparisons per cycle are needed if every load searches the whole store queue and every store, when its address resolves, searches the whole load queue? (b) Why is each comparison more than a simple equality test? (c) Name techniques that cut the cost.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> 3 × 114 + 2 × 192 = 342 + 384 = <strong>726 comparisons per cycle</strong>.</li>
 <li><strong>(b)</strong> Each check must<ul><li>Test byte-range <em>overlap</em> (address plus size), not equality</li><li>Must restrict itself to entries on the correct side in age (older stores for a load, younger loads for a store)</li><li>A load must select the <em>youngest</em> matching older store, which adds a priority encoder</li></ul> Full physical addresses are 40+ bits wide.</li>
 <li><strong>(c)</strong><ul><li>Compare a few low address bits first and do the full compare only on a match (which is exactly what causes 4K aliasing)</li><li>Split the queues into banks by address bits so a search touches only one bank</li><li>Filter with a small table or Bloom filter that says whether any in-flight store could match</li><li>Search only the relevant age range</li><li>Skip load-queue searches for stores when no younger load has executed yet</li></ul></li>
@@ -1358,7 +1358,7 @@ Q(`<p>Why is a locked instruction or a full fence expensive on x86, and what dec
 `<p>A fence like <code>MFENCE</code>, or a <code>lock</code>-prefixed read-modify-write, must make all older stores globally visible before any later load can be considered performed. In practice the store buffer must drain first. The cost is therefore the time to drain whatever is in it: a few tens of cycles when the stores hit in L1, hundreds if some are waiting on cache misses. A locked operation also needs the line in exclusive state, which may mean a coherence miss if another core recently wrote it (a contended lock bouncing between cores).</p>
 <p>Implementations reduce the cost by letting later loads execute speculatively and watching for conflicting invalidations instead of fully stalling, but the store-buffer drain remains the core cost.</p>`, "medium") +
 M(`<p>Stores are 10% of instructions on a core running at IPC 3. Committed stores drain to the L1 in order, one per cycle when they hit. 5% of stores miss and need an ownership fetch from L3 (50 cycles), and a missing store blocks the drain until its line arrives. (a) Can the store buffer keep up? (b) What changes if the core issues ownership requests (RFOs) early, as soon as a store’s address is known?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Stores arrive at 3 × 0.1 = 0.3 per cycle. Average drain time per store: 1 + 0.05 × 50 = 3.5 cycles, so the drain capacity is 1 / 3.5 ≈ 0.286 stores per cycle. That’s less than 0.3, so the store buffer fills and stays full: IPC is capped near 0.286 / 0.1 ≈ <strong>2.86</strong>, and lower in practice because misses arrive in bursts.</li>
 <li><strong>(b)</strong> With early RFOs, the ownership fetches for several buffered stores overlap with each other and with the drain of the stores ahead of them. When a missing store reaches the head, its line is often already there, so the effective drain time approaches 1 cycle per store and the cap disappears. TSO still requires stores to become visible in order; it doesn’t forbid fetching ownership early.</li>
 </ol>`, "hard") +
@@ -1367,7 +1367,7 @@ M(`<p>An Intel Skylake-class core can track about 10–12 outstanding L1D misses
 `<p>Little’s law: bandwidth = bytes in flight / latency = 12 × 64 B / 80 ns ≈ <strong>9.6 GB/s</strong> (8 GB/s with 10 buffers).</p>
 <p>The measured figure is higher because the L2’s hardware prefetchers fetch ahead into the L2 (and L3), and those requests are tracked by the L2’s own miss queue, not the L1 fill buffers. Many L1 misses then become L2 hits with about 12-cycle latency, so each fill buffer turns over far faster. Same law, much shorter latency. That’s also why disabling prefetchers in a single-core streaming benchmark drops bandwidth toward the Little’s-law bound.</p>`, "hard") +
 M(`<p>Your model reports these counters for a 50M-cycle interval on a 5 GHz core that retires 60M instructions:</p><ul><li>Cycles with at least one L2 miss outstanding: 30M</li><li>Sum over all cycles of the number of outstanding L2 misses: 69M miss-cycles</li><li>L2 misses completed: 180K</li></ul><p>(a) Compute the MLP, the average miss latency, the miss throughput, and the effective penalty per miss. (b) A colleague computes MLP as 69M / 50M. Why is that misleading? (c) What is the most time these misses could be costing?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong>
 <ul>
 <li>MLP = 69M / 30M = <strong>2.3</strong> misses in flight, averaged over cycles that have at least one.</li>
@@ -1387,7 +1387,7 @@ M(`<p>Growing the load queue helps one workload a lot and another not at all. Gi
 </ul>
 <p><strong>Streaming numbers:</strong> bytes in flight = 20 GB/s × 90 ns = 1,800 bytes ≈ 28 lines, so about <strong>29 lines</strong> must be outstanding. Each line is touched by 8 consecutive 8-byte loads, and every load from the oldest outstanding line to the newest occupies a load-queue entry until it retires: about 29 × 8 ≈ <strong>230 entries</strong>, more than Skylake’s 72 or Golden Cove’s 192. Demand loads alone can’t sustain it; hardware prefetchers, which track lines without load-queue entries, are what make single-core streaming bandwidth possible.</p>`, "hard") +
 Q(`<p>How would you test a load/store queue model for correctness when accesses overlap in address or size?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Directed tests:</strong> every combination of store size and load size (1, 2, 4, 8, 16, 32, 64 bytes) and relative offset, including partial overlap, exact match, containment both ways, and accesses that cross a cache line or a page boundary.</li>
 <li><strong>Ordering scenarios:</strong><ul><li>Load before the older store’s address resolves, then aliasing</li><li>Several older stores to the same address (the youngest older must win)</li><li>Stores with address known but data not</li></ul></li>
 <li><strong>Golden reference:</strong> run random load/store streams over a small address range (to force collisions) and check every load’s value against an in-order functional model. Even a timing-only model can track byte-level “which store produced this byte” and compare that.</li>
@@ -1435,7 +1435,7 @@ M(`<p>A 1 MB, 16-way L2 with 64-byte lines and 48-bit physical addresses stores,
 <li>(b) A sectored version uses 128-byte lines made of two 64-byte sectors, each with its own 4 state bits. How large is its tag array?</li>
 <li>(c) A workload’s hot data is 700 KB of 64-byte records, but only every other record is hot, so each 128-byte block holds one hot sector. Which design holds the hot data?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> 1 MB / 64 B = 16,384 lines, in 16,384 / 16 = 1,024 sets. Offset 6 bits and index 10 bits leave a 48 − 16 = 32-bit tag. 36 bits × 16,384 = 589,824 bits = <strong>72 KB</strong>, 7% of the data array.</li>
 <li><strong>(b)</strong> 8,192 tags in 512 sets: offset 7 and index 9 bits leave a 32-bit tag again. 32 + 2 × 4 = 40 bits × 8,192 = 327,680 bits = <strong>40 KB</strong>, saving 32 KB.</li>
 <li><strong>(c)</strong> The plain cache holds 16,384 lines, so 700 KB of hot lines fit. The sectored cache has only 8,192 tags, and each hot sector uses a whole one, so it holds at most 8,192 × 64 B = <strong>512 KB</strong> of hot data and misses on the rest. Sectoring saves tag area when access is dense and halves effective capacity when it is sparse.</li>
@@ -1456,7 +1456,7 @@ M(`<p>Two SMT threads alternate reading a shared buffer through different virtua
 <li>(a) What does the aliasing cost each thread?</li>
 <li>(b) How much extra L2-to-L1 traffic does each thread cause?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Each alias adds (14 − 4) × 0.3 = 3 exposed cycles. 12 per 1,000 instructions gives 36 cycles per 1,000, or 0.036 CPI. CPI rises from 0.9 to 0.936, about <strong>4% slower</strong>.</li>
 <li><strong>(b)</strong> Each thread retires 4.5 × 10<sup>9</sup> / 0.936 ≈ 4.8 × 10<sup>9</sup> instructions per second, so 0.012 × 4.8 × 10<sup>9</sup> ≈ 5.8 × 10<sup>7</sup> extra fills, × 64 B ≈ <strong>3.7 GB/s</strong>.</li>
 <li>The fix is free: map the buffer at the same virtual address in both processes, or share it between threads of one process.</li>
@@ -1483,7 +1483,7 @@ Q(`<p>On silicon, backing a graph-analytics workload with 2 MB pages makes it 15
 </ul>
 <p>Fix: model walks as loads through the hierarchy, with the real walker count and page-walk caches and page tables built from the real mapping. Validate with a pointer chase over a huge array at each page size.</p>`, "hard") +
 M(`<p>A graph kernel does independent random 8-byte reads over a 48 GB array, and every read misses to DRAM (400 cycles). The core keeps up to 16 data misses in flight and has 6 page walkers. The L2 DTLB holds 4,096 entries for 4 KB or 2 MB pages (as on Zen 5), plus a 1,024-entry array for 1 GB pages. A walk finds the upper levels in the page-walk cache and reads only the leaf entry. With 4 KB pages, that entry comes from DRAM 60% of the time and from L3 (50 cycles) otherwise. With 2 MB pages it always hits in L3. Considering only the miss and walk bounds, find the cycles per read with 4 KB, 2 MB, and 1 GB pages.</p>`,
-`<ol start="0">
+`<ol>
 <li>Data bound: 400 / 16 = 25 cycles per read.</li>
 <li><strong>4 KB pages:</strong> the reach is 16 MB against 48 GB, so essentially every read walks. Walk = 0.6 × 400 + 0.4 × 50 = 260 cycles. Walker bound: 260 / 6 ≈ 43.3. T = max(25, 43.3) = <strong>43.3 cycles</strong>, bound by the walkers.</li>
 <li><strong>2 MB pages:</strong> 48 GB / 2 MB = 24,576 pages against 4,096 entries, so 1 − 4,096 / 24,576 ≈ 83% of reads still miss the TLB. Each walk costs 50 cycles: 0.83 × 50 / 6 ≈ 6.9. T = <strong>25 cycles</strong>, bound by data misses, 1.73× faster.</li>
@@ -1519,7 +1519,7 @@ M(`<p>DDR5-6000 with 30-38-38 timings (tCL-tRCD-tRP, a common desktop kit) runs 
 <li>(b) A closed-page policy precharges after every access, so every access finds its row closed. Assume the precharge is always hidden. Which policy wins here?</li>
 <li>(c) In general, when does open-page win?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li>Clock period 1 / 3,000 MHz ≈ 0.333 ns, so tCL = 10.0 ns, tRCD = 12.67 ns, and tRP = 12.67 ns.</li>
 <li>Row hit 10.0 ns. Closed row tRCD + tCL = 22.67 ns. Conflict tRP + tRCD + tCL = 35.33 ns.</li>
 <li><strong>(a)</strong> 0.45 × 10.0 + 0.15 × 22.67 + 0.40 × 35.33 = 4.50 + 3.40 + 14.13 ≈ <strong>22.0 ns</strong>.</li>
@@ -1532,7 +1532,7 @@ M(`<p>A Zen 5 core can track 124 outstanding misses, and idle DRAM latency is 90
 <li>(b) The core’s chiplet connects to the I/O die over a link that reads 32 bytes per fabric clock at 2.0 GHz. What bounds a single core now, and how many misses does it actually need in flight?</li>
 <li>(c) The desktop part has two 64-bit channels of DDR5-6000 and sustains about 80% of peak. How many cores does it take to saturate DRAM?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> 124 × 64 B / 90 ns = 7,936 B / 90 ns ≈ <strong>88 GB/s</strong>.</li>
 <li><strong>(b)</strong> The link moves 32 B × 2.0 GHz = <strong>64 GB/s</strong>, below 88, so it binds. At 64 GB/s and 90 ns, Little’s law needs 64 × 90 = 5,760 B in flight, <strong>90 lines</strong>. (Once the link queues, latency rises above 90 ns, and the extra miss slots absorb it.)</li>
 <li><strong>(c)</strong> Peak is 2 × 6,000 MT/s × 8 B = 96 GB/s, so about 77 GB/s sustained. One chiplet’s link (64 GB/s) can’t saturate it, but two cores on different chiplets (128 GB/s of link) can. So <strong>2 cores</strong>, if they are on different chiplets.</li>
@@ -1565,7 +1565,7 @@ M(`<p>A 96-core chip has a 1 MB private L2 per core with 64-byte lines, and a sp
 <li>(c) a coarse vector with one bit per cluster of 8 cores</li>
 </ul>
 <p>What does each send when a core writes a line that 20 other cores share?</p>`,
-`<ol start="0">
+`<ol>
 <li>Entries: 96 × 1 MB / 64 B = 1,572,864.</li>
 <li><strong>(a)</strong> 96 bits each, 1,572,864 × 96 ≈ 151 million bits = <strong>18 MiB</strong>.</li>
 <li><strong>(b)</strong> Each pointer names one of 96 cores in 7 bits: 4 × 7 + 1 = 29 bits, about <strong>5.4 MiB</strong>.</li>
@@ -1578,7 +1578,7 @@ M(`<p>A 64-core chip runs at 3 GHz. Each core runs at IPC 1.5 with 20 L2 misses 
 <li>(a) With broadcast snooping, how many snoop lookups per cycle must each core’s L2 tags handle, and how many snoop messages cross the network per cycle?</li>
 <li>(b) A snoop filter forwards only the 4% of misses to lines that another private cache holds, to 1.5 caches on average. What are the two rates now?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li>Misses per core per cycle: 1.5 × 0.02 = 0.03. Chip-wide: 64 × 0.03 = 1.92 per cycle.</li>
 <li><strong>(a)</strong> Each core sees every other core’s misses: 63 × 0.03 ≈ <strong>1.9 snoops per cycle</strong>, nearly two tag lookups per cycle on top of its own accesses, far more tag bandwidth than an L2 has to spare. The network carries 1.92 × 63 ≈ <strong>121 snoop messages per cycle</strong>.</li>
 <li><strong>(b)</strong> Forwarded probes: 1.92 × 0.04 × 1.5 ≈ <strong>0.12 per cycle</strong> chip-wide, or about <strong>0.002 per core per cycle</strong>, roughly a thousand times fewer.</li>
@@ -1600,7 +1600,7 @@ M(`<p>A hot lock line lives at one directory slice. Each acquire is a transactio
 <li>(b) Treating it as an M/D/1 queue, what is the average wait before a transaction starts?</li>
 <li>(c) What happens if each core’s rate rises by 10%?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Arrivals: 32 / 2,000 ns = 0.016 per ns. Utilization ρ = 0.016 × 60 = <strong>0.96</strong>.</li>
 <li><strong>(b)</strong> For M/D/1, the mean wait is W = ρ S / (2 (1 − ρ)) = 0.96 × 60 / (2 × 0.04) = <strong>720 ns</strong>, twelve times the service time. Each acquire takes about 780 ns, not 60.</li>
 <li><strong>(c)</strong> ρ = 1.056, above 1: the queue grows without bound. In practice cores slow down as they wait, and acquisitions saturate at 1 / 60 ns ≈ 16.7 million per second chip-wide.</li>
@@ -1626,7 +1626,7 @@ M(`<p>A producer on an x86 core publishes each message by writing 64 bytes (8 st
 <li>(b) At 4 GHz, what message rate does the fence allow?</li>
 <li>(c) Is the fence needed?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> In order: 60 cycles for the slot’s line, 8 commits, then 60 for the flag’s line and 1 commit, about 129 cycles, plus 30: about <strong>160 cycles</strong>. With both ownership requests started early, they overlap: about 60 + 9 + 30 ≈ <strong>100 cycles</strong>.</li>
 <li><strong>(b)</strong> At most 4 × 10<sup>9</sup> / 160 = <strong>25 million</strong> messages per second, or 40 million with early ownership requests, before counting the producer’s own work.</li>
 <li><strong>(c)</strong> No. Under TSO, stores become visible in program order, so a consumer that sees the flag and then reads the slot sees the message: the message-passing outcome is forbidden on x86. A fence is needed only to order a store before a later load (the store-buffering pattern, as in Dekker-style locks). Without it, the producer keeps working while the stores drain, and throughput is set by the ownership transfers, which overlap with other work. On Arm, the flag would need a store-release.</li>
@@ -1641,7 +1641,7 @@ M(`<p>Sixteen threads each increment their own 8-byte counter, and the 16 counte
 <li>(a) Estimate each thread’s increment rate.</li>
 <li>(b) What does padding cost in memory, and what rate does it give?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li>Demand per line: 8 threads × 1 / 50 ns = 0.16 increments per ns. The line can move at most once per 70 ns, about 0.014 per ns, so it is saturated more than ten times over.</li>
 <li><strong>(a)</strong> With the line saturated, each thread waits for the other 7 transfers before its own: about 8 × 70 = <strong>560 ns per increment</strong>, 11× slower than the 50 ns it wanted.</li>
 <li><strong>(b)</strong> One counter per line takes 16 × 64 B = <strong>1 KB</strong> instead of 128 B, and each thread is back to one increment per 50 ns plus an L1 hit. Even 2 KB, with 128-byte padding, is trivial next to an 11× slowdown.</li>
@@ -1654,7 +1654,7 @@ M(`<p>Sixteen threads each increment their own 8-byte counter, and the 16 counte
 <p>Background: <a href="#/perf-stats">Performance Statistics</a>, <a href="#/perf-stalls">Stall Causes</a>, <a href="#/perf-bottlenecks">Bottleneck Types</a>.</p>
 <h3 id="sec-chains">Following the Causal Chain</h3>` +
 Q(`<p>On Zen 4 (320-entry ROB, 6-wide dispatch, 8-wide retire), a load misses in L2 and hits in L3 (about 50 cycles). Many younger instructions are independent of it. Walk through what happens to the scheduler, the ROB, and retirement, cycle by cycle in broad strokes.</p><p>Put a number on it: when the load issues, the ROB holds 200 entries and the load is the oldest. Dispatch continues at 6 per cycle. How many cycles until the ROB fills, and for how many of the 50 cycles is dispatch stalled?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>The load issues</strong> and misses L1 and L2; a miss buffer tracks it. Dependents that were speculatively woken for an L1 hit are cancelled and go back to waiting.</li>
 <li><strong>Independent instructions keep flowing:</strong> allocation continues at up to 6 per cycle, independent work issues and completes, and the load’s dependents accumulate in the scheduler.</li>
 <li><strong>Retirement stalls</strong> as soon as the load reaches the ROB head; completed instructions pile up behind it.</li>
@@ -1664,7 +1664,7 @@ Q(`<p>On Zen 4 (320-entry ROB, 6-wide dispatch, 8-wide retire), a load misses in
 <p>Net: an L3 hit is <em>mostly</em> hidden on a big core when the work behind it is independent. A DRAM miss (400+ cycles) is not.</p>
 <p><strong>Numbers:</strong> 320 − 200 = 120 free entries at 6 per cycle: the ROB is full after <strong>20 cycles</strong>, and dispatch is stalled for the remaining <strong>~30 cycles</strong> (180 lost dispatch slots). If the load had been younger rather than at the head, older instructions would keep retiring, the ROB would fill later, and less of the latency would be exposed. Whether the 30 cycles cost time depends on whether the core had other work left to finish; they’re an upper bound on the damage.</p>`, "hard") +
 M(`<p>Raising L3 latency in your model from 50 to 70 cycles drops IPC by 6%. The workload runs at about IPC 2 with about 4 L3 hits per 1,000 instructions. Explain the causal chain from the latency change to the IPC number, and say which statistics you would look at to confirm each link.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Loads that hit L3 take 20 cycles longer.</strong> Check: the L3 hits per 1,000 instructions (the change only matters in proportion to them).</li>
 <li><strong>Part of the extra latency isn’t hidden</strong> by the window: where the work behind the load was enough to cover 50 cycles but not 70, the ROB, scheduler, or registers now fill. Check: full-resource stall cycles rise, attributed to loads waiting on L3.</li>
 <li><strong>Chains through L3 hits get longer</strong> directly: if each load in a pointer chase hits L3, each step costs 20 more cycles with nothing to overlap. Check: average outstanding misses near 1 during those phases.</li>
@@ -1672,7 +1672,7 @@ M(`<p>Raising L3 latency in your model from 50 to 70 cycles drops IPC by 6%. The
 </ol>
 <p>A rough sanity check: if the exposed portion of each L3 hit grew by about 15 of the 20 cycles, and there are about 4 L3 hits per 1,000 instructions at an IPC around 2 (500 cycles per 1,000 instructions), that’s 60 extra cycles per 500, about 12% more time. A 6% drop means more of the latency was hidden than that. Doing this arithmetic out loud is what interviewers want.</p>`, "hard") +
 Q(`<p>A workload has a large ROB, plenty of physical registers, and a big scheduler, yet IPC is 0.8. List what you would investigate next, in order.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Is the window even full?</strong> ROB occupancy histogram. If it’s mostly empty, the problem is upstream: front end or mispredicts.</li>
 <li><strong>Front end:</strong> i-cache and iTLB misses, BTB misses, op-cache hit rate, decode stalls. Large server and browser binaries are often front-end bound.</li>
 <li><strong>Bad speculation:</strong> MPKI and wasted slots. A window flushed every 100 instructions never fills.</li>
@@ -1688,7 +1688,7 @@ Q(`<p>Reducing average memory latency by 30% speeds up one workload by 25% and a
 </ul>
 <p>The general rule: an improvement helps only to the extent it shortens the critical path. Stating “it’s a dependence chain, so memory doesn’t matter” without asking what the chain is made of is the trap.</p>`, "hard") +
 M(`<p>Build a CPI stack:</p><ul><li>Base CPI 0.30</li><li>20 L2 misses per 1,000 instructions that hit L3 and expose 15 of their 50 cycles</li><li>3 DRAM misses per 1,000 instructions that expose 250 cycles each</li><li>5 mispredicts per 1,000 instructions at 17 cycles</li></ul><p>(a) What is the total CPI? (b) Rank the speedups from halving DRAM misses, perfect branch prediction, and cutting L3 latency to 40 cycles (assume the hidden part of an L3 hit stays 35 cycles).</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> 0.30 + 0.020 × 15 + 0.003 × 250 + 0.005 × 17 = 0.30 + 0.30 + 0.75 + 0.085 = <strong>1.435</strong> (IPC ≈ 0.70).</li>
 <li><strong>(b)</strong>
 <ul>
@@ -1700,7 +1700,7 @@ M(`<p>Build a CPI stack:</p><ul><li>Base CPI 0.30</li><li>20 L2 misses per 1,000
 <p>Caveats worth saying: the components aren’t truly additive (a mispredict that depends on a miss is counted in both), and “exposed” cycles shift when other components change. Use the stack to rank where to look, then confirm with idealized simulations.</p>`, "hard") +
 Q(`<p>Your model of a Zen 4-class core shows dispatch stalled on a full ROB in 35% of cycles, and in most of those cycles the ROB head is a load that missed L2. A colleague proposes growing the ROB from 320 to 512 entries. What do you measure before agreeing, and which results would change your recommendation?</p>`,
 `<p>The symptom says memory latency the window can’t hide. Whether a bigger window helps depends on whether more independent misses lie beyond it.</p>
-<ol start="0">
+<ol>
 <li><strong>MLP and latency:</strong> average outstanding misses over cycles with at least one in flight, average miss latency, and from them the throughput. MLP near 1 points to dependent misses, which a bigger ROB can’t fix.</li>
 <li><strong>Misses by level:</strong> L2 versus LLC versus DRAM, with latency per level. LLC hits (about 50 cycles) are a different problem from DRAM misses (400+).</li>
 <li><strong>Address dependence:</strong> does each missing load’s address come from an earlier missing load (pointer chasing)? If so, the fix is lower latency, prefetching, or a data-structure change.</li>
@@ -1714,7 +1714,7 @@ Q(`<p>A loop has one independent DRAM miss per iteration. A colleague sized the 
 <p>The scheduler keeps only instructions that haven’t issued. Independent ones leave within a few cycles, but the dependents of the missing load wait about L. Its bound is dependents per iteration × L / scheduler entries. Schedulers are several times smaller than ROBs, so a loop where even a third of the instructions depend on the miss fills the scheduler first.</p>
 <p>What binds is the largest E × R / C over all the structures, with the residency R worked out for each. Fixes: fewer instructions that depend on the miss, a larger scheduler, or a queue that holds ops that aren’t ready outside the scheduler, as Zen 5’s floating-point non-scheduling queue does.</p>`, "hard") +
 M(`<p>A join loop on a Golden Cove-class core at 5 GHz has one independent DRAM miss per iteration (80 ns, so 400 cycles). Per iteration: 14 µops, 3 loads (one misses), 1 store, 10 µops that write an integer register, and 6 µops that depend on the missing load. The core has 6-wide rename, a 512-entry ROB, a 97-entry scheduler, 280 integer physical registers (16 architectural), a 192-entry load queue, a 114-entry store queue, and 16 L1 fill buffers. Bound each structure, find the bottleneck, and say whether doubling the scheduler helps.</p>`,
-`<ol start="0">
+`<ol>
 <li>A miss is always at the ROB head, so retire-ordered entries stay about 400 cycles. Scheduler entries stay that long only for the 6 dependents.</li>
 <li>Bounds in cycles per iteration:
 <ul>
@@ -1754,7 +1754,7 @@ Q(`<p>Rename reports “store queue full” as its top stall reason, but stores 
 </ul>`, "medium") +
 `<h3 id="sec-metrics">When the Metric Misleads</h3>` +
 Q(`<p>A change raises IPC by 10%, but execution time barely improves. Give three explanations.</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>More instructions:</strong> the change (or a recompile) added instructions, such as software prefetches, spills, or extra checks. IPC rises because the added instructions are cheap; time doesn’t.</li>
 <li><strong>Spin-waiting:</strong> in multithreaded code, threads spinning on a lock execute tight, high-IPC loops that do no useful work. More spinning means higher IPC and the same or worse time.</li>
 <li><strong>Frequency:</strong> the change runs hotter or uses wider vector units, and the chip lowers its clock. IPC per cycle goes up; cycles per second go down.</li>
@@ -1780,7 +1780,7 @@ Q(`<p>A model predicts a 7% IPC gain from a feature, but the silicon measurement
 Q(`<p>What does “front-end bound” mean in Top-Down analysis, and what are its two main subcategories?</p>`,
 `<p>A slot is front-end bound when the back end could have accepted a uop but the front end didn’t deliver one. It splits into <strong>latency</strong> (the front end delivered nothing for a while: i-cache or iTLB misses, branch redirect bubbles) and <strong>bandwidth</strong> (it delivered some uops but fewer than the width: decoder limits, uop-cache-to-legacy switches, taken-branch fetch breaks).</p>`, "easy") +
 M(`<p>Three benchmarks each run 10<sup>9</sup> instructions, at IPC 1.0, 2.0, and 4.0. (a) What is the IPC of the suite run back to back? (b) A change makes the first benchmark 2× faster and the third 2× slower. Compute the arithmetic mean of the speedups, the geometric mean, and the change in total time. Which would you report?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Cycles: 1.0 + 0.5 + 0.25 = 1.75 × 10<sup>9</sup> for 3 × 10<sup>9</sup> instructions: IPC ≈ <strong>1.71</strong>, the harmonic mean, not the arithmetic mean 2.33. Averaging IPCs overweights the fast benchmarks, which take the least time.</li>
 <li><strong>(b)</strong> New IPCs are 2, 2, 2, so cycles = 1.5 × 10<sup>9</sup>.
 <ul>
@@ -1810,7 +1810,7 @@ M(`<p>You sweep the ROB from 224 to 512 entries, scaling the load queue, physica
 </ul></li>
 </ul>`, "hard") +
 Q(`<p>How would you use configuration sweeps to understand interactions between ROB size, issue width, cache latency, and MSHR count, without running every combination?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Screening:</strong> a two-level fractional factorial or Plackett–Burman design picks a small set of runs (about 8–12 for 4 to 7 parameters) that estimates which parameters matter most.</li>
 <li><strong>Focus:</strong> run a full factorial or a finer grid on the two or three that matter, to see interactions (for example ROB × MSHRs: a larger ROB finds more misses only if MSHRs can hold them).</li>
 <li><strong>Per workload class:</strong> fit and report separately for memory-bound and compute-bound workloads; averaging them hides the interactions.</li>
@@ -1825,7 +1825,7 @@ Q(`<p>How do you know whether a bottleneck you found is real, or an artifact of 
 <li><strong>Vary the suspect detail:</strong> if the bottleneck disappears when you change something that shouldn’t matter architecturally (stage update order, event tie-breaking), it’s the simulator.</li>
 </ul>`, "medium") +
 M(`<p>You measure IPC on 30 sampled intervals: mean 1.82, standard deviation 0.40. A design change moves the mean to 1.88. (a) What is the 95% confidence interval on the baseline mean? Can you claim the 3% improvement from these two means? (b) You run both designs on the <em>same</em> 30 intervals; the per-interval differences have mean 0.06 (as they must, if the 1.88 came from these same intervals) and standard deviation 0.05. Now?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Standard error: 0.40 / √30 = 0.073. With the t-distribution (29 degrees of freedom, t ≈ 2.05): ±0.15, about <strong>±8%</strong> of the mean. A 0.06 difference is far inside that, so comparing the two means alone can’t establish a 3% gain.</li>
 <li><strong>(b)</strong> Paired: standard error 0.05 / √30 = 0.0091. Interval 0.06 ± 2.05 × 0.0091 = 0.06 ± 0.019, i.e. 0.041 to 0.079, clearly above zero. <strong>Significant.</strong> The estimate is the same 0.06 as in (a); only its uncertainty shrank.</li>
 </ol>
@@ -1836,7 +1836,7 @@ M(`<p>A 128-core server has 12 channels of DDR5-5600 and sustains about 80% of p
 <li>(b) With all 128 cores running, what is the loaded latency?</li>
 <li>(c) A per-core model with a fixed 120 ns latency predicts what per-core bandwidth at 128 cores, and what is it really?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Peak: 12 × 5,600 MT/s × 8 B = 537.6 GB/s, so about 430 GB/s sustained. One core: 48 × 64 B / 120 ns = <strong>25.6 GB/s</strong>. Saturation at 430 / 25.6 ≈ <strong>17 cores</strong>.</li>
 <li><strong>(b)</strong> Lines in flight: 128 × 48 = 6,144, or 393,216 bytes. Loaded latency = max(120 ns, 393,216 B / 430 GB/s) ≈ <strong>914 ns</strong>.</li>
 <li><strong>(c)</strong> The fixed-latency model gives every core 25.6 GB/s, 3.3 TB/s in total, 7.6× more than the DRAM can deliver. Really each core gets 430 / 128 ≈ <strong>3.4 GB/s</strong>, at more than seven times the idle latency.</li>
@@ -1897,7 +1897,7 @@ Q(`<p>Your model reports IPC 6.3 on a 6-wide core, or a negative average occupan
 <li><strong>Real bugs:</strong> a resource never released (an occupancy that grows forever) or a structure exceeding its configured size. Add assertions that occupancy is between 0 and capacity every cycle in debug builds.</li>
 </ul>`, "medium") +
 M(`<p>Your simulator runs at 150,000 instructions per second. A profile shows 60% of host time in scheduler wakeup, which scans all 97 entries for every broadcast tag every cycle. You replace it with per-register lists of waiting consumers, making wakeup about 10× cheaper. What speedup do you expect, and what should you check before celebrating?</p>`,
-`<p>Amdahl: 1 / (0.4 + 0.6 / 10) = 1 / 0.46 ≈ <strong>2.17×</strong>, about 326,000 instructions per second. Before celebrating:</p><ol start="0"><li>The output must be bit-identical, cycle counts and all, on the regression suite</li><li>Wakeup’s worst case changed: one register with hundreds of waiters (a load feeding a long fan-out) now costs a long list walk</li><li>The profile has moved: the remaining 40% is now 87% of the time, so the next optimization target is elsewhere</li></ol>`, "hard") +
+`<p>Amdahl: 1 / (0.4 + 0.6 / 10) = 1 / 0.46 ≈ <strong>2.17×</strong>, about 326,000 instructions per second. Before celebrating:</p><ol><li>The output must be bit-identical, cycle counts and all, on the regression suite</li><li>Wakeup’s worst case changed: one register with hundreds of waiters (a load feeding a long fan-out) now costs a long list walk</li><li>The profile has moved: the remaining 40% is now 87% of the time, so the next optimization target is elsewhere</li></ol>`, "hard") +
 Q(`<p>A microbenchmark of 1,000 dependent single-cycle adds takes 3,000 cycles in your model, while 1,000 independent adds on the 4-wide model take 250. What is the most likely bug, and how do the two numbers point to it?</p>`,
 `<p>Throughput is right (independent adds hit the 4-wide limit) but each dependent add costs 3 cycles instead of 1. So execution is fine and the problem is <em>when a consumer is considered ready</em>: most likely readiness is set when the producer reaches writeback (or the register file), 2 stages after execution, instead of when its result is available on the bypass. Fix it so a consumer can issue <em>latency</em> cycles after its producer issues, then rerun the chain test, and also test load-to-use chains and multi-cycle operations, which may have the same off-by-N error.</p>`, "hard") +
 M(`<p>In 40% of simulated cycles the whole core is stalled waiting on DRAM, in stretches averaging 300 cycles. Simulating a stalled cycle costs 1 µs of host time; an active cycle costs 3 µs. You add “skip to the next event” for fully stalled stretches, at about 1 µs per skip. What speedup do you get? What can go wrong?</p>`,
@@ -1907,7 +1907,7 @@ Q(`<p>Why should a simulator use a fixed random seed for anything random (replac
 `<p>So runs are reproducible: the same configuration gives exactly the same cycle count. That makes regression testing by exact comparison possible, lets you bisect a performance change to a single commit, and ensures a small difference between two configurations is the design and not a different random draw. To study sensitivity to randomness, run several fixed seeds deliberately.</p>`, "easy") +
 `<h3 id="sec-verify">Verification and Trust</h3>` +
 Q(`<p>How would you verify that your model never retires out of order, and that dependences and speculative recovery are correct?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Retirement order:</strong> number every instruction at fetch and assert that retired numbers strictly increase. They skip over squashed instructions, so also check against the functional model that no correct-path instruction was skipped (see the next point).</li>
 <li><strong>Co-simulation:</strong> compare the retired stream (PC, destination value, memory address and data) against a functional reference, instruction by instruction. The first mismatch points at the bug.</li>
 <li><strong>Dependences:</strong> for a timing-only model, also record which producer each source was satisfied by, and check it against the functional model’s last writer of that register.</li>
@@ -1949,7 +1949,7 @@ M(`<p>IPC varies across sampled intervals with a coefficient of variation of 0.6
 `<p>For relative error e at 95% confidence: n = (1.96 × CV / e)². ±3%: (1.96 × 0.6 / 0.03)² = 39.2² ≈ <strong>1,537 samples</strong>. ±1%: 9× as many, about <strong>13,800</strong>: precision costs quadratically.</p>
 <p>Samples can be short (SMARTS used about 1,000 instructions), but only because it keeps caches and predictors warm functionally between samples and runs a short detailed warm-up before each one. Without that, short samples start with cold microarchitectural state and are biased low, and no number of samples fixes a bias.</p>`, "hard") +
 Q(`<p>Two runs of the same configuration differ by 0.3% in IPC after 10 billion simulated cycles. How do you find the first point where they diverge, quickly?</p>`,
-`<ol start="0">
+`<ol>
 <li>Have the simulator print a hash of its state every N cycles (for example, a hash of the committed instruction stream plus key structures, every 1 million cycles). Run both, and compare the logs to find the first interval where the hashes differ: one pass, not a long search.</li>
 <li>Rerun only that interval (from a checkpoint, if you have them) with a per-cycle hash or a full trace, and find the first differing cycle and structure.</li>
 <li>Look for the usual causes: uninitialized memory (run under Valgrind or MemorySanitizer), iteration over hash tables or other unordered containers, sorting or comparing by pointer value, time-based seeds, and data races in a multithreaded simulator.</li>
@@ -1974,7 +1974,7 @@ M(`<p>Your model predicts a new prefetcher’s speedups on four workloads as 1.1
 <li>(b) Compare the geometric-mean speedups.</li>
 <li>(c) Is the ranking preserved? Would the model have made the right call under the rule “ship if the geomean gain is at least 5%”?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> Errors: +4, −1, +9, and −3 points. Mean absolute error <strong>4.25 points</strong>, bias <strong>+2.25 points</strong> (optimistic).</li>
 <li><strong>(b)</strong> Predicted: (1.12 × 1.03 × 1.20 × 0.98)<sup>1/4</sup> ≈ <strong>1.079</strong>. Measured: (1.08 × 1.04 × 1.11 × 0.95)<sup>1/4</sup> ≈ <strong>1.043</strong>.</li>
 <li><strong>(c)</strong> Ranking: predicted 1.20 > 1.12 > 1.03 > 0.98, measured 1.11 > 1.08 > 1.04 > 0.95, the same order. But the model says ship (+7.9%) and silicon says don’t (+4.3%). A preserved ranking doesn’t make the model fit for a threshold decision. The speedup error does. Start with the third workload (+9 points): the prefetcher’s bandwidth use or pollution is probably modeled too kindly.</li>
@@ -2001,7 +2001,7 @@ M(`<p>A 6-wide core with a 448-entry ROB sustains a dispatch rate of 5 over a 2,
 <li>(a) Estimate the cycles and IPC with interval analysis.</li>
 <li>(b) How small can the ROB get before this stretch takes more cycles, and what does a 128-entry ROB give?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li>Steady state: 2,000 / 5 = 400 cycles.</li>
 <li>Mispredicts: 8 × (6 + 15) = 168 cycles. Instruction cache misses: 3 × 14 = 42 cycles.</li>
 <li>DRAM groups at 448 entries: {100, 300}, {900, 1,000}, and {1,700}, so 3 × 420 = 1,260 cycles.</li>
@@ -2015,7 +2015,7 @@ M(`<p>A feature raises IPC by 5% and core power by 8% at the same frequency.</p>
 <li>(b) On a part that isn’t power-limited, how do performance, energy per task, and the energy-delay product change?</li>
 <li>(c) Which part should get the feature?</li>
 </ul>`,
-`<ol start="0">
+`<ol>
 <li><strong>(a)</strong> The clock must drop until power is back at the cap: f = 1.08<sup>−1/3</sup> ≈ 0.975. Performance: 1.05 × 0.975 ≈ <strong>1.023, +2.3%</strong>. Power stays at the cap, so energy per task scales with time: 1 / 1.023 ≈ 0.977, <strong>2.3% less</strong>.</li>
 <li><strong>(b)</strong> Performance <strong>+5%</strong>. Energy per task = power × time = 1.08 / 1.05 ≈ 1.029, <strong>2.9% more</strong>. EDP = 1.029 / 1.05 ≈ 0.980, <strong>2% better</strong>.</li>
 <li><strong>(c)</strong> Both. At the cap, it gains 2.3% and also saves energy, since the IPC gain (5%) exceeds a third of the power cost (2.7%). Uncapped, it gains 5% for 2.9% more energy per task, a good trade for a performance part, and a worse one for a battery-powered part that is usually lightly loaded and judged on energy.</li>
@@ -2083,7 +2083,7 @@ M(`<p>On a server trace, you can spend the same area on one of two options:</p>
 <li>(B) Double the BTB, which cuts taken-branch BTB misses from 10 to 5 per 1,000 instructions. A BTB miss costs a 9-cycle decode redirect, and 30% of BTB misses also expose an instruction cache miss that FDIP would otherwise have hidden.</li>
 </ul>
 <p>The current CPI is 0.60. Assume the larger L1I adds no latency. Which option wins, and by how much? What would change your answer?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>(A)</strong> 8 fewer misses × 14 × 0.5 exposed = 56 cycles per 1,000 instructions. CPI 0.544, a speedup of about <strong>1.10</strong>.</li>
 <li><strong>(B)</strong> Each BTB miss avoided saves 9 + 0.3 × 14 = 13.2 cycles. 5 × 13.2 = 66 cycles per 1,000. CPI 0.534, a speedup of about <strong>1.12</strong>.</li>
 <li><strong>B wins by about 2 points.</strong></li>
@@ -2096,7 +2096,7 @@ M(`<p>On a server trace, you can spend the same area on one of two options:</p>
 </ol>`, "hard") +
 `<h3 id="sec-process">Running an Investigation</h3>` +
 Q(`<p>You have two weeks to explain a 15% performance regression in a new CPU configuration. How would you structure the investigation?</p>`,
-`<ol start="0">
+`<ol>
 <li><strong>Days 0–1, reproduce and scope:</strong> confirm the 15% is real (not noise, warm-up, or a binary or input change). Which benchmarks regress, and by how much? A regression concentrated in a few benchmarks is much easier than a uniform one.</li>
 <li><strong>Days 1–3, list the differences:</strong> diff the two configurations parameter by parameter. If there are several changes, bisect: apply them one at a time (or in halves) to find which ones cause it, and check for interactions.</li>
 <li><strong>Days 3–6, localize:</strong> compare slot accounting and stall breakdowns between old and new on the worst benchmarks; find the category that grew, then the code (per-PC stall differences).</li>

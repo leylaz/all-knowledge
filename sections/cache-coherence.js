@@ -41,7 +41,7 @@ section({
     guided: [
       {
         q: `<p>Two cores, line X starts Invalid in both. Trace MESI states for: C0 reads, C1 reads, C1 writes, C0 reads.</p>`,
-        a: `<ol start="0"><li>C0 reads: no other copies, so C0 = <strong>E</strong>.</li><li>C1 reads: C0 E→S, C1 = S.</li><li>C1 writes: upgrade invalidates C0. C1 = <strong>M</strong>, C0 = I.</li><li>C0 reads: C1 supplies the data and drops M→S, writing back (in MOESI it could go to O instead). C0 = S, C1 = S.</li></ol>`
+        a: `<ol><li>C0 reads: no other copies, so C0 = <strong>E</strong>.</li><li>C1 reads: C0 E→S, C1 = S.</li><li>C1 writes: upgrade invalidates C0. C1 = <strong>M</strong>, C0 = I.</li><li>C0 reads: C1 supplies the data and drops M→S, writing back (in MOESI it could go to O instead). C0 = S, C1 = S.</li></ol>`
       }
     ],
     interview: [
@@ -73,7 +73,7 @@ section({
     guided: [
       {
         q: `<p>16 cores with a full bit-vector directory. Core 0 has a write miss to a line shared by cores 2, 5, and 9. Trace the messages.</p>`,
-        a: `<ol start="0"><li>Core 0 → home: GetM (1 message).</li><li>Home → cores 2, 5, 9: Invalidate (3).</li><li>Home → core 0: data plus "expect 3 acks" (1).</li><li>Cores 2, 5, 9 → core 0: InvAck (3).</li><li>Core 0 completes after all 3 acks: <strong>8 messages</strong>. The home updates its entry to owner = core 0, state M.</li></ol>`
+        a: `<ol><li>Core 0 → home: GetM (1 message).</li><li>Home → cores 2, 5, 9: Invalidate (3).</li><li>Home → core 0: data plus "expect 3 acks" (1).</li><li>Cores 2, 5, 9 → core 0: InvAck (3).</li><li>Core 0 completes after all 3 acks: <strong>8 messages</strong>. The home updates its entry to owner = core 0, state M.</li></ol>`
       }
     ],
     interview: [
@@ -141,7 +141,7 @@ section({
     guided: [
       {
         q: `<p>Three cores and MOESI; line X starts Invalid everywhere and clean in memory. Trace the states and count memory writes for: C0 writes, C1 reads, C2 reads, C0 writes. How many memory writes would MESI need for the same sequence?</p>`,
-        a: `<ol start="0"><li>C0 writes: C0 = M. Memory writes: 0.</li><li>C1 reads: C0 supplies the data and goes M → <strong>O</strong>; C1 = S. No writeback.</li><li>C2 reads: C0 (the owner) supplies again; C0 = O, C1 = S, C2 = S.</li><li>C0 writes: it invalidates C1 and C2 and goes O → M. Still no memory writes: <strong>0</strong> so far (the line is written back only when C0 eventually evicts it).</li><li>MESI: at step 1, C0 goes M → S and the dirty line is written back: <strong>1 memory write</strong>, and it would repeat every time the line is written and then shared again.</li></ol>`
+        a: `<ol><li>C0 writes: C0 = M. Memory writes: 0.</li><li>C1 reads: C0 supplies the data and goes M → <strong>O</strong>; C1 = S. No writeback.</li><li>C2 reads: C0 (the owner) supplies again; C0 = O, C1 = S, C2 = S.</li><li>C0 writes: it invalidates C1 and C2 and goes O → M. Still no memory writes: <strong>0</strong> so far (the line is written back only when C0 eventually evicts it).</li><li>MESI: at step 2, C0 goes M → S and the dirty line is written back: <strong>1 memory write</strong>, and it would repeat every time the line is written and then shared again.</li></ol>`
       }
     ],
     interview: [
@@ -182,7 +182,7 @@ section({
 </ul>
 
 <h3 id="sec-flows">The Basic Flows</h3>
-<ol start="0">
+<ol>
 <li><strong>Load miss:</strong> I → IS<sup>D</sup> (send GetS) → S when data arrives.</li>
 <li><strong>Store miss:</strong> I → IM<sup>AD</sup> (send GetM). The directory sends data with the number of sharers to wait for, and invalidates the sharers, which ack directly to the requester. Data with zero acks expected → M; otherwise → IM<sup>A</sup> → M at the last ack.</li>
 <li><strong>Upgrade:</strong> S → SM<sup>AD</sup> → SM<sup>A</sup> → M, the same way, keeping the old data readable meanwhile.</li>
@@ -212,7 +212,7 @@ section({
     guided: [
       {
         q: `<p>Cores C0 and C1 both hold line X in S. Both store to it at nearly the same time, and C1's GetM reaches the directory first. Trace each cache's states and the messages until both stores complete.</p>`,
-        a: `<ol start="0"><li>Both issue GetM: C0 and C1 move S → SM<sup>AD</sup>.</li><li>The directory handles C1's GetM: it sends C1 data with "expect 1 ack" and sends Inv to C0. Directory: M, owner C1.</li><li>C0, in SM<sup>AD</sup>, receives the Inv: it lost the race. It sends Inv-Ack to C1 and moves to <strong>IM<sup>AD</sup></strong>.</li><li>C1 receives data (1 ack expected) → SM<sup>A</sup>, then C0's Inv-Ack → <strong>M</strong>; its store completes.</li><li>The directory handles C0's GetM: the line is owned by C1, so it forwards Fwd-GetM to C1 and records owner C0.</li><li>C1 sends the data to C0 and goes M → I. (Had the Fwd-GetM arrived while C1 was still in SM<sup>A</sup>, C1 would stall it until its own store finished.)</li><li>C0 receives the data with 0 acks expected → <strong>M</strong>; its store completes. Final: C0 = M, C1 = I.</li></ol>`
+        a: `<ol><li>Both issue GetM: C0 and C1 move S → SM<sup>AD</sup>.</li><li>The directory handles C1's GetM: it sends C1 data with "expect 1 ack" and sends Inv to C0. Directory: M, owner C1.</li><li>C0, in SM<sup>AD</sup>, receives the Inv: it lost the race. It sends Inv-Ack to C1 and moves to <strong>IM<sup>AD</sup></strong>.</li><li>C1 receives data (1 ack expected) → SM<sup>A</sup>, then C0's Inv-Ack → <strong>M</strong>; its store completes.</li><li>The directory handles C0's GetM: the line is owned by C1, so it forwards Fwd-GetM to C1 and records owner C0.</li><li>C1 sends the data to C0 and goes M → I. (Had the Fwd-GetM arrived while C1 was still in SM<sup>A</sup>, C1 would stall it until its own store finished.)</li><li>C0 receives the data with 0 acks expected → <strong>M</strong>; its store completes. Final: C0 = M, C1 = I.</li></ol>`
       }
     ],
     interview: [
@@ -266,7 +266,7 @@ section({
 
 <h3 id="sec-impl">Speculating Past the Model</h3>
 <p>An out-of-order x86 core executes loads early and out of order, which looks like it would break TSO's load-to-load ordering. It doesn't, because the core checks after the fact (Gharachorloo, Gupta, and Hennessy, 1991):</p>
-<ol start="0">
+<ol>
 <li>A load executes speculatively as soon as its address is ready, possibly before older loads.</li>
 <li>The load queue keeps its address until it retires.</li>
 <li>If the line is invalidated (another core wrote it) or evicted before the load retires, the core can't prove that no one saw the reordering, so it squashes the load and everything after it and re-executes (a memory-ordering machine clear).</li>
@@ -284,7 +284,7 @@ section({
     guided: [
       {
         q: `<p>In the store-buffering test (T0: x = 1; r0 = y. T1: y = 1; r1 = x), list every outcome (r0, r1) that SC allows, then show how a store buffer produces the one SC forbids.</p>`,
-        a: `<ol start="0"><li>Under SC, some store goes first in the single interleaving. If x = 1 is first, T1's later load of x returns 1, so r1 = 1; symmetrically, if y = 1 is first, r0 = 1.</li><li>SC allows <strong>(0, 1), (1, 0), and (1, 1)</strong>, but not (0, 0).</li><li>With store buffers: T0 puts x = 1 in its buffer and loads y from the cache (still 0); T1 puts y = 1 in its buffer and loads x (still 0). Both buffers drain afterward.</li><li>Result: <strong>(0, 0)</strong>, allowed by TSO. An <code>mfence</code> after each store forces the buffer to drain before the load, restoring SC for this test.</li></ol>`
+        a: `<ol><li>Under SC, some store goes first in the single interleaving. If x = 1 is first, T1's later load of x returns 1, so r1 = 1; symmetrically, if y = 1 is first, r0 = 1.</li><li>SC allows <strong>(0, 1), (1, 0), and (1, 1)</strong>, but not (0, 0).</li><li>With store buffers: T0 puts x = 1 in its buffer and loads y from the cache (still 0); T1 puts y = 1 in its buffer and loads x (still 0). Both buffers drain afterward.</li><li>Result: <strong>(0, 0)</strong>, allowed by TSO. An <code>mfence</code> after each store forces the buffer to drain before the load, restoring SC for this test.</li></ol>`
       }
     ],
     interview: [

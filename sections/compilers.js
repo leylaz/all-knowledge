@@ -61,7 +61,7 @@ int f(int x) {
     printf("x = %d\\n", x);
     return y;
 }</code></pre>
-<h3 id="sec-preprocess">Step 0: Preprocessing</h3>
+<h3 id="sec-preprocess">Step 1: Preprocessing</h3>
 <p>The preprocessor works on text, before any real compiling:</p>
 <ul>
 <li><strong>#include</strong> pastes in the contents of other files. Here, stdio.h supplies the declaration <code>int printf(const char *restrict format, ...);</code>, which is how the compiler later knows printf exists, what it returns, and that it takes a variable number of arguments. It does <em>not</em> supply printf's code; that comes from the C library at link time.</li>
@@ -87,7 +87,7 @@ int f(int x) {
     guided: [
       {
         q: `<p>Which command produces each file from <code>f.c</code>: the expanded source, the assembly, the object file, and the executable? What does each step add?</p>`,
-        a: `<ol start="0"><li><code>gcc -E</code> gives <code>f.i</code>: includes pasted in and macros expanded.</li><li><code>gcc -S</code> gives <code>f.s</code>: the compiler's assembly for the target ISA.</li><li><code>gcc -c</code> gives <code>f.o</code>: machine code plus a symbol table and relocations.</li><li><code>gcc f.o -o prog</code> gives the executable: object files and libraries combined, symbols resolved, addresses fixed.</li></ol>`
+        a: `<ol><li><code>gcc -E</code> gives <code>f.i</code>: includes pasted in and macros expanded.</li><li><code>gcc -S</code> gives <code>f.s</code>: the compiler's assembly for the target ISA.</li><li><code>gcc -c</code> gives <code>f.o</code>: machine code plus a symbol table and relocations.</li><li><code>gcc f.o -o prog</code> gives the executable: object files and libraries combined, symbols resolved, addresses fixed.</li></ol>`
       }
     ],
     interview: [
@@ -185,7 +185,7 @@ int f(int x) {
     guided: [
       {
         q: `<p>Tokenize <code>while (i &lt; n) i++;</code> and sketch its AST.</p>`,
-        a: `<ol start="0"><li>Tokens (9): <code>while</code> (keyword), <code>(</code>, <code>i</code> (identifier), <code>&lt;</code> (operator), <code>n</code> (identifier), <code>)</code>, <code>i</code> (identifier), <code>++</code> (one operator, by longest match), <code>;</code>.</li><li>AST: a <em>while</em> node with two children: the condition, a <em>&lt;</em> node with children <code>i</code> and <code>n</code>; and the body, a <em>post-increment</em> node with child <code>i</code>. The parentheses and semicolon don't appear in the tree.</li></ol>`
+        a: `<ol><li>Tokens (9): <code>while</code> (keyword), <code>(</code>, <code>i</code> (identifier), <code>&lt;</code> (operator), <code>n</code> (identifier), <code>)</code>, <code>i</code> (identifier), <code>++</code> (one operator, by longest match), <code>;</code>.</li><li>AST: a <em>while</em> node with two children: the condition, a <em>&lt;</em> node with children <code>i</code> and <code>n</code>; and the body, a <em>post-increment</em> node with child <code>i</code>. The parentheses and semicolon don't appear in the tree.</li></ol>`
       }
     ],
     interview: [
@@ -254,7 +254,7 @@ end:
 <g style="font-size:11px;fill:var(--pad);font-family:var(--sans);font-weight:600"><text x="122" y="110">true</text><text x="292" y="165">false</text></g>
 </svg></div>
 <h3 id="sec-codegen">The Back End: From IR to Assembly</h3>
-<ol start="0">
+<ol>
 <li><strong>Instruction selection:</strong> each IR operation is matched to target instructions. The comparison and branch become one compare-and-branch on RISC-V, or a compare plus a conditional jump on x86; <code>x * 2</code> becomes a shift (RISC-V) or an address-computation trick (x86).</li>
 <li><strong>Register allocation:</strong> the IR assumes unlimited virtual registers; the real ISA has 31 or 32 (or 16 on x86-64). The allocator assigns each value a register and <em>spills</em> values to the stack when it runs out.</li>
 <li><strong>Calling convention (ABI):</strong> arguments go in specific registers (RISC-V: a0, a1, ...; x86-64: rdi, rsi, ...) and the return value comes back in a0 or eax. A call may overwrite <em>caller-saved</em> registers, so any value needed after a call (here, <code>x</code> and <code>y</code> survive the printf call) is kept in a <em>callee-saved</em> register, which the function must save and restore itself.</li>
@@ -315,7 +315,7 @@ f:
     guided: [
       {
         q: `<p>In the RISC-V code for <code>f</code>, why is <code>x</code> copied from a0 into s0 at the start, and why must the function save and restore s0, s1, and ra?</p>`,
-        a: `<ol start="0"><li>a0 is a caller-saved argument register, and the call to printf will overwrite it (printf's own first argument goes in a0). Since <code>x</code> is needed after the call setup, it's kept in s0, a callee-saved register that printf must preserve.</li><li>Because s0 and s1 are callee-saved, <code>f</code> itself must restore their old values before returning, for its own caller's sake, so it saves them on the stack.</li><li><code>call</code> writes the return address into ra, overwriting <code>f</code>'s own return address, so ra is saved too.</li></ol>`
+        a: `<ol><li>a0 is a caller-saved argument register, and the call to printf will overwrite it (printf's own first argument goes in a0). Since <code>x</code> is needed after the call setup, it's kept in s0, a callee-saved register that printf must preserve.</li><li>Because s0 and s1 are callee-saved, <code>f</code> itself must restore their old values before returning, for its own caller's sake, so it saves them on the stack.</li><li><code>call</code> writes the return address into ra, overwriting <code>f</code>'s own return address, so ra is saved too.</li></ol>`
       }
     ],
     interview: [
@@ -418,7 +418,7 @@ for (i = 0; i &lt; n; i += 8) {
         s += a * n;
     return s;
 }</code></pre>`,
-        a: `<ol start="0"><li>Constant folding: <code>a = 32</code>.</li><li>Constant propagation: the loop body becomes <code>s += 32 * n</code>.</li><li>Loop-invariant code motion: <code>32 * n</code> doesn't change inside the loop, so it's computed once; strength reduction makes it <code>n &lt;&lt; 5</code>.</li><li>The loop just adds the same value <code>n</code> times, so a compiler can replace it entirely with a closed form: <code>s = (n &gt; 0) ? 32 * n * n : 0</code>, with no loop at all.</li></ol>`
+        a: `<ol><li>Constant folding: <code>a = 32</code>.</li><li>Constant propagation: the loop body becomes <code>s += 32 * n</code>.</li><li>Loop-invariant code motion: <code>32 * n</code> doesn't change inside the loop, so it's computed once; strength reduction makes it <code>n &lt;&lt; 5</code>.</li><li>The loop just adds the same value <code>n</code> times, so a compiler can replace it entirely with a closed form: <code>s = (n &gt; 0) ? 32 * n * n : 0</code>, with no loop at all.</li></ol>`
       }
     ],
     interview: [
@@ -492,7 +492,7 @@ for (i = 0; i &lt; n; i += 8) {
     guided: [
       {
         q: `<p>Encode <code>addi a0, a0, 5</code> for RISC-V (a0 is x10).</p>`,
-        a: `<ol start="0"><li>I-type fields: immediate 000000000101, rs1 01010, funct3 000 (addi), rd 01010, opcode 0010011.</li><li>Concatenated: 0000 0000 0101 0101 0000 0101 0001 0011.</li><li>Hex: <strong>0x00550513</strong>.</li></ol>`
+        a: `<ol><li>I-type fields: immediate 000000000101, rs1 01010, funct3 000 (addi), rd 01010, opcode 0010011.</li><li>Concatenated: 0000 0000 0101 0101 0000 0101 0001 0011.</li><li>Hex: <strong>0x00550513</strong>.</li></ol>`
       }
     ],
     interview: [
@@ -525,7 +525,7 @@ for (i = 0; i &lt; n; i += 8) {
 </ul>
 <p>The two classic link errors follow directly: <strong>"undefined reference"</strong> means a used symbol has no definition anywhere (a missing file or library), and <strong>"multiple definition"</strong> means two files define the same global symbol.</p>
 <h3 id="sec-relocation">Relocation and Layout</h3>
-<ol start="0">
+<ol>
 <li><strong>Merge sections:</strong> all the <code>.text</code> sections are concatenated into one, likewise <code>.rodata</code>, <code>.data</code>, and <code>.bss</code>.</li>
 <li><strong>Assign addresses:</strong> the linker decides where each merged section, and therefore every symbol, lives.</li>
 <li><strong>Apply relocations:</strong> it walks every relocation entry and patches in the final addresses: <code>%hi(.LC0)</code> and <code>%lo(.LC0)</code> in <code>f</code> now get real bits, and <code>main</code>'s call to <code>f</code> gets the right offset.</li>
@@ -551,7 +551,7 @@ for (i = 0; i &lt; n; i += 8) {
     guided: [
       {
         q: `<p>A build fails with "undefined reference to f" and, separately, another with "multiple definition of counter." What's the likely cause of each?</p>`,
-        a: `<ol start="0"><li><strong>Undefined reference:</strong> some object file uses <code>f</code>, but no object file or library given to the linker defines it. Usually a missing file or library on the link command, a misspelled name, or (in C++) a mismatched signature.</li><li><strong>Multiple definition:</strong> two object files each define a global <code>counter</code>. Typically a header that defines a variable (<code>int counter = 0;</code>) instead of declaring it (<code>extern int counter;</code>) is included in several files; the fix is to declare it in the header and define it in exactly one file.</li></ol>`
+        a: `<ol><li><strong>Undefined reference:</strong> some object file uses <code>f</code>, but no object file or library given to the linker defines it. Usually a missing file or library on the link command, a misspelled name, or (in C++) a mismatched signature.</li><li><strong>Multiple definition:</strong> two object files each define a global <code>counter</code>. Typically a header that defines a variable (<code>int counter = 0;</code>) instead of declaring it (<code>extern int counter;</code>) is included in several files; the fix is to declare it in the header and define it in exactly one file.</li></ol>`
       }
     ],
     interview: [
@@ -612,7 +612,7 @@ for (i = 0; i &lt; n; i += 8) {
 </g>
 <g style="font-size:11px;fill:var(--pad);font-weight:600"><text x="106" y="168">1st call</text><text x="218" y="210">later</text><text x="218" y="224">calls</text><text x="250" y="240">writes</text></g>
 </svg></div>
-<ol start="0">
+<ol>
 <li><strong>First call:</strong> <code>f</code> calls <code>printf@plt</code>. The stub jumps through printf's GOT entry, which initially points back into the stub (to the <code>push</code> after the jump), so control falls through to the dynamic linker's resolver along with printf's index.</li>
 <li><strong>Resolution:</strong> the resolver searches the loaded libraries, finds <code>printf</code> in the C library, and <strong>writes its address into the GOT entry</strong>.</li>
 <li>The resolver then jumps to <code>printf</code>, so the first call completes normally, just slower.</li>
@@ -632,7 +632,7 @@ for (i = 0; i &lt; n; i += 8) {
     guided: [
       {
         q: `<p>Trace the first and second calls to <code>printf</code> through the PLT and GOT with lazy binding.</p>`,
-        a: `<ol start="0"><li><strong>First call:</strong> the code calls <code>printf@plt</code>. The stub jumps through printf's GOT entry, which still points back into the stub, so control goes to the dynamic linker's resolver with printf's index. The resolver finds <code>printf</code> in the C library, writes its address into the GOT entry, and jumps to it.</li><li><strong>Second call:</strong> the code calls <code>printf@plt</code> again. The stub's jump now reads printf's real address from the GOT and goes straight there. The only overhead is the extra indirect jump.</li></ol>`
+        a: `<ol><li><strong>First call:</strong> the code calls <code>printf@plt</code>. The stub jumps through printf's GOT entry, which still points back into the stub, so control goes to the dynamic linker's resolver with printf's index. The resolver finds <code>printf</code> in the C library, writes its address into the GOT entry, and jumps to it.</li><li><strong>Second call:</strong> the code calls <code>printf@plt</code> again. The stub's jump now reads printf's real address from the GOT and goes straight there. The only overhead is the extra indirect jump.</li></ol>`
       }
     ],
     interview: [
@@ -658,7 +658,7 @@ for (i = 0; i &lt; n; i += 8) {
   body: `
 <p><strong>Loading</strong> turns an executable file into a running process. On Linux, it starts when a program calls <code>execve</code>, and it's shared between the operating system kernel and, for dynamically linked programs, the <strong>dynamic linker</strong> (<code>ld.so</code>).</p>
 <h3 id="sec-steps">The Steps</h3>
-<ol start="0">
+<ol>
 <li><strong>The kernel reads the ELF headers.</strong> The program headers list the segments to load, with their file offsets, addresses, sizes, and permissions.</li>
 <li><strong>It creates a fresh address space</strong> and <strong>maps each segment</strong> into it with the right permissions: code read-and-execute, read-only data read-only, writable data read-and-write. The <code>.bss</code> area is mapped as zero-filled memory.</li>
 <li><strong>It sets up the stack</strong> with the program's arguments (<code>argc</code>, <code>argv</code>), environment variables, and auxiliary information, and points the stack pointer at it.</li>
@@ -707,7 +707,7 @@ for (i = 0; i &lt; n; i += 8) {
     guided: [
       {
         q: `<p>List what happens, in order, when a dynamically linked program is started with <code>execve</code>.</p>`,
-        a: `<ol start="0"><li>The kernel reads the ELF program headers.</li><li>It creates a new address space and maps the segments with their permissions (code read-execute, data read-write, .bss zero-filled).</li><li>It sets up the stack with arguments, environment, and auxiliary information.</li><li>It maps the dynamic linker named in the file and starts it.</li><li>The dynamic linker loads shared libraries, applies relocations, fills the GOT as needed, and runs initializers.</li><li>Control jumps to <code>_start</code>, which calls the C library's startup code, which calls <code>main</code>. Pages are read from the file lazily, on first access, via page faults.</li></ol>`
+        a: `<ol><li>The kernel reads the ELF program headers.</li><li>It creates a new address space and maps the segments with their permissions (code read-execute, data read-write, .bss zero-filled).</li><li>It sets up the stack with arguments, environment, and auxiliary information.</li><li>It maps the dynamic linker named in the file and starts it.</li><li>The dynamic linker loads shared libraries, applies relocations, fills the GOT as needed, and runs initializers.</li><li>Control jumps to <code>_start</code>, which calls the C library's startup code, which calls <code>main</code>. Pages are read from the file lazily, on first access, via page faults.</li></ol>`
       }
     ],
     interview: [

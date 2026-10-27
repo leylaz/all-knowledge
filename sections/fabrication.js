@@ -23,7 +23,7 @@ section({
     guided: [
       {
         q: `<p>For each problem, say which part of the flow it belongs to:</p><ul><li>(a) A via between metal layers 3 and 4 has too much resistance</li><li>(b) A die fails at the probe card</li><li>(c) The fin of a transistor is too wide</li><li>(d) A part only reaches its target frequency at a higher voltage</li></ul>`,
-        a: `<ol start="0"><li>(a) Back end of line: vias and metal layers are BEOL.</li><li>(b) Wafer sort: the die is caught before packaging.</li><li>(c) Front end of line: fins are part of the transistor.</li><li>(d) Final test and binning: the part is sorted into a slower or higher-voltage bin.</li></ol>`
+        a: `<ol><li>(a) Back end of line: vias and metal layers are BEOL.</li><li>(b) Wafer sort: the die is caught before packaging.</li><li>(c) Front end of line: fins are part of the transistor.</li><li>(d) Final test and binning: the part is sorted into a slower or higher-voltage bin.</li></ol>`
       }
     ],
     interview: [
@@ -66,7 +66,7 @@ section({
     guided: [
       {
         q: `<p>EUV light has a wavelength λ = 13.5 nm. High-NA EUV raises the numerical aperture from 0.33 to 0.55. With k<sub>1</sub> = 0.35, what single-exposure pitch can it print, and how does that compare with 0.33 NA at the same k<sub>1</sub>?</p>`,
-        a: `<ol start="0"><li>Half-pitch = k<sub>1</sub> × λ / NA = 0.35 × 13.5 / 0.55.</li><li>0.35 × 13.5 = 4.725, and 4.725 / 0.55 ≈ 8.6 nm.</li><li>Pitch = 2 × half-pitch ≈ <strong>17 nm</strong>.</li><li>At 0.33 NA: 2 × 4.725 / 0.33 ≈ 28.6 nm. The ratio is 0.33 / 0.55 = 0.6, so High-NA prints about 60% of the 0.33 NA pitch.</li></ol>`
+        a: `<ol><li>Half-pitch = k<sub>1</sub> × λ / NA = 0.35 × 13.5 / 0.55.</li><li>0.35 × 13.5 = 4.725, and 4.725 / 0.55 ≈ 8.6 nm.</li><li>Pitch = 2 × half-pitch ≈ <strong>17 nm</strong>.</li><li>At 0.33 NA: 2 × 4.725 / 0.33 ≈ 28.6 nm. The ratio is 0.33 / 0.55 = 0.6, so High-NA prints about 60% of the 0.33 NA pitch.</li></ol>`
       }
     ],
     interview: [
@@ -93,7 +93,7 @@ section({
 <h3>Cost per Good Die</h3>
 <p class="eq">Cost per die = wafer cost / (dies per wafer × die yield)</p>
 <p>Example: a 300 mm wafer, a 100 mm<sup>2</sup> (1 cm<sup>2</sup>) die, D<sub>0</sub> = 0.1 per cm<sup>2</sup>, and a wafer price around $17,000 (a common estimate for TSMC N5).</p>
-<ol start="0">
+<ol>
 <li>Dies per wafer: π × 150<sup>2</sup> / 100 ≈ 707, minus π × 300 / √200 ≈ 67, so about <strong>640</strong>.</li>
 <li>Yield: e<sup>−0.1</sup> ≈ 0.905, so about 579 good dies.</li>
 <li>Cost: $17,000 / 579 ≈ <strong>$29 per good die</strong>, before test and packaging.</li>
@@ -110,13 +110,13 @@ section({
     guided: [
       {
         q: `<p>A laptop SoC die is 120 mm<sup>2</sup>, built on 300 mm wafers costing $20,000, with D<sub>0</sub> = 0.07 per cm<sup>2</sup>. Find dies per wafer, yield (Poisson), and cost per good die.</p>`,
-        a: `<ol start="0"><li>Area: 120 mm<sup>2</sup> = 1.2 cm<sup>2</sup>.</li><li>Dies per wafer: π × 150<sup>2</sup> / 120 ≈ 589, minus π × 300 / √240 ≈ 61, so about <strong>528</strong>.</li><li>Yield: e<sup>−1.2 × 0.07</sup> = e<sup>−0.084</sup> ≈ 0.919, so about 485 good dies.</li><li>Cost: $20,000 / 485 ≈ <strong>$41 per good die</strong>.</li></ol>`
+        a: `<ol><li>Area: 120 mm<sup>2</sup> = 1.2 cm<sup>2</sup>.</li><li>Dies per wafer: π × 150<sup>2</sup> / 120 ≈ 589, minus π × 300 / √240 ≈ 61, so about <strong>528</strong>.</li><li>Yield: e<sup>−1.2 × 0.07</sup> = e<sup>−0.084</sup> ≈ 0.919, so about 485 good dies.</li><li>Cost: $20,000 / 485 ≈ <strong>$41 per good die</strong>.</li></ol>`
       }
     ],
     interview: [
       {
-        q: `<p>A server design needs 600 mm<sup>2</sup> of logic. Option 0 is one monolithic die; option 1 is 8 chiplets of 75 mm<sup>2</sup> each. With $15,000 wafers (300 mm) and D<sub>0</sub> = 0.08 per cm<sup>2</sup>, compare silicon cost per working product. What does the comparison leave out?</p>`,
-        a: `<p><strong>Option 0:</strong> dies per wafer ≈ 22,500π / 600 − 300π / √1200 ≈ 117.8 − 27.2 ≈ 90. Yield e<sup>−6 × 0.08</sup> = e<sup>−0.48</sup> ≈ 0.62, so about 56 good dies: about <strong>$270</strong> each.</p><p><strong>Option 1:</strong> dies per wafer ≈ 22,500π / 75 − 300π / √150 ≈ 942.5 − 77.0 ≈ 865. Yield e<sup>−0.75 × 0.08</sup> = e<sup>−0.06</sup> ≈ 0.94, so about 815 good dies at about $18.4 each; 8 of them cost about <strong>$147</strong>.</p><p>Chiplets cut silicon cost by about 45%. Left out: die-to-die PHYs add area to every chiplet, the advanced package (interposer or bridges) and assembly cost more, assembly has its own yield, cross-die latency and power rise, and harvesting can rescue some partly defective monolithic dies.</p>`
+        q: `<p>A server design needs 600 mm<sup>2</sup> of logic. Option 1 is one monolithic die; option 2 is 8 chiplets of 75 mm<sup>2</sup> each. With $15,000 wafers (300 mm) and D<sub>0</sub> = 0.08 per cm<sup>2</sup>, compare silicon cost per working product. What does the comparison leave out?</p>`,
+        a: `<p><strong>Option 1:</strong> dies per wafer ≈ 22,500π / 600 − 300π / √1200 ≈ 117.8 − 27.2 ≈ 90. Yield e<sup>−6 × 0.08</sup> = e<sup>−0.48</sup> ≈ 0.62, so about 56 good dies: about <strong>$270</strong> each.</p><p><strong>Option 2:</strong> dies per wafer ≈ 22,500π / 75 − 300π / √150 ≈ 942.5 − 77.0 ≈ 865. Yield e<sup>−0.75 × 0.08</sup> = e<sup>−0.06</sup> ≈ 0.94, so about 815 good dies at about $18.4 each; 8 of them cost about <strong>$147</strong>.</p><p>Chiplets cut silicon cost by about 45%. Left out: die-to-die PHYs add area to every chiplet, the advanced package (interposer or bridges) and assembly cost more, assembly has its own yield, cross-die latency and power rise, and harvesting can rescue some partly defective monolithic dies.</p>`
       }
     ]
   }

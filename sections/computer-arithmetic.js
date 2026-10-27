@@ -27,7 +27,7 @@ section({
 <p>How hardware represents numbers and computes with them. Integers and fixed point space their values evenly, so the absolute error is constant and the range is small. A floating-point number trades that for range: it stores a sign, an exponent, and a fixed number of significand bits, so the gap between neighbors grows with the magnitude. The format decides the hardware (adder and multiplier width, lanes per vector register, bytes per operand) and the numerics (what overflows, what rounds away, what accumulates error).</p>
 <h3>The Pages</h3>
 <p><strong>Representations:</strong></p>
-<ol start="0">
+<ol>
 <li><a href="#/fp-encoding">Encoding a Float</a>: the sign, exponent, and fraction fields, the hidden bit, special values, and ULP, with an encoder you can try.</li>
 <li><a href="#/fp-formats">Floating-Point Formats Compared</a>: every format from FP128 down to FP4, side by side.</li>
 <li><a href="#/fp-rounding">Rounding, Exceptions, and Error</a>: rounding modes, guard, round, and sticky bits, the five exception flags, subnormal penalties, and summation error.</li>
@@ -35,7 +35,7 @@ section({
 <li><a href="#/fixed-point">Fixed Point and Integer Quantization</a>: Q formats, saturating arithmetic, and INT8 and INT4 inference.</li>
 </ol>
 <p><strong>Hardware:</strong></p>
-<ol start="5">
+<ol start="6">
 <li><a href="#/int-units">Integer Arithmetic Units</a>: prefix adders, shifters, Booth multipliers and compressor trees, and SRT dividers.</li>
 <li><a href="#/fp-units">Floating-Point Units and the FMA Pipeline</a>: the FMA datapath stage by stage, latency and throughput, area by format, and ISA support.</li>
 </ol>
@@ -50,7 +50,7 @@ section({
     guided: [
       {
         q: `<p>For each value, say whether FP16 and BF16 can store it, and with what relative error:</p><ul><li>(a) 70,000 (a token ID in Llama 3’s 128K vocabulary)</li><li>(b) 0.001 (a typical learning rate)</li><li>(c) π</li></ul>`,
-        a: `<ol start="0"><li><strong>(a) 70,000.</strong> FP16’s largest finite value is 65,504, so it overflows to ∞. BF16: 2<sup>16</sup> = 65,536 ≤ 70,000 &lt; 2<sup>17</sup>, so the spacing is 2<sup>16 − 7</sup> = 512. 70,000 / 512 = 136.7, which rounds to 137, giving 70,144 (0.21% high).</li><li><strong>(b) 0.001.</strong> 2<sup>−10</sup> ≤ 0.001 &lt; 2<sup>−9</sup>, a normal number in both. FP16 spacing is 2<sup>−20</sup>, so the error is at most 0.05%. BF16 spacing is 2<sup>−17</sup> ≈ 7.6 × 10<sup>−6</sup>: 0.001 / 2<sup>−17</sup> = 131.07 rounds to 131, giving 0.00099945 (0.055% low).</li><li><strong>(c) π.</strong> π = 1.1001001 0000111…<sub>2</sub> × 2<sup>1</sup>. BF16 keeps 7 fraction bits (1001001) and the next bit is 0, so it rounds down to 3.140625. FP16 keeps 10 (1001001000) and the next bit is also 0, so it rounds to the same 3.140625 (0.03% low). FP16’s 3 extra bits happen to be zeros here.</li><li>Takeaway: BF16 fails on precision, FP16 fails on range.</li></ol>`
+        a: `<ol><li><strong>(a) 70,000.</strong> FP16’s largest finite value is 65,504, so it overflows to ∞. BF16: 2<sup>16</sup> = 65,536 ≤ 70,000 &lt; 2<sup>17</sup>, so the spacing is 2<sup>16 − 7</sup> = 512. 70,000 / 512 = 136.7, which rounds to 137, giving 70,144 (0.21% high).</li><li><strong>(b) 0.001.</strong> 2<sup>−10</sup> ≤ 0.001 &lt; 2<sup>−9</sup>, a normal number in both. FP16 spacing is 2<sup>−20</sup>, so the error is at most 0.05%. BF16 spacing is 2<sup>−17</sup> ≈ 7.6 × 10<sup>−6</sup>: 0.001 / 2<sup>−17</sup> = 131.07 rounds to 131, giving 0.00099945 (0.055% low).</li><li><strong>(c) π.</strong> π = 1.1001001 0000111…<sub>2</sub> × 2<sup>1</sup>. BF16 keeps 7 fraction bits (1001001) and the next bit is 0, so it rounds down to 3.140625. FP16 keeps 10 (1001001000) and the next bit is also 0, so it rounds to the same 3.140625 (0.03% low). FP16’s 3 extra bits happen to be zeros here.</li><li>Takeaway: BF16 fails on precision, FP16 fails on range.</li></ol>`
       }
     ],
     interview: [
@@ -143,11 +143,11 @@ section({
     guided: [
       {
         q: `<p>Decode the FP32 bit pattern <code>0x41460000</code>.</p>`,
-        a: `<ol start="0"><li>Binary: <code>0 10000010 10001100000000000000000</code>.</li><li>Sign 0, so positive.</li><li>Exponent field 10000010<sub>2</sub> = 130, so the exponent is 130 − 127 = 3.</li><li>Significand 1.1000110<sub>2</sub> (hidden bit plus the fraction).</li><li>Value: 1.1000110<sub>2</sub> × 2<sup>3</sup> = 1100.011<sub>2</sub> = 8 + 4 + 0.25 + 0.125 = <strong>12.375</strong>.</li></ol>`
+        a: `<ol><li>Binary: <code>0 10000010 10001100000000000000000</code>.</li><li>Sign 0, so positive.</li><li>Exponent field 10000010<sub>2</sub> = 130, so the exponent is 130 − 127 = 3.</li><li>Significand 1.1000110<sub>2</sub> (hidden bit plus the fraction).</li><li>Value: 1.1000110<sub>2</sub> × 2<sup>3</sup> = 1100.011<sub>2</sub> = 8 + 4 + 0.25 + 0.125 = <strong>12.375</strong>.</li></ol>`
       },
       {
         q: `<p>A trace tool stores timestamps as <code>double</code> nanoseconds since boot. After how long does it lose 1 ns resolution? What if it stored them as <code>float</code>?</p>`,
-        a: `<ol start="0"><li>FP64 has 53 bits of precision, so integers are exact up to 2<sup>53</sup> ≈ 9.007 × 10<sup>15</sup> ns.</li><li>9.007 × 10<sup>15</sup> ns = 9.007 × 10<sup>6</sup> s ≈ <strong>104 days</strong> of uptime.</li><li>FP32: 2<sup>24</sup> ns ≈ <strong>16.8 ms</strong>. After that, the spacing is 2 ns and keeps doubling.</li></ol>`
+        a: `<ol><li>FP64 has 53 bits of precision, so integers are exact up to 2<sup>53</sup> ≈ 9.007 × 10<sup>15</sup> ns.</li><li>9.007 × 10<sup>15</sup> ns = 9.007 × 10<sup>6</sup> s ≈ <strong>104 days</strong> of uptime.</li><li>FP32: 2<sup>24</sup> ns ≈ <strong>16.8 ms</strong>. After that, the spacing is 2 ns and keeps doubling.</li></ol>`
       }
     ],
     interview: [
@@ -207,7 +207,7 @@ ${FP_BARS}
     guided: [
       {
         q: `<p>An activation value of 1.0 × 10<sup>−6</sup> is stored in FP16. Is it normal or subnormal, what value is actually stored, and what is the relative error? Compare with the worst case for a normal FP16 number.</p>`,
-        a: `<ol start="0"><li>FP16’s smallest normal is 2<sup>−14</sup> ≈ 6.1 × 10<sup>−5</sup>, so 10<sup>−6</sup> is <strong>subnormal</strong>.</li><li>Subnormals are spaced 2<sup>−14 − 10</sup> = 2<sup>−24</sup> ≈ 5.96 × 10<sup>−8</sup> apart.</li><li>10<sup>−6</sup> / 5.96 × 10<sup>−8</sup> = 16.78, which rounds to 17. Stored value: 17 × 2<sup>−24</sup> ≈ <strong>1.013 × 10<sup>−6</sup></strong>.</li><li>Relative error: 1.3%. A normal FP16 number is off by at most 2<sup>−11</sup> ≈ 0.05%, so this value is about 27× less precise. Its significand has only 5 significant bits (17 = 10001<sub>2</sub>).</li></ol>`
+        a: `<ol><li>FP16’s smallest normal is 2<sup>−14</sup> ≈ 6.1 × 10<sup>−5</sup>, so 10<sup>−6</sup> is <strong>subnormal</strong>.</li><li>Subnormals are spaced 2<sup>−14 − 10</sup> = 2<sup>−24</sup> ≈ 5.96 × 10<sup>−8</sup> apart.</li><li>10<sup>−6</sup> / 5.96 × 10<sup>−8</sup> = 16.78, which rounds to 17. Stored value: 17 × 2<sup>−24</sup> ≈ <strong>1.013 × 10<sup>−6</sup></strong>.</li><li>Relative error: 1.3%. A normal FP16 number is off by at most 2<sup>−11</sup> ≈ 0.05%, so this value is about 27× less precise. Its significand has only 5 significant bits (17 = 10001<sub>2</sub>).</li></ol>`
       }
     ],
     interview: [
@@ -309,7 +309,7 @@ ${FP_BARS}
     guided: [
       {
         q: `<p>Using guard, round, and sticky bits, round each exact FP32 sum with RNE:</p><ul><li>(a) 1.0 + 2<sup>−24</sup></li><li>(b) (1 + 2<sup>−23</sup>) + 2<sup>−24</sup></li><li>(c) 1.0 + 3 × 2<sup>−25</sup></li></ul>`,
-        a: `<ol start="0"><li>Near 1.0 the ULP is 2<sup>−23</sup>, so G is worth 2<sup>−24</sup>, R is worth 2<sup>−25</sup>, and S covers everything below.</li><li><strong>(a)</strong> The dropped part is exactly 2<sup>−24</sup>: G = 1, R = 0, S = 0, a tie. The kept LSB of 1.0 is 0 (even), so the result stays <strong>1.0</strong>.</li><li><strong>(b)</strong> Again G = 1, R = S = 0, a tie, but now the kept LSB is 1 (odd), so it rounds up to <strong>1 + 2<sup>−22</sup></strong>.</li><li><strong>(c)</strong> 3 × 2<sup>−25</sup> = 2<sup>−24</sup> + 2<sup>−25</sup>: G = 1, R = 1, so it’s more than half an ULP and rounds up to <strong>1 + 2<sup>−23</sup></strong>.</li><li>Takeaway: (a) and (b) add the same amount, but (a) moves the result by 0 ULPs and (b) by 1 ULP. Ties to even balances the errors across many operations.</li></ol>`
+        a: `<ol><li>Near 1.0 the ULP is 2<sup>−23</sup>, so G is worth 2<sup>−24</sup>, R is worth 2<sup>−25</sup>, and S covers everything below.</li><li><strong>(a)</strong> The dropped part is exactly 2<sup>−24</sup>: G = 1, R = 0, S = 0, a tie. The kept LSB of 1.0 is 0 (even), so the result stays <strong>1.0</strong>.</li><li><strong>(b)</strong> Again G = 1, R = S = 0, a tie, but now the kept LSB is 1 (odd), so it rounds up to <strong>1 + 2<sup>−22</sup></strong>.</li><li><strong>(c)</strong> 3 × 2<sup>−25</sup> = 2<sup>−24</sup> + 2<sup>−25</sup>: G = 1, R = 1, so it’s more than half an ULP and rounds up to <strong>1 + 2<sup>−23</sup></strong>.</li><li>Takeaway: (a) and (b) add the same amount, but (a) moves the result by 0 ULPs and (b) by 1 ULP. Ties to even balances the errors across many operations.</li></ol>`
       }
     ],
     interview: [
@@ -380,11 +380,11 @@ ${FP_BARS}
     guided: [
       {
         q: `<p>Llama 3 sets its RoPE base frequency <code>rope_theta</code> to 500,000. What value does that constant actually have if it’s stored in FP16? In BF16? In FP32?</p>`,
-        a: `<ol start="0"><li><strong>FP16:</strong> the largest finite value is 65,504, so 500,000 overflows to <strong>+∞</strong>. Every frequency computed from it is garbage.</li><li><strong>BF16:</strong> 2<sup>18</sup> = 262,144 ≤ 500,000 &lt; 2<sup>19</sup>, so the exponent is 18 and the spacing is 2<sup>18 − 7</sup> = 2,048. 500,000 / 2,048 = 244.14, which rounds to 244, so BF16 stores 244 × 2,048 = <strong>499,712</strong> (0.06% low).</li><li><strong>FP32:</strong> 500,000 &lt; 2<sup>24</sup>, and every integer below 2<sup>24</sup> is exact, so it is stored <strong>exactly</strong>.</li><li>Takeaway: this is why position-encoding frequencies are computed in FP32 even when the model runs in BF16. BF16’s range was fine, but its precision wasn’t.</li></ol>`
+        a: `<ol><li><strong>FP16:</strong> the largest finite value is 65,504, so 500,000 overflows to <strong>+∞</strong>. Every frequency computed from it is garbage.</li><li><strong>BF16:</strong> 2<sup>18</sup> = 262,144 ≤ 500,000 &lt; 2<sup>19</sup>, so the exponent is 18 and the spacing is 2<sup>18 − 7</sup> = 2,048. 500,000 / 2,048 = 244.14, which rounds to 244, so BF16 stores 244 × 2,048 = <strong>499,712</strong> (0.06% low).</li><li><strong>FP32:</strong> 500,000 &lt; 2<sup>24</sup>, and every integer below 2<sup>24</sup> is exact, so it is stored <strong>exactly</strong>.</li><li>Takeaway: this is why position-encoding frequencies are computed in FP32 even when the model runs in BF16. BF16’s range was fine, but its precision wasn’t.</li></ol>`
       },
       {
         q: `<p>DeepSeek-V3 has 671 billion parameters and was released with FP8 weights that carry one FP32 scale per 128 × 128 block. Can the weights fit on one 8 × H200 server (141 GB of HBM per GPU) in FP8? In BF16? How much memory is left for the KV cache and activations?</p>`,
-        a: `<ol start="0"><li>Server memory: 8 × 141 = 1,128 GB.</li><li>BF16: 671 × 10<sup>9</sup> × 2 bytes = 1,342 GB. <strong>Doesn’t fit.</strong> It needs two servers or more aggressive quantization.</li><li>FP8: 671 GB for the values. The scales add 4 bytes per 128 × 128 = 16,384 values, about 0.02%, so roughly 671 GB total. <strong>Fits.</strong></li><li>Left over: about 1,128 − 671 ≈ <strong>457 GB</strong> for the KV cache, activations, and runtime buffers (in practice somewhat less after framework overhead).</li><li>Takeaway: the number format decides how many GPUs a deployment needs, which matters more for cost than the FLOPs it saves.</li></ol>`
+        a: `<ol><li>Server memory: 8 × 141 = 1,128 GB.</li><li>BF16: 671 × 10<sup>9</sup> × 2 bytes = 1,342 GB. <strong>Doesn’t fit.</strong> It needs two servers or more aggressive quantization.</li><li>FP8: 671 GB for the values. The scales add 4 bytes per 128 × 128 = 16,384 values, about 0.02%, so roughly 671 GB total. <strong>Fits.</strong></li><li>Left over: about 1,128 − 671 ≈ <strong>457 GB</strong> for the KV cache, activations, and runtime buffers (in practice somewhat less after framework overhead).</li><li>Takeaway: the number format decides how many GPUs a deployment needs, which matters more for cost than the FLOPs it saves.</li></ol>`
       }
     ],
     interview: [
@@ -472,11 +472,11 @@ ${FP_BARS}
     guided: [
       {
         q: `<p>A motor controller stores values in Q4.11 (16 bits). Compute 3.25 × −1.5, then 5 × 4, both returning Q4.11 with rounding and saturation.</p>`,
-        a: `<ol start="0"><li>Q4.11 has range [−16, 16 − 2<sup>−11</sup>] and resolution 2<sup>−11</sup> ≈ 0.00049.</li><li>Encode: 3.25 × 2,048 = 6,656, and −1.5 × 2,048 = −3,072.</li><li>Multiply: 6,656 × −3,072 = −20,447,232, a Q8.22 value in 32 bits.</li><li>Shift back by 11 with rounding: (−20,447,232 + 1,024) &gt;&gt; 11 = −9,984 (the product was an exact multiple, so rounding doesn’t change it). −9,984 / 2,048 = <strong>−4.875</strong>, which is exact.</li><li>5 × 4: 10,240 × 8,192 = 83,886,080, and &gt;&gt; 11 gives 40,960. That’s more than the largest code, 32,767, so it saturates to 32,767 = <strong>15.9995</strong>. Without saturation, the low 16 bits of 40,960 read as −24,576 = −12.0.</li></ol>`
+        a: `<ol><li>Q4.11 has range [−16, 16 − 2<sup>−11</sup>] and resolution 2<sup>−11</sup> ≈ 0.00049.</li><li>Encode: 3.25 × 2,048 = 6,656, and −1.5 × 2,048 = −3,072.</li><li>Multiply: 6,656 × −3,072 = −20,447,232, a Q8.22 value in 32 bits.</li><li>Shift back by 11 with rounding: (−20,447,232 + 1,024) &gt;&gt; 11 = −9,984 (the product was an exact multiple, so rounding doesn’t change it). −9,984 / 2,048 = <strong>−4.875</strong>, which is exact.</li><li>5 × 4: 10,240 × 8,192 = 83,886,080, and &gt;&gt; 11 gives 40,960. That’s more than the largest code, 32,767, so it saturates to 32,767 = <strong>15.9995</strong>. Without saturation, the low 16 bits of 40,960 read as −24,576 = −12.0.</li></ol>`
       },
       {
         q: `<p>Llama 3 70B has 70.6 billion parameters. How large are the weights in BF16, in INT8 with one FP32 scale per output channel (negligible overhead), and in INT4 with groups of 128 that each carry an FP16 scale and an FP16 zero point? Which of them fit on one 48 GB GPU, and how many 80 GB GPUs does BF16 need?</p>`,
-        a: `<ol start="0"><li>BF16: 70.6 × 10<sup>9</sup> × 2 bytes = <strong>141.2 GB</strong>.</li><li>INT8: 70.6 GB, plus a few hundred kilobytes of scales, so about <strong>70.6 GB</strong>.</li><li>INT4: each group adds 16 + 16 = 32 bits for 128 weights, so 4 + 32/128 = 4.25 bits per weight. 70.6 × 10<sup>9</sup> × 4.25 / 8 ≈ <strong>37.5 GB</strong>.</li><li>Only INT4 fits on one 48 GB GPU (37.5 < 48, while 70.6 > 48). BF16 needs at least ⌈141.2 / 80⌉ = <strong>two 80 GB GPUs</strong>, before any room for the KV cache.</li></ol>`
+        a: `<ol><li>BF16: 70.6 × 10<sup>9</sup> × 2 bytes = <strong>141.2 GB</strong>.</li><li>INT8: 70.6 GB, plus a few hundred kilobytes of scales, so about <strong>70.6 GB</strong>.</li><li>INT4: each group adds 16 + 16 = 32 bits for 128 weights, so 4 + 32/128 = 4.25 bits per weight. 70.6 × 10<sup>9</sup> × 4.25 / 8 ≈ <strong>37.5 GB</strong>.</li><li>Only INT4 fits on one 48 GB GPU (37.5 < 48, while 70.6 > 48). BF16 needs at least ⌈141.2 / 80⌉ = <strong>two 80 GB GPUs</strong>, before any room for the KV cache.</li></ol>`
       }
     ],
     interview: [
@@ -527,7 +527,7 @@ ${FP_BARS}
 
 <h3 id="sec-mul">Multipliers</h3>
 <p>An n × n multiply is a sum of n shifted partial products. Hardware speeds up both how many there are and how fast they’re summed:</p>
-<ol start="0">
+<ol>
 <li><strong>Booth recoding (radix 4):</strong> recode the multiplier into digits in {−2, −1, 0, 1, 2}, each covering 2 bits. Every digit selects 0, ±a, or ±2a, all cheap (a shift and an invert), so there are only about n/2 + 1 partial products.</li>
 <li><strong>Compressor tree:</strong> reduce the partial products with 3:2 compressors (Wallace or Dadda trees) or 4:2 compressors until two rows remain. Each level cuts the row count by about a third, so the depth grows with log<sub>1.5</sub> of the row count.</li>
 <li><strong>Final adder:</strong> one carry-propagate adder of width 2n turns the two rows into the product.</li>
@@ -560,11 +560,11 @@ ${FP_BARS}
     guided: [
       {
         q: `<p>For a 32-bit adder, how many prefix levels and combine cells do Kogge–Stone and Brent–Kung need? Which would you pick for an ALU on the critical bypass loop, and which for a low-power microcontroller?</p>`,
-        a: `<ol start="0"><li>Kogge–Stone: log<sub>2</sub> 32 = <strong>5 levels</strong>, and 32 × 5 − 32 + 1 = <strong>129 cells</strong>.</li><li>Brent–Kung: 2 × 5 − 1 = <strong>9 levels</strong>, and 2 × 32 − 2 − 5 = <strong>57 cells</strong>.</li><li>A high-frequency core’s ALU picks Kogge–Stone (or a sparse variant such as Han–Carlson), because adder delay sits inside the 1-cycle add-to-dependent-add loop.</li><li>A microcontroller at a few hundred MHz has slack in the cycle, so Brent–Kung’s fewer cells and shorter wires save area and switching power.</li></ol>`
+        a: `<ol><li>Kogge–Stone: log<sub>2</sub> 32 = <strong>5 levels</strong>, and 32 × 5 − 32 + 1 = <strong>129 cells</strong>.</li><li>Brent–Kung: 2 × 5 − 1 = <strong>9 levels</strong>, and 2 × 32 − 2 − 5 = <strong>57 cells</strong>.</li><li>A high-frequency core’s ALU picks Kogge–Stone (or a sparse variant such as Han–Carlson), because adder delay sits inside the 1-cycle add-to-dependent-add loop.</li><li>A microcontroller at a few hundred MHz has slack in the cycle, so Brent–Kung’s fewer cells and shorter wires save area and switching power.</li></ol>`
       },
       {
         q: `<p>GCC compiles unsigned 32-bit <code>x / 3</code> as <code>(x * 0xAAAAAAAB) &gt;&gt; 33</code> using a 64-bit product. Show where the constant comes from and check it for x = 100 and x = 4,294,967,295.</p>`,
-        a: `<ol start="0"><li>2<sup>33</sup> / 3 = 2,863,311,530.67, so ⌈2<sup>33</sup> / 3⌉ = 2,863,311,531 = <code>0xAAAAAAAB</code>.</li><li>x = 100: 100 × 2,863,311,531 = 286,331,153,100. Divided by 2<sup>33</sup> = 8,589,934,592 that’s 33.33, which truncates to <strong>33</strong>.</li><li>x = 2<sup>32</sup> − 1: the product is 12,297,829,381,041,378,645 (it fits in 64 bits), and divided by 2<sup>33</sup> it’s 1,431,655,765.17, which truncates to <strong>1,431,655,765</strong>, the correct quotient.</li><li>The error of the rounded-up constant is small enough that it never reaches the next integer for any 32-bit x. That condition is what the compiler checks when it picks the shift amount.</li></ol>`
+        a: `<ol><li>2<sup>33</sup> / 3 = 2,863,311,530.67, so ⌈2<sup>33</sup> / 3⌉ = 2,863,311,531 = <code>0xAAAAAAAB</code>.</li><li>x = 100: 100 × 2,863,311,531 = 286,331,153,100. Divided by 2<sup>33</sup> = 8,589,934,592 that’s 33.33, which truncates to <strong>33</strong>.</li><li>x = 2<sup>32</sup> − 1: the product is 12,297,829,381,041,378,645 (it fits in 64 bits), and divided by 2<sup>33</sup> it’s 1,431,655,765.17, which truncates to <strong>1,431,655,765</strong>, the correct quotient.</li><li>The error of the rounded-up constant is small enough that it never reaches the next integer for any 32-bit x. That condition is what the compiler checks when it picks the shift amount.</li></ol>`
       }
     ],
     interview: [
@@ -574,7 +574,7 @@ ${FP_BARS}
       },
       {
         q: `<p>A radix-4 SRT divider retires 2 quotient bits per cycle after 2 cycles of setup, with early out on leading zeros. Estimate the latency of dividing a 64-bit dividend of 2<sup>40</sup> by 1,000,000, then a full 64-bit quotient. What changes with a radix-16 divider, and why might a designer not just go to radix 256?</p>`,
-        a: `<ol start="0"><li>Quotient size: 2<sup>40</sup> / 10<sup>6</sup> ≈ 1.1 × 10<sup>6</sup>, about 21 bits. That’s ⌈21 / 2⌉ = 11 iterations, so about <strong>13 cycles</strong>.</li><li>Full 64-bit quotient: 32 iterations plus setup, about <strong>34 cycles</strong>.</li><li>Radix 16 (4 bits per cycle): about 2 + 6 = 8 cycles and 2 + 16 = 18 cycles.</li><li>Why not radix 256: the digit-selection table grows quickly with radix (it needs more remainder and divisor bits as input), each iteration must also form a larger set of divisor multiples, and the iteration must still fit in one cycle. Designs therefore overlap several small-radix stages per cycle instead of building one large one.</li></ol>`
+        a: `<ol><li>Quotient size: 2<sup>40</sup> / 10<sup>6</sup> ≈ 1.1 × 10<sup>6</sup>, about 21 bits. That’s ⌈21 / 2⌉ = 11 iterations, so about <strong>13 cycles</strong>.</li><li>Full 64-bit quotient: 32 iterations plus setup, about <strong>34 cycles</strong>.</li><li>Radix 16 (4 bits per cycle): about 2 + 6 = 8 cycles and 2 + 16 = 18 cycles.</li><li>Why not radix 256: the digit-selection table grows quickly with radix (it needs more remainder and divisor bits as input), each iteration must also form a larger set of divisor multiples, and the iteration must still fit in one cycle. Designs therefore overlap several small-radix stages per cycle instead of building one large one.</li></ol>`
       }
     ]
   }
@@ -598,7 +598,7 @@ ${FP_BARS}
 
 <h3 id="sec-fma">Inside the FMA Pipeline</h3>
 <p>A fused multiply-add computes a × b + c with <strong>one</strong> rounding at the end, which is both more accurate and faster than a separate multiply and add. It counts as two FLOPs, which is why peak-FLOPS figures assume FMAs. Most FPUs build add and multiply out of the FMA datapath (a + b = a × 1 + b). The stages:</p>
-<ol start="0">
+<ol>
 <li><strong>Unpack:</strong> split the fields, insert the hidden bit (1 for normals, 0 for subnormals), detect zero, ∞, and NaN.</li>
 <li><strong>Multiply significands:</strong> a <em>p</em> × <em>p</em> partial-product array (Booth recoding plus a Wallace or Dadda compressor tree), leaving the 2<em>p</em>-bit product in carry-save form. In parallel, add the exponents (E<sub>a</sub> + E<sub>b</sub> − bias) and compute how far to shift c.</li>
 <li><strong>Align c:</strong> shift c’s significand to line up with the product. The aligner is about 3<em>p</em> bits wide, because c can sit far above or below the product.</li>
@@ -651,7 +651,7 @@ ${FP_BARS}
     guided: [
       {
         q: `<p>Apple’s M1 performance core (Firestorm) has 4 128-bit NEON FMA pipes with a 4-cycle FMA latency, and NEON has 32 vector registers. How many independent FP32 accumulators does an FMA-bound kernel need to reach peak, and what is the peak at 3.2 GHz?</p>`,
-        a: `<ol start="0"><li>Accumulators = latency × pipes = 4 × 4 = <strong>16 vector registers</strong>. NEON has 32, so 16 are left for operands.</li><li>FP32 lanes per 128-bit register: 128 / 32 = 4.</li><li>FLOPs per cycle = 4 pipes × 4 lanes × 2 = <strong>32</strong>.</li><li>Peak: 32 × 3.2 × 10<sup>9</sup> = <strong>102.4 GFLOPS</strong> FP32 per core.</li><li>With only 4 accumulators, the kernel would issue 4 / 4 = 1 FMA per cycle, a quarter of peak.</li></ol>`
+        a: `<ol><li>Accumulators = latency × pipes = 4 × 4 = <strong>16 vector registers</strong>. NEON has 32, so 16 are left for operands.</li><li>FP32 lanes per 128-bit register: 128 / 32 = 4.</li><li>FLOPs per cycle = 4 pipes × 4 lanes × 2 = <strong>32</strong>.</li><li>Peak: 32 × 3.2 × 10<sup>9</sup> = <strong>102.4 GFLOPS</strong> FP32 per core.</li><li>With only 4 accumulators, the kernel would issue 4 / 4 = 1 FMA per cycle, a quarter of peak.</li></ol>`
       }
     ],
     interview: [

@@ -58,7 +58,7 @@ section({
     guided: [
       {
         q: `<p>An AMD EPYC 9654 (Zen 4, "Genoa") has 96 cores at a 2.4 GHz base clock. Zen 4 has two 256-bit FMA pipes and executes 512-bit operations as two halves. Compute the chip's peak FP64 rate at base clock.</p>`,
-        a: `<ol start="0"><li>FP64 lanes per 256-bit pipe: 256 / 64 = 4.</li><li>FLOPs per cycle per core: 2 pipes × 4 lanes × 2 (an FMA is a multiply and an add) = 16.</li><li>Chip: 96 cores × 16 × 2.4 × 10<sup>9</sup> ≈ <strong>3.69 TFLOPS</strong> FP64.</li></ol><p>Using 512-bit instructions doesn't change this on Zen 4: each one takes both halves of the datapath.</p>`
+        a: `<ol><li>FP64 lanes per 256-bit pipe: 256 / 64 = 4.</li><li>FLOPs per cycle per core: 2 pipes × 4 lanes × 2 (an FMA is a multiply and an add) = 16.</li><li>Chip: 96 cores × 16 × 2.4 × 10<sup>9</sup> ≈ <strong>3.69 TFLOPS</strong> FP64.</li></ol><p>Using 512-bit instructions doesn't change this on Zen 4: each one takes both halves of the datapath.</p>`
       }
     ],
     interview: [
@@ -194,11 +194,11 @@ ${procSvg(760, 650, 620, "Zen 5 core block diagram: branch predictor feeds the L
     guided: [
       {
         q: `<p>Zen 4 has a 320-entry retire queue and 6-wide dispatch. A load at the head of the window misses to DRAM; on a desktop Zen 4 at 5.0 GHz, DRAM latency is about 78 ns. How long until dispatch stalls, how many cycles of the miss are exposed, and what changes if three more independent misses dispatch within the same window?</p>`,
-        a: `<ol start="0"><li>Miss latency in cycles: 78 ns × 5.0 GHz = 390 cycles.</li><li>The load can't retire, so the window fills after 320 / 6 ≈ 53 cycles of full-rate dispatch.</li><li>Exposed stall ≈ 390 − 53 ≈ <strong>337 cycles</strong>.</li><li>Four independent misses issued within those 53 cycles overlap: the window still stalls for about one latency, so the cost is roughly 337 cycles for all four, about 84 per miss. This is why window size and MLP matter more than raw width for memory-bound code.</li></ol>`
+        a: `<ol><li>Miss latency in cycles: 78 ns × 5.0 GHz = 390 cycles.</li><li>The load can't retire, so the window fills after 320 / 6 ≈ 53 cycles of full-rate dispatch.</li><li>Exposed stall ≈ 390 − 53 ≈ <strong>337 cycles</strong>.</li><li>Four independent misses issued within those 53 cycles overlap: the window still stalls for about one latency, so the cost is roughly 337 cycles for all four, about 84 per miss. This is why window size and MLP matter more than raw width for memory-bound code.</li></ol>`
       },
       {
         q: `<p>Intel's Golden Cove core fetches 32 bytes per cycle into a 6-wide legacy decoder; its 4K-entry micro-op cache delivers 8 micro-ops per cycle into a 6-wide rename. A hot AVX-512 loop averages 6.5 bytes per instruction. What is the front-end limit on each path?</p>`,
-        a: `<ol start="0"><li>Legacy path: fetch allows 32 / 6.5 ≈ 4.9 instructions per cycle, below the decoder's 6, so fetch bytes bind at about <strong>4.9 per cycle</strong>.</li><li>Micro-op cache path: 8 per cycle out of the cache, but rename takes 6, so <strong>6 per cycle</strong>.</li><li>Fitting the loop in the micro-op cache is worth about 6 / 4.9 ≈ 1.2× on front-end throughput, before considering other limits.</li></ol>`
+        a: `<ol><li>Legacy path: fetch allows 32 / 6.5 ≈ 4.9 instructions per cycle, below the decoder's 6, so fetch bytes bind at about <strong>4.9 per cycle</strong>.</li><li>Micro-op cache path: 8 per cycle out of the cache, but rename takes 6, so <strong>6 per cycle</strong>.</li><li>Fitting the loop in the micro-op cache is worth about 6 / 4.9 ≈ 1.2× on front-end throughput, before considering other limits.</li></ol>`
       }
     ],
     interview: [
@@ -305,17 +305,17 @@ ${procSvg(760, 260, 620, "Three Zen 5 packages: Granite Ridge with two CCDs and 
     guided: [
       {
         q: `<p>An EPYC 9654 (Zen 4, "Genoa") has 96 cores, 12 channels of DDR5-4800, and a peak of 16 FP64 FLOPs per cycle per core at 2.4 GHz. Compute peak memory bandwidth, bandwidth per core, and the machine balance in FLOPs per byte.</p>`,
-        a: `<ol start="0"><li>Bandwidth: 12 channels × 8 bytes × 4800 × 10<sup>6</sup> transfers/s = <strong>460.8 GB/s</strong>.</li><li>Per core: 460.8 / 96 = <strong>4.8 GB/s</strong>.</li><li>Peak compute: 96 × 16 × 2.4 × 10<sup>9</sup> = 3.69 TFLOPS.</li><li>Balance: 3,686 / 460.8 ≈ <strong>8.0 FLOPs per byte</strong>. A kernel below that arithmetic intensity is memory-bound on this socket.</li></ol>`
+        a: `<ol><li>Bandwidth: 12 channels × 8 bytes × 4800 × 10<sup>6</sup> transfers/s = <strong>460.8 GB/s</strong>.</li><li>Per core: 460.8 / 96 = <strong>4.8 GB/s</strong>.</li><li>Peak compute: 96 × 16 × 2.4 × 10<sup>9</sup> = 3.69 TFLOPS.</li><li>Balance: 3,686 / 460.8 ≈ <strong>8.0 FLOPs per byte</strong>. A kernel below that arithmetic intensity is memory-bound on this socket.</li></ol>`
       },
       {
         q: `<p>A Ryzen 9 7950X3D (Zen 4) has two CCDs: CCD 0 has 96 MB of L3 (32 MB plus a stacked 64 MB), CCD 1 has 32 MB and clocks higher. An L3 hit takes about 50 cycles, and a DRAM access about 400. A game's main thread has a 60 MB hot working set. Where should it run, and what happens if the OS places it on CCD 1?</p>`,
-        a: `<ol start="0"><li>On CCD 0 the working set fits in the 96 MB L3, so most misses from L2 hit L3 at about 50 cycles.</li><li>On CCD 1, only 32 MB fits; (60 − 32) / 60 ≈ 47% of the working set misses to DRAM, each miss costing about 400 cycles, 8× an L3 hit. The CCD's higher clock can't make up for that.</li><li>The L3 on the other CCD doesn't help: a CCD's L3 caches only its own cores' L2 victims, and reaching the other die goes through the IOD.</li><li>So pin the thread (and its helpers) to CCD 0; this is what AMD's driver and the Windows scheduler hints try to do for games.</li></ol>`
+        a: `<ol><li>On CCD 0 the working set fits in the 96 MB L3, so most misses from L2 hit L3 at about 50 cycles.</li><li>On CCD 1, only 32 MB fits; (60 − 32) / 60 ≈ 47% of the working set misses to DRAM, each miss costing about 400 cycles, 8× an L3 hit. The CCD's higher clock can't make up for that.</li><li>The L3 on the other CCD doesn't help: a CCD's L3 caches only its own cores' L2 victims, and reaching the other die goes through the IOD.</li><li>So pin the thread (and its helpers) to CCD 0; this is what AMD's driver and the Windows scheduler hints try to do for games.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>A single-producer, single-consumer queue gets 4× lower throughput when the two threads are on different CCDs of a Ryzen 9 7950X than when they share a CCX. Walk through what each enqueue/dequeue does to the cache line holding the queue indices, and give two fixes.</p>`,
-        a: `<p>Producer writes <code>tail</code>: it needs the line in M state, so the consumer's copy is invalidated. Consumer reads <code>tail</code>: it misses its L2 and its L3; inside one CCX, the L3's shadow tags find the line in the producer's L2 and transfer it on-die. Across CCDs the miss leaves the die, the IOD's home agent probes the other CCD, and the data crosses two GMI hops; every handoff pays that, and both indices ping-pong. Fixes:</p><ol start="0"><li>Keep both threads in one CCX (affinity)</li><li>Batch: publish the tail every N items and cache the remote index locally, so lines move once per batch</li><li>Put <code>head</code> and <code>tail</code> on separate cache lines to avoid false sharing</li><li>For cross-CCD pipelines, use larger messages so transfer cost amortizes</li></ol>`
+        a: `<p>Producer writes <code>tail</code>: it needs the line in M state, so the consumer's copy is invalidated. Consumer reads <code>tail</code>: it misses its L2 and its L3; inside one CCX, the L3's shadow tags find the line in the producer's L2 and transfer it on-die. Across CCDs the miss leaves the die, the IOD's home agent probes the other CCD, and the data crosses two GMI hops; every handoff pays that, and both indices ping-pong. Fixes:</p><ol><li>Keep both threads in one CCX (affinity)</li><li>Batch: publish the tail every N items and cache the remote index locally, so lines move once per batch</li><li>Put <code>head</code> and <code>tail</code> on separate cache lines to avoid false sharing</li><li>For cross-CCD pipelines, use larger messages so transfer cost amortizes</li></ol>`
       },
       {
         q: `<p>You can buy EPYC 9684X (Genoa-X: 96 Zen 4 cores, 1,152 MB of L3, i.e. 96 MB per 8-core CCD) or EPYC 9754 (Bergamo: 128 Zen 4c cores, 256 MB of L3, 16 MB per 8-core CCX). Both use 12 channels of DDR5-4800, 460.8 GB/s per socket. Which suits a parallel EDA placement job with a 70 MB per-process working set, and which suits a fleet of small stateless microservices? Justify with the hierarchy.</p>`,
@@ -414,11 +414,11 @@ ${procSvg(760, 590, 620, "Neoverse V2 core block diagram: a decoupled branch pre
     guided: [
       {
         q: `<p>AWS Graviton3 uses Neoverse V1: 64 cores at 2.6 GHz, with two 256-bit SVE pipes that both do FMA. Compute its peak FP64 rate, and compare with a V2 core at the same clock, which has four 128-bit FMA pipes.</p>`,
-        a: `<ol start="0"><li>FP64 lanes per 256-bit pipe: 4.</li><li>Per core: 2 pipes × 4 lanes × 2 = 16 FLOPs per cycle.</li><li>Chip: 64 × 16 × 2.6 × 10<sup>9</sup> ≈ <strong>2.66 TFLOPS</strong> FP64.</li><li>V2 trades two 256-bit pipes for four 128-bit pipes: 4 × 2 × 2 = 16 FLOPs per cycle, the <strong>same peak per core</strong>. The gain is that NEON code (128-bit) can now use all four pipes, and narrower pipes are easier to keep busy.</li></ol>`
+        a: `<ol><li>FP64 lanes per 256-bit pipe: 4.</li><li>Per core: 2 pipes × 4 lanes × 2 = 16 FLOPs per cycle.</li><li>Chip: 64 × 16 × 2.6 × 10<sup>9</sup> ≈ <strong>2.66 TFLOPS</strong> FP64.</li><li>V2 trades two 256-bit pipes for four 128-bit pipes: 4 × 2 × 2 = 16 FLOPs per cycle, the <strong>same peak per core</strong>. The gain is that NEON code (128-bit) can now use all four pipes, and narrower pipes are easier to keep busy.</li></ol>`
       },
       {
         q: `<p>Graviton4 uses V2 with a 2 MB L2: 96 cores at 2.8 GHz, 16 FP64 FLOPs per cycle per core, and 12 channels of DDR5-5600. Compute peak DRAM bandwidth, bandwidth per core, and machine balance.</p>`,
-        a: `<ol start="0"><li>Bandwidth: 12 × 8 B × 5600 × 10<sup>6</sup> = <strong>537.6 GB/s</strong>; per core 537.6 / 96 = <strong>5.6 GB/s</strong>.</li><li>Peak FP64: 96 × 16 × 2.8 × 10<sup>9</sup> ≈ 4.30 TFLOPS.</li><li>Balance: 4,301 / 537.6 ≈ <strong>8.0 FLOPs per byte</strong>.</li></ol>`
+        a: `<ol><li>Bandwidth: 12 × 8 B × 5600 × 10<sup>6</sup> = <strong>537.6 GB/s</strong>; per core 537.6 / 96 = <strong>5.6 GB/s</strong>.</li><li>Peak FP64: 96 × 16 × 2.8 × 10<sup>9</sup> ≈ 4.30 TFLOPS.</li><li>Balance: 4,301 / 537.6 ≈ <strong>8.0 FLOPs per byte</strong>.</li></ol>`
       }
     ],
     interview: [
@@ -508,11 +508,11 @@ ${procSvg(760, 330, 620, "A Grace die drawn as a mesh of cache switch nodes, eac
     guided: [
       {
         q: `<p>Chips and Cheese measured a Graviton4 core reading DRAM at 28 GB/s with a DRAM latency of about 114 ns. Use Little's law to find how many 64-byte lines that core keeps in flight.</p>`,
-        a: `<ol start="0"><li>Bytes in flight = bandwidth × latency = 28 × 10<sup>9</sup> B/s × 114 × 10<sup>−9</sup> s ≈ 3,190 bytes.</li><li>Lines: 3,190 / 64 ≈ <strong>50 lines</strong> outstanding.</li><li>That number reflects the core's miss-handling resources (L1 and L2 miss queues) plus prefetchers; to go faster with the same latency, a core needs more outstanding misses, not more ALUs.</li></ol>`
+        a: `<ol><li>Bytes in flight = bandwidth × latency = 28 × 10<sup>9</sup> B/s × 114 × 10<sup>−9</sup> s ≈ 3,190 bytes.</li><li>Lines: 3,190 / 64 ≈ <strong>50 lines</strong> outstanding.</li><li>That number reflects the core's miss-handling resources (L1 and L2 miss queues) plus prefetchers; to go faster with the same latency, a core needs more outstanding misses, not more ALUs.</li></ol>`
       },
       {
         q: `<p>Compare per-core DRAM bandwidth for a full Graviton4 (96 cores, 537.6 GB/s) and a fully loaded EPYC 9654 (96 cores, 460.8 GB/s). If a stencil needs 6 GB/s per core to keep its FMAs busy, which chip runs it compute-bound?</p>`,
-        a: `<ol start="0"><li>Graviton4: 537.6 / 96 = 5.6 GB/s per core.</li><li>EPYC 9654: 460.8 / 96 = 4.8 GB/s per core.</li><li>Neither reaches 6 GB/s, so <strong>both are memory-bound</strong> with all cores busy; Graviton4 delivers about 5.6 / 6 ≈ 93% of compute-bound speed, the EPYC about 4.8 / 6 = 80%. Running fewer cores per socket would make each core compute-bound but lose total throughput.</li></ol>`
+        a: `<ol><li>Graviton4: 537.6 / 96 = 5.6 GB/s per core.</li><li>EPYC 9654: 460.8 / 96 = 4.8 GB/s per core.</li><li>Neither reaches 6 GB/s, so <strong>both are memory-bound</strong> with all cores busy; Graviton4 delivers about 5.6 / 6 ≈ 93% of compute-bound speed, the EPYC about 4.8 / 6 = 80%. Running fewer cores per socket would make each core compute-bound but lose total throughput.</li></ol>`
       }
     ],
     interview: [
@@ -522,7 +522,7 @@ ${procSvg(760, 330, 620, "A Grace die drawn as a mesh of cache switch nodes, eac
       },
       {
         q: `<p>A graph traversal runs 1.6× slower per core on Grace than on a Zen 4 EPYC, even though Grace has more DRAM bandwidth per core. A pointer-chase test measures DRAM latency at about 200 ns on Grace and about 125 ns on the EPYC. Build a simple model that explains it, and name two code changes that would narrow the gap.</p>`,
-        a: `<p>Graph traversal is latency-bound: each step's address depends on the last load. Time per step ≈ miss rate × memory latency / MLP. With MLP near 1 for a single chain, the ratio of per-step times is the ratio of latencies: 200 / 125 = 1.6, exactly the measured gap. It tracks latency, not bandwidth; bandwidth is mostly idle. Fixes: (0) increase MLP by processing many independent traversals (or frontier vertices) interleaved, so several chains have misses in flight, which converts the problem to a bandwidth one where Grace is strong; (1) software prefetch of the next vertices' adjacency data from the frontier; (2) reorder vertices for locality (e.g., by BFS or community order) so more neighbors share lines and pages; (3) use huge pages so TLB walks don't add a second dependent miss.</p>`
+        a: `<p>Graph traversal is latency-bound: each step's address depends on the last load. Time per step ≈ miss rate × memory latency / MLP. With MLP near 1 for a single chain, the ratio of per-step times is the ratio of latencies: 200 / 125 = 1.6, exactly the measured gap. It tracks latency, not bandwidth; bandwidth is mostly idle.</p><p>Fixes:</p><ol><li>Increase MLP by processing many independent traversals (or frontier vertices) interleaved, so several chains have misses in flight, which converts the problem to a bandwidth one where Grace is strong.</li><li>Software prefetch of the next vertices' adjacency data from the frontier.</li><li>Reorder vertices for locality (e.g., by BFS or community order) so more neighbors share lines and pages.</li><li>Use huge pages so TLB walks don't add a second dependent miss.</li></ol>`
       }
     ]
   }
@@ -621,17 +621,17 @@ ${procSvg(760, 400, 620, "An H100 SM: a shared L1 instruction cache above four s
     guided: [
       {
         q: `<p>An A100 (108 SMs, 1,555 GB/s HBM2, 312 TFLOPS dense FP16 tensor) runs an FP16 GEMM with M = N = K = 4096. Find the ridge point, the GEMM's arithmetic intensity (counting each matrix read or written once), and a lower bound on its time.</p>`,
-        a: `<ol start="0"><li>Ridge: 312 × 10<sup>12</sup> / 1,555 × 10<sup>9</sup> ≈ <strong>201 FLOPs per byte</strong>.</li><li>FLOPs: 2 × 4096<sup>3</sup> ≈ 1.374 × 10<sup>11</sup>.</li><li>Bytes: three 4096 × 4096 matrices × 2 B ≈ 3 × 33.6 MB ≈ 100.7 MB.</li><li>Intensity: 1.374 × 10<sup>11</sup> / 1.007 × 10<sup>8</sup> ≈ <strong>1,365 FLOPs per byte</strong>, well above the ridge: compute-bound.</li><li>Lower bound: 1.374 × 10<sup>11</sup> / 312 × 10<sup>12</sup> ≈ <strong>0.44 ms</strong>.</li></ol>`
+        a: `<ol><li>Ridge: 312 × 10<sup>12</sup> / 1,555 × 10<sup>9</sup> ≈ <strong>201 FLOPs per byte</strong>.</li><li>FLOPs: 2 × 4096<sup>3</sup> ≈ 1.374 × 10<sup>11</sup>.</li><li>Bytes: three 4096 × 4096 matrices × 2 B ≈ 3 × 33.6 MB ≈ 100.7 MB.</li><li>Intensity: 1.374 × 10<sup>11</sup> / 1.007 × 10<sup>8</sup> ≈ <strong>1,365 FLOPs per byte</strong>, well above the ridge: compute-bound.</li><li>Lower bound: 1.374 × 10<sup>11</sup> / 312 × 10<sup>12</sup> ≈ <strong>0.44 ms</strong>.</li></ol>`
       },
       {
         q: `<p>On an A100 SM (65,536 registers, 64 warps max, up to 164 KB shared memory), a kernel uses 128 registers per thread and 256-thread blocks. How many blocks fit per SM, and what is the occupancy? What if each block also needs 100 KB of shared memory?</p>`,
-        a: `<ol start="0"><li>Registers per block: 128 × 256 = 32,768, so 65,536 / 32,768 = <strong>2 blocks</strong>.</li><li>Warps: 2 blocks × 8 warps = 16 of 64, <strong>25% occupancy</strong>.</li><li>With 100 KB of shared memory per block, only 1 block fits in 164 KB: 8 warps, 12.5% occupancy. Whether that hurts depends on how much memory parallelism each warp exposes (TMA-style bulk copies or software pipelining can make low occupancy fine).</li></ol>`
+        a: `<ol><li>Registers per block: 128 × 256 = 32,768, so 65,536 / 32,768 = <strong>2 blocks</strong>.</li><li>Warps: 2 blocks × 8 warps = 16 of 64, <strong>25% occupancy</strong>.</li><li>With 100 KB of shared memory per block, only 1 block fits in 164 KB: 8 warps, 12.5% occupancy. Whether that hurts depends on how much memory parallelism each warp exposes (TMA-style bulk copies or software pipelining can make low occupancy fine).</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>A kernel on an A100 launches 220 blocks, and at most one block fits per SM. Compute the tail efficiency, and propose two fixes.</p>`,
-        a: `<p>One wave is 108 blocks. 220 blocks need 3 waves (108, 108, 4). If every block takes the same time T, total time is 3T while useful work is 220 block-times out of 3 × 108 = 324 slots: efficiency 220 / 324 ≈ <strong>68%</strong>. Fixes: (0) resize tiles so the grid is close to a multiple of 108 (e.g., 216 blocks); (1) make blocks smaller so 2 fit per SM and the last wave is a smaller fraction; (2) use a persistent-kernel / stream-K scheme where 108 blocks loop over work units so the tail is split finely; (3) run another kernel concurrently to fill idle SMs.</p>`
+        a: `<p>One wave is 108 blocks. 220 blocks need 3 waves (108, 108, 4). If every block takes the same time T, total time is 3T while useful work is 220 block-times out of 3 × 108 = 324 slots: efficiency 220 / 324 ≈ <strong>68%</strong>.</p><p>Fixes:</p><ol><li>Resize tiles so the grid is close to a multiple of 108 (e.g., 216 blocks).</li><li>Make blocks smaller so 2 fit per SM and the last wave is a smaller fraction.</li><li>Use a persistent-kernel / stream-K scheme where 108 blocks loop over work units so the tail is split finely.</li><li>Run another kernel concurrently to fill idle SMs.</li></ol>`
       },
       {
         q: `<p>A100 already had <code>cp.async</code> for asynchronous global-to-shared copies and <code>mma.sync</code> for tensor cores. What limits did that leave that TMA and <code>wgmma</code> remove?</p>`,
@@ -721,11 +721,11 @@ ${procSvg(760, 246, 620, "A Blackwell SM: four sub-partitions, each with a sched
     guided: [
       {
         q: `<p>An H200 has 141 GB of HBM3E at 4.8 TB/s. Estimate the batch-1 decode ceiling in tokens per second for a 70-billion-parameter model with FP8 weights, and say why FP16 weights are impractical on one H200.</p>`,
-        a: `<ol start="0"><li>FP8 weights: 70 × 10<sup>9</sup> × 1 B = 70 GB, read once per token.</li><li>Ceiling: 4.8 × 10<sup>12</sup> / 70 × 10<sup>9</sup> ≈ <strong>69 tokens per second</strong> (ignoring KV-cache reads, which lower it).</li><li>FP16 weights are 140 GB: they nearly fill the 141 GB, leaving no room for the KV cache or activations, so the model needs two GPUs (and would run at about half the per-GPU token rate anyway).</li></ol>`
+        a: `<ol><li>FP8 weights: 70 × 10<sup>9</sup> × 1 B = 70 GB, read once per token.</li><li>Ceiling: 4.8 × 10<sup>12</sup> / 70 × 10<sup>9</sup> ≈ <strong>69 tokens per second</strong> (ignoring KV-cache reads, which lower it).</li><li>FP16 weights are 140 GB: they nearly fill the 141 GB, leaving no room for the KV cache or activations, so the model needs two GPUs (and would run at about half the per-GPU token rate anyway).</li></ol>`
       },
       {
         q: `<p>AMD's MI300X has 8 compute dies (XCDs) with 38 active CUs each, a private 4 MB L2 per XCD, a 256 MB Infinity Cache shared by all, and 5.3 TB/s of HBM3. A kernel repeatedly reads a 10 MB lookup table from all CUs. Where does the table live in the hierarchy, and how much L2 capacity does it effectively use?</p>`,
-        a: `<ol start="0"><li>Each XCD's L2 caches only that XCD's accesses, so the table competes for space in all 8 L2s separately; 10 MB doesn't fit in any 4 MB L2.</li><li>Effective: each XCD keeps at most part of the table, and the same lines are duplicated across XCDs, so total L2 holds at most 4 MB of distinct table data per XCD, the same 4 MB eight times over.</li><li>Most reads therefore hit the 256 MB Infinity Cache, which holds one copy for everyone. Shrinking the table below 4 MB (compression, a narrower type) would move hits into L2.</li></ol>`
+        a: `<ol><li>Each XCD's L2 caches only that XCD's accesses, so the table competes for space in all 8 L2s separately; 10 MB doesn't fit in any 4 MB L2.</li><li>Effective: each XCD keeps at most part of the table, and the same lines are duplicated across XCDs, so total L2 holds at most 4 MB of distinct table data per XCD, the same 4 MB eight times over.</li><li>Most reads therefore hit the 256 MB Infinity Cache, which holds one copy for everyone. Shrinking the table below 4 MB (compression, a narrower type) would move hits into L2.</li></ol>`
       }
     ],
     interview: [
@@ -823,7 +823,7 @@ ${procSvg(760, 246, 620, "A Blackwell SM: four sub-partitions, each with a sched
     guided: [
       {
         q: `<p>An Intel Xeon 6980P (Granite Rapids) has 128 cores at a 2.0 GHz base clock, two 512-bit FMA units per core, and 12 memory channels. Compute its FP64 machine balance with DDR5-6400 and with MRDIMM-8800.</p>`,
-        a: `<ol start="0"><li>FLOPs per cycle per core: 2 × 8 FP64 lanes × 2 = 32.</li><li>Peak: 128 × 32 × 2.0 × 10<sup>9</sup> ≈ 8.19 TFLOPS.</li><li>DDR5-6400: 12 × 8 B × 6400 × 10<sup>6</sup> = 614.4 GB/s, balance ≈ 8,192 / 614.4 ≈ <strong>13.3 FLOPs per byte</strong>.</li><li>MRDIMM-8800: 12 × 8 B × 8800 × 10<sup>6</sup> = 844.8 GB/s, balance ≈ <strong>9.7</strong>.</li></ol>`
+        a: `<ol><li>FLOPs per cycle per core: 2 × 8 FP64 lanes × 2 = 32.</li><li>Peak: 128 × 32 × 2.0 × 10<sup>9</sup> ≈ 8.19 TFLOPS.</li><li>DDR5-6400: 12 × 8 B × 6400 × 10<sup>6</sup> = 614.4 GB/s, balance ≈ 8,192 / 614.4 ≈ <strong>13.3 FLOPs per byte</strong>.</li><li>MRDIMM-8800: 12 × 8 B × 8800 × 10<sup>6</sup> = 844.8 GB/s, balance ≈ <strong>9.7</strong>.</li></ol>`
       }
     ],
     interview: [

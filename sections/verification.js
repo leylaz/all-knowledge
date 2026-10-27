@@ -12,7 +12,7 @@ section({
     guided: [
       {
         q: `<p>Put these verification activities in the order a CPU project can first start them, and say what each one needs to exist first:</p><ul><li>(a) Lockstep comparison of the core against the ISA reference model</li><li>(b) Formal proofs on the load/store queue's ordering logic</li><li>(c) Booting Linux on an emulator</li><li>(d) Post-silicon validation</li></ul>`,
-        a: `<ol start="0"><li><strong>(b) Formal on a block:</strong> needs only that block's RTL and its properties, so it can start as soon as the block compiles.</li><li><strong>(a) Lockstep against the reference model:</strong> needs a core that fetches, executes, and retires instructions end to end, plus the reference model.</li><li><strong>(c) Linux on an emulator:</strong> needs the full SoC (core, caches, interconnect, devices) to be stable enough that an OS boot gets somewhere, plus firmware.</li><li><strong>(d) Post-silicon:</strong> needs real chips back from the fab, months after tapeout.</li></ol><p>Each later method costs more per bug found and gives less visibility, which is why the early ones are pushed as hard as possible.</p>`
+        a: `<ol><li><strong>(b) Formal on a block:</strong> needs only that block's RTL and its properties, so it can start as soon as the block compiles.</li><li><strong>(a) Lockstep against the reference model:</strong> needs a core that fetches, executes, and retires instructions end to end, plus the reference model.</li><li><strong>(c) Linux on an emulator:</strong> needs the full SoC (core, caches, interconnect, devices) to be stable enough that an OS boot gets somewhere, plus firmware.</li><li><strong>(d) Post-silicon:</strong> needs real chips back from the fab, months after tapeout.</li></ol><p>Each later method costs more per bug found and gives less visibility, which is why the early ones are pushed as hard as possible.</p>`
       }
     ],
     interview: [
@@ -49,7 +49,7 @@ section({
 
 <h3 id="sec-what-to-test">Deciding What to Test, and How AI Changes It</h3>
 <p><strong>The traditional approach</strong> starts with a <strong>verification plan</strong>, written by hand from the specification:</p>
-<ol start="0">
+<ol>
 <li><strong>Extract features.</strong> Engineers read the spec and microarchitecture documents and list every feature and rule. For a FIFO, that includes ordering, full and empty flags, simultaneous push and pop, and behavior on reset.</li>
 <li><strong>Turn each feature into checks and coverage.</strong> For each item they decide how correctness will be checked (scoreboard, assertion, or reference-model comparison) and which coverage points prove it was exercised, including crosses such as “full while a push and pop happen together.”</li>
 <li><strong>Prioritize by risk.</strong> New or changed logic, complex control (arbiters, coherence, memory ordering), concurrency, error paths, and areas with past bugs get the most attention.</li>
@@ -91,7 +91,7 @@ section({
     guided: [
       {
         q: `<p>A block has a 4-requester round-robin arbiter with an AXI4 port to the rest of the SoC. Pick the main tool for each goal:</p><ul><li>(a) Prove the grant vector is one-hot or zero for every possible input sequence</li><li>(b) Check the AXI4 port follows the protocol under realistic traffic</li><li>(c) Run the real boot firmware through the block</li><li>(d) Show that every requester was granted while the AXI port was back-pressured</li></ul>`,
-        a: `<ol start="0"><li>(a) <strong>Formal tool</strong> with an assertion: the property is small and control-heavy, and "every possible input" is exactly what formal proves and simulation can't.</li><li>(b) <strong>AXI verification IP</strong>: it generates legal traffic and checks the block's side of the protocol.</li><li>(c) <strong>Emulation</strong> (or an FPGA prototype): firmware runs billions of cycles, far too slow for RTL simulation.</li><li>(d) <strong>Functional coverage</strong>: a cross of "which requester was granted" with "AXI READY low," collected across the regression.</li></ol>`
+        a: `<ol><li>(a) <strong>Formal tool</strong> with an assertion: the property is small and control-heavy, and "every possible input" is exactly what formal proves and simulation can't.</li><li>(b) <strong>AXI verification IP</strong>: it generates legal traffic and checks the block's side of the protocol.</li><li>(c) <strong>Emulation</strong> (or an FPGA prototype): firmware runs billions of cycles, far too slow for RTL simulation.</li><li>(d) <strong>Functional coverage</strong>: a cross of "which requester was granted" with "AXI READY low," collected across the regression.</li></ol>`
       }
     ],
     interview: [
@@ -231,7 +231,7 @@ assert property (@(posedge clk) disable iff (!rst_n)
     guided: [
       {
         q: `<p>You're building a UVM testbench for an AXI4-Lite register block. Say which UVM component does each job:</p><ul><li>(a) Choose random write addresses within the register map</li><li>(b) Raise AWVALID and hold it until AWREADY</li><li>(c) Rebuild "write 0x5 to offset 0x10" from pin activity</li><li>(d) Check that a read returns the last value written</li><li>(e) Record whether every register was written while BREADY was held low</li></ul>`,
-        a: `<ol start="0"><li>(a) <strong>Sequence</strong>, randomizing sequence items within constraints. It says what to do, not when.</li><li>(b) <strong>Driver</strong>: the only component that knows the handshake timing.</li><li>(c) <strong>Monitor</strong>: it watches pins and publishes transactions on an analysis port.</li><li>(d) <strong>Scoreboard</strong>, holding a register-map model that the monitor's write transactions update.</li><li>(e) <strong>Coverage collector</strong>: a covergroup crossing register offset with "BREADY was low."</li></ol>`
+        a: `<ol><li>(a) <strong>Sequence</strong>, randomizing sequence items within constraints. It says what to do, not when.</li><li>(b) <strong>Driver</strong>: the only component that knows the handshake timing.</li><li>(c) <strong>Monitor</strong>: it watches pins and publishes transactions on an analysis port.</li><li>(d) <strong>Scoreboard</strong>, holding a register-map model that the monitor's write transactions update.</li><li>(e) <strong>Coverage collector</strong>: a covergroup crossing register offset with "BREADY was low."</li></ol>`
       }
     ],
     interview: [
@@ -253,9 +253,9 @@ assert property (@(posedge clk) disable iff (!rst_n)
 
 <h3 id="sec-ref-compare">Comparing RTL Against the Reference Model</h3>
 <p>For ISA-level checking, the RTL is compared against a <strong>reference model</strong>: a functional ISA simulator that executes one instruction at a time and updates registers, memory, and the PC exactly as the ISA defines, with no timing, pipeline, or caches (see <a href="#/eda-arch/models">Functional vs. cycle-level models</a>). It may be an open-source simulator (such as Spike for RISC-V), a commercial one, or a company's own “golden model.” It's usually built early, but by a different team than the RTL and separately from the performance model, so the two implementations are independent.</p>
-<p><strong>Step 0: capture what the RTL retires.</strong> A monitor in the testbench (not in the chip) watches the core's commit stage. Each time an instruction retires, it records the PC and instruction, the destination register and value written, any store's address and data, and any exception or interrupt taken. Some ISAs standardize this interface, such as the RISC-V Formal Interface (RVFI). A trace entry might look like:</p>
+<p><strong>Step 1: capture what the RTL retires.</strong> A monitor in the testbench (not in the chip) watches the core's commit stage. Each time an instruction retires, it records the PC and instruction, the destination register and value written, any store's address and data, and any exception or interrupt taken. Some ISAs standardize this interface, such as the RISC-V Formal Interface (RVFI). A trace entry might look like:</p>
 <pre><code>PC 0x80000010  add x5, x6, x7   x5 = 0x2a</code></pre>
-<p><strong>Step 1: compare against the reference model,</strong> in one of two ways:</p>
+<p><strong>Step 2: compare against the reference model,</strong> in one of two ways:</p>
 <ul>
 <li><strong>After the run:</strong> the RTL writes its retirement trace to a log file, the reference model runs the same program and writes its own log, and a script compares them line by line. It's simple, and the first differing line pinpoints the instruction where they diverged. The drawbacks: logs get huge, the simulation keeps running long past the error (wasting time and piling up side effects), and debugging usually means rerunning the test with waveforms recorded around that point. Random-instruction flows such as riscv-dv work this way.</li>
 <li><strong>Live (“lockstep” or “step and compare”):</strong> the reference model runs inside the simulation, linked to the testbench. Each time the RTL retires an instruction, the testbench tells the model to execute exactly one instruction and compares the results immediately. The first mismatch stops the simulation at that exact instruction and cycle, with the waveforms still at hand. A superscalar core that retires several instructions in a cycle steps the model several times.</li>
@@ -412,7 +412,7 @@ module core_tb;
   end
 endmodule</code></pre>
 <p><strong>What the testbench does:</strong></p>
-<ol start="0">
+<ol>
 <li><strong>Connects the C code.</strong> <code>import "DPI-C"</code> lets SystemVerilog call the C functions as if they were its own. The C file is compiled and linked into the simulator, so the model runs in the same process on the host machine.</li>
 <li><strong>Gives both the same starting state.</strong> It resets both, then loads the same random values into registers 1 to 31 of each.</li>
 <li><strong>Runs each ADD on both.</strong> For each of 1,000 random ADDs, it presents the instruction to the RTL and calls <code>ref_step()</code> on the C model. The RTL executes at the next rising edge; the C model executes immediately.</li>
@@ -435,7 +435,7 @@ endmodule</code></pre>
     guided: [
       {
         q: `<p>A 4-wide core runs in lockstep with a reference model. It retires 3 instructions in cycle 0, none in cycle 1, and 4 in cycle 2. Numbering retired instructions from 0, how many times is the model stepped in each cycle, and if the second instruction retired in cycle 2 mismatches, which instruction does the report name?</p>`,
-        a: `<ol start="0"><li>The model is stepped once per retired instruction: 3 times in cycle 0, 0 in cycle 1, 4 in cycle 2.</li><li>Cycle 0 retires instructions 0, 1, and 2. Cycle 2 retires 3, 4, 5, and 6.</li><li>The second one in cycle 2 is <strong>instruction 4</strong>. The simulation stops there, with cycle 2 as the time to open the waveform at; instructions 5 and 6 are never compared.</li></ol>`
+        a: `<ol><li>The model is stepped once per retired instruction: 3 times in cycle 0, 0 in cycle 1, 4 in cycle 2.</li><li>Cycle 0 retires instructions 0, 1, and 2. Cycle 2 retires 3, 4, 5, and 6.</li><li>The second one in cycle 2 is <strong>instruction 4</strong>. The simulation stops there, with cycle 2 as the time to open the waveform at; instructions 5 and 6 are never compared.</li></ol>`
       }
     ],
     interview: [
@@ -472,7 +472,7 @@ endmodule</code></pre>
 endgroup</code></pre>
 <p>This asks whether every load size has been seen with every forwarding outcome, including an 8-byte load that partially overlaps an older store. Assertions can also carry <em>cover properties</em> that count how often a sequence of events (such as “store address resolves after a younger load already ran”) actually happened.</p>
 <p><strong>How coverage is used</strong> (coverage-driven verification):</p>
-<ol start="0">
+<ol>
 <li><strong>Plan:</strong> the verification plan lists features from the spec, and each gets coverage points.</li>
 <li><strong>Run:</strong> random regressions run with many seeds, and coverage from every run is merged into one database.</li>
 <li><strong>Find holes:</strong> reports show which bins were never hit.</li>
@@ -509,7 +509,7 @@ endgroup</code></pre>
     guided: [
       {
         q: `<p>An ALU covergroup has <code>cp_op</code> with 5 bins (ADD, SUB, AND, OR, XOR), <code>cp_carry</code> with 2 bins (carry out 0 or 1), and their cross (10 bins). After the regression, every op and both carry values were hit, but the cross bins (AND, 1), (OR, 1), and (XOR, 1) never were. What's the covergroup coverage, and what should the team do?</p>`,
-        a: `<ol start="0"><li>cp_op: 5 of 5 = 100%. cp_carry: 2 of 2 = 100%. Cross: 7 of 10 = 70%.</li><li>Covergroup: (100 + 100 + 70) / 3 = <strong>90%</strong>.</li><li>The three missing bins can't happen: logic ops never produce a carry out. They aren't test holes, so more random runs won't help.</li><li>Mark them as <code>ignore_bins</code> with a written reason. The cross becomes 7 of 7, and the covergroup reaches <strong>100%</strong>.</li></ol>`
+        a: `<ol><li>cp_op: 5 of 5 = 100%. cp_carry: 2 of 2 = 100%. Cross: 7 of 10 = 70%.</li><li>Covergroup: (100 + 100 + 70) / 3 = <strong>90%</strong>.</li><li>The three missing bins can't happen: logic ops never produce a carry out. They aren't test holes, so more random runs won't help.</li><li>Mark them as <code>ignore_bins</code> with a written reason. The cross becomes 7 of 7, and the covergroup reaches <strong>100%</strong>.</li></ol>`
       }
     ],
     interview: [
@@ -562,8 +562,8 @@ hit       ____________|‾‾‾‾‾|_______</code></pre>
 <p><strong>Why they're expensive.</strong> Recording every signal on every cycle of a long simulation produces enormous files (in formats such as VCD or FSDB) and slows the simulation down. So teams record only selected signals or a time window, or run without recording and then rerun the failing seed with waveforms turned on around the failure. That's one reason live comparison is easier to debug than comparing logs after the run: it stops right at the first mismatch, so the window that matters is easy to capture.</p>
 
 <h3 id="sec-debug-flow">When a Mismatch Is Found: The Debug Flow</h3>
-<p><strong>0. Reproduce it.</strong> Random tests are driven by a seed, so rerunning with the same seed replays the exact same test. The engineer reruns the failing test, this time recording waveforms around the failure (see <a href="#/verif-debug/waveforms">Waveforms</a> above).</p>
-<p><strong>1. Triage: who's wrong?</strong> A mismatch has three possible causes, and the engineer checks the ISA or microarchitecture specification to decide:</p>
+<p><strong>1. Reproduce it.</strong> Random tests are driven by a seed, so rerunning with the same seed replays the exact same test. The engineer reruns the failing test, this time recording waveforms around the failure (see <a href="#/verif-debug/waveforms">Waveforms</a> above).</p>
+<p><strong>2. Triage: who's wrong?</strong> A mismatch has three possible causes, and the engineer checks the ISA or microarchitecture specification to decide:</p>
 <ul>
 <li><strong>The RTL is wrong:</strong> a real design bug.</li>
 <li><strong>The reference model is wrong:</strong> it misimplements the spec.</li>
@@ -591,13 +591,13 @@ hit       ____________|‾‾‾‾‾|_______</code></pre>
     guided: [
       {
         q: `<p>A nightly regression has 20,000 runs averaging 45 minutes each, on a farm with 2,000 simulator licenses. How long does it take? The team then turns on coverage collection, which slows simulation by 30%. Does it still finish within a 10-hour night?</p>`,
-        a: `<ol start="0"><li>Total work: 20,000 × 45 = 900,000 license-minutes.</li><li>Spread over 2,000 licenses: 900,000 / 2,000 = 450 minutes = <strong>7.5 hours</strong>.</li><li>With coverage: 7.5 × 1.3 = <strong>9.75 hours</strong>. It fits, but only barely, and the longest single tests or a busy farm will push it over. Options: collect coverage on a graded subset each night and on everything weekly.</li></ol>`
+        a: `<ol><li>Total work: 20,000 × 45 = 900,000 license-minutes.</li><li>Spread over 2,000 licenses: 900,000 / 2,000 = 450 minutes = <strong>7.5 hours</strong>.</li><li>With coverage: 7.5 × 1.3 = <strong>9.75 hours</strong>. It fits, but only barely, and the longest single tests or a busy farm will push it over. Options: collect coverage on a graded subset each night and on everything weekly.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>The nightly regression goes from 0 to 37 failures, all on different seeds, after a day with 6 RTL commits and 1 reference-model commit. How do you triage efficiently?</p>`,
-        a: `<ol start="0"><li><strong>Cluster by signature:</strong> group failures by the first error (mismatch type, PC or instruction class, assertion name). 37 failures are often 1 to 3 bugs.</li><li><strong>Pick the shortest failing seed</strong> in each cluster, so reruns are fast.</li><li><strong>Bisect the commits:</strong> rerun that seed at points in the 7 commits; a binary search needs at most 3 reruns.</li><li><strong>Check the model commit first</strong> if the failures are mismatches in the area it touched: a model bug fails tests the same way an RTL bug does.</li><li>Rerun the guilty seed with waveforms, find the root cause, and file one bug per cluster, not 37.</li></ol>`
+        a: `<ol><li><strong>Cluster by signature:</strong> group failures by the first error (mismatch type, PC or instruction class, assertion name). 37 failures are often 1 to 3 bugs.</li><li><strong>Pick the shortest failing seed</strong> in each cluster, so reruns are fast.</li><li><strong>Bisect the commits:</strong> rerun that seed at points in the 7 commits; a binary search needs at most 3 reruns.</li><li><strong>Check the model commit first</strong> if the failures are mismatches in the area it touched: a model bug fails tests the same way an RTL bug does.</li><li>Rerun the guilty seed with waveforms, find the root cause, and file one bug per cluster, not 37.</li></ol>`
       }
     ]
   }

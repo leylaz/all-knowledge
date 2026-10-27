@@ -286,7 +286,7 @@ function initChipZoom() {
 
 /* ---------- The semiconductor industry stack (bottom of the home page) ----------
    Eight layers from TestFlow's "8 Layers of the Semiconductor Industry",
-   numbered from 0 here (the article counts 1-8). Top of the stack first.
+   numbered 1-8 as in the article. Top of the stack first.
    [kind, name, description, companies, 2024 market size, main link, extra links]
    kind: sys | mfg | design. A null main link means no notes yet: the layer
    shows but isn't clickable. Links whose target doesn't exist are dropped. */
@@ -315,7 +315,7 @@ function stackHTML() {
     <p class="stack-cap">Eight layers, from the sand to the finished product. Click a layer to open the related notes.</p>
     <ol class="stack" style="--n:${top}">${layers.map(([kind, name, desc, cos, size, href, more], i) => `
       <li class="layer ${kind}${href ? "" : " nolink"}" style="--d:${i}">
-        <span class="lvl" aria-hidden="true">${top - i}</span>
+        <span class="lvl" aria-hidden="true">${top - i + 1}</span>
         <div class="lyr-main">${href ? `<a class="lyr-name" href="#/${href}">${name}</a>` : `<span class="lyr-name">${name}</span>`}<span class="lyr-cap">${desc}</span>
           <span class="lyr-cos">${cos}</span></div>
         <div class="lyr-side"><span class="lyr-size" title="2024 market size">${size}</span>

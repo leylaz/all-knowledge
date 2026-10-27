@@ -12,7 +12,7 @@ section({
     guided: [
       {
         q: `<p>A design runs at 1.0 V and 3 GHz. You lower voltage to 0.9 V, which forces frequency down to 2.7 GHz. Estimate the change in dynamic power and in dynamic energy per task.</p>`,
-        a: `<ol start="0"><li>Dynamic power ∝ V² f: (0.9)² × (2.7 / 3.0) = 0.81 × 0.9 = <strong>0.73×</strong>.</li><li>Energy per task ∝ V² (the task needs the same number of switching events): <strong>0.81×</strong>.</li><li>The task takes 1 / 0.9 ≈ 1.11× longer.</li></ol>`
+        a: `<ol><li>Dynamic power ∝ V² f: (0.9)² × (2.7 / 3.0) = 0.81 × 0.9 = <strong>0.73×</strong>.</li><li>Energy per task ∝ V² (the task needs the same number of switching events): <strong>0.81×</strong>.</li><li>The task takes 1 / 0.9 ≈ 1.11× longer.</li></ol>`
       }
     ],
     interview: [
@@ -76,11 +76,11 @@ section({
     guided: [
       {
         q: `<p>A core has 10 nF of switchable capacitance with an average activity factor of 0.15, running at 0.8 V and 3 GHz. What's its dynamic power? If DVFS drops it to 0.7 V and 2.6 GHz, what are the new power and energy per task (dynamic only)?</p>`,
-        a: `<ol start="0"><li>P = α C V² f = 0.15 × 10 nF × 0.64 × 3 × 10<sup>9</sup> = <strong>2.88 W</strong>.</li><li>New power ratio: (0.7 / 0.8)² × (2.6 / 3.0) ≈ 0.66, so about <strong>1.91 W</strong>.</li><li>Energy per task ratio = (0.7 / 0.8)² ≈ <strong>0.77</strong>; the task takes 3.0 / 2.6 ≈ 1.15× longer.</li></ol>`
+        a: `<ol><li>P = α C V² f = 0.15 × 10 nF × 0.64 × 3 × 10<sup>9</sup> = <strong>2.88 W</strong>.</li><li>New power ratio: (0.7 / 0.8)² × (2.6 / 3.0) ≈ 0.66, so about <strong>1.91 W</strong>.</li><li>Energy per task ratio = (0.7 / 0.8)² ≈ <strong>0.77</strong>; the task takes 3.0 / 2.6 ≈ 1.15× longer.</li></ol>`
       },
       {
         q: `<p>A block's leakage is 100 mW. To close timing, 8% of its cells are swapped to a low-V<sub>th</sub> flavor that leaks 6× more. What's the new leakage? If leakage then doubles because the chip runs hotter, what is it?</p>`,
-        a: `<ol start="0"><li>New leakage factor: 0.92 + 0.08 × 6 = 0.92 + 0.48 = 1.40, so <strong>140 mW</strong> (+40%).</li><li>Doubled by temperature: <strong>280 mW</strong>. This is why leakage is checked at the hot corner, and why designers limit the share of leaky cells.</li></ol>`
+        a: `<ol><li>New leakage factor: 0.92 + 0.08 × 6 = 0.92 + 0.48 = 1.40, so <strong>140 mW</strong> (+40%).</li><li>Doubled by temperature: <strong>280 mW</strong>. This is why leakage is checked at the hot corner, and why designers limit the share of leaky cells.</li></ol>`
       }
     ],
     interview: [
@@ -119,7 +119,7 @@ section({
     guided: [
       {
         q: `<p>A pipeline stage has clock-to-Q 30 ps, worst-case logic 250 ps, setup 20 ps, adverse skew 15 ps, and jitter 10 ps. What's the maximum frequency? With hold time 25 ps and minimum logic delay 20 ps, does hold pass?</p>`,
-        a: `<ol start="0"><li>Minimum period = 30 + 250 + 20 + 15 + 10 = <strong>325 ps</strong>, so f<sub>max</sub> ≈ <strong>3.08 GHz</strong>.</li><li>Hold check: t<sub>clk-q</sub> + t<sub>logic,min</sub> ≥ t<sub>hold</sub> + skew → 30 + 20 = 50 ≥ 25 + 15 = 40. <strong>Passes</strong> with 10 ps of margin.</li></ol>`
+        a: `<ol><li>Minimum period = 30 + 250 + 20 + 15 + 10 = <strong>325 ps</strong>, so f<sub>max</sub> ≈ <strong>3.08 GHz</strong>.</li><li>Hold check: t<sub>clk-q</sub> + t<sub>logic,min</sub> ≥ t<sub>hold</sub> + skew → 30 + 20 = 50 ≥ 25 + 15 = 40. <strong>Passes</strong> with 10 ps of margin.</li></ol>`
       }
     ],
     interview: [
@@ -197,7 +197,7 @@ section({
 <text x="572" y="232" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-weight:600">skew + jitter</text>
 <text x="370" y="268" text-anchor="middle" style="fill:var(--muted);font-size:11px">one clock period: every segment above must fit inside it</text>
 </svg></div>
-<p>Reading the diagram left to right:</p><ol start="0"><li>The launch edge arrives</li><li>After clock-to-Q, FF1's output changes</li><li>The new value ripples through the logic</li><li>It must reach FF2's input a setup time before the capture edge</li><li>That edge itself might arrive early by the skew and jitter margin (the grey band)</li></ol>
+<p>Reading the diagram left to right:</p><ol><li>The launch edge arrives</li><li>After clock-to-Q, FF1's output changes</li><li>The new value ripples through the logic</li><li>It must reach FF2's input a setup time before the capture edge</li><li>That edge itself might arrive early by the skew and jitter margin (the grey band)</li></ol>
 <h3>Setup Time</h3>
 <p>Inside the capturing flip-flop, the input must be stable for a short window <em>before</em> the clock edge so its internal latch can settle on a clean 0 or 1. That window is the <strong>setup time</strong>. If data changes inside it, the flip-flop may capture the wrong value or go metastable (hover between 0 and 1 for an unpredictable time). So the logic must finish early by at least the setup time.</p>
 <p>Its counterpart, <strong>hold time</strong>, is how long the input must stay stable <em>after</em> the edge. Hold failures happen on very short paths, where new data arrives too soon.</p>
@@ -222,7 +222,7 @@ section({
     guided: [
       {
         q: `<p>A path has clock-to-Q 25 ps, logic delay 280 ps, setup 20 ps, skew 10 ps, and jitter 10 ps. The target is 3 GHz. Does it meet timing? If not, by how much, and what are your options?</p>`,
-        a: `<ol start="0"><li>Clock period at 3 GHz = 1 / 3 GHz ≈ <strong>333 ps</strong>.</li><li>Required time = 25 + 280 + 20 + 10 + 10 = <strong>345 ps</strong>.</li><li>Slack = 333 − 345 = <strong>−12 ps</strong>: a setup violation.</li><li>Options: speed up the logic by about 12 ps (bigger or low-threshold gates, restructured logic), move some logic into a neighboring stage with slack (retiming), tighten skew, raise voltage, or run at the frequency the path allows: 1 / 345 ps ≈ 2.9 GHz.</li></ol>`
+        a: `<ol><li>Clock period at 3 GHz = 1 / 3 GHz ≈ <strong>333 ps</strong>.</li><li>Required time = 25 + 280 + 20 + 10 + 10 = <strong>345 ps</strong>.</li><li>Slack = 333 − 345 = <strong>−12 ps</strong>: a setup violation.</li><li>Options: speed up the logic by about 12 ps (bigger or low-threshold gates, restructured logic), move some logic into a neighboring stage with slack (retiming), tighten skew, raise voltage, or run at the frequency the path allows: 1 / 345 ps ≈ 2.9 GHz.</li></ol>`
       }
     ],
     interview: [

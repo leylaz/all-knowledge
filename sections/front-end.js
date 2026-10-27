@@ -121,7 +121,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
     guided: [
       {
         q: `<p>A 6-wide core runs at a base CPI of 0.25 (IPC 4). Its workload executes one branch every 5 instructions, the predictor mispredicts 2.5% of branches, and each mispredict costs 17 cycles. What is the CPI with mispredicts, and what share of time do they take?</p>`,
-        a: `<ol start="0"><li>Branches per instruction: 1 / 5 = 0.2.</li><li>Mispredicts per instruction: 0.2 × 0.025 = 0.005, which is 5 MPKI.</li><li>Added CPI: 0.005 × 17 = 0.085.</li><li>CPI = 0.25 + 0.085 = <strong>0.335</strong> (IPC about 3.0).</li><li>Share of time: 0.085 / 0.335 ≈ <strong>25%</strong>, from mispredicting one branch in forty.</li></ol>`
+        a: `<ol><li>Branches per instruction: 1 / 5 = 0.2.</li><li>Mispredicts per instruction: 0.2 × 0.025 = 0.005, which is 5 MPKI.</li><li>Added CPI: 0.005 × 17 = 0.085.</li><li>CPI = 0.25 + 0.085 = <strong>0.335</strong> (IPC about 3.0).</li><li>Share of time: 0.085 / 0.335 ≈ <strong>25%</strong>, from mispredicting one branch in forty.</li></ol>`
       }
     ],
     interview: [
@@ -290,7 +290,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 
 <h3 id="sec-fdip">Fetch-Directed Instruction Prefetching</h3>
 <p>Since the FTQ holds addresses the core will fetch soon, it doubles as a list of instruction cache lines to prefetch. <strong>Fetch-directed instruction prefetching (FDIP)</strong>, proposed in the same 1999 paper, works in three steps:</p>
-<ol start="0">
+<ol>
 <li><strong>Enqueue.</strong> Each FTQ entry names the cache lines its fetch block covers (one, or two if the block crosses a line boundary).</li>
 <li><strong>Filter.</strong> A prefetch engine walks the FTQ ahead of fetch and probes the instruction cache tags for each line, using tag-port cycles that fetch isn't using. Lines already present or already in flight are dropped. Without this filter, most prefetches would be for lines that hit anyway.</li>
 <li><strong>Issue.</strong> The remaining lines go to the L2 as prefetch requests, and their fills land in the instruction cache (or in a small prefetch buffer beside it, as in the original paper) before fetch gets there.</li>
@@ -303,7 +303,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <p>The denominator is an average over the blocks ahead of the line, not a fixed rate. A block longer than one fetch window holds the FTQ head for several cycles (see <a href="#/fe-decoupled/groups">Fetch Blocks and Fetch Groups</a>), and short taken blocks are capped at one per cycle on most cores, or two on Zen 5 (see <a href="#/fe-decoupled/blocks">Fetch Blocks and Taken Branches</a>). While fetch waits on an instruction cache miss, or on a decode queue backed up by a stalled backend, it consumes nothing, and the predictor keeps filling the FTQ. Those stalls are when the lead grows.</p>
 <p>A line is fully hidden when the lead is at least its miss latency. Otherwise, latency − lead cycles are still exposed. The FTQ depth caps the lead, so hiding L2 hits needs a modest queue, while hiding LLC hits, several times slower, needs a much deeper one. But the queue only helps if the predictor actually stays on the right path long enough to fill it.</p>
 <p><strong>What a BTB miss does to the lead.</strong> The predictor can only follow taken branches it knows about. When a taken branch misses in the BTB:</p>
-<ol start="0">
+<ol>
 <li>The predictor doesn't see the branch and continues sequentially. Every FTQ entry after that point is on the wrong path, and so is every prefetch FDIP issues from them. Those prefetches waste L2 bandwidth and can evict useful lines.</li>
 <li>Fetch reaches the block holding the branch, which is still on the correct path, and decode finds it. A direct jump, call, or return redirects at decode. A conditional branch that decode doesn't redirect, or an indirect branch, waits until it executes and mispredicts (see <a href="#/fe-targets/misses">BTB Misses and Decode Redirects</a>).</li>
 <li>The redirect flushes the FTQ and the predictor restarts at the target with an empty queue, so the lead is 0. If the target line isn't in the instruction cache, it misses with its full latency exposed, right behind the redirect bubble.</li>
@@ -334,7 +334,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 
 <h3 id="sec-overriding">Fast and Slow Predictors</h3>
 <p>The most accurate predictors (TAGE and its relatives) need several cycles to read their tables and combine results. Waiting for them every cycle would add bubbles to every taken branch. Cores pair them instead:</p>
-<ol start="0">
+<ol>
 <li>A small, single-cycle predictor (a micro-BTB with simple direction bits) makes a prediction immediately, and fetch follows it.</li>
 <li>A cycle or two later, the large predictor finishes. If it agrees, nothing happens. If it disagrees, it <strong>overrides</strong>: the few blocks fetched on the fast prediction are flushed and fetch redirects, costing a short bubble instead of a full mispredict.</li>
 </ol>
@@ -344,11 +344,11 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
     guided: [
       {
         q: `<p>A hot loop is 7 instructions totaling 26 bytes, ending in a taken branch back to the top. The core fetches one aligned 32-byte window per cycle, follows one taken branch per cycle, and has 6-wide decode. A fetch queue sits between fetch and decode, and decode can take instructions from consecutive fetch blocks in the same cycle. The loop starts at an address ending in 0x1C. How many cycles per iteration does fetch need, and what changes if the loop is aligned to 32 bytes?</p>`,
-        a: `<ol start="0"><li>The loop occupies bytes 0x1C to 0x1C + 26 − 1 = 0x35, so it crosses the boundary at 0x20.</li><li>The first window (0x00 to 0x1F) gives 4 bytes of the loop; the second (0x20 to 0x3F) gives the rest and ends at the taken branch.</li><li>Fetch needs <strong>2 cycles per iteration</strong>, so at most 7 / 2 = 3.5 instructions per cycle.</li><li>Aligned to 32 bytes, all 26 bytes fit in one window: <strong>1 cycle per iteration</strong>. Fetch now supplies 7 instructions per cycle, and one taken branch per cycle allows exactly that. Decode, at 6 per cycle, binds: the fetch queue fills and fetch stalls behind it, so throughput rises to <strong>6 instructions per cycle</strong> (7 / 6 ≈ 1.17 cycles per iteration).</li></ol>`
+        a: `<ol><li>The loop occupies bytes 0x1C to 0x1C + 26 − 1 = 0x35, so it crosses the boundary at 0x20.</li><li>The first window (0x00 to 0x1F) gives 4 bytes of the loop; the second (0x20 to 0x3F) gives the rest and ends at the taken branch.</li><li>Fetch needs <strong>2 cycles per iteration</strong>, so at most 7 / 2 = 3.5 instructions per cycle.</li><li>Aligned to 32 bytes, all 26 bytes fit in one window: <strong>1 cycle per iteration</strong>. Fetch now supplies 7 instructions per cycle, and one taken branch per cycle allows exactly that. Decode, at 6 per cycle, binds: the fetch queue fills and fetch stalls behind it, so throughput rises to <strong>6 instructions per cycle</strong> (7 / 6 ≈ 1.17 cycles per iteration).</li></ol>`
       },
       {
         q: `<p>Your model's predictor produces 2 fetch blocks per cycle, fetch consumes 1 per cycle, and the FTQ holds 40 blocks. An instruction cache miss that hits in the L2 takes 15 cycles (Intel Golden Cove's L2 latency). After a redirect, the FTQ starts empty at the target, which is block 0. Ignore fetch stalls. On code that misses the BTB on a taken branch every 50 fetch blocks, what share of blocks can FDIP fully hide an L2 hit for? What if the BTB misses only every 400 blocks? Can FDIP fully hide an LLC hit of 50 cycles?</p>`,
-        a: `<ol start="0"><li>The predictor reaches block k at cycle k / 2, and fetch reaches it at cycle k, so block k's prefetch has a lead of k / 2 cycles.</li><li>FTQ occupancy is (predicted − fetched) = 2t − t = t blocks at cycle t, so it reaches 40 at cycle 40, when fetch is at block 40 and the predictor at block 80. Beyond block 80, the lead stays at 40 cycles.</li><li>Fully hiding 15 cycles needs k / 2 ≥ 15, so k ≥ 30. Blocks 0 to 29 after each redirect are only partly hidden, and block 0 not at all.</li><li>BTB miss every 50 blocks: blocks 30 to 49 are covered, <strong>20 / 50 = 40%</strong>.</li><li>Every 400 blocks: blocks 30 to 399, <strong>370 / 400 ≈ 92%</strong>. A better BTB raised coverage more than any change to the prefetcher could.</li><li>LLC hit: the lead never exceeds 40 cycles, so <strong>no</strong>, never fully. It needs an FTQ of at least 50 blocks, and then k ≥ 100, so the BTB must also go more than 100 blocks between misses.</li></ol>`
+        a: `<ol><li>The predictor reaches block k at cycle k / 2, and fetch reaches it at cycle k, so block k's prefetch has a lead of k / 2 cycles.</li><li>FTQ occupancy is (predicted − fetched) = 2t − t = t blocks at cycle t, so it reaches 40 at cycle 40, when fetch is at block 40 and the predictor at block 80. Beyond block 80, the lead stays at 40 cycles.</li><li>Fully hiding 15 cycles needs k / 2 ≥ 15, so k ≥ 30. Blocks 0 to 29 after each redirect are only partly hidden, and block 0 not at all.</li><li>BTB miss every 50 blocks: blocks 30 to 49 are covered, <strong>20 / 50 = 40%</strong>.</li><li>Every 400 blocks: blocks 30 to 399, <strong>370 / 400 ≈ 92%</strong>. A better BTB raised coverage more than any change to the prefetcher could.</li><li>LLC hit: the lead never exceeds 40 cycles, so <strong>no</strong>, never fully. It needs an FTQ of at least 50 blocks, and then k ≥ 100, so the BTB must also go more than 100 blocks between misses.</li></ol>`
       }
     ],
     interview: [
@@ -428,7 +428,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
     guided: [
       {
         q: `<p>A TAGE predictor has 12 tagged tables with history lengths from 4 to 640 branches, spaced geometrically. Number the tables 0 to 11, so L(i) = L(0) × α<sup>i</sup>. Find α and the 12 lengths, rounded to whole branches.</p>`,
-        a: `<ol start="0"><li>L(11) = L(0) × α<sup>11</sup>, so α = (640 / 4)<sup>1/11</sup> = 160<sup>1/11</sup>.</li><li>ln 160 ≈ 5.075, divided by 11 ≈ 0.461, so α ≈ e<sup>0.461</sup> ≈ <strong>1.586</strong>.</li><li>Lengths: 4, 6, 10, 16, 25, 40, 64, 101, 160, 254, 403, 640.</li><li>Half the tables cover histories up to 40 branches, where most correlation lives; the rest reach far back for the rare branches that need it, at no more storage per table.</li></ol>`
+        a: `<ol><li>L(11) = L(0) × α<sup>11</sup>, so α = (640 / 4)<sup>1/11</sup> = 160<sup>1/11</sup>.</li><li>ln 160 ≈ 5.075, divided by 11 ≈ 0.461, so α ≈ e<sup>0.461</sup> ≈ <strong>1.586</strong>.</li><li>Lengths: 4, 6, 10, 16, 25, 40, 64, 101, 160, 254, 403, 640.</li><li>Half the tables cover histories up to 40 branches, where most correlation lives; the rest reach far back for the rare branches that need it, at no more storage per table.</li></ol>`
       }
     ],
     interview: [
@@ -493,7 +493,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
     guided: [
       {
         q: `<p>A bytecode interpreter dispatches with a <code>switch</code> compiled to one indirect jump. Each bytecode takes about 15 instructions including the dispatch. With last-target prediction, the dispatch jump mispredicts 60% of the time; with a history-based indirect predictor, 10%. The mispredict penalty is 17 cycles, and the interpreter's CPI without dispatch mispredicts is 0.4. What CPI does each add?</p>`,
-        a: `<ol start="0"><li>Dispatches per instruction: 1 / 15 ≈ 0.0667.</li><li>Last-target: 0.0667 × 0.6 × 17 ≈ <strong>0.68 CPI</strong>, more than the 0.4 base CPI itself.</li><li>History-based: 0.0667 × 0.1 × 17 ≈ <strong>0.11 CPI</strong>.</li><li>The history works because the next bytecode is correlated with the previous few, which is exactly what the path history captures. Threaded dispatch (a separate jump at the end of each handler) helps the same way on last-target predictors, by giving each handler its own BTB entry.</li></ol>`
+        a: `<ol><li>Dispatches per instruction: 1 / 15 ≈ 0.0667.</li><li>Last-target: 0.0667 × 0.6 × 17 ≈ <strong>0.68 CPI</strong>, more than the 0.4 base CPI itself.</li><li>History-based: 0.0667 × 0.1 × 17 ≈ <strong>0.11 CPI</strong>.</li><li>The history works because the next bytecode is correlated with the previous few, which is exactly what the path history captures. Threaded dispatch (a separate jump at the end of each handler) helps the same way on last-target predictors, by giving each handler its own BTB entry.</li></ol>`
       }
     ],
     interview: [
@@ -572,7 +572,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
     guided: [
       {
         q: `<p>A hot loop on a Golden Cove-like core has 24 instructions averaging 5 bytes, which become 30 fused-domain µops (Intel's counterpart of macro-ops). Rename is 6 wide. Compare cycles per iteration from the µop cache (8 µops per cycle) and from Intel's legacy decode path (32 bytes fetched and 6 instructions or 6 µops decoded per cycle).</p>`,
-        a: `<ol start="0"><li>µop cache: 30 / 8 = 3.75 cycles.</li><li>Legacy path: fetch 24 × 5 = 120 bytes / 32 = 3.75 → 4 cycles; decoders 24 instructions / 6 = 4 cycles, but they deliver at most 6 µops per cycle, so 30 / 6 = 5 cycles.</li><li>Rename: 30 / 6 = <strong>5 cycles</strong> either way.</li><li>So throughput is the same, 5 cycles per iteration, because rename binds. The µop cache still helps: it saves decode power, avoids prefix and length-decode stalls, and refills faster after a mispredict. It raises throughput only when the legacy path is the narrowest stage.</li></ol>`
+        a: `<ol><li>µop cache: 30 / 8 = 3.75 cycles.</li><li>Legacy path: fetch 24 × 5 = 120 bytes / 32 = 3.75 → 4 cycles; decoders 24 instructions / 6 = 4 cycles, but they deliver at most 6 µops per cycle, so 30 / 6 = 5 cycles.</li><li>Rename: 30 / 6 = <strong>5 cycles</strong> either way.</li><li>So throughput is the same, 5 cycles per iteration, because rename binds. The µop cache still helps: it saves decode power, avoids prefix and length-decode stalls, and refills faster after a mispredict. It raises throughput only when the legacy path is the narrowest stage.</li></ol>`
       }
     ],
     interview: [

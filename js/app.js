@@ -474,7 +474,7 @@ function showResults(term) {
   const hits = searchIndex().filter(c => (c.title + " " + c.label + " " + c.text).toLowerCase().includes(term));
   const MAX = 40;
   box.hidden = false;
-  box.innerHTML = `<h2>${hits.length} match${hits.length === 1 ? "" : "es"}</h2>` + (hits.length ? `<ol start="0">${hits.slice(0, MAX).map(c => `
+  box.innerHTML = `<h2>${hits.length} match${hits.length === 1 ? "" : "es"}</h2>` + (hits.length ? `<ol>${hits.slice(0, MAX).map(c => `
     <li><a href="#/${c.base}${c.sec ? "/" + c.sec : ""}">${c.title}${c.label ? " › " + c.label : ""}</a>
       <p>${c.text.toLowerCase().includes(term) ? snippet(c.text, term) : esc(c.text.slice(0, 140)) + "…"}</p></li>`).join("")}</ol>` : "") +
     (hits.length > MAX ? `<p class="more">Showing the first ${MAX}. Add a word to narrow it down.</p>` : "");

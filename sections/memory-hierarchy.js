@@ -17,7 +17,7 @@ section({
     guided: [
       {
         q: `<p>L1 hit time 4 cycles, L1 miss rate 10%. L2 hit time 14 cycles, L2 local miss rate 30%. Memory latency 200 cycles. What is the AMAT?</p>`,
-        a: `<ol start="0"><li>L2 miss penalty seen from L2: 0.3 × 200 = 60.</li><li>L1 miss penalty: 14 + 60 = 74.</li><li>AMAT = 4 + 0.1 × 74 = <strong>11.4 cycles</strong>.</li></ol>`
+        a: `<ol><li>L2 miss penalty seen from L2: 0.3 × 200 = 60.</li><li>L1 miss penalty: 14 + 60 = 74.</li><li>AMAT = 4 + 0.1 × 74 = <strong>11.4 cycles</strong>.</li></ol>`
       }
     ],
     interview: [
@@ -129,10 +129,10 @@ section({
 <li><strong>A side channel.</strong> Lipp et al. ("Take A Way," 2020) reverse-engineered the hash and used collisions and alias misses (attacks they call Collide+Probe and Load+Reload) to leak address information across processes and SMT siblings.</li>
 </ul>
 <p>How two aliases of one line keep missing. Addresses A and B are different linear addresses mapped to the same physical page, so the line never leaves the cache, yet only one of their utags can be stored:</p>
-<div class="tbl"><svg viewBox="0 0 680 260" role="img" aria-label="Utag alias ping-pong in three steps. Step 0: a load through address A finds the stored utag equal to utag of A, so it hits. Step 1: a load through address B computes utag of B, which doesn't match, so it is treated as a miss, the line is refilled from L2, and the stored utag becomes utag of B. Step 2: a load through A again doesn't match and misses again. A and B map to the same physical line, which stays in the cache the whole time." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<div class="tbl"><svg viewBox="0 0 680 260" role="img" aria-label="Utag alias ping-pong in three steps. Step 1: a load through address A finds the stored utag equal to utag of A, so it hits. Step 2: a load through address B computes utag of B, which doesn't match, so it is treated as a miss, the line is refilled from L2, and the stored utag becomes utag of B. Step 3: a load through A again doesn't match and misses again. A and B map to the same physical line, which stays in the cache the whole time." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
 <defs><marker id="arrDA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
 <g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle">
-<text x="115" y="20">step 0: load via A</text><text x="340" y="20">step 1: load via B</text><text x="565" y="20">step 2: load via A again</text>
+<text x="115" y="20">step 1: load via A</text><text x="340" y="20">step 2: load via B</text><text x="565" y="20">step 3: load via A again</text>
 </g>
 <g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5">
 <rect x="55" y="32" width="120" height="28" rx="3"/><rect x="280" y="32" width="120" height="28" rx="3"/><rect x="505" y="32" width="120" height="28" rx="3"/>
@@ -178,11 +178,11 @@ section({
     guided: [
       {
         q: `<p>A 32 KB, 8-way L1D with 64-byte lines and 48-bit physical addresses. How many sets? How many offset, index, and tag bits?</p>`,
-        a: `<ol start="0"><li>Lines: 32 KB / 64 B = 512. Sets: 512 / 8 = <strong>64</strong>.</li><li>Offset: log2(64) = <strong>6</strong> bits. Index: log2(64) = <strong>6</strong> bits.</li><li>Tag: 48 − 12 = <strong>36</strong> bits.</li><li>Note that index plus offset is 12 bits, exactly a 4 KB page offset. That matters for VIPT caches (next problem).</li></ol>`
+        a: `<ol><li>Lines: 32 KB / 64 B = 512. Sets: 512 / 8 = <strong>64</strong>.</li><li>Offset: log2(64) = <strong>6</strong> bits. Index: log2(64) = <strong>6</strong> bits.</li><li>Tag: 48 − 12 = <strong>36</strong> bits.</li><li>Note that index plus offset is 12 bits, exactly a 4 KB page offset. That matters for VIPT caches (next problem).</li></ol>`
       },
       {
         q: `<p>An out-of-order core has a 32 KB, 8-way L1D. Two designs run at the same clock:</p><ul><li>Parallel read of all 8 ways: every L1D hit takes 5 cycles.</li><li>With a way predictor: a hit takes 4 cycles when the predicted way is right, and 3 cycles more when it's wrong. The predictor is right on 96% of hits.</li></ul><p>Loads are 30% of instructions, and 95% of loads hit in the L1D. Profiling shows that 15% of each cycle of L1D hit latency appears in run time, and the rest is hidden by the window. The parallel-read design runs at a CPI of 0.80. Ignoring replay costs and misses, what is the average hit latency with the predictor, and what speedup does it give?</p>`,
-        a: `<ol start="0"><li>Average hit latency with the predictor: 4 + 0.04 × 3 = <strong>4.12 cycles</strong>.</li><li>Saving per hit: 5 − 4.12 = 0.88 cycles.</li><li>Hits per instruction: 0.30 × 0.95 = 0.285.</li><li>Exposed cycles saved per instruction: 0.285 × 0.88 × 0.15 ≈ 0.0376.</li><li>CPI with the predictor: 0.80 − 0.0376 = 0.7624. Speedup: 0.80 / 0.7624 ≈ <strong>1.049</strong>, about 5%.</li><li>Replays shrink this: the 4% of hits that mispredict also cancel and reissue dependents that were woken for a 4-cycle hit.</li></ol>`
+        a: `<ol><li>Average hit latency with the predictor: 4 + 0.04 × 3 = <strong>4.12 cycles</strong>.</li><li>Saving per hit: 5 − 4.12 = 0.88 cycles.</li><li>Hits per instruction: 0.30 × 0.95 = 0.285.</li><li>Exposed cycles saved per instruction: 0.285 × 0.88 × 0.15 ≈ 0.0376.</li><li>CPI with the predictor: 0.80 − 0.0376 = 0.7624. Speedup: 0.80 / 0.7624 ≈ <strong>1.049</strong>, about 5%.</li><li>Replays shrink this: the 4% of hits that mispredict also cancel and reissue dependents that were woken for a 4-cycle hit.</li></ol>`
       }
     ],
     interview: [
@@ -217,7 +217,7 @@ section({
     guided: [
       {
         q: `<p>A loop iteration takes 20 cycles and touches a new 64-byte line each time. Memory latency is 200 cycles. How far ahead must a stride prefetcher run?</p><p>Separately: 1000 prefetches were issued, 600 were used by demand accesses, baseline misses were 2000, and misses now are 1500. Compute accuracy and coverage.</p>`,
-        a: `<ol start="0"><li>Distance: 200 / 20 = 10 iterations, so 10 lines = <strong>640 bytes ahead</strong>.</li><li>Accuracy = 600 / 1000 = <strong>60%</strong>.</li><li>Coverage = (2000 − 1500) / 2000 = <strong>25%</strong>.</li><li>600 used but only 500 misses eliminated suggests some prefetches were late (or caused extra misses through pollution).</li></ol>`
+        a: `<ol><li>Distance: 200 / 20 = 10 iterations, so 10 lines = <strong>640 bytes ahead</strong>.</li><li>Accuracy = 600 / 1000 = <strong>60%</strong>.</li><li>Coverage = (2000 − 1500) / 2000 = <strong>25%</strong>.</li><li>600 used but only 500 misses eliminated suggests some prefetches were late (or caused extra misses through pollution).</li></ol>`
       }
     ],
     interview: [
@@ -244,7 +244,7 @@ section({
 <p>A second port means a second wordline per row, a second bitline pair per column, and extra access transistors per cell. Cell area grows roughly quadratically with port count (more wires <em>and</em> transistors), and longer wires make the array slower and hungrier.</p>
 <h3>The Address Path</h3>
 <p>The circuitry that turns an address into “activate this row (and column) of cells.” For one port:</p>
-<ol start="0"><li><strong>Address input/latch:</strong> the index bits (after the bank-select bits pick the bank) are captured at the start of the cycle.</li><li><strong>Row decoder:</strong> k index bits become a one-hot signal across 2<sup>k</sup> rows, usually a predecoder plus a final AND stage.</li><li><strong>Wordline driver:</strong> a strong buffer drives the selected wordline across the row, turning on every cell’s access transistors and connecting them to their bitlines.</li><li><strong>Column decoder/mux select:</strong> when a row holds more bits than needed, the remaining address bits route the right columns to the sense amps.</li></ol>
+<ol><li><strong>Address input/latch:</strong> the index bits (after the bank-select bits pick the bank) are captured at the start of the cycle.</li><li><strong>Row decoder:</strong> k index bits become a one-hot signal across 2<sup>k</sup> rows, usually a predecoder plus a final AND stage.</li><li><strong>Wordline driver:</strong> a strong buffer drives the selected wordline across the row, turning on every cell’s access transistors and connecting them to their bitlines.</li><li><strong>Column decoder/mux select:</strong> when a row holds more bits than needed, the remaining address bits route the right columns to the sense amps.</li></ol>
 <p>A second port needs a whole second copy of this, which is where multi-porting’s area cost comes from.</p>
 <h3>Banks Busy for Two Cycles</h3>
 <p>A bank is busy for multiple cycles when its <strong>cycle time</strong> (how often it can start a new access) exceeds one processor clock:</p>
@@ -258,11 +258,11 @@ section({
     guided: [
       {
         q: `<p>An L2 has 4 banks chosen by address bits [7:6]. Do accesses to 0x1000 and 0x1100 in the same cycle conflict? What if the bank is bits[7:6] XOR bits[9:8]?</p>`,
-        a: `<ol start="0"><li>0x1000: bits [7:6] = 00 → bank 0. 0x1100: 0x100 sets only bit 8, so bits [7:6] = 00 → bank 0. <strong>Conflict.</strong> Any 256-byte stride hits the same bank.</li><li>With XOR: 0x1000 has bits [9:8] = 00 → bank 0. 0x1100 has bits [9:8] = 01 → bank 1. <strong>No conflict.</strong></li></ol>`
+        a: `<ol><li>0x1000: bits [7:6] = 00 → bank 0. 0x1100: 0x100 sets only bit 8, so bits [7:6] = 00 → bank 0. <strong>Conflict.</strong> Any 256-byte stride hits the same bank.</li><li>With XOR: 0x1000 has bits [9:8] = 00 → bank 0. 0x1100 has bits [9:8] = 01 → bank 1. <strong>No conflict.</strong></li></ol>`
       },
       {
         q: `<p>4 banks, each busy for 2 cycles per access. One access arrives per cycle, in the bank order 0, 0, 1, 1. When does each start? What if the order is 0, 1, 0, 1?</p>`,
-        a: `<ol start="0"><li>Order 0, 0, 1, 1: the first access holds bank 0 for cycles 0–1, so the second (arriving cycle 1) waits until <strong>cycle 2</strong>. The third starts on bank 1 at cycle 2. The fourth arrives at cycle 3 but bank 1 is busy until the end of cycle 3, so it starts at <strong>cycle 4</strong>. Two stall cycles.</li><li>Order 0, 1, 0, 1: each bank gets a request every other cycle, exactly matching its 2-cycle busy time. <strong>No stalls.</strong></li><li>With a 2-cycle bank busy time, even <em>consecutive</em>-cycle accesses to one bank conflict, not just same-cycle ones. Sustaining one access per cycle needs at least 2 banks with perfect spreading, and more in practice.</li></ol>`
+        a: `<ol><li>Order 0, 0, 1, 1: the first access holds bank 0 for cycles 0–1, so the second (arriving cycle 1) waits until <strong>cycle 2</strong>. The third starts on bank 1 at cycle 2. The fourth arrives at cycle 3 but bank 1 is busy until the end of cycle 3, so it starts at <strong>cycle 4</strong>. Two stall cycles.</li><li>Order 0, 1, 0, 1: each bank gets a request every other cycle, exactly matching its 2-cycle busy time. <strong>No stalls.</strong></li><li>With a 2-cycle bank busy time, even <em>consecutive</em>-cycle accesses to one bank conflict, not just same-cycle ones. Sustaining one access per cycle needs at least 2 banks with perfect spreading, and more in practice.</li></ol>`
       }
     ],
     interview: [
@@ -301,7 +301,7 @@ section({
     guided: [
       {
         q: `<p>Roughly how many transistors are in the data array of a 32 KB SRAM cache built from 6T cells? What would the same capacity be in 1T1C DRAM cells?</p>`,
-        a: `<ol start="0"><li>Bits: 32 × 1024 × 8 = 262,144.</li><li>SRAM: 262,144 × 6 ≈ <strong>1.57 million transistors</strong>, before tags, decoders, and sense amps.</li><li>DRAM: 262,144 transistors plus 262,144 capacitors. That is 6× fewer transistors per bit, and the capacitor is built above or beside the transistor, so the cell is smaller still. That is why DRAM is much denser.</li></ol>`
+        a: `<ol><li>Bits: 32 × 1024 × 8 = 262,144.</li><li>SRAM: 262,144 × 6 ≈ <strong>1.57 million transistors</strong>, before tags, decoders, and sense amps.</li><li>DRAM: 262,144 transistors plus 262,144 capacitors. That is 6× fewer transistors per bit, and the capacitor is built above or beside the transistor, so the cell is smaller still. That is why DRAM is much denser.</li></ol>`
       }
     ],
     interview: [
@@ -349,7 +349,7 @@ section({
     guided: [
       {
         q: `<p>Four independent loads each miss to DRAM (200 cycles). Ignoring issue time, how long do they take with 1, 2, and 4 MSHRs?</p>`,
-        a: `<ol start="0"><li>1 MSHR: fully serial, 4 × 200 = <strong>800 cycles</strong>.</li><li>2 MSHRs: two waves, <strong>about 400</strong>.</li><li>4 MSHRs: all overlap, <strong>about 200</strong>.</li><li>Memory-level parallelism, not raw latency, sets the cost, as long as the misses are independent and the window can reach them.</li></ol>`
+        a: `<ol><li>1 MSHR: fully serial, 4 × 200 = <strong>800 cycles</strong>.</li><li>2 MSHRs: two waves, <strong>about 400</strong>.</li><li>4 MSHRs: all overlap, <strong>about 200</strong>.</li><li>Memory-level parallelism, not raw latency, sets the cost, as long as the misses are independent and the window can reach them.</li></ol>`
       }
     ],
     interview: [
@@ -419,7 +419,7 @@ bits 11..0   page offset</code></pre>
     guided: [
       {
         q: `<p>A key-value store randomly accesses a 32 GB table on a core whose L2 TLB has 2,048 entries for 4 KB or 2 MB pages and 16 entries for 1 GB pages. A 1 GB page walk reads only the top two page-table levels. What fraction of accesses miss the TLB with 4 KB pages, with 2 MB pages, and with 1 GB pages (assume uniform random access, and that the TLB holds only data pages)?</p>`,
-        a: `<ol start="0"><li>4 KB pages: reach 2,048 × 4 KB = 8 MB. Hit fraction ≈ 8 MB / 32 GB ≈ 0.024%, so <strong>almost every access misses</strong>.</li><li>2 MB pages: reach 4 GB, so hit fraction ≈ 4 / 32 = 12.5%: about <strong>87.5% miss</strong>. Better per walk (fewer levels, smaller page tables that cache well), but still mostly misses.</li><li>1 GB pages: the table needs only 32 translations, but only 16 fit. Hit fraction ≈ 16 / 32 = 50%, so <strong>about 50% miss</strong>. Each walk, though, reads only two levels, and those 32 entries sit in a few lines that stay cached, so translation cost nearly disappears.</li><li>For random access over huge data, only 1 GB pages remove translation cost; 2 MB pages mainly make each walk cheaper.</li></ol>`
+        a: `<ol><li>4 KB pages: reach 2,048 × 4 KB = 8 MB. Hit fraction ≈ 8 MB / 32 GB ≈ 0.024%, so <strong>almost every access misses</strong>.</li><li>2 MB pages: reach 4 GB, so hit fraction ≈ 4 / 32 = 12.5%: about <strong>87.5% miss</strong>. Better per walk (fewer levels, smaller page tables that cache well), but still mostly misses.</li><li>1 GB pages: the table needs only 32 translations, but only 16 fit. Hit fraction ≈ 16 / 32 = 50%, so <strong>about 50% miss</strong>. Each walk, though, reads only two levels, and those 32 entries sit in a few lines that stay cached, so translation cost nearly disappears.</li><li>For random access over huge data, only 1 GB pages remove translation cost; 2 MB pages mainly make each walk cheaper.</li></ol>`
       }
     ],
     interview: [
@@ -505,7 +505,7 @@ bits 11..0   page offset</code></pre>
     guided: [
       {
         q: `<p>DDR4-3200AA has timings 22-22-22 (tCL-tRCD-tRP) on a 1600 MHz clock. A workload's accesses are 60% row hits, 10% to closed rows, and 30% row conflicts. The core sees about 80 ns of total load-to-use latency for a DRAM access. What is the average device latency, and how much would removing every row conflict save?</p>`,
-        a: `<ol start="0"><li>Clock period: 1 / 1600 MHz = 0.625 ns, so each timing is 22 × 0.625 = 13.75 ns.</li><li>Row hit: 13.75 ns. Closed row: 2 × 13.75 = 27.5 ns. Conflict: 3 × 13.75 = 41.25 ns.</li><li>Average: 0.6 × 13.75 + 0.1 × 27.5 + 0.3 × 41.25 = 8.25 + 2.75 + 12.375 ≈ <strong>23.4 ns</strong>.</li><li>Turning every conflict into a hit (by better mapping or scheduling) would save 0.3 × 27.5 ≈ 8.3 ns per access: a large share of the device time, though a small share of the 80 ns or so the core sees.</li></ol>`
+        a: `<ol><li>Clock period: 1 / 1600 MHz = 0.625 ns, so each timing is 22 × 0.625 = 13.75 ns.</li><li>Row hit: 13.75 ns. Closed row: 2 × 13.75 = 27.5 ns. Conflict: 3 × 13.75 = 41.25 ns.</li><li>Average: 0.6 × 13.75 + 0.1 × 27.5 + 0.3 × 41.25 = 8.25 + 2.75 + 12.375 ≈ <strong>23.4 ns</strong>.</li><li>Turning every conflict into a hit (by better mapping or scheduling) would save 0.3 × 27.5 ≈ 8.3 ns per access: a large share of the device time, though a small share of the 80 ns or so the core sees.</li></ol>`
       }
     ],
     interview: [
