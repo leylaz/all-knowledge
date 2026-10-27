@@ -16,7 +16,8 @@ section({
 <li><a href="#/perf-stage-stalls">Stalls by pipeline stage</a>: where each stage stalls and why, and how a stall spreads from the stage that causes it to the stages that show it.</li>
 <li><a href="#/perf-find-cause">Finding a stall's cause</a>: the procedure in a model and on silicon.</li>
 <li><a href="#/perf-bounds">Bounding each stage</a>: the cycles-per-iteration bound each stage and structure sets, computed before running anything.</li>
-</ul>`,
+</ul>
+<p class="callout">Terminology: on a generic or Intel core these pages use Intel's term, micro-op. Rename and retire widths count fused-domain micro-ops, and ports count unfused ones. Examples on AMD cores use AMD's terms instead: macro-ops for dispatch and retire, micro-ops for the pipes, and the op cache for decoded code. The note in the <a href="#/r/fe">Front End overview</a> maps the terms across Intel, AMD, and Arm.</p>`,
   practice: {
     guided: [
       {
@@ -689,20 +690,20 @@ fx += dx * inv;  fy += dy * inv;  fz += dz * inv;</code></pre>
 <li><strong>Confirm starvation.</strong> Count cycles in which the queue in front of rename holds fewer micro-ops than the width while no back-end resource is full. Exclude the refill cycles after a mispredict or other flush: those belong to bad speculation.</li>
 <li><strong>Split latency from bandwidth.</strong> Cycles with the queue empty are fetch <em>latency</em>: fetch delivered nothing. Cycles with some micro-ops but fewer than the width are fetch <em>bandwidth</em>.</li>
 <li><strong>For latency, charge each empty cycle to what fetch was waiting for:</strong> an instruction cache miss (and which level it hit), an instruction TLB miss, a BTB miss that decode had to redirect, or a taken-branch bubble. Compute MPKI for each, and use per-PC or per-function attribution to measure the code footprint.</li>
-<li><strong>For bandwidth, check what the decoders deliver:</strong> op cache hit rate, switches between the op cache and the legacy decoders, micro-ops from microcode, and the average number of instructions between taken branches. With one taken branch per cycle, a 4-instruction fetch block limits a 6-wide front end to 4.</li>
+<li><strong>For bandwidth, check what the decoders deliver:</strong> op cache hit rate, switches between the op cache and the decoders, micro-ops from microcode, and the average number of instructions between taken branches. With one taken branch per cycle, a 4-instruction fetch block limits a 6-wide front end to 4.</li>
 <li><strong>Check the instruction prefetcher.</strong> Fetch-directed prefetching runs ahead only as far as the BTB knows the branches, so BTB misses also expose instruction cache misses.</li>
 <li><strong>Prove it.</strong> Perfect instruction cache, perfect BTB, and an infinite op cache, each alone and then together. A combined gain larger than the sum means the BTB is limiting the prefetcher (see the server-trace example at the bottom of the page).</li>
 </ol>
 <p><strong>Fixes:</strong> larger or multi-level BTBs, instruction prefetching, larger op caches for bandwidth, and in software, profile-guided code layout and huge pages for code.</p>
 
-<details class="ex"><summary>Worked example: a front end that delivers too few micro-ops per cycle</summary>
-<p><strong>Question.</strong> Your model of an AMD Zen 3 core (6-wide dispatch, 256-entry ROB, 32 KB instruction cache, 4-wide x86 decoders, a 4K-entry op cache that delivers up to 8 micro-ops per cycle, and at most one taken branch per cycle) runs SPEC CPU2017 <code>523.xalancbmk_r</code> (an XSLT processor in C++ with many small virtual functions). Top-down level 1: retiring 47%, front-end bound 25%, bad speculation 6%, back-end bound 22%. The refill cycles after mispredicts are already counted in bad speculation. The model also gives you:</p>
+<details class="ex"><summary>Worked example: a front end that delivers too few macro-ops per cycle</summary>
+<p><strong>Question.</strong> Your model of an AMD Zen 3 core (6-wide dispatch, 256-entry ROB, 32 KB instruction cache, 4-wide x86 decoders, a 4K-entry op cache that delivers up to 8 macro-ops per cycle, and at most one taken branch per cycle) runs SPEC CPU2017 <code>523.xalancbmk_r</code> (an XSLT processor in C++ with many small virtual functions). Top-down level 1: retiring 47%, front-end bound 25%, bad speculation 6%, back-end bound 22%. The refill cycles after mispredicts are already counted in bad speculation. The model also gives you:</p>
 <ul>
 <li><strong>Back end in the front-end-bound cycles:</strong> the ROB averages 82 of 256 entries, and no allocation stall is recorded</li>
-<li><strong>Front-end-bound slots, split by the queue in front of rename:</strong> 7 points in cycles with the queue empty, 18 points in cycles with 1 to 5 micro-ops waiting</li>
+<li><strong>Front-end-bound slots, split by the queue in front of rename:</strong> 7 points in cycles with the queue empty, 18 points in cycles with 1 to 5 macro-ops waiting</li>
 <li><strong>What fetch was waiting for in the empty cycles:</strong> instruction cache misses 4 points, BTB-miss redirects 2 points, instruction TLB misses 1 point</li>
 <li><strong>MPKI:</strong> instruction cache 3.2, BTB 1.1</li>
-<li><strong>Decode path:</strong> 68% of micro-ops come from the op cache, 31% from the decoders, and 1% from microcode. The front end switches between the op cache and the decoders 7 times per 100 instructions.</li>
+<li><strong>Decode path:</strong> 68% of macro-ops come from the op cache, 31% from the decoders, and 1% from microcode. The front end switches between the op cache and the decoders 7 times per 100 instructions.</li>
 <li><strong>Taken branches:</strong> one every 4.6 instructions on average</li>
 <li><strong>Idealization experiments:</strong>
 <div class="tbl"><table>
@@ -721,7 +722,7 @@ fx += dx * inv;  fy += dy * inv;  fz += dz * inv;</code></pre>
 <li><strong>Check the latency side.</strong> 4 + 2 + 1 = 7 points, matching the empty-queue total. Instruction cache and BTB MPKI are low, so the code mostly fits.</li>
 <li><strong>Check what the decoders deliver.</strong> Two limits keep delivery under 6 per cycle:
 <ul>
-<li>31% of micro-ops come from the 4-wide decoders, which can't fill 6-wide dispatch, and every switch between the op cache and the decoders costs bubbles.</li>
+<li>31% of macro-ops come from the 4-wide decoders, which can't fill 6-wide dispatch, and every switch between the op cache and the decoders costs bubbles.</li>
 <li>A taken branch every 4.6 instructions, with one taken branch per cycle, caps fetch near 4.6 instructions per cycle even from the op cache.</li>
 </ul></li>
 <li><strong>Check the instruction prefetcher.</strong> BTB MPKI is low, so fetch-directed prefetching can run ahead. The perfect BTB gives only +1%.</li>
@@ -1030,7 +1031,7 @@ So the misses are dependent. The L1D MSHRs aren't the limit either: they average
   add         rax, 32
   cmp         rax, rdx
   jne         loop                         ; fuses with cmp</code></pre>
-<p><strong>The machine</strong> (from AMD's optimization guide and Agner Fog's tables):</p><ul><li>Micro-op cache delivers 8 macro-ops per cycle</li><li>Dispatch 6 macro-ops per cycle</li><li>1 taken branch per cycle</li><li>2 FMA pipes, FMA latency 4 cycles</li><li>3 load pipes, but the L1 data cache delivers 2 × 32 B = 64 B per cycle, so at most 2 ymm loads per cycle</li><li>512 KB L2, about 12 cycles of latency</li><li>L2 to L1 bandwidth 32 B per cycle</li><li>24 L1 miss buffers</li><li>Mispredict penalty about 13 cycles</li></ul><p>Peak = 2 FMA × 4 doubles × 2 FLOPs = 16 FLOPs per cycle.</p>
+<p><strong>The machine</strong> (from AMD's optimization guide and Agner Fog's tables):</p><ul><li>Op cache delivers 8 macro-ops per cycle</li><li>Dispatch 6 macro-ops per cycle</li><li>1 taken branch per cycle</li><li>2 FMA pipes, FMA latency 4 cycles</li><li>3 load pipes, but the L1 data cache delivers 2 × 32 B = 64 B per cycle, so at most 2 ymm loads per cycle</li><li>512 KB L2, about 12 cycles of latency</li><li>L2 to L1 bandwidth 32 B per cycle</li><li>24 L1 miss buffers</li><li>Mispredict penalty about 13 cycles</li></ul><p>Peak = 2 FMA × 4 doubles × 2 FLOPs = 16 FLOPs per cycle.</p>
 <p><strong>Step 0: count the work per iteration.</strong> 4 macro-ops (the FMA with a memory operand is one macro-op; <code>cmp</code> + <code>jne</code> fuse), 2 loads moving 64 B, 1 FMA, 1 taken branch, 8 FLOPs.</p>
 <p><strong>Step 1: the dependency.</strong> <code>ymm0</code> is read and written by every FMA, so the loop-carried chain is one FMA: B<sub>dep</sub> = 4 cycles. The loads don't depend on each other.</p>
 <p>A loop-carried chain is a value one iteration writes and the next iteration reads (see <a href="#/ooo-tradeoffs/little">Where It Buys Little</a>). This loop has two:</p>
@@ -1050,7 +1051,7 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
 <p><strong>Step 2: all the bounds.</strong></p>
 <div class="tbl"><table>
 <tr><th>Bound</th><th>Formula</th><th>Cycles/iteration</th></tr>
-<tr><td>Micro-op cache</td><td>4 / 8</td><td>0.50</td></tr>
+<tr><td>Op cache</td><td>4 / 8</td><td>0.50</td></tr>
 <tr><td>Taken branches</td><td>1 / 1</td><td>1.00</td></tr>
 <tr><td>Dispatch</td><td>4 / 6</td><td>0.67</td></tr>
 <tr><td>FMA ports</td><td>1 / 2</td><td>0.50</td></tr>
@@ -1062,7 +1063,7 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
 <p><strong>Step 3: fix the dependency.</strong> Use k independent accumulators (unroll by k, add them at the end). The rule of thumb from the text, k = L<sub>FMA</sub> × P<sub>FMA</sub> = 4 × 2 = 8, assumes the FMA ports are the next bound. They aren't: check what binds next. With k = 4 (unroll by 4), per unrolled iteration:</p>
 <div class="tbl"><table>
 <tr><th>Bound</th><th>Formula</th><th>Cycles per unrolled iteration (4 vectors)</th></tr>
-<tr><td>Micro-op cache</td><td>10 / 8</td><td>1.25</td></tr>
+<tr><td>Op cache</td><td>10 / 8</td><td>1.25</td></tr>
 <tr><td>Taken branches</td><td>1 / 1</td><td>1.00</td></tr>
 <tr><td>Dispatch</td><td>10 / 6</td><td>1.67</td></tr>
 <tr><td>FMA ports</td><td>4 / 2</td><td>2.00</td></tr>
@@ -1110,21 +1111,21 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
 <p>This adds to the max of the other bounds, since nothing useful overlaps it. \\(L_{refill}\\) is roughly the front-end depth, about 10 to 20 cycles on modern cores. \\(L_{resolve}\\) is how long the branch waits for its operands: a branch that depends on a DRAM miss resolves only when the miss returns, and its flush also throws away the other misses queued behind it, destroying memory-level parallelism.</p>
 <p><strong>Front-end decoupling.</strong> The fetch queue (or micro-op queue) absorbs short bubbles, so short front-end stalls overlap with back-end work; long ones (instruction cache misses to L3 or DRAM, mispredicts) don't. Treat stalls shorter than the queue's drain time as hidden and longer ones as additive.</p>
 <details class="ex"><summary>Worked example: a branchy loop on the Zen 3 front end</summary>
-<p><strong>Question.</strong> The hot loop of a lexer (it scans source text a byte at a time and sorts characters into token classes) runs on Zen 3. Per iteration: 16 instructions, 62 bytes of code, 14 macro-ops (two <code>cmp</code>/<code>jcc</code> pairs fuse), 4 conditional branches, 3 of them taken (two forward branches and the back edge), each mispredicted 2% of the time. The branches test bytes that hit in L1 or values already in registers, and resolve about 3 cycles after dispatch. Bound it when the loop hits in the micro-op cache, when it doesn't, and say what a code-layout fix is worth.</p>
-<p>Zen 3: fetch 32 B per cycle, 4 legacy decoders, micro-op cache 8 macro-ops per cycle, 1 taken branch per cycle, dispatch 6, mispredict refill about 13 cycles.</p>
+<p><strong>Question.</strong> The hot loop of a lexer (it scans source text a byte at a time and sorts characters into token classes) runs on Zen 3. Per iteration: 16 instructions, 62 bytes of code, 14 macro-ops (two <code>cmp</code>/<code>jcc</code> pairs fuse), 4 conditional branches, 3 of them taken (two forward branches and the back edge), each mispredicted 2% of the time. The branches test bytes that hit in L1 or values already in registers, and resolve about 3 cycles after dispatch. Bound it when the loop hits in the op cache, when it doesn't, and say what a code-layout fix is worth.</p>
+<p>Zen 3: fetch 32 B per cycle, 4 decoders, op cache 8 macro-ops per cycle, 1 taken branch per cycle, dispatch 6, mispredict refill about 13 cycles.</p>
 <ol start="0">
 <li><strong>Bandwidth bounds.</strong>
 <div class="tbl"><table>
 <tr><th>Bound</th><th>Formula</th><th>Cycles/iteration</th></tr>
 <tr><td>Fetch bytes</td><td>62 / 32</td><td>1.94</td></tr>
 <tr><td>Taken branches</td><td>3 / 1</td><td>3.00</td></tr>
-<tr><td>Legacy decode</td><td>16 / 4</td><td>4.00</td></tr>
-<tr><td>Micro-op cache</td><td>14 / 8</td><td>1.75</td></tr>
+<tr><td>Decode</td><td>16 / 4</td><td>4.00</td></tr>
+<tr><td>Op cache</td><td>14 / 8</td><td>1.75</td></tr>
 <tr><td>Dispatch</td><td>14 / 6</td><td>2.33</td></tr>
 </table></div></li>
 <li><strong>Mispredicts (additive).</strong> 4 × 0.02 = 0.08 per iteration, each costing 3 cycles to resolve plus 13 to refill: T<sub>mp</sub> = 0.08 × (3 + 13) ≈ 1.3 cycles.</li>
-<li><strong>Micro-op cache hit:</strong> max(1.94, 3.00, 1.75, 2.33) + 1.3 = 3.0 + 1.3 ≈ <strong>4.3 cycles</strong>, bound by taken branches. Fetch stops at each taken branch, so three fetch blocks per iteration cost at least 3 cycles however wide everything else is.</li>
-<li><strong>Micro-op cache miss</strong> (the rest of the compiler evicts the loop between calls): legacy decode binds, 4.0 + 1.3 ≈ <strong>5.3 cycles</strong>, plus a few cycles each time the front end switches between the two paths.</li>
+<li><strong>Op cache hit:</strong> max(1.94, 3.00, 1.75, 2.33) + 1.3 = 3.0 + 1.3 ≈ <strong>4.3 cycles</strong>, bound by taken branches. Fetch stops at each taken branch, so three fetch blocks per iteration cost at least 3 cycles however wide everything else is.</li>
+<li><strong>Op cache miss</strong> (the rest of the compiler evicts the loop between calls): decode binds, 4.0 + 1.3 ≈ <strong>5.3 cycles</strong>, plus a few cycles each time the front end switches between the two paths.</li>
 <li><strong>Layout fix.</strong> Profile-guided layout (PGO or BOLT) makes the two common forward branches fall through, leaving 1 taken branch. Now dispatch binds: 2.33 + 1.3 ≈ 3.6 cycles, <strong>about 16% less time</strong> than 4.3.</li>
 <li><strong>What binds next:</strong> mispredicts are now 1.3 / 3.6 = 36% of the time. A better predictor, or replacing the character-class branches with a table lookup (branchless code), is the next lever.</li>
 </ol>

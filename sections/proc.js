@@ -130,7 +130,7 @@ ${procSvg(760, 650, 620, "Zen 5 core block diagram: branch predictor feeds the L
 
 <h3 id="sec-decode">Fetch, Decode, and the Op Cache</h3>
 <p>The 32 KB, 8-way L1I delivers two 32-byte blocks per cycle, which may come from different basic blocks. Each feeds one of two <strong>decode pipes</strong>, each with a 20-entry instruction byte queue, each decoding up to <strong>4 instructions per cycle</strong>. AMD's guide is explicit about the split: with one thread, decode peaks at 4 instructions per cycle; in SMT mode each thread owns a pipe, so the core decodes 8. Only the first of the four slots can decode an instruction longer than 10 bytes, which matters for EVEX-encoded AVX-512 code. (Agner Fog's tests suggest a single thread can use both pipes on the two sides of a branch; the behavior is not fully documented.)</p>
-<p>The <strong>op cache</strong> is the path to full width for one thread (see <a href="#/fe-decode/uop-cache">the micro-op cache</a>). It is 64 sets × 16 ways; each entry holds up to 6 instructions or fused pairs from at most two adjacent 64-byte lines, for about <strong>6K instructions</strong>. Unlike Zen 3 and Zen 4, entries store instructions rather than macro-ops, which packs code more densely. Two op cache pipes deliver up to 6 each, 12 per cycle. Entry limits: six 32-bit immediate/displacement slots (64-bit values use two), and a cap of 4 when microcoded instructions are present. The cache is physically tagged, so two threads running the same code share entries. It is <em>modal</em>: the core switches from decoder to op cache only at a taken branch and stays until an op cache miss, so code that bounces between the two pays repeatedly.</p>
+<p>The <strong>op cache</strong> is the path to full width for one thread (see <a href="#/fe-decode/uop-cache">the op cache</a>). It is 64 sets × 16 ways; each entry holds up to 6 instructions or fused pairs from at most two adjacent 64-byte lines, for about <strong>6K instructions</strong>. Unlike Zen 3 and Zen 4, entries store instructions rather than macro-ops, which packs code more densely. Two op cache pipes deliver up to 6 each, 12 per cycle. Entry limits: six 32-bit immediate/displacement slots (64-bit values use two), and a cap of 4 when microcoded instructions are present. The cache is physically tagged, so two threads running the same code share entries. It is <em>modal</em>: the core switches from decoder to op cache only at a taken branch and stays until an op cache miss, so code that bounces between the two pays repeatedly.</p>
 <p>Along the way the front end removes work: compare/test + branch fusion, MOV + ALU fusion, zero-cycle register moves, stack-pointer tracking (PUSH/POP don't wait on RSP), and zeroing idioms such as <code>xor eax,eax</code>. Dispatch then sends up to <strong>8 macro-ops per cycle</strong>, with group rules: at most 2 taken branches and 8 immediates, and the eighth op can't be a load or store.</p>
 
 <h3 id="sec-int">Integer Engine and Retire</h3>
@@ -345,11 +345,11 @@ ${procSvg(760, 590, 620, "Neoverse V2 core block diagram: a decoupled branch pre
   procBox(20, 10, 720, 46, "Branch predictor, decoupled and running ahead", "2 predicted branches/cycle · nano BTB + 2-level main BTB · 8-table TAGE · dedicated indirect predictor", "fe") +
   procArrow(240, 56, 240, 80) + procArrow(610, 56, 610, 80) +
   procBox(20, 80, 445, 46, "L1I: 64 KB, 4-way", "32-entry fetch queue · 16-entry fill buffer · doubled ITLB and I$ bandwidth", "fe") +
-  procBox(480, 80, 260, 46, "Mop cache (smaller than V1's)", "up to 8 micro-ops/cycle", "fe") +
+  procBox(480, 80, 260, 46, "Mop cache (smaller than V1's)", "up to 8 MOPs/cycle", "fe") +
   procArrow(240, 126, 240, 150) +
   procBox(20, 150, 445, 46, "Decode: 6 instructions/cycle", "24-entry decode queue · instruction fusion, e.g. CMP + CSEL/CSET", "fe") +
   procArrow(240, 196, 240, 220) + procArrow(610, 126, 610, 220) +
-  procBox(20, 220, 720, 46, "Rename + dispatch: 8 micro-ops/cycle", "320+ instruction window · 6 rename checkpoints (5 vector) · faster rebuild after flushes", "ex") +
+  procBox(20, 220, 720, 46, "Rename + dispatch: 8 MOPs/cycle", "320+ instruction window · 6 rename checkpoints (5 vector) · faster rebuild after flushes", "ex") +
   procArrow(200, 266, 200, 290) + procArrow(487, 266, 487, 290) + procArrow(668, 266, 668, 290) +
   procBox(20, 290, 360, 40, "Integer issue queues (22 entries each)", "", "ex") +
   procBox(390, 290, 195, 40, "Vector IQs: 2 × 28", "", "ex") +
@@ -381,7 +381,7 @@ ${procSvg(760, 590, 620, "Neoverse V2 core block diagram: a decoupled branch pre
 
 <h3 id="sec-be">Rename, Issue, and Execute</h3>
 <ul>
-<li><strong>Rename:</strong> 8 micro-ops per cycle into physical register files, with an instruction window of more than 320 entries. Six rename checkpoints (five for vector state, up from three) speed recovery after mispredictions.</li>
+<li><strong>Rename:</strong> 8 macro-ops (Arm's MOPs, which are cracked into micro-ops at dispatch) per cycle into physical register files, with an instruction window of more than 320 entries. Six rename checkpoints (five for vector state, up from three) speed recovery after mispredictions.</li>
 <li><strong>Distributed issue queues:</strong> one queue per integer pipe (22 entries), two dual-ported vector queues (28 entries each), and three 16-entry load/store queues. Queues hold tags only: operands are read from the register file after issue, and recently produced results come from small <em>result caches</em>. This keeps issue-queue entries small (compare data-capture schedulers in <a href="#/scheduler">Scheduler Queues</a>).</li>
 <li><strong>Integer:</strong> six single-cycle ALUs (two more than V1). SX0 and SX1 also execute branches; SX2 and SX3 also do multiply and multiply-accumulate. Some register moves complete at rename with zero latency, and CMP + CSEL/CSET fuse.</li>
 <li><strong>Vector:</strong> four 128-bit pipes for SVE2 and NEON. V1 had two 256-bit SVE pipes; V2 narrows SVE to a 128-bit vector length but keeps four pipes, so NEON and SVE code reach the same peak: 4 pipes × 2 FP64 lanes × 2 = 16 FP64 FLOPs per cycle. Predicate throughput doubled.</li>
