@@ -15,6 +15,9 @@ async function checkPrivate() {
     PRIVATE_UID = uid; PRIVATE_DB = db; PRIVATE_OK = true;
     await loadDbFlags();
     await loadDbSolved();
+    await loadDbAnswers();
+    window.claude.use("sample").then(s => { SAMPLE = s; if (s) addGradeButtons(); })
+      .catch(e => console.error("Claude feedback is unavailable:", e));
     try {
       const meta = await db.doc("data/users/" + uid + "/p-meta").get();
       const m = meta.exists ? (meta.data() || {}) : {};
@@ -141,6 +144,7 @@ function layout(curId, curSec, inner) {
   if (cur && window.innerWidth > 860) cur.scrollIntoView({ block: "nearest" });
   decorateFlags();
   decorateSolved();
+  decorateAnswers();
   if (typeof initCalcs === "function") initCalcs(app);
   if (typeof initTraces === "function") initTraces(app);
   decorateGlossary(curId);
@@ -318,6 +322,178 @@ app.addEventListener("click", e => {
   setSolveBtn(btn, !!SOLVED[snip]);
   const count = document.getElementById("solvedCount");
   if (count) count.textContent = String(drillPool().filter(c => SOLVED[c.snip]).length);
+});
+
+/* ---------- Answer box on interview cards ----------
+   Every interview card gets a box for your own answer, matched by its
+   opening text like flags. Answers save as you type: the owner's to the
+   private db (one doc per card), everyone else's in this browser. The
+   owner can also ask Claude (the artifact's sample capability) to grade
+   an answer against the card's stored answer. The feedback is saved with
+   the answer, so reopening a card doesn't call Claude again. */
+const ANS_KEY = "intv-answers";
+let ANSWERS = {}, SAMPLE = null;
+const ANS_TIMERS = {}, ANS_SAVES = {};
+try { ANSWERS = JSON.parse(localStorage.getItem(ANS_KEY) || "{}"); } catch (e) { ANSWERS = {}; }
+if (!ANSWERS || typeof ANSWERS !== "object" || Array.isArray(ANSWERS)) ANSWERS = {};
+/* Doc id for a card: FNV-1a of its opening text. */
+function ansId(snip) {
+  let h = 0x811c9dc5;
+  for (const ch of snip) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193); }
+  return "q" + (h >>> 0).toString(16);
+}
+const ansCol = () => PRIVATE_DB.doc("data/users/" + PRIVATE_UID + "/" + ANS_KEY).collection("q");
+async function loadDbAnswers() {
+  try {
+    const snap = await ansCol().limit(1000).get();
+    ANSWERS = {};
+    for (const d of snap.docs) { const v = d.data() || {}; if (v.snip) ANSWERS[v.snip] = v; }
+  } catch (e) { console.error("Answers failed to load; using this browser's copy:", e); }
+}
+function saveAnswer(snip) {
+  const v = ANSWERS[snip], empty = !v || (!v.text && !v.fb);
+  if (empty) delete ANSWERS[snip];
+  if (!PRIVATE_OK) {
+    try { localStorage.setItem(ANS_KEY, JSON.stringify(ANSWERS)); } catch (e) {}
+    return Promise.resolve();
+  }
+  const id = ansId(snip), copy = Object.assign({}, v);
+  ANS_SAVES[id] = (ANS_SAVES[id] || Promise.resolve())
+    .then(() => empty ? ansCol().doc(id).delete() : ansCol().doc(id).set(copy));
+  return ANS_SAVES[id];
+}
+
+/* The feedback comes back as plain text with "- " or "1." list lines and
+   **bold**. Escape it, then build paragraphs and lists. */
+function fbHTML(s) {
+  const inline = x => x.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c])
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+  let out = "", list = "";
+  for (const raw of s.split("\n")) {
+    const line = raw.trim(), m = line.match(/^([-*•]|\d+[.)])\s+(.*)/);
+    const kind = m ? (/^\d/.test(m[1]) ? "ol" : "ul") : "";
+    if (list && kind !== list) { out += `</${list}>`; list = ""; }
+    if (m) { if (!list) { out += `<${kind}>`; list = kind; } out += `<li>${inline(m[2])}</li>`; }
+    else if (line) out += `<p>${inline(line)}</p>`;
+  }
+  return out + (list ? `</${list}>` : "");
+}
+function showFeedback(card) {
+  const v = ANSWERS[card.dataset.snip], el = card.querySelector(".ans-fb");
+  if (!el) return;
+  el.hidden = !(v && v.fb);
+  if (el.hidden) return;
+  el.innerHTML = (v.fbFor !== v.text ? `<p class="ans-stale">This feedback is for an earlier version of your answer.</p>` : "") + fbHTML(v.fb);
+  if (window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise([el]).catch(e => console.error("MathJax typeset failed:", e));
+}
+function decorateAnswers() {
+  app.querySelectorAll(".prob[data-qid]").forEach(card => {
+    if (card.querySelector(".ans")) return;
+    const snip = cardSnip(card), v = ANSWERS[snip];
+    card.dataset.snip = snip;
+    const box = document.createElement("div");
+    box.className = "ans";
+    box.innerHTML = `<p class="ans-label">Your answer</p>
+      <textarea class="ans-text" rows="4" aria-label="Your answer" placeholder="Work it out here before opening the answer."></textarea>
+      <div class="ans-bar"><span class="ans-status" aria-live="polite"></span></div>
+      <div class="ans-fb" aria-live="polite" hidden></div>`;
+    box.querySelector(".ans-text").value = v ? v.text || "" : "";
+    card.querySelector(".q").after(box);
+    showFeedback(card);
+  });
+  addGradeButtons();
+}
+function addGradeButtons() {
+  if (!PRIVATE_OK || !SAMPLE) return;
+  app.querySelectorAll(".ans-bar").forEach(bar => {
+    if (bar.querySelector(".ans-go")) return;
+    const btn = document.createElement("button");
+    btn.type = "button"; btn.className = "ans-go"; btn.textContent = "Get feedback";
+    bar.appendChild(btn);
+  });
+}
+app.addEventListener("input", e => {
+  const ta = e.target.closest(".ans-text");
+  if (!ta) return;
+  const card = ta.closest(".prob"), snip = card.dataset.snip, status = card.querySelector(".ans-status");
+  ANSWERS[snip] = Object.assign({ snip }, ANSWERS[snip], { text: ta.value, at: Date.now() });
+  status.textContent = "Saving…";
+  clearTimeout(ANS_TIMERS[snip]);
+  ANS_TIMERS[snip] = setTimeout(() => {
+    saveAnswer(snip)
+      .then(() => { status.textContent = PRIVATE_OK ? "Saved to your account" : "Saved in this browser"; })
+      .catch(err => { status.textContent = "Not saved"; console.error("Saving answer failed:", err); });
+  }, 800);
+});
+
+/* Question and stored answer as plain text, from the card's source HTML
+   (so math stays as TeX rather than rendered SVG). */
+function cardText(html) {
+  const t = document.createElement("template");
+  t.innerHTML = html.replace(/<li[^>]*>/g, "\n- ").replace(/<\/(p|div|ul|ol|tr|h\d|pre)>|<br\s*\/?>/g, "\n").replace(/<\/t[dh]>/g, " | ");
+  return t.content.textContent.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+function gradePrompt(snip, answer) {
+  const src = flagIndex().find(c => c.snip === snip);
+  const t = document.createElement("template");
+  t.innerHTML = src ? src.html : "";
+  const qEl = t.content.querySelector(".q"), aEl = t.content.querySelector(".a");
+  if (!qEl || !aEl) return null;
+  const qn = qEl.querySelector(".qn");
+  if (qn) qn.remove();
+  return `You are grading a candidate's answer to an interview question for a CPU performance modeling and performance architecture role. Compare it with the reference answer, which is correct.
+
+Reply in under 200 words, in exactly this format:
+**Verdict:** Correct, Partly correct, or Incorrect.
+**What's right:**
+- one bullet per point
+**What's missing or wrong:**
+- one bullet per point, or "- Nothing." if the answer is complete
+**Tip:** one sentence on what to say or practice next time.
+
+Rules:
+- Judge the reasoning and the final numbers. Accept a different valid approach and small rounding differences.
+- Don't repeat the reference answer in full. Name only what the candidate needs.
+- If the answer is blank, a guess with no reasoning, or off topic, say so.
+- Use "- " bullet points for lists. Never use semicolons to separate list items.
+- Write math as TeX inside \\( and \\).
+
+Question:
+${cardText(qEl.innerHTML)}
+
+Reference answer:
+${cardText(aEl.innerHTML)}
+
+Candidate's answer:
+${answer}`;
+}
+const SAMPLE_GONE = ["not_granted", "sampling_disabled", "not_declared", "capability_disabled", "capability_removed"];
+app.addEventListener("click", async e => {
+  const btn = e.target.closest(".ans-go");
+  if (!btn || btn.disabled || !SAMPLE) return;
+  const card = btn.closest(".prob"), snip = card.dataset.snip, el = card.querySelector(".ans-fb");
+  const answer = ((ANSWERS[snip] || {}).text || "").trim();
+  if (!answer) { el.hidden = false; el.innerHTML = "<p>Write an answer first.</p>"; return; }
+  const prompt = gradePrompt(snip, answer);
+  if (!prompt) { el.hidden = false; el.innerHTML = "<p>This question's stored answer couldn't be found.</p>"; return; }
+  btn.disabled = true; btn.textContent = "Grading…";
+  el.hidden = false; el.innerHTML = "<p>Thinking…</p>";
+  try {
+    const res = await SAMPLE(prompt, { onText: ({ text }) => { el.innerHTML = fbHTML(text); } });
+    const v = ANSWERS[snip] || (ANSWERS[snip] = { snip, text: answer });
+    Object.assign(v, { fb: res.text + (res.truncated ? "\n(Cut short.)" : ""), fbFor: answer, fbAt: Date.now() });
+    if (document.body.contains(card)) showFeedback(card);
+    saveAnswer(snip).catch(err => console.error("Saving feedback failed:", err));
+  } catch (err) {
+    console.error("Grading failed:", err);
+    if (SAMPLE_GONE.includes(err && err.code)) {
+      SAMPLE = null;
+      app.querySelectorAll(".ans-go").forEach(b => b.remove());
+      el.innerHTML = "<p>Claude isn't available on this page, so feedback is off.</p>";
+    } else el.innerHTML = `<p>${err && err.code === "rate_limited" ? "Too many requests right now. Try again in a minute." : "Feedback failed. Try again."}</p>`;
+  } finally {
+    if (document.body.contains(btn)) { btn.disabled = false; btn.textContent = "Get feedback"; }
+  }
 });
 
 /* Every practice and interview card on the site, parsed once. */

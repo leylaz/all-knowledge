@@ -235,6 +235,18 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .solve-btn { display: block; margin: 8px 0 0 auto; font: inherit; font-family: var(--sans); font-size: .78rem; font-weight: 600; color: var(--muted); background: none; border: 1px solid var(--rule); border-radius: 10px; padding: 1px 9px; cursor: pointer; }
 .solve-btn:hover { color: var(--accent-green); border-color: var(--accent-green); }
 .solve-btn[aria-pressed="true"] { color: var(--accent-green); border-color: var(--accent-green); }
+.ans { margin: 10px 0 4px; font-family: var(--sans); }
+.ans-label { margin: 0 0 4px; font-size: .8rem; font-weight: 600; color: var(--muted); }
+.ans-text { display: block; width: 100%; min-height: 5.5em; resize: vertical; font: inherit; font-size: .92rem; line-height: 1.5; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px; }
+.ans-bar { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: .8rem; color: var(--muted); }
+.ans-status { margin-right: auto; }
+.ans-go { font: inherit; font-size: .8rem; font-weight: 600; color: var(--trace); background: none; border: 1px solid var(--trace); border-radius: 10px; padding: 2px 11px; cursor: pointer; }
+.ans-go:hover { background: var(--trace-soft); }
+.ans-go:disabled { color: var(--muted); border-color: var(--rule); cursor: progress; }
+.ans-fb { font-family: var(--serif); font-size: .96rem; line-height: 1.6; background: var(--trace-soft); border-left: 3px solid var(--trace); border-radius: 3px; padding: 8px 12px; margin-top: 8px; overflow-x: auto; }
+.ans-fb p { margin: 0 0 6px; }
+.ans-fb ul, .ans-fb ol { padding-left: 1.2em; margin: 0 0 6px; }
+.ans-fb .ans-stale { font-family: var(--sans); font-size: .8rem; color: var(--muted); }
 .drill-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 16px; margin: 0 0 20px; font-size: .9rem; }
 .drill-bar label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
 .drill-bar label.chk { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 7px; }
