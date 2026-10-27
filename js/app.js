@@ -197,7 +197,7 @@ function placeCard(gl) {
 }
 
 /* ---------- Flagged interview questions ----------
-   Cards with a data-qid (sections/intv.js) get a flag button. A flag is
+   Cards with a data-qid (sections/interview-prep.js) get a flag button. A flag is
    matched by the question's opening text, not its number, so inserting a
    question doesn't move flags. The owner's flags live in the private db;
    everyone else (and GitHub Pages) keeps them in this browser. */
