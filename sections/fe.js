@@ -8,89 +8,92 @@ section({
   cap: "Predicting the path, fetching it, and turning it into micro-ops",
   body: `
 <p>The front end decides which instructions the core works on next and delivers them as micro-ops to rename. In a modern core it is mostly a prediction machine: the branch predictor runs ahead of fetch, picking the path many cycles before any branch on it executes, and the instruction cache, decoders, and micro-op cache follow wherever it points.</p>
-<p>The units of a decoupled front end and how they connect. The branch prediction unit fills the fetch target queue with predicted fetch blocks, and everything after the queue consumes them: the instruction cache on the decode path, the micro-op cache on the bypass, and the prefetcher on the way to the L2.</p>
-<div class="tbl"><svg viewBox="0 0 680 385" role="img" aria-label="Block diagram of a decoupled front end. The branch prediction unit, holding the BTB, the direction predictor (TAGE), the indirect predictor (ITTAGE), and the return address stack, sends predicted fetch blocks into the fetch target queue. The queue feeds the instruction cache, which includes the ITLB, tags, and way prediction. Instruction cache misses go to the L2 cache, which fills the line back. The queue also sends prefetches (FDIP) to the L2 and lookups to the micro-op cache. Bytes from the instruction cache go to the instruction buffer for predecode, then to the decoders, then to the micro-op queue, which feeds rename in the back end. The decoders fill the micro-op cache, and micro-op cache hits go straight to the micro-op queue, skipping the instruction cache and decoders. Redirects return to the branch prediction unit from the decoders (BTB misses) and from the back end (mispredicts)." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
-<defs><marker id="arrFE" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrFEt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker><marker id="arrFEr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--redirect)"/></marker></defs>
-<rect x="10" y="40" width="240" height="132" rx="5" style="fill:none;stroke:var(--pad);stroke-width:1.5;stroke-dasharray:5 4"/>
-<text x="22" y="58" style="fill:var(--pad);font-size:12px;font-weight:600">Branch prediction unit</text>
+<p>The units of a decoupled front end, laid out the way AMD's Zen 5 arranges them (after Chips and Cheese's diagram). The branch predictor writes predicted fetch windows into the fetch queue and looks them up in the op cache, up to two windows per cycle. Op cache hits go straight to the macro-op queue (macro-ops are AMD's term for micro-ops). Misses fetch from the instruction cache, which feeds two decode clusters, one per predicted window, and the decoded macro-ops fill the op cache on their way to the macro-op queue. Not drawn: the fetch-directed prefetcher and the redirects from decode and the back end.</p>
+<div class="tbl"><svg viewBox="0 0 680 480" role="img" aria-label="Block diagram of the AMD Zen 5 front end. The branch predictor holds a 16K-entry L1 BTB, an 8K-entry L2 BTB, an indirect target array, and a 52-entry return stack. It sends predicted fetch windows to the fetch queue and, two ranges per cycle, to the op cache (6K entries, 16-way). Op cache misses go to the fetch queue, which reads the ITLB (64 entries L1, 2048 entries L2) and the 32 KB 8-way L1 instruction cache. The instruction cache exchanges 64 bytes per cycle with the L2 cache. Two 32-byte-per-cycle paths leave the instruction cache, each into its own instruction queue, which sends 4 instructions per cycle into a 4-wide decode cluster. Decode clusters 0 and 1 share the microcode unit between them. Each cluster sends 4 macro-ops per cycle to the macro-op queue and also fills the op cache. The op cache sends 12 macro-ops per cycle (two 6-wide paths) to the macro-op queue, which sends 8 macro-ops per cycle to rename." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrFE" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrFEt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker></defs>
+<text x="10" y="24" style="fill:var(--muted);font-size:12px;font-weight:600">AMD Zen 5</text>
+<rect x="10" y="40" width="160" height="188" rx="5" style="fill:none;stroke:var(--pad);stroke-width:1.5;stroke-dasharray:5 4"/>
+<text x="22" y="58" style="fill:var(--pad);font-size:12px;font-weight:600">Branch predictor</text>
 <g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5">
-<rect x="22" y="68" width="106" height="42" rx="3"/><rect x="134" y="68" width="106" height="42" rx="3"/>
-<rect x="22" y="118" width="106" height="42" rx="3"/><rect x="134" y="118" width="106" height="42" rx="3"/>
+<rect x="22" y="66" width="136" height="32" rx="3"/><rect x="22" y="106" width="136" height="32" rx="3"/>
+<rect x="22" y="146" width="136" height="32" rx="3"/><rect x="22" y="186" width="136" height="32" rx="3"/>
 </g>
 <g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
-<rect x="290" y="84" width="130" height="40" rx="3"/>
-<rect x="470" y="78" width="200" height="52" rx="3"/>
-<rect x="470" y="210" width="200" height="46" rx="3"/>
-<rect x="290" y="210" width="130" height="46" rx="3"/>
-<rect x="120" y="210" width="130" height="46" rx="3"/>
-<rect x="290" y="300" width="130" height="46" rx="3"/>
+<rect x="196" y="70" width="80" height="52" rx="3"/>
+<rect x="276" y="70" width="100" height="52" rx="3"/>
+<rect x="376" y="70" width="294" height="52" rx="3"/>
+<rect x="335" y="170" width="120" height="36" rx="3"/>
+<rect x="545" y="170" width="120" height="36" rx="3"/>
+<rect x="330" y="244" width="130" height="56" rx="3"/>
+<rect x="466" y="244" width="68" height="56" rx="3"/>
+<rect x="540" y="244" width="130" height="56" rx="3"/>
+<rect x="50" y="280" width="140" height="46" rx="3"/>
+<rect x="330" y="384" width="340" height="36" rx="3"/>
 </g>
 <g style="fill:none;stroke:var(--trace);stroke-width:1">
-<path d="M316,84 V124 M342,84 V124 M368,84 V124 M394,84 V124"/>
+<rect x="337" y="266" width="116" height="26" rx="2"/><rect x="547" y="266" width="116" height="26" rx="2"/>
+<path d="M366,266 V292 M395,266 V292 M424,266 V292 M576,266 V292 M605,266 V292 M634,266 V292"/>
 </g>
 <g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5">
-<rect x="470" y="10" width="200" height="34" rx="3"/>
-<rect x="10" y="210" width="90" height="46" rx="3"/>
+<rect x="470" y="6" width="130" height="30" rx="3"/>
 </g>
 <g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle">
-<text x="75" y="86">BTB</text><text x="187" y="86">Direction</text>
-<text x="75" y="136">Indirect</text><text x="187" y="136">RAS</text>
-<text x="570" y="31">L2 cache</text>
-<text x="570" y="100">Instruction cache</text>
-<text x="570" y="230">Instruction buffer</text>
-<text x="355" y="230">Decoders</text>
-<text x="185" y="230">Micro-op queue</text>
-<text x="355" y="320">Micro-op cache</text>
-<text x="55" y="230">Rename</text>
+<text x="90" y="80">L1 BTB</text><text x="90" y="120">L2 BTB</text>
+<text x="90" y="166">Indirect target array</text><text x="90" y="200">Return stack</text>
+<text x="535" y="25">L2 cache</text>
+<text x="236" y="100">Fetch queue</text>
+<text x="326" y="92">ITLB</text>
+<text x="523" y="92">L1 instruction cache</text>
+<text x="395" y="192">Instruction queue</text><text x="605" y="192">Instruction queue</text>
+<text x="395" y="259">Decode cluster 0</text><text x="605" y="259">Decode cluster 1</text>
+<text x="500" y="276" style="font-size:11px">Microcode</text>
+<text x="120" y="300">Op cache</text>
+<text x="500" y="406">Macro-op queue</text>
 </g>
 <g style="fill:var(--muted);font-size:11px" text-anchor="middle">
-<text x="75" y="102">branch targets</text><text x="187" y="102">TAGE</text>
-<text x="75" y="152">ITTAGE</text><text x="187" y="152">returns</text>
-<text x="570" y="118">ITLB, tags, way prediction</text>
-<text x="570" y="246">predecode, boundaries</text>
-<text x="355" y="246">to micro-ops</text>
-<text x="185" y="246">feeds rename</text>
-<text x="355" y="336">decoded micro-ops</text>
-<text x="55" y="246">back end</text>
-<text x="355" y="142" style="fill:var(--ink);font-size:12px;font-weight:600">Fetch target queue</text>
-<text x="355" y="157">predicted fetch blocks</text>
+<text x="90" y="92">16K entries</text><text x="90" y="132">8K entries</text>
+<text x="90" y="212">52 entries</text>
+<text x="326" y="108">64 L1, 2048 L2</text>
+<text x="523" y="108">32 KB, 8-way</text>
+<text x="120" y="316">6K entries, 16-way</text>
+<text x="351.5" y="283">D0</text><text x="380.5" y="283">D1</text><text x="409.5" y="283">D2</text><text x="438.5" y="283">D3</text>
+<text x="561.5" y="283">D0</text><text x="590.5" y="283">D1</text><text x="619.5" y="283">D2</text><text x="648.5" y="283">D3</text>
+<text x="200" y="396">12 macro-ops (2 × 6 wide)</text>
+</g>
+<g style="fill:var(--muted);font-size:11px" text-anchor="end">
+<text x="387" y="150">32 B/cycle</text><text x="597" y="150">32 B/cycle</text>
+<text x="387" y="228">4 instructions</text><text x="597" y="228">4 instructions</text>
+<text x="387" y="326">4 macro-ops</text><text x="597" y="326">4 macro-ops</text>
+<text x="92" y="250">2 ranges</text><text x="92" y="264">per cycle</text>
 </g>
 <g style="fill:var(--muted);font-size:11px">
-<text x="394" y="55" text-anchor="end">prefetch (FDIP)</text>
-<text x="534" y="66" text-anchor="end">miss</text>
-<text x="606" y="66">fill</text>
-<text x="268" y="292" text-anchor="end">lookup</text>
-<text x="361" y="282">fill</text>
-</g>
-<g style="fill:var(--redirect);font-size:11px">
-<text x="62" y="195">mispredict redirect</text>
-<text x="318" y="201">decode redirect</text>
+<text x="545" y="58">64 B/cycle</text>
+<text x="186" y="214">miss</text>
+<text x="270" y="342">fill</text>
+<text x="510" y="440">8 macro-ops to rename</text>
 </g>
 <g style="fill:none;stroke:var(--trace);stroke-width:2">
-<path d="M250,104 H286" marker-end="url(#arrFEt)"/>
-<path d="M420,104 H466" marker-end="url(#arrFEt)"/>
-<path d="M570,130 V206" marker-end="url(#arrFEt)"/>
-<path d="M470,233 H424" marker-end="url(#arrFEt)"/>
-<path d="M290,233 H254" marker-end="url(#arrFEt)"/>
-<path d="M120,233 H104" marker-end="url(#arrFEt)"/>
-<path d="M290,118 H272 V310 H286" marker-end="url(#arrFEt)"/>
-<path d="M290,336 H185 V260" marker-end="url(#arrFEt)"/>
+<path d="M170,96 H192" marker-end="url(#arrFEt)"/>
+<path d="M100,228 V276" marker-end="url(#arrFEt)"/>
+<path d="M395,122 V166" marker-end="url(#arrFEt)"/>
+<path d="M605,122 V166" marker-end="url(#arrFEt)"/>
+<path d="M395,206 V240" marker-end="url(#arrFEt)"/>
+<path d="M605,206 V240" marker-end="url(#arrFEt)"/>
+<path d="M395,300 V380" marker-end="url(#arrFEt)"/>
+<path d="M605,300 V380" marker-end="url(#arrFEt)"/>
+<path d="M80,326 V402 H326" marker-end="url(#arrFEt)"/>
+<path d="M500,420 V452" marker-end="url(#arrFEt)"/>
 </g>
 <g style="fill:none;stroke:var(--muted);stroke-width:1.5">
-<path d="M540,78 V48" marker-end="url(#arrFE)"/>
-<path d="M600,44 V74" marker-end="url(#arrFE)"/>
-<path d="M355,256 V296" stroke-dasharray="4 3" marker-end="url(#arrFE)"/>
-<path d="M400,84 V27 H466" stroke-dasharray="4 3" marker-end="url(#arrFE)"/>
-</g>
-<g style="fill:none;stroke:var(--redirect);stroke-width:1.5;stroke-dasharray:6 4">
-<path d="M55,210 V176" marker-end="url(#arrFEr)"/>
-<path d="M310,210 V186 H210 V176" marker-end="url(#arrFEr)"/>
+<path d="M535,40 V66" marker-start="url(#arrFE)" marker-end="url(#arrFE)"/>
+<path d="M180,280 V160 H236 V126" stroke-dasharray="4 3" marker-end="url(#arrFE)"/>
+<path d="M395,346 H160 V330" stroke-dasharray="4 3" marker-end="url(#arrFE)"/>
+<path d="M605,356 H130 V330" stroke-dasharray="4 3" marker-end="url(#arrFE)"/>
 </g>
 <g style="font-size:11px;fill:var(--muted)">
-<rect x="10" y="366" width="12" height="12" rx="2" style="fill:var(--pad-soft);stroke:var(--pad)"/><text x="28" y="376">prediction</text>
-<rect x="110" y="366" width="12" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--trace)"/><text x="128" y="376">fetch and decode path</text>
-<path d="M260,372 H284" style="stroke:var(--redirect);stroke-width:1.5;stroke-dasharray:6 4"/><text x="290" y="376">redirect</text>
-<path d="M360,372 H384" style="stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3"/><text x="390" y="376">prefetch or fill</text>
+<rect x="10" y="462" width="12" height="12" rx="2" style="fill:var(--pad-soft);stroke:var(--pad)"/><text x="28" y="472">prediction</text>
+<rect x="110" y="462" width="12" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--trace)"/><text x="128" y="472">fetch and decode path</text>
+<path d="M260,468 H284" style="stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3"/><text x="290" y="472">op cache miss or fill</text>
 </g>
 </svg></div>
 <p>What each unit does, in the order a fetch block passes through them:</p>
