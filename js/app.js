@@ -394,7 +394,7 @@ function decorateAnswers() {
     const box = document.createElement("div");
     box.className = "ans";
     box.innerHTML = `<p class="ans-label">Your answer</p>
-      <textarea class="ans-text" rows="8" aria-label="Your answer" placeholder="Work it out here before opening the answer."></textarea>
+      <textarea class="ans-text" rows="12" aria-label="Your answer" placeholder="Work it out here before opening the answer."></textarea>
       <div class="ans-bar"><span class="ans-status" aria-live="polite"></span></div>
       <div class="ans-fb" aria-live="polite" hidden></div>`;
     box.querySelector(".ans-text").value = v ? v.text || "" : "";
