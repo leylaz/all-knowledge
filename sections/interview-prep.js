@@ -70,7 +70,7 @@ section({
 <li><strong>Yellow:</strong> you know the concept but stumble on details or interactions. Spend most of your time here.</li>
 <li><strong>Red:</strong> you can’t answer without looking it up. Fix these first if they are foundational (renaming, dependences, retirement, cache misses).</li>
 </ul>
-<p>Every question is tagged <strong>Easy</strong>, <strong>Medium</strong>, or <strong>Hard</strong>. Across the section the split is about 18% easy, 37% medium, and 45% hard, but the two tabs differ. The Conceptual tabs are about 27% easy, 47% medium, and 26% hard. The Math tabs are almost all hard, about 80% hard and 19% medium. Pages vary around these averages. Hard questions involve multi-step math, a trap, or an open-ended trade-off. The numbers in the trickiest answers were checked with a small cycle-level simulation or a script.</p>
+<p>Every question is tagged <strong>Easy</strong>, <strong>Medium</strong>, or <strong>Hard</strong>. The Conceptual tab on each page is about 20% easy, 35% medium, and 45% hard. The Math tab is about 20% medium and 80% hard. Hard questions involve multi-step math, a trap, or an open-ended trade-off. The numbers in the trickiest answers were checked with a small cycle-level simulation or a script.</p>
 
 <h3 id="sec-order">Study Order</h3>
 <ol>
@@ -116,13 +116,6 @@ Q(`<p>Why isn’t “make the in-order pipeline deeper and clock it faster” a 
 Q(`<p>Which stages of an out-of-order pipeline run in program order and which don’t? Then explain why rename <em>must</em> be in order, even though it looks like a simple table lookup.</p>`,
 `<p>In order: fetch, decode, rename, and dispatch (allocation of ROB, queue, and LSQ entries). Out of order: issue, execute, and writeback. In order again: commit/retirement.</p>
 <p>Rename must be in order because each source operand must map to the physical register of the <em>most recent older</em> writer of that architectural register. “Most recent older” is defined by program order, so rename has to process instructions in that order. Within one rename group it gets harder: if I0 writes r1 and I2 in the same group reads r1, I2 must take I0’s new physical register, not the one in the table. So the hardware compares every source in the group against every older destination in the group, which grows roughly with the square of the rename width.</p>`, "medium") +
-Q(`<p>A colleague’s report says “issue stalled 30% of cycles.” What do you need to ask before you can interpret this, and why do the two possible meanings lead to completely different fixes?</p>`,
-`<p>Ask which convention they use, because “issue” and “dispatch” are swapped between communities:</p>
-<ul>
-<li><strong>Intel terminology:</strong> “issue” is the in-order hand-off from rename into the back end (the <code>UOPS_ISSUED</code> event), and “dispatch” is sending a uop from the scheduler to an execution port (<code>UOPS_DISPATCHED</code>).</li>
-<li><strong>Much of the academic literature:</strong> “dispatch” is the in-order insert into the issue queue, and “issue” is the out-of-order send to a functional unit.</li>
-</ul>
-<p>If it means the in-order hand-off stalled, the back end is full: some resource (ROB, scheduler, load or store queue, physical registers) ran out, and you need a breakdown by resource. If it means nothing left the scheduler, either no instruction was ready (dependences, cache misses) or ready instructions lost port arbitration. Different counters, different fixes. In an interview, define your terms before you use them.</p>`, "easy") +
 Q(`<p>An instruction can sit in each of these states for a long time: waiting to issue, executing, completed but not retired, and retired but not finished. Give a concrete example for each.</p>`,
 `<ul>
 <li><strong>Waiting to issue:</strong> an add whose source comes from a load that missed to DRAM. It sits in the scheduler for hundreds of cycles.</li>
@@ -183,6 +176,35 @@ M(`<p>A 6-wide core with a 512-entry ROB supports two hardware threads (SMT) and
 </ul>
 <p>A cycle-level simulation of thread M gives 1.28 with 512 entries and 0.64 with 256, matching the estimate.</p>
 <p>SMT pays off when threads are limited by latency or dependences that leave execution resources idle, and not when they are limited by a structure that SMT divides (ROB, load queue, MSHRs, cache capacity, bandwidth). Statically partitioned structures (as on Intel cores) make M+M a wash; dynamically shared ones can help the M+C mix further by giving M more of the window, at the risk of one thread starving the other.</p>`, "hard") +
+Q(`<p>An in-order core issues in order but lets a long operation (a 20-cycle FP divide) complete after younger, shorter instructions have already written their results. How can it still take a precise exception if the divide faults? Name the classic mechanisms and what each costs.</p>`,
+`<p>The problem: by the time the divide reports a fault, younger instructions have already overwritten registers, so the state the handler sees isn’t the state “just before the divide.”</p>
+<ul>
+<li><strong>Early fault detection:</strong> decide in the first cycle or two whether the operation can fault (check the operands for divide by zero, or for values that could overflow or underflow), and stall younger instructions only when it might. Cheap, and it is what many in-order FP pipelines do, but it is conservative for FP, where the check can only say “might fault.”</li>
+<li><strong>Reorder buffer:</strong> results wait in a buffer and are written to the register file in order. Exact, but it adds a structure and a bypass path from the buffer.</li>
+<li><strong>History buffer:</strong> write the register file immediately, but log each overwritten value. On a fault, walk the log backward to restore it. The fast path costs nothing, recovery is slow.</li>
+<li><strong>Future file:</strong> keep two register files, one updated out of order for execution and one updated in order for exceptions. Doubles the register storage.</li>
+</ul>
+<p>The last three are the Smith and Pleszkun schemes. The choice is about where you pay: area in the common case (reorder buffer, future file) or time at recovery (history buffer). Out-of-order cores generalize the reorder buffer, because they need in-order commit for branch mispredicts anyway.</p>`, "hard") +
+Q(`<p>x86 cores split some instructions into several uops and then fuse others back together: micro-fusion keeps a load and an ALU operation in one slot, macro-fusion merges a compare and a branch. Which stages count fused uops and which count unfused ones on a recent Intel core? Show how a model that counts the wrong unit finds the wrong bottleneck.</p>`,
+`<p><strong>Fused domain:</strong> decode, the uop cache, the allocation queue, rename and allocation, and retirement count a micro-fused load plus ALU op as one slot. Macro-fused <code>cmp</code> plus <code>jne</code> is one uop everywhere.</p>
+<p><strong>Unfused domain:</strong> the scheduler and the execution ports see the two halves separately: the load goes to a load port and the ALU part to an ALU port. Some addressing modes, such as indexed addresses on several Intel generations, are un-laminated at rename and take two rename slots as well.</p>
+<p><strong>How a model goes wrong:</strong></p>
+<ul>
+<li>Counting unfused uops at rename makes a loop full of <code>add rax, [rsi+8]</code> look rename-bound at width 6, when in reality rename has room and the load ports are the limit.</li>
+<li>Counting fused uops at the ports hides port pressure: the model issues the load and the add as one operation and reports idle load ports.</li>
+<li>Ignoring macro-fusion overcounts branches against the taken-branch and port limits, and overcounts uops in the ROB, so window-limited code looks worse than it is.</li>
+</ul>
+<p>The rule: track both counts per instruction, and apply each structure’s limit in the unit that structure actually uses. Validate with the hardware’s own counters, which on Intel report both <code>UOPS_ISSUED</code> (fused) and <code>UOPS_DISPATCHED</code> (unfused).</p>`, "hard") +
+Q(`<p>A branch can be repaired as soon as it executes and is found mispredicted, or only when it reaches the head of the ROB. Both are correct. What does each cost, and why do modern cores repair at execute even though it is much harder?</p>`,
+`<p><strong>Repair at retire:</strong> by the time the branch is at the head, every older instruction has committed, so recovery is just “flush everything and restore the retirement map.” No checkpoints and no selective squash. The cost is time: the wrong path keeps fetching while the branch waits to reach the head, behind any older cache miss. A branch that resolves 30 cycles after fetch but sits behind a 250-cycle DRAM miss wastes about 250 cycles instead of about 20.</p>
+<p><strong>Repair at execute:</strong> redirect fetch the moment the branch resolves. The penalty becomes front-end refill plus resolution time, independent of what is ahead of it in the ROB. It needs:</p>
+<ul>
+<li>A way to restore the rename map to the branch’s point: checkpoints or a ROB walk</li>
+<li>Selective squash of only the instructions younger than the branch, in the ROB, scheduler, load and store queues</li>
+<li>Correct handling when an older branch resolves later and turns out mispredicted too, or when the branch itself was on a wrong path</li>
+<li>Restored predictor history and return-address stack</li>
+</ul>
+<p>Since mispredicts often depend on loads that miss, many of them resolve while an older miss blocks retirement. Repairing at execute removes that waiting time, which is why the complexity is worth paying. Exceptions, which are rare, are still usually handled at retire.</p>`, "hard") +
 `<h3 id="sec-width">Width and Throughput</h3>` +
 Q(`<p>Golden Cove allocates 6 uops per cycle. A benchmark runs at IPC 1.2 on it. Is the core “80% idle”? How would you find where the other 4.8 instructions per cycle went?</p>`,
 `<p>“80% of allocation slots unused” is fair; “80% idle” is not, because the unused slots are spread across many causes and the core may be busy with stalled long-latency work. Width is a peak: sustained IPC is set by whichever stage is narrowest <em>on average</em>, after stalls.</p>
@@ -274,6 +296,34 @@ M(`<p>Loads are 30% of instructions and hit in the L1 92% of the time. The sched
 <li>Cycles per 1,000 instructions: 1,000 / 2.5 = 400, so issue capacity is 400 × 6 = 2,400 slots. Waste: 57.6 / 2,400 = <strong>2.4% of capacity</strong>, or 57.6 / 1,057.6 = 5.4% of the issues actually performed.</li>
 </ol>
 <p>Usually negligible for performance. It matters when the core is port-bound (the wasted slots steal from useful work), for energy (every replay reads registers and toggles units), and when replays repeat: an instruction replayed again on an L2 miss or a bank conflict can multiply the waste. That is why cores add hit/miss predictors for loads that usually miss.</p>`, "medium") +
+Q(`<p>You widen every stage of a 4-wide core to 8 wide (fetch, rename, issue, retire) and add the ports to match. SPECint IPC rises by about 20%, not 2×. List the limits that eat the rest, roughly in order of how much they cost on typical integer code.</p>`,
+`<ol>
+<li><strong>Branch mispredicts:</strong> with about 5 mispredicts per 1,000 instructions, the window refills from empty every 200 instructions. A wider machine reaches the next mispredict sooner but pays the same refill time each time, so more of its time is spent refilling.</li>
+<li><strong>Taken branches in fetch:</strong> integer code has a taken branch every 6 to 10 instructions. A front end that follows one taken branch per cycle can’t deliver 8 instructions per cycle on average, whatever its byte width. That’s why Zen 5 predicts two taken branches per cycle.</li>
+<li><strong>Dependence chains:</strong> short chains of 1-cycle operations limit how many instructions are ready each cycle. Width helps only if the window holds enough independent chains.</li>
+<li><strong>Memory latency:</strong> misses stall retirement no matter the width. A wider core fills the ROB sooner and then waits just as long.</li>
+<li><strong>Window size:</strong> if the ROB, scheduler, and registers weren’t scaled too, they fill faster at 8 wide and cap the lookahead.</li>
+<li><strong>Port and bypass effects:</strong> more ports means more bypass paths. Designs often split them into clusters with an extra cycle between them, which adds latency to dependent pairs.</li>
+</ol>
+<p>The underlying point: width helps only the fraction of cycles where more than 4 instructions are ready and available. On integer code that fraction is small, so going wider pays off only together with a better predictor, a larger window, and a front end that handles several taken branches per cycle.</p>`, "hard") +
+Q(`<p>Golden Cove allocates 6 uops per cycle but has 12 execution ports. Why would a designer build twice as many ports as the machine can sustain, when the extra ports sit idle most of the time?</p>`,
+`<ul>
+<li><strong>Ports are specialized.</strong> Of the 12, five are ALU ports, three are load ports, and four handle stores (two address, two data). A loop that is mostly loads can use only the three load ports. The question for each workload is whether its own mix has enough ports, not whether the total does.</li>
+<li><strong>Bursts.</strong> When a miss returns, dozens of waiting instructions become ready at once. Sustained throughput is limited to 6, but draining a burst at up to 12 per cycle shortens the time the instructions after the miss are delayed. The scheduler empties faster and stalls less.</li>
+<li><strong>Collisions.</strong> Uops are often bound to a port early. With exactly as many ports as uops per cycle, two ready uops on the same port lose a cycle. Extra ports make collisions rarer.</li>
+<li><strong>Latency of specific operations.</strong> Separate store-data ports, or a dedicated branch port, keep those uops from taking an ALU slot that a dependent chain needs.</li>
+<li><strong>Cost is moderate.</strong> An ALU is small. The expensive parts are register file read ports and the bypass network, and designers limit those by giving some ports fewer sources or by reading values from the bypass instead.</li>
+</ul>
+<p>So the port count is sized for the peak, and the allocation width for the sustained rate. Little’s law ties them together: average issue can’t exceed 6, but the extra ports keep the scheduler occupancy, and therefore the waiting time, low.</p>`, "hard") +
+Q(`<p>A tight loop is 5 instructions ending in a taken branch, fully independent across iterations. The core is 8 wide, but its front end can follow only one taken branch per cycle. What limits IPC? How do a loop buffer, a uop cache, and a predictor that handles two taken branches per cycle each change the answer?</p>`,
+`<p><strong>The limit:</strong> fetch stops at a taken branch, so each cycle delivers at most one iteration: 5 instructions. IPC is capped at 5 regardless of width, and lower if the 5 instructions straddle a fetch-block boundary.</p>
+<ul>
+<li><strong>Loop buffer</strong> (Intel’s loop stream detector, which on some cores is the allocation queue replaying the loop): it removes the fetch and decode stages from the loop, saves power, and on some designs can deliver uops from two iterations in one cycle, which raises the cap. On designs that still stop at the taken branch inside the buffer, it saves power but not bandwidth.</li>
+<li><strong>Uop cache:</strong> it removes decode limits and alignment problems for x86, but a uop cache line still ends at a taken branch, so the one-taken-branch limit stays.</li>
+<li><strong>Two taken branches per cycle</strong> (Zen 5 does this): two iterations per cycle, 10 instructions, so the 8-wide back end becomes the limit.</li>
+<li><strong>Software:</strong> unrolling the loop by 2 makes the body 9 instructions and 1 taken branch, which helps every front end. It costs code size and can spill out of the uop cache.</li>
+</ul>
+<p>For a model: the taken-branch limit has to be modeled explicitly. A model that only counts bytes or instructions per cycle overestimates IPC on small loops, which are exactly the kernels that dominate many benchmarks.</p>`, "hard") +
 `<h3 id="sec-stalls">Stalls, Flushes and Recovery</h3>` +
 Q(`<p>Renaming removes false dependences and branch prediction hides control dependences. Give one structural, one data, and one control hazard that still costs cycles on a modern out-of-order core.</p>`,
 `<ul>
@@ -307,7 +357,33 @@ M(`<p>Skylake is 4-wide. Over 10<sup>9</sup> cycles you measure, using the class
 IPC = 2.0 × 10<sup>9</sup> / 10<sup>9</sup> = <strong>2.0</strong>.</li>
 <li><strong>(b)</strong> If all bad-speculation slots became useful, cycles would drop by at most 15%: speedup ≤ 1 / (1 − 0.15) ≈ <strong>1.18×</strong>. The real gain is smaller because the freed slots don’t automatically become retiring: some would turn into back-end-bound slots (the correct path may stall on the same cache misses the wrong path was hiding, especially for branches that depend on misses), and some front-end stalls (fetch redirects) shift too. Wrong-path loads sometimes prefetch useful data, which perfect prediction would lose. Top-Down gives a ceiling, not a forecast; a simulator run with a perfect predictor gives the real number.</li>
 <li><strong>(c)</strong> 2.2 × 10<sup>9</sup> retired uops for 2.0 × 10<sup>9</sup> instructions is 1.1 uops per instruction: some instructions need several (fused-domain) uops, such as read-modify-write memory instructions like <code>add [mem], reg</code>, string instructions, and microcoded instructions, and these outweigh what macro-fusion of compare-and-branch pairs saves. (A load folded into an ALU instruction stays one slot thanks to micro-fusion.) So IPC (2.0) understates the work the back end does (2.2 uops per cycle), and comparing IPC across binaries with different uop mixes is misleading.</li>
-</ol>`, "hard"),
+</ol>`, "hard") +
+Q(`<p>Skylake’s branch mispredict penalty is usually quoted as 15 to 20 cycles, and measured penalties on real code range much wider. Why isn’t the penalty a constant? List what makes it longer or shorter, and how a model should charge it.</p>`,
+`<p>The penalty runs from fetching the branch until the correct path delivers useful work again. It has three parts, and only the first is fixed:</p>
+<ul>
+<li><strong>Refill:</strong> the cycles from redirect until correct-path instructions reach the scheduler. Shorter if they come from the uop cache, longer if they need the legacy decoders, longer still if the target misses in the instruction cache or BTB.</li>
+<li><strong>Resolution time:</strong> how long the branch waits before it executes. If its condition depends on a load that misses in L1, resolution waits for the load. This is often the largest part, and it varies per branch.</li>
+<li><strong>Lost overlap:</strong> squashed instructions that were independent of the branch, and might have issued a miss early, must be refetched. On the other hand, wrong-path loads can prefetch useful lines, which shortens later work.</li>
+</ul>
+<p>What makes the effective penalty small: a back end that is stalled anyway (a miss at the ROB head), because the refill overlaps the miss. What makes it large: a branch that depends on a long chain, or a mispredict that empties a full window of independent work.</p>
+<p><strong>In a model:</strong> don’t charge a fixed number of cycles. Model the redirect at the cycle the branch executes, refill the front end through the real fetch path, and let the timing fall out. A fixed charge is fine only for a first-order analytical model, and then it should be calibrated per workload class.</p>`, "hard") +
+Q(`<p>Besides branch mispredicts, Intel cores report “machine clears”: memory-ordering clears, self-modifying-code clears, and FP assists. What triggers each, why does one usually cost more than a mispredict, and how should a model represent them?</p>`,
+`<ul>
+<li><strong>Memory-ordering clear:</strong> a load executed early, and before it retired another core wrote that line (on x86, TSO requires loads to appear in order). Also triggered by a memory-dependence mispredict, where a load ran ahead of an older store to the same address.</li>
+<li><strong>Self-modifying code:</strong> a store hits a line that is in the instruction pipeline. Every in-flight instruction that might be stale must be refetched.</li>
+<li><strong>FP assist:</strong> an operation with a denormal input or output, or another rare case, is handed to microcode, which needs the pipeline flushed and restarted through the microcode sequencer.</li>
+</ul>
+<p><strong>Why a clear costs more:</strong> it is usually detected late, at or near retirement, not when the instruction executes. Everything younger is squashed, often a full window, and the restart comes from the instruction itself, so even the instruction that caused it re-executes. A clear also typically flushes from a point where no checkpoint exists, so recovery may use the slower retirement-map restore.</p>
+<p><strong>In a model:</strong> model each as a flush at the offending instruction, triggered at the cycle it is detected (retire, or snoop arrival for ordering clears), with the real refetch path. Count them separately from mispredicts, because they have different fixes: false sharing or locking for ordering clears, code layout for self-modifying code, flush-to-zero or input fixes for FP assists. A model that ignores ordering clears looks optimistic on multithreaded code with contended lines.</p>`, "hard") +
+Q(`<p>Queues sit between the pipeline stages: a fetch queue, the decode queue, the allocation queue. Retirement stalls for 300 cycles on a miss. How long until fetch stops, what do the queues buy you, and when do they buy nothing?</p>`,
+`<p><strong>Back-pressure:</strong> retirement stops, so the ROB fills, then allocation stops, then the allocation queue fills, then decode stops, then the fetch queue fills, and fetch stops. Fetch keeps running for as long as it takes to fill everything behind it: roughly (ROB space left + queue entries) divided by fetch rate. On a Golden Cove-like core (512-entry ROB, 144-entry allocation queue, 6-wide allocation) whose ROB is half full when the miss reaches the head, that is about (256 + 144) / 6 ≈ 67 cycles, after which the front end is idle for the rest of the miss.</p>
+<p><strong>What queues buy:</strong> they decouple stages whose rates <em>vary</em>. Fetch is bursty (taken branches, instruction cache misses), and so is allocation (stalls on full structures). A queue lets one side keep working while the other is briefly stalled, so throughput approaches the average rate of the slowest stage instead of its worst cycle. They also let the front end run ahead: when the miss returns, a full allocation queue feeds the back end immediately instead of waiting for fetch and decode latency.</p>
+<p><strong>When they buy nothing:</strong></p>
+<ul>
+<li>When one stage is slower <em>on average</em>, the queue in front of it is always full and the one after it is always empty. Throughput is the slowest stage’s rate, whatever the queue sizes.</li>
+<li>After a mispredict, everything in the queues is wrong-path and is flushed. Deep queues add nothing and can lengthen the refill if they add pipeline stages.</li>
+</ul>
+<p>Sizing rule: make a queue deep enough to cover the typical burst on either side, measured from occupancy histograms. Beyond that, extra entries cost area and power and add nothing.</p>`, "hard"),
 },
 {
   id: "intv-renaming",
@@ -340,6 +416,39 @@ st  r2, [r7 + 8i]</code></pre>
 <li><strong>(b) Renaming:</strong> each <code>ld r1</code> gets a fresh physical register, so all 8 loads issue within a few cycles and their misses overlap: about 400 + a few cycles, roughly <strong>8× faster</strong> (given at least 8 miss buffers).</li>
 <li><strong>(c)</strong> The compiler can allocate different registers to each copy (r1, r8, r9, …), which removes the WAW and lets the scoreboard overlap the misses too. But that needs 16 architectural registers for 8 copies instead of 2, it only works for code the compiler can see and unroll, and the compiler doesn’t know which loads will miss. Renaming does the same thing dynamically, for any code, with as many “registers” as the physical register file has.</li>
 </ol>`, "hard") +
+Q(`<p>On x86-64, <code>mov al, [rsi]</code> writes only the low 8 bits of <code>rax</code>, while <code>mov eax, [rsi]</code> zeroes the upper 32 bits. Why does the partial write create a dependence that renaming can’t simply remove? Describe three ways cores have handled it, and explain why the 64-bit ISA made 32-bit writes zero the upper half.</p>`,
+`<p><strong>The dependence:</strong> after <code>mov al, [rsi]</code>, the full <code>rax</code> is the new low byte plus the old upper 56 bits. Whoever reads <code>rax</code> next needs both, so the new value depends on the old one. Renaming gives the write a new physical register, but that register is only partly filled.</p>
+<ul>
+<li><strong>Stall and merge late (P6 family):</strong> rename <code>al</code> separately. A later read of the full register stalls until the partial write retires, then reads the merged value. Fast for code that only uses <code>al</code>, painful (several cycles) for code that mixes widths.</li>
+<li><strong>Insert a merge uop (Sandy Bridge and later for some cases):</strong> rename the partial register separately, and when the full register is read, insert an extra uop that combines the two physical registers. Costs one uop and possibly a cycle, but no stall.</li>
+<li><strong>Don’t rename the partial register (Haswell and later for <code>al</code>):</strong> treat the write as a read-modify-write of the whole register. No merge, but every byte write now waits for the previous value of <code>rax</code>: a false dependence that can serialize a loop which only meant to write bytes.</li>
+</ul>
+<p><strong>Why 32-bit writes zero the upper half:</strong> if they merged, every 32-bit instruction (most integer code) would depend on the previous 64-bit value, and renaming would gain nothing. Zeroing makes the 32-bit write a full write. Arm64 made the same choice for <code>W</code> registers. Compilers avoid the remaining problem with <code>movzx</code> for byte loads, which writes the whole register.</p>`, "hard") +
+Q(`<p>Renaming removes false dependences through registers, but not through memory. A loop spills a value to the stack and reloads it a few instructions later. What does that cost on a core without special support, and how can a core “rename” memory? What has to be checked for it to be safe?</p>`,
+`<p><strong>The cost:</strong> the reload depends on the store through memory. At best it gets the data by store-to-load forwarding, which takes about 4 to 5 cycles on recent x86 cores, on top of the store’s own wait for its data. A register move would have cost 0 or 1 cycle. In a loop-carried chain, a spill and reload can double the time per iteration.</p>
+<p><strong>Memory renaming:</strong> predict at rename that the load reads what a specific older store wrote, and connect the load’s destination to the physical register holding the store’s data, as if the load were a move. Dependents then wake up as soon as the store’s data is ready, without waiting for address generation or the forwarding path. AMD’s Zen 2 does this for some stack accesses, tracking accesses relative to <code>rsp</code> at decode, where the offset alone shows whether two accesses match.</p>
+<p><strong>What must be checked:</strong></p>
+<ul>
+<li>The load’s real address and size must match the store’s. The load still executes, or at least computes its address, and compares, and a mismatch is handled like a memory-dependence mispredict: flush and replay from the load.</li>
+<li>No other store, including one from another core, may have written the location in between. Intervening stores must be checked, and for other cores the load must still be ordered like a normal load.</li>
+<li>Stack-pointer changes (calls, pushes, frame setup) must be tracked so the offset comparison stays valid.</li>
+</ul>
+<p>It is a prediction like any other: big gains on spill-heavy code (register-starved x86 loops, function prologues), and a flush when it is wrong.</p>`, "hard") +
+Q(`<p>A load misses to DRAM and a long chain depends on its value. Value prediction would guess the value at rename and let the chain run. When can that work, what must the core do to recover, and why has it rarely shipped despite decades of papers?</p>`,
+`<p><strong>When it can work:</strong> many loads return the same value as last time (constants, flags, loop-invariant pointers) or a value with a fixed stride. Predictors like last-value, stride, and context-based ones (VTAGE, using branch history) find these. Only high-confidence predictions are used, typically with accuracy above 99%, because a wrong one is expensive.</p>
+<p><strong>What recovery needs:</strong></p>
+<ul>
+<li>The load still executes and its real value is compared with the prediction.</li>
+<li>If they differ, every instruction that consumed the wrong value must be undone. The simple way is a flush from the instruction after the load, like a mispredict. Selective replay of only the dependents is cheaper in lost work but much harder to build.</li>
+<li>Rename must write the predicted value into the physical register, which needs extra register-file write ports at rename, or a separate structure.</li>
+</ul>
+<p><strong>Why it rarely ships:</strong></p>
+<ul>
+<li>The loads worth predicting, ones that miss and feed a long chain, are often the least predictable ones (pointer chasing to new nodes).</li>
+<li>The gain is modest on most suites, a few percent, while the hardware touches rename, the register file, and recovery, all timing-critical areas.</li>
+<li>Memory consistency gets harder: a predicted value must still be consistent with what other cores wrote, so the comparison has to happen at the right point in the ordering rules.</li>
+</ul>
+<p>A restricted form does ship widely: zero idioms and move elimination are value “prediction” with 100% accuracy, decided by the instruction encoding alone.</p>`, "hard") +
 `<h3 id="sec-mech">Rename Mechanics</h3>` +
 Q(`<p>Rename the sequence from Q1. Initial map: r<em>n</em> → p<em>n</em> for every architectural register. Free list, in order: p32, p33, p34, p35. Give each renamed instruction, the final map, and the physical register each instruction frees when it commits. What happens to the next instruction that writes a register?</p>`,
 `<ol>
@@ -396,6 +505,33 @@ M(`<p>A 6-wide rename stage can take at most 4 registers from the free list per 
 <li><strong>(b)</strong> The instruction that ends a group early is, by construction, one that needs a register. So the next cycle does <em>not</em> start with a random instruction; it starts with one known to need a register, and such cycles average only 5.23. A two-state Markov chain (does this cycle start with a known register writer or not?) gives a stationary probability of 0.47 for the “known writer” state, so the steady-state rate is 0.53 × 5.41 + 0.47 × 5.23 ≈ <strong>5.33</strong>. A direct simulation of 2 million random instructions agrees (5.33).</li>
 </ol>
 <p>The general lesson: when a stall condition is caused by the next item, that item carries into the next cycle, and treating cycles as independent overestimates throughput. Here the 4-register limit costs about 11% of rename bandwidth.</p>`, "hard") +
+Q(`<p>Older designs (P6, the Pentium Pro family) kept speculative results in the ROB and copied them into a separate architectural register file at retirement. Modern cores use one merged physical register file and only update a map at retirement. Compare the two at retirement, at mispredict recovery, and in register-file ports and area.</p>`,
+`<p><strong>ROB plus architectural file (P6 style):</strong></p>
+<ul>
+<li>Retirement copies each result from the ROB into the architectural file: data movement and write ports on every retired instruction.</li>
+<li>Recovery is simple: the architectural file is always correct, so discard the ROB and point every register back at it.</li>
+<li>A source operand may be in the ROB or in the architectural file, so reads need both, and the ROB must be a multi-ported register file sized for every in-flight instruction, including those (stores, branches) that write no register.</li>
+<li>A value is written twice: once into the ROB, once at retirement.</li>
+</ul>
+<p><strong>Merged physical register file (MIPS R10000, Alpha 21264, every big core today):</strong></p>
+<ul>
+<li>Retirement moves no data: it updates the retirement map and frees the previous physical register.</li>
+<li>Recovery needs the rename map restored to the branch’s point: checkpoints, a ROB walk, or a copy of the retirement map.</li>
+<li>Only instructions that write a register use an entry, so the register file can be smaller than the ROB. With SIMD registers of 256 or 512 bits, not storing them in the ROB saves a lot of area.</li>
+<li>Freeing registers needs more care: the previous mapping is freed only when the overwriting instruction retires.</li>
+</ul>
+<p>The switch happened because wider and wider retirement made the copy expensive, and large vector registers made a value-holding ROB enormous. The merged file moved complexity from data paths into control (maps and free lists), which scales better.</p>`, "hard") +
+Q(`<p>Two SMT threads share one rename stage and one physical register file. What has to be replicated per thread, what can be shared, and what goes wrong when one thread stalls on a DRAM miss while holding many physical registers?</p>`,
+`<p><strong>Per thread:</strong> the speculative rename map, the retirement map, the branch checkpoints (they snapshot one thread’s map), and the return-address stack and global history on the prediction side. Both threads use architectural register r1, but they mean different values, so their maps must be separate.</p>
+<p><strong>Shared:</strong> the physical register file and its free list. Physical register names are global, so one free list serves both threads, and any free register can go to either.</p>
+<p><strong>The problem:</strong> a thread that misses to DRAM keeps renaming until something fills. Every instruction behind the miss holds a physical register until it retires, and none can retire until the miss returns. If nothing limits it, that thread takes most of the free list, and the other thread, which could be making progress, stalls at rename for lack of registers. Total throughput falls below what the second thread would get alone.</p>
+<p><strong>Fixes:</strong></p>
+<ul>
+<li>Cap each thread at a share of the registers (static partitioning or a high-water mark), at the cost of some peak single-thread performance.</li>
+<li>Fetch policies such as ICOUNT, which favor the thread with fewer instructions in flight, so a stalled thread naturally gets fewer new instructions.</li>
+<li>Stall or flush a thread that has a long-latency miss at its ROB head, freeing its registers for the other thread and refetching later.</li>
+</ul>
+<p>In a model, check per-thread register occupancy over time. A thread holding most of the file while making no progress is the signature of this problem.</p>`, "hard") +
 `<h3 id="sec-recover">Recovery and Reclamation</h3>` +
 Q(`<p>When exactly can the old physical register of an overwritten mapping be freed? Why not when the new producer writes back? Why not as soon as the last reader has read it?</p>`,
 `<p>When the instruction that overwrote the mapping <strong>commits</strong>. Only then is it certain that (a) every reader of the old value, all of which are older, has read it, and (b) the overwriting instruction won’t be squashed.</p>
@@ -448,6 +584,20 @@ M(`<p>Recovery walks the ROB at 8 entries per cycle, overlapped with the 15-cycl
 <li><strong>(c)</strong> 5 × 6.75 = 33.75 extra cycles per 1,000 instructions, against 1,000 / 3 = 333 base cycles: about <strong>10% more time</strong>. That’s a strong case for checkpoints, at least on low-confidence branches.</li>
 </ol>
 <p>Whenever a cost has a threshold (a buffer that overflows, a walk that outlasts a refill, a queue that fills), compute it over the distribution, not from the mean.</p>`, "hard") +
+Q(`<p>Many cores recover from a branch mispredict at execute using rename checkpoints, but recover from an exception or interrupt at retirement by copying the retirement map. Why use two different mechanisms instead of one?</p>`,
+`<p><strong>Branches are frequent and their timing matters.</strong> At several mispredicts per 1,000 instructions, recovery time is a direct cost. Checkpoints taken at rename let the core restore the map in a cycle or two the moment the branch resolves, without waiting for it to reach the head of the ROB. They are worth their area because they are used constantly.</p>
+<p><strong>Exceptions are rare and must be precise.</strong> A page fault or interrupt happens maybe once per millions of instructions, and the handler that follows costs thousands of cycles anyway. Recovering at retirement is easy to get right: every older instruction has committed, the retirement map is exactly the architectural state, and copying it to the speculative map (and freeing everything younger) is correct by construction. Spending checkpoints on every instruction that might fault (every load, store, and FP operation) would need far more checkpoints than any design can afford.</p>
+<p><strong>Other events land on one side or the other by the same logic:</strong></p>
+<ul>
+<li>Memory-ordering violations and memory-dependence mispredicts are fairly frequent but don’t align with checkpoints, so cores often recover from the load by a ROB walk or wait until it is at the head.</li>
+<li>Branches that run out of checkpoints (more unresolved branches than checkpoints) fall back to a walk or to retire-time recovery.</li>
+</ul>
+<p>The general rule: frequent events get fast, specialized recovery, rare events get the simplest correct one.</p>`, "hard") +
+Q(`<p>The core has 8 rename checkpoints. Branch B2 mispredicts and recovers, and before the correct path has renamed more than a few instructions, an older branch B1 also resolves as mispredicted. What must happen to the checkpoints of the branches between B1 and B2, and to B2’s? What goes wrong in a model that frees checkpoints only at retirement?</p>`,
+`<p><strong>At B2’s recovery:</strong> restore B2’s checkpoint, and free every checkpoint taken after B2: those branches were on B2’s wrong path. Checkpoints of branches older than B2 stay, because those branches are still unresolved.</p>
+<p><strong>At B1’s recovery:</strong> B1 is older, so everything after it is wrong path, including B2 and the few correct-path instructions renamed after B2’s recovery. Restore B1’s checkpoint and free every checkpoint taken after B1: the branches between B1 and B2, B2’s own checkpoint, and any checkpoints taken on the path after B2’s recovery. B2’s recovery turns out to have been wasted work, but it was still the right thing to do at the time, since the core couldn’t know B1 would mispredict.</p>
+<p>The implementation is usually a circular buffer of checkpoints in age order, so “free everything younger than X” is just resetting the tail pointer to X. That is the same reason the free list is a FIFO.</p>
+<p><strong>The bug if checkpoints are freed only at retirement:</strong> squashed branches never retire, so their checkpoints are never freed. The pool slowly drains, and rename stalls on “no free checkpoint” more and more often, a performance bug that looks like a branch-heavy code problem rather than a leak. The check that catches it: at any cycle, the number of allocated checkpoints must equal the number of unresolved branches in the ROB that hold one.</p>`, "hard") +
 `<h3 id="sec-sizing">Sizing and Performance</h3>` +
 Q(`<p>Skylake has 180 integer physical registers, 16 architectural integer registers, and a 224-entry ROB. In a phase where almost every instruction writes an integer register, how many instructions can be in flight? What does that imply when a load misses to DRAM?</p>`,
 `<p>The committed state permanently holds about 16 registers (in practice a few more for internal temporaries), so roughly 180 − 16 = <strong>164</strong> registers are available for in-flight destinations. If nearly every instruction writes one, rename stalls on an empty free list at about 164 instructions in flight, well before the ROB’s 224. The effective window is about 164.</p>
@@ -486,7 +636,36 @@ M(`<p>A Golden Cove-like core has 280 integer physical registers and a 512-entry
 <li><strong>(a)</strong> Registers in use = committed mappings + in-flight destinations. (280 − 16) / 0.6 = <strong>440</strong> instructions, fewer than the 512 ROB entries, so the register file binds.</li>
 <li><strong>(b)</strong> Each thread needs its own committed mappings: 2 × 16 = 32. In-flight capacity: (280 − 32) / 0.6 ≈ <strong>413</strong> instructions total, about 207 per thread if they share evenly, below each thread’s 256-entry ROB share. So under SMT the register file still binds, and more tightly per thread. A larger ROB partition would do nothing for either thread.</li>
 </ol>
-<p>The broader point: when you evaluate a structure size for an SMT core, recompute every other structure’s limit per thread. Fixed per-thread costs (architectural state) come out of the shared pool before any of it is available for the window.</p>`, "hard"),
+<p>The broader point: when you evaluate a structure size for an SMT core, recompute every other structure’s limit per thread. Fixed per-thread costs (architectural state) come out of the shared pool before any of it is available for the window.</p>`, "hard") +
+Q(`<p>For the next core you can afford either 32 more integer physical registers or 32 more vector registers (512-bit). How do you decide? Why is each vector register so much more expensive, and why does the answer depend on the workload mix more than for almost any other structure?</p>`,
+`<p><strong>Cost:</strong> a 512-bit register is 8 times the bits of a 64-bit one, and the vector file has many read ports (an FMA needs 3 sources) on wide data paths. 32 vector registers cost roughly as much area and read energy as a few hundred integer ones. The vector file is also often on the critical timing path of the FP pipeline, so adding entries can add a cycle of latency.</p>
+<p><strong>Who benefits:</strong></p>
+<ul>
+<li>Integer registers limit the window on almost all code, since most instructions write an integer register. Extra ones help any workload that stalls on a full integer free list: pointer-heavy server code, compilers, interpreters.</li>
+<li>Vector registers limit only code that keeps many vector instructions in flight: HPC kernels, media, and ML inference on the CPU, especially when vector loads miss and the window must hold many results waiting to be consumed.</li>
+</ul>
+<p><strong>How to decide:</strong> sweep both in the model on the product’s target suites, and measure allocation stalls per register class during the phases that matter. Weight each suite by the product’s market: a server core runs mostly integer code, a workstation or HPC part runs more vector code. Also check the per-class stall histograms, since a register class that is the limit only in short bursts may not justify the area.</p>
+<p>Golden Cove’s 280 integer and 332 vector registers show the choice Intel made for a core expected to run vector code at full width. Cores aimed at mostly integer markets have kept vector files relatively smaller.</p>`, "hard") +
+Q(`<p>Widening rename from 6 to 8 also means more instructions read the physical register file each cycle. Why does the register file’s port count become a timing and area problem, and what do designs do to need fewer read ports than “2 per instruction times issue width”?</p>`,
+`<p><strong>The problem:</strong> each read port adds a wordline and a bitline to every cell, so the cell area grows roughly with the square of the port count, and access time grows with it. An 8-wide issue with up to 3 sources per uop would need about 24 read ports on a file of several hundred entries, which no design can afford at full speed.</p>
+<p><strong>Ways around it:</strong></p>
+<ul>
+<li><strong>Read from the bypass:</strong> a source produced in the last few cycles comes from the bypass network, not the file. A large share of operands are read this way, so the file can have fewer ports than the worst case, plus an arbiter that delays the occasional uop that needs more.</li>
+<li><strong>Fewer ports per execution unit:</strong> not every port needs 3 sources. Store data, branches, and simple ALUs need fewer.</li>
+<li><strong>Banking:</strong> split the file into banks with fewer ports each, and stall or replay on a bank conflict. Works if conflicts are rare and the bank choice spreads registers evenly.</li>
+<li><strong>Replication:</strong> two copies of the file, each feeding half the execution units (the Alpha 21264 did this for its integer clusters). Doubles the write cost and adds a cycle to cross between copies.</li>
+<li><strong>Register caching:</strong> a small, fast cache of recently written registers in front of a larger, slower file.</li>
+</ul>
+<p>In a model, register-file read port limits are often left out. That is fine when the design reads mostly from the bypass, and wrong on code with many long-lived values (loop-invariant constants read every iteration), which always come from the file.</p>`, "hard") +
+Q(`<p>Rename stalls on a workload even though the ROB is half empty and plenty of physical registers are free. Give four resources other than the ROB and register file that rename must allocate, the kind of code that runs out of each, and the statistic that shows it.</p>`,
+`<ul>
+<li><strong>Load queue or store queue entries:</strong> allocated at rename and held until retirement (loads) or until the store is written to the cache (stores). Memcpy-like or store-heavy code, especially when stores miss and the store queue drains slowly. Shown by allocation stalls with “store queue full” or “load queue full” as the reason.</li>
+<li><strong>Scheduler entries:</strong> held until issue. Code whose instructions wait a long time for operands, typically dependents of a miss sitting in a full scheduler. Shown by scheduler occupancy pinned at its limit while the ROB isn’t full.</li>
+<li><strong>Branch checkpoints:</strong> one per unresolved branch on designs that checkpoint every branch. Branch-dense code (a branch every 4 or 5 instructions) whose branches depend on slow loads, so many stay unresolved. Shown by stalls on “no free checkpoint” and the count of unresolved branches.</li>
+<li><strong>Flag or condition registers:</strong> on designs that rename flags separately, x86 code where almost every instruction writes flags can exhaust them before integer registers. Shown by stalls on that free list.</li>
+<li><strong>Allocation-group restrictions:</strong> some designs can allocate only a limited number of one kind per cycle (for example, at most 2 or 3 loads or 1 or 2 stores). Code dense in that kind stalls even with space everywhere. Shown by rename slots lost while the queue ahead holds instructions.</li>
+</ul>
+<p>The general method: record the reason for every rename stall cycle, choosing the first resource that blocked the oldest instruction in the rename group, and sum by reason. A total of “rename stalled” without reasons hides all of these.</p>`, "hard"),
 },
 {
   id: "intv-rob",
@@ -516,6 +695,20 @@ Q(`<p>An interrupt arrives while 400 instructions are in flight. Where does the 
 <p>All 400 in-flight instructions, many of them already executed, are discarded and must be refetched and re-executed after the handler returns. So the cost is like a misprediction with a full window: lost completed work, plus refilling the pipeline twice (into the handler and back out). Alternatives like waiting for a long-latency head instruction to finish would delay the interrupt by the miss latency, so designs bound it.</p>`, "medium") +
 Q(`<p>What happens when the ROB is full? Does fetch stop immediately?</p>`,
 `<p>Allocation (rename/dispatch) stalls: no new instruction can enter the back end without a ROB entry. Fetch and decode keep running until the queues between them and rename fill up, then they stall too. Execution and retirement continue normally; the stall ends as soon as the head retires and frees entries. A full ROB is usually a symptom (the head is waiting on something slow), not a cause.</p>`, "easy") +
+Q(`<p>Checkpoint-based designs (Checkpoint Processing and Recovery, kilo-instruction processors) drop the ROB’s one-entry-per-instruction tracking and instead take a checkpoint every few dozen instructions, committing a whole block at once. What does that buy for a window of thousands of instructions, and what does it give up?</p>`,
+`<p><strong>What it buys:</strong></p>
+<ul>
+<li><strong>No huge in-order structure.</strong> A ROB of several thousand entries is too large to allocate, search, and retire at speed. A few dozen checkpoints, each with a counter of unfinished instructions, track the same window.</li>
+<li><strong>Bulk commit.</strong> When a checkpoint’s counter reaches zero and all older ones have committed, the whole block commits at once, which is far wider than any per-instruction retirement.</li>
+<li><strong>Early register release.</strong> A physical register can be freed as soon as its value has been read by all consumers and it has been overwritten, tracked by reference counts, instead of waiting for in-order retirement. That keeps the register file small for a large window.</li>
+</ul>
+<p><strong>What it gives up:</strong></p>
+<ul>
+<li><strong>Exact recovery points.</strong> On a mispredict or exception the core can only return to a checkpoint, not to the faulting instruction. It must then re-execute the instructions between the checkpoint and the fault, in a special precise mode, to deliver a precise exception. Mispredicts on branches without a checkpoint lose more work.</li>
+<li><strong>Simplicity.</strong> Stores can’t be released until their block commits, so the store queue must hold the whole window’s stores or use a hierarchical store queue. Memory-ordering checks must cover a much larger window.</li>
+<li><strong>Checkpoint placement matters:</strong> take them at low-confidence branches to limit the re-execution cost, which needs a confidence estimator.</li>
+</ul>
+<p>The idea targets memory-bound code, where a window of thousands of instructions covers several DRAM misses. No mainstream core uses it fully, but parts of it (checkpointed rename, reference-counted registers for move elimination) appear in shipping designs.</p>`, "hard") +
 `<h3 id="sec-retire">Retirement and Commit</h3>` +
 M(`<p>On Golden Cove (512-entry ROB, 6-wide allocation), a load at the ROB head misses to DRAM: 80 ns at 5 GHz. The code behind it is independent of the load and would otherwise run at the full 6 per cycle. Assume no other structure (physical registers, load queue, scheduler) fills before the ROB. How many cycles does allocation stall, and what is the effective IPC over the miss? Then: what if a second, independent miss is 50 instructions behind the first? What if its address depends on the first load?</p><p>(e) When the miss finally returns, how long does it take to retire the backlog at 8 per cycle, and does allocation stall while it drains?</p>`,
 `<ol>
@@ -536,6 +729,21 @@ Q(`<p>How do stores differ from arithmetic instructions at retirement? Why does 
 Q(`<p>Golden Cove retires up to 8 instructions per cycle but allocates only 6. Why would a designer make retirement wider than allocation, when sustained IPC can’t exceed 6 anyway?</p>`,
 `<p>Because retirement is bursty. While a load miss sits at the head, hundreds of younger instructions complete but can’t retire. When the load returns, that backlog has to drain, and the ROB entries it holds are what allocation is waiting for. Retiring 8 per cycle drains it faster, freeing ROB entries, physical registers, and load-queue entries sooner, so allocation resumes sooner. The average stays at or below 6; the peak shortens recovery after every stall.</p>
 <p>Retirement is also comparatively cheap to widen: it reads the ROB in order and updates the committed map, with no wakeup or select logic.</p>`, "medium") +
+Q(`<p>An x86 instruction that decodes into 4 uops must retire as a unit. Why? Then explain how <code>rep movsb</code>, which can copy megabytes, can still be interrupted and resumed, and what the ROB has to do for that.</p>`,
+`<p><strong>Why atomic:</strong> architecturally, an instruction either happened or didn’t. If an interrupt or fault could land between the uops of <code>add [rdi], rax</code>, the handler might see the load and add done but the store not, a state no sequence of whole instructions could produce, and on return the instruction would re-execute its load and double-count. So the ROB marks the last uop of each instruction, and retirement commits uops only up to an instruction boundary. A fault on any uop flushes the whole instruction.</p>
+<p><strong>Why <code>rep movsb</code> is different:</strong> the architecture defines each iteration as a restartable unit. After each chunk, the registers <code>rcx</code> (count left), <code>rsi</code>, and <code>rdi</code> (pointers) are architecturally updated. An interrupt can be taken at a chunk boundary with the instruction pointer still pointing at the <code>rep movsb</code>. On return it re-executes and continues from where the registers say.</p>
+<p><strong>What the ROB does:</strong> the instruction is expanded by the microcode sequencer into a loop of uops. Each group that updates <code>rcx</code>, <code>rsi</code>, and <code>rdi</code> is treated as its own retirement unit, so retirement can stop between groups. Fast string implementations move whole cache lines per iteration, so the boundaries are coarser than one byte, but the architectural state at each boundary is still exactly “some number of bytes copied.”</p>
+<p>The same pattern covers other long instructions, such as gathers on some implementations, where completed elements are recorded in the mask register so a fault partway through can resume.</p>`, "hard") +
+Q(`<p>Your model retires up to 8 uops per cycle. The real core’s retirement also stops at certain instructions even when everything is complete. Which instructions or events limit retirement besides width, and how do you find out whether they matter for a workload?</p>`,
+`<ul>
+<li><strong>Taken branches per cycle:</strong> some designs retire at most one or two taken branches per cycle, because each updates the retirement-side branch state.</li>
+<li><strong>Stores:</strong> retirement may be limited in how many stores it can commit per cycle into the post-retirement store buffer.</li>
+<li><strong>Serializing instructions:</strong> <code>cpuid</code>, writes to some control registers, <code>lfence</code> in its serializing role, and microcoded instructions that must drain the pipeline retire alone and stop younger instructions from executing until they do.</li>
+<li><strong>Instructions with side effects at retirement:</strong> those that update rarely renamed state (segment registers, some FP control words, MXCSR on many cores) may require retirement to stop and the pipeline to restart.</li>
+<li><strong>Exceptions and assists:</strong> a uop marked as needing an assist or a fault stops retirement and triggers a flush.</li>
+<li><strong>Multi-uop instruction boundaries:</strong> if the last uop of an instruction falls outside this cycle’s retirement width, the earlier uops wait too.</li>
+</ul>
+<p><strong>How to find out:</strong> on silicon, compare retired uops per cycle with the retirement width over time, and look for cycles where the ROB head is complete but retirement is below width. Microbenchmarks that mix each suspect instruction with independent work measure its effect. In the model, record the reason for every retirement slot left unused while the head is complete. If such cycles are rare, retirement isn’t worth modeling in more detail, and the plain width limit is enough.</p>`, "hard") +
 `<h3 id="sec-sizing">Sizing the ROB</h3>` +
 Q(`<p>You double the ROB from 256 to 512 entries and a benchmark gets no faster. Give four distinct explanations and the statistic that separates each.</p>`,
 `<ol>
@@ -600,7 +808,16 @@ M(`<p>Mispredicted branches occur at 5 per 1,000 instructions, scattered randoml
 <li>512 entries: 200 × (1 − e<sup>−2.56</sup>) ≈ <strong>185</strong></li>
 <li>1,024 entries: 200 × (1 − e<sup>−5.12</sup>) ≈ <strong>199</strong></li>
 </ul>
-<p>Doubling 512 to 1,024 adds only about 14 useful entries (7%); the other 498 hold mostly wrong-path work that burns energy. A window much beyond about 3 × D is wasted, so window size has to grow together with prediction accuracy. Caveats: mispredicts cluster in real code (making long correct-path stretches more likely), and memory-bound phases with few branches benefit from big windows regardless.</p>`, "hard"),
+<p>Doubling 512 to 1,024 adds only about 14 useful entries (7%); the other 498 hold mostly wrong-path work that burns energy. A window much beyond about 3 × D is wasted, so window size has to grow together with prediction accuracy. Caveats: mispredicts cluster in real code (making long correct-path stretches more likely), and memory-bound phases with few branches benefit from big windows regardless.</p>`, "hard") +
+Q(`<p>IBM’s POWER4 and POWER5 tracked instructions in groups of up to 5 in the global completion table, one entry per group, instead of one ROB entry per instruction. What does grouping save, what does it cost in effective window size, and how would you model it?</p>`,
+`<p><strong>What it saves:</strong> one table entry, one completion check, and one set of recovery state per group instead of per instruction. With up to 5 instructions per group, the completion table needs about a fifth of the entries of a ROB covering the same instructions, and completion commits a whole group per cycle, which gives wide commit cheaply.</p>
+<p><strong>What it costs:</strong></p>
+<ul>
+<li><strong>Partly filled groups.</strong> Groups are formed at decode under rules: a group ends at a branch, some instructions must start or be alone in a group, and cracked instructions take several slots. Real groups average fewer than 5 instructions, so the effective window is smaller than “entries × 5.”</li>
+<li><strong>Coarse completion.</strong> A group completes only when all its instructions finish, so a long-latency instruction holds back the others in its group, though they would block retirement anyway.</li>
+<li><strong>Coarse recovery.</strong> A flush inside a group, such as from a load that violates ordering, may have to discard and refetch the whole group.</li>
+</ul>
+<p><strong>How to model it:</strong> form groups in the decode model using the real rules, allocate a completion-table entry per group, and count group-size statistics. Report the effective window as instructions in flight, not entries, and compare it with a per-instruction ROB of the same nominal capacity on the same suite. The difference is exactly what grouping costs. IBM kept groups through POWER8 and moved to per-instruction tracking in POWER9’s completion table, as windows grew and the grouping loss grew with them.</p>`, "hard"),
 },
 {
   id: "intv-sched",
@@ -632,6 +849,39 @@ M(`<p>Some Intel cores bind each uop to a specific execution port when it is all
 <li><strong>(b)</strong> Only partly. Alternating balances the <em>allocation</em> order, but instructions become ready in dataflow order, not allocation order: two uops that become ready in the same cycle may still have been bound to the same port. Real designs balance using counts of pending uops per port at allocation time, which reduces but does not eliminate collisions.</li>
 <li><strong>(c)</strong> With early binding, each port’s select logic only arbitrates among its own uops, a small independent circuit. Late binding needs a select that considers every port for every ready uop in the same cycle, which is larger and harder to fit in the one-cycle wakeup–select loop. Early binding trades some throughput for a faster, simpler scheduler.</li>
 </ol>`, "hard") +
+Q(`<p>Between rename and retirement, an out-of-order core tracks a load in several structures at once. Name them, and say when the load enters and leaves each one.</p>`,
+`<ul>
+<li><strong>ROB:</strong> enters at allocation, in program order. Leaves at retirement, in program order, after it and every older instruction have completed.</li>
+<li><strong>Scheduler (reservation station):</strong> enters at allocation. Leaves when it issues to a load port, once its address operands are ready. On most designs it may stay a few cycles longer, in case it has to replay.</li>
+<li><strong>Load queue:</strong> enters at allocation. Leaves at retirement, because until then an older store’s address check or, on x86, a snoop from another core may still find an ordering violation.</li>
+<li><strong>Physical register file:</strong> its destination register is taken from the free list at rename. The value is written when the data returns. The register itself is freed later, when the next instruction that writes the same architectural register retires.</li>
+<li><strong>Fill buffer or MSHR:</strong> only if it misses in the L1D. Allocated when the miss is sent, freed when the line arrives.</li>
+</ul>
+<p>Each structure can be the one that fills first, which is why a stall needs the name of the full structure, not just “the back end is full.” A store follows a similar path, but it leaves the store queue only after it has been written to the cache, which is after retirement.</p>`, "easy") +
+Q(`<p>The scheduler wakes a load’s dependents assuming an L1 hit (5 cycles), so they issue just in time to catch the data on the bypass. Then the load misses. What happens to the dependents already issued, and what are the replay options? What does a model that wakes dependents only when data really arrives get wrong?</p>`,
+`<p><strong>The problem:</strong> by the time the hit or miss is known, the dependents have issued and may be in register read or execute. Their operand is garbage, so they must be cancelled and issued again later. Their dependents, if already woken, must be cancelled too.</p>
+<p><strong>Replay options:</strong></p>
+<ul>
+<li><strong>Keep the entry until it is safe:</strong> a dependent stays in the scheduler for a few cycles after issue and is re-armed if a cancel signal arrives. Simple, but scheduler entries are held longer, which reduces effective capacity.</li>
+<li><strong>Non-selective replay:</strong> cancel everything issued in the shadow of the load (the cycles between its issue and the hit signal), dependent or not. Simple control, but independent instructions are wasted and retried.</li>
+<li><strong>Selective replay:</strong> track which instructions depend on the load, through dependence vectors or poison bits, and replay only those. Less waste, more logic.</li>
+<li><strong>Replay queue</strong> (Pentium 4): cancelled uops loop back through a replay path until the data is there. That design was known for “replay storms,” where uops replayed many times and burned issue slots.</li>
+</ul>
+<p>Designs also predict hit or miss per load, and delay dependents of loads predicted to miss.</p>
+<p><strong>What the idealized model gets wrong:</strong> it never wastes issue slots or port cycles on cancelled uops, and it never holds scheduler entries for safety. It is optimistic on code with frequent L1 misses, or with variable-latency loads such as bank conflicts and misaligned accesses. It is also wrong about load-to-use latency, since without speculative wakeup the dependents would issue several cycles later even on a hit.</p>`, "hard") +
+Q(`<p>Compare a CAM-based scheduler, where each result tag is broadcast to all entries, with a dependence-matrix scheduler, where each entry has a bit vector of the entries it waits on. How does each scale with entries and issue width, what does each need at dispatch, and where does each lose?</p>`,
+`<p><strong>CAM (tag broadcast):</strong> each entry stores its source tags (physical register numbers). Each cycle, the tags of up to <em>w</em> issued instructions are broadcast and compared against every source in every entry.</p>
+<ul>
+<li>Comparators: entries × sources × <em>w</em>. Each comparator is a full tag width (8 or 9 bits for a few hundred registers). Energy is spent on every broadcast, at every entry.</li>
+<li>Dispatch writes the tags, nothing else. Very flexible: the entry doesn’t care where its producer is.</li>
+</ul>
+<p><strong>Dependence matrix:</strong> each entry has one bit per other entry, set if it waits on that entry. When an entry issues, its column is cleared, and an entry is ready when its row is all zeros.</p>
+<ul>
+<li>Storage: entries², but each bit is a simple wire and gate, not a comparator, so wakeup is fast and low energy.</li>
+<li>Dispatch must translate source registers into scheduler entry numbers, which needs a table from physical register to the entry of its producer, and producers that already issued or left the scheduler must be marked ready.</li>
+<li>Scaling: entries² grows quickly, so matrices are used for small queues (a few dozen entries) or split per execution cluster.</li>
+</ul>
+<p>Matrices are also used as <strong>age matrices</strong> for selecting the oldest ready entry, even in schedulers that use CAMs for wakeup. In short: CAM energy grows with width, matrix area grows with entries squared, so wide machines with many small queues favor matrices, and large unified queues favor CAMs or a mix.</p>`, "hard") +
 `<h3 id="sec-trace">Tracing a Schedule</h3>` +
 Q(`<p>Integer adds take 1 cycle, a result can be used by a dependent instruction in the next cycle (full bypass), and the core can issue two adds per cycle, oldest first. All four instructions are in the scheduler with ready sources at cycle 0.</p>
 <pre><code>I0: r1 = r2 + r3
@@ -663,6 +913,10 @@ M(`<p>A loop computes the sequence x = a·x + b 1,000 times (64-bit integers, wr
 <li><strong>(b)</strong> Two steps at once: x<sub>n+2</sub> = a(a·x<sub>n</sub> + b) + b = A·x<sub>n</sub> + B with A = a² and B = a·b + b, precomputed once. Run two independent chains, one for even and one for odd indices (starting from x<sub>0</sub> and x<sub>1</sub>): each chain advances one step per 4 cycles, so 2 values per 4 cycles: about <strong>2,000 cycles</strong>. Wrapping 64-bit arithmetic is a ring, so the algebra is exact.</li>
 <li><strong>(c)</strong> With <em>k</em> interleaved chains (A = a<sup><em>k</em></sup>, B = b(a<sup><em>k</em>−1</sup> + … + 1)), you get <em>k</em> values per 4 cycles until the multiplier saturates at one multiply per cycle, at <em>k</em> = 4: about <strong>1,000 cycles</strong>. Width isn’t the limit (2 instructions per value, 4-wide). This is the general trick for latency-bound recurrences: trade more total work or precomputation for independent chains.</li>
 </ol>`, "hard") +
+Q(`<p>On several Intel cores, an integer result consumed by a vector or FP instruction, or the reverse, arrives a cycle or more later than within the same domain. Why does a cross-domain bypass delay exist, and how should a scheduler and a model handle it?</p>`,
+`<p><strong>Why:</strong> execution units are grouped into clusters (integer, vector/FP, sometimes load/store), each with its own bypass network. Bypassing every result to every unit in the same cycle would need long wires across the core and a huge mux at every input. So results within a cluster bypass in the same cycle, and results that cross clusters go through an extra latch stage or the register file, costing one or more cycles. Physical distance and data width (64-bit integer, 256- or 512-bit vector) make the vector-integer crossing the worst.</p>
+<p><strong>In the scheduler:</strong> wakeup must use a latency that depends on both the producer and the consumer. The producer broadcasts its tag, and a consumer in another cluster treats it as ready one or more cycles later. Some designs avoid the extra logic by adding a uop that moves the value between domains, which costs a slot as well as latency.</p>
+<p><strong>In a model:</strong> store the latency per (producer class, consumer class) pair, not per producer. A model with one latency per instruction class gets integer-vector mixes wrong. Examples: <code>movq xmm0, rax</code> or <code>vmovd</code> chains, vectorized code that extracts lane values to compute addresses, and integer instructions used in vector algorithms. Microbenchmark each crossing on the target core (a chain of alternating domains), since vendors don’t always document it.</p>`, "hard") +
 `<h3 id="sec-tradeoffs">Scheduler Trade-Offs</h3>` +
 Q(`<p>The scheduler is full in 30% of cycles. Does that mean it’s too small? What would you check before recommending a bigger one?</p>`,
 `<p>Not necessarily. A full scheduler often means it is full of instructions waiting on a long-latency load. The real problem is then memory latency; the scheduler is just where the waiting happens. Check:</p>
@@ -700,6 +954,36 @@ M(`<p>At IPC 4, instructions spend this long in the scheduler between dispatch a
 <li><strong>(b)</strong> 4 × 0.05 × 400 = <strong>80 entries</strong>, 84% of the scheduler, held by the 5% of instructions waiting on DRAM and doing nothing.</li>
 <li><strong>(c)</strong> 60 entries can support at most 60 / 23.9 ≈ <strong>2.5 IPC</strong> with this mix. Since the long waiters dominate the occupancy, scheduler size is really set by miss handling. That motivates designs that move miss-dependent instructions out of the scheduler into a cheap buffer and bring them back when the data arrives, rather than growing the expensive wakeup CAM.</li>
 </ol>`, "hard") +
+Q(`<p>An issue queue can be <em>collapsing</em> (entries shift toward the bottom as older ones issue, so position equals age) or <em>non-collapsing</em> (entries stay where they were written, in any free slot). How does each find the oldest ready instruction, and what does each cost in power, timing, and capacity?</p>`,
+`<p><strong>Collapsing queue:</strong></p>
+<ul>
+<li>Age is position, so a simple priority encoder from the bottom finds the oldest ready entry. Selection is fast and exactly age-ordered.</li>
+<li>Every issue shifts all younger entries down, moving their tags, operand state, and payload. Wires and muxes for shifting by up to <em>w</em> positions per cycle cost power and area, and the shifting must finish in the same cycle as wakeup and select.</li>
+<li>Capacity is used fully: no holes.</li>
+</ul>
+<p><strong>Non-collapsing queue:</strong></p>
+<ul>
+<li>Entries are written into free slots, so position says nothing about age. Age needs an age matrix (one bit per pair of entries: “i is older than j”), or a coarse timestamp per entry, or a priority scheme that only approximates age.</li>
+<li>No data moves after dispatch, so power is much lower, and the queue can be larger.</li>
+<li>Selection is more complex if exact age order is wanted, and approximations (random or position-based priority) can occasionally pick a younger instruction over a critical older one.</li>
+</ul>
+<p>The Alpha 21264 used a collapsing queue. Most later designs use non-collapsing queues with age matrices or approximate age, because shifting energy grew too large with wider and deeper queues. In a model, “oldest first” selection is often assumed. If the target uses approximate age, check that the difference doesn’t matter for the workloads, for example by also simulating random selection among ready entries.</p>`, "hard") +
+Q(`<p>Oldest-first selection ignores which instructions are on the critical path. How could a core predict criticality cheaply at run time, what would it do with the prediction, and why have criticality-based schedulers given smaller gains than the idea suggests?</p>`,
+`<p><strong>Predicting criticality:</strong></p>
+<ul>
+<li>Heuristics based on observable events: an instruction that was the oldest in the ROB when it completed (it blocked retirement), loads that missed, instructions feeding a mispredicted branch, or instructions with many dependents.</li>
+<li>Token-passing predictors (Fields, Rubin, and Bodík, 2001) that approximate the critical path in the dependence graph and train a table indexed by PC.</li>
+<li>A small table of PCs with saturating counters, updated at retirement.</li>
+</ul>
+<p><strong>Using it:</strong> select predicted-critical instructions before older non-critical ones, steer them to the faster cluster or a port without bypass delay, issue their loads first to the memory system, or give their misses priority in the MSHRs and DRAM queue.</p>
+<p><strong>Why gains are small:</strong></p>
+<ul>
+<li>Oldest-first is already a good proxy: the oldest instruction blocks retirement and is often critical.</li>
+<li>The scheduler rarely has more ready instructions than ports. Priority matters only in cycles with contention, which are a minority on most code.</li>
+<li>The critical path moves. Speeding one chain makes another chain critical, so the gain is bounded by the slack of the next path.</li>
+<li>Prediction costs a table lookup at rename and storage, and a wrong prediction can starve a truly critical instruction.</li>
+</ul>
+<p>Typical reported gains are a few percent. The idea pays off more for resource arbitration far from the core (DRAM scheduling, cache bank arbitration), where contention is common and the latencies at stake are large.</p>`, "hard") +
 `<h3 id="sec-ilp">Execution Units and ILP</h3>` +
 M(`<p>Skylake has four integer ALU ports, but shifts and branches can only use two of them (ports 0 and 6). A tight loop is about half shifts and branches. What is the best-case IPC, and how would you detect this limit with counters?</p>`,
 `<p>If half the instructions can only use 2 ports, those ports must carry 0.5 × IPC instructions per cycle, so 0.5 × IPC ≤ 2, giving IPC ≤ 4, which matches the core’s 4-wide limit. So at exactly half, the restriction is just barely not binding. If shifts and branches are 60% of the loop, the bound is 2 / 0.6 ≈ 3.3. And because the taken branch can only use port 6, a loop with one taken branch per iteration can’t run faster than one iteration per cycle.</p>
@@ -738,6 +1022,27 @@ M(`<p>A loop sums the elements above a threshold: <code>if (x[i] &gt; t) s += x[
 <li><strong>(b)</strong> Sorted data makes the branch almost perfectly predictable, so both versions run at about 1 cycle per element.</li>
 <li><strong>(c)</strong> In the max loop the conditional move is <em>on</em> the chain: compare m, then select into m: 2 cycles per element. On random data the running maximum changes rarely (about ln <em>n</em> times over <em>n</em> elements), so the branch is almost always not taken and well predicted, and the predicted branch breaks the dependence: the core doesn’t wait for m to know what to do next. That gives about 1 cycle per element, 2× faster than the branchless version. Branchless code wins when the branch is unpredictable and the select is off the critical path; it loses when the branch is predictable and the select sits on a loop-carried chain.</li>
 </ol>`, "hard") +
+Q(`<p>Limit studies such as Wall’s (1991) found ILP in the tens or even hundreds with perfect branch prediction, perfect alias analysis, and unlimited renaming and window. Real cores get IPC around 2 on integer code. Which idealizations account for most of the gap, and in what order?</p>`,
+`<p>Relax them one at a time from the ideal, on typical integer code:</p>
+<ol>
+<li><strong>Branch prediction:</strong> the biggest single factor. With an unlimited window, ILP comes from instructions far ahead. A mispredict every few hundred instructions limits the useful window to that distance, so even a good real predictor cuts the ideal ILP drastically.</li>
+<li><strong>Window size:</strong> real windows hold a few hundred instructions, not thousands. Much of the ideal ILP is from distant independent work, out of reach.</li>
+<li><strong>Memory latency:</strong> limit studies typically assume 1-cycle memory. Real misses stall retirement and fill the window, and dependent misses serialize.</li>
+<li><strong>Memory disambiguation:</strong> without perfect alias knowledge, loads wait for or speculate past older stores. Modern dependence predictors recover most of this loss.</li>
+<li><strong>Finite registers:</strong> renaming with a few hundred registers limits the window like the ROB does.</li>
+<li><strong>Fetch and width limits:</strong> fetch past taken branches, decode width, and ports. These matter only once the larger limits are removed.</li>
+</ol>
+<p>The lesson H&amp;P draw: ILP exists, but the cost of exposing it (prediction, window, memory) grows faster than the gain, which is why industry turned to multiple cores and threads in the mid-2000s. In an interview, the useful skill is to say which assumption your model makes that a limit study does not, and how much it matters for your workload.</p>`, "hard") +
+Q(`<p>Going from 4 to 8 integer ALUs does almost nothing for most integer code, but going from 2 to 3 loads per cycle (Zen 2 to Zen 3, Sunny Cove to Golden Cove) gave measurable gains. Why the asymmetry?</p>`,
+`<p><strong>ALUs:</strong> integer code has about 1 ALU operation per instruction or less, and IPC is around 2 to 3. Four ALUs are rarely all busy. Cycles with more than 4 ready ALU operations are uncommon, because dependence chains and the front end limit how many are available. Extra ALUs help in bursts after a miss returns and little otherwise.</p>
+<p><strong>Load ports:</strong></p>
+<ul>
+<li>Loads are frequent, often 25% to 35% of instructions, so at IPC 4 there are more than 1 load per cycle on average, and bursts of 3 or more are common.</li>
+<li>Loads are on the critical path of most code: addresses come from loads (pointer chasing, indirect array access), and branches depend on loaded values. Delaying a load by one cycle for a port delays its whole dependent chain.</li>
+<li>A load port is a whole pipeline: an address generator, a TLB port, an L1D port (more banks or more read ports), store-queue search, and a fill path. That is why they are scarce and why adding one changes measured throughput.</li>
+<li>Loads also need ports for retries, and a store-forwarding or bank-conflict replay takes a port slot again.</li>
+</ul>
+<p><strong>What to measure:</strong> per-port utilization and the distribution of ready instructions per port class per cycle. If the load ports are busy and there are cycles with ready loads left waiting, another port helps. If the ALUs are rarely all busy, more of them won’t.</p>`, "hard") +
 `<h3 id="sec-smt">SMT and SIMD</h3>` +
 Q(`<p>An SMT core statically partitions the ROB and the load and store queues between two threads, but competitively shares the schedulers and physical registers. Explain the reasoning for each choice, and what happens to single-thread performance when only one thread runs.</p>`,
 `<ul>
@@ -786,7 +1091,22 @@ M(`<p>A loop does 4 operations per element. Then, for 1% of elements (unpredicta
 <li><strong>(b)</strong> Per vector: 4 + 60 + 2 + 2 = 68 slots for 16 elements, 4.25 per element, 1.06 cycles. Speedup 2.05 / 1.06 ≈ <strong>1.9×</strong>, though 16 lanes promised up to 16×, because every element now pays for the rare path.</li>
 <li><strong>(c)</strong> P(no lane takes the long path) = 0.99<sup>16</sup> ≈ 0.85. Per vector: 4 + 2 + 2 + 1 + 0.15 × 60 = 17.9 slots, 1.12 per element, 0.28 cycles. Mispredicts: 0.15 × 15 / 16 ≈ 0.14 cycles per element. Total ≈ 0.42 cycles, a speedup of about <strong>4.9×</strong>.</li>
 <li>Rare, expensive paths are where masked SIMD loses most. Better still: compress the rare elements into a list and run the long path on them in a separate pass.</li>
-</ol>`, "hard"),
+</ol>`, "hard") +
+Q(`<p>Some cloud providers disable SMT on shared hosts, or only let one tenant’s threads share a physical core. What can one SMT thread learn about another through shared core resources, and which mitigations cost what?</p>`,
+`<p><strong>Leaks through contention (timing):</strong></p>
+<ul>
+<li><strong>Port contention</strong> (PortSmash, 2018): a spy thread issues instructions to one port and times them. When the victim uses that port, the spy slows down. Repeated measurements recover a pattern of instructions, such as the sequence of operations in a cryptographic scalar multiplication, which reveals key bits.</li>
+<li><strong>Shared caches, TLBs, and predictors:</strong> L1D and L1I contents, BTB entries, and TLB entries are shared, so prime-and-probe attacks work with much finer timing than across cores.</li>
+</ul>
+<p><strong>Leaks through shared buffers (data):</strong> the MDS family (RIDL, Fallout, ZombieLoad, 2019) showed that on some Intel cores, faulting or assisted loads could transiently receive stale data from fill buffers, load ports, or the store buffer, including data belonging to the sibling thread.</p>
+<p><strong>Mitigations:</strong></p>
+<ul>
+<li><strong>Disable SMT:</strong> removes all sibling leaks, at the cost of the 15% to 30% throughput that SMT typically gives on server work.</li>
+<li><strong>Core scheduling</strong> (Linux, since 5.14): only threads that trust each other share a core. Keeps most SMT gains, but the scheduler sometimes leaves a sibling idle.</li>
+<li><strong>Buffer clearing</strong> (<code>VERW</code> at privilege changes) for MDS: protects against kernel-to-user leaks, not against a concurrently running sibling.</li>
+<li><strong>Constant-time code:</strong> removes secret-dependent port use and memory access, the only defense the software can apply itself.</li>
+</ul>
+<p>For an architect: any resource shared dynamically between threads is a channel. Partitioning closes some of them but costs the flexibility that makes SMT pay off.</p>`, "hard"),
 },
 {
   id: "intv-arith",
@@ -824,6 +1144,23 @@ M(`<p>A FIR filter multiplies Q15 samples by Q15 coefficients and sums 64 produc
 <li><strong>(b)</strong> 40 − 32 = <strong>8 guard bits</strong>. The largest positive value is 2<sup>39</sup> − 1, so it can sum up to <strong>511</strong> worst-case products (512 of them would reach exactly 2<sup>39</sup>).</li>
 <li><strong>(c)</strong> An INT8 product fits in 16 bits (at most 255 × 128 = 32,640 for u8 × s8). A matrix multiply sums thousands of them: 4,096 products need about 16 + 12 = 28 bits. 32-bit accumulators hold that with headroom, while the older 16-bit path (VPMADDUBSW) saturates and silently gives wrong answers.</li>
 </ol>`, "medium") +
+Q(`<p>An audio filter’s state decays toward zero, and after the input goes silent the loop becomes 50 to 100 times slower on some x86 cores. Explain the mechanism. What do flush-to-zero (FTZ) and denormals-are-zero (DAZ) do, what do they cost in accuracy, and why does a performance model need to know about this at all?</p>`,
+`<p><strong>Mechanism:</strong> as the state decays it becomes subnormal (below about 1.2 × 10<sup>−38</sup> in single precision): the exponent is at its minimum and the leading bit is 0, so the value has to be normalized and denormalized around each operation. Many cores handle the common normal case in the fast pipeline and send subnormal inputs or outputs to a microcode assist, which flushes the pipeline and runs a slow path. Assists cost on the order of 100 cycles or more each, so a loop where every operation hits one runs dozens of times slower. Recent cores handle more cases in hardware (additions are often fast, some multiplies still assist), so the effect depends on the operation and the core.</p>
+<p><strong>FTZ and DAZ</strong> (bits in MXCSR on x86, FZ in FPCR on Arm): FTZ replaces subnormal results with zero, and DAZ treats subnormal inputs as zero. Both remove the slow path entirely. The cost is a loss of gradual underflow: <em>x − y</em> can become 0 even when <em>x ≠ y</em>, and very small values lose all precision instead of some. That is acceptable in audio, graphics, and most ML, and not acceptable in some scientific code that relies on IEEE 754 underflow behavior. Compilers set them with <code>-ffast-math</code> or at program start.</p>
+<p><strong>Why a model cares:</strong> a trace-driven or timing-only model doesn’t see values, so it can’t know when assists happen. It will show the silent-input phase running as fast as the rest, while the real core is 50 times slower. Either count assists from a functional model or hardware counters (Intel reports FP assists as a machine-clear cause) and charge them, or document that the model assumes FTZ/DAZ.</p>`, "hard") +
+Q(`<p>FP8 training uses two formats: E4M3 (4 exponent bits, 3 mantissa bits, maximum about 448) and E5M2 (5 and 2, maximum about 57,344). Why use E4M3 for weights and activations and E5M2 for gradients? Why can’t either be used without scaling factors, and what does the scaling cost in hardware or software?</p>`,
+`<p><strong>The trade-off:</strong> with 8 bits, every exponent bit added is a mantissa bit lost. E4M3 has about 18 binades of range, counting subnormals, and 3 bits of precision (relative step 1/8). E5M2 has about 32 binades and 2 bits (step 1/4).</p>
+<ul>
+<li><strong>Weights and activations</strong> have a fairly narrow range within a tensor, and their precision directly affects the forward-pass result, so E4M3’s extra mantissa bit matters more than range.</li>
+<li><strong>Gradients</strong> span many orders of magnitude within one tensor and across training steps, with rare large values that must not overflow. Range matters more than precision, because each step’s error averages out over many updates.</li>
+</ul>
+<p><strong>Why scaling is needed:</strong> 448 or 57,344 as a maximum, and minimum normals near 2<sup>−6</sup> and 2<sup>−14</sup>, don’t match where a tensor’s values actually sit. Values would overflow to the maximum or underflow to zero. A scale factor per tensor (or per block of 32 or so values in microscaling formats like MXFP8) maps the tensor’s largest value near the top of the format’s range before converting, and multiplies back afterward.</p>
+<p><strong>Costs:</strong></p>
+<ul>
+<li>Choosing the scale needs the tensor’s maximum absolute value. Computing it exactly means an extra pass. “Delayed scaling” uses the maximum from previous iterations instead, at the risk of overflow when values jump.</li>
+<li>Matrix units must accept a scale per operand (or per block) and apply it in the higher-precision accumulator. The accumulation itself stays in FP32 or at least BF16.</li>
+<li>Block scaling adds 8 bits of scale per block, a few percent of storage, and logic in the datapath.</li>
+</ul>`, "hard") +
 `<h3 id="sec-units">Arithmetic Units</h3>` +
 Q(`<p>Why does one FMA count as 2 FLOPs in peak-performance figures? A kernel does only FP additions, perfectly vectorized and with enough independent chains. What fraction of the advertised peak can it reach?</p>`,
 `<p>An FMA does a multiply and an add, so peak FLOPS = FMA pipes × lanes × 2 × frequency. An addition is 1 FLOP per vector lane per issue slot, whether it runs on the FMA pipe as a × 1 + b (Skylake) or on separate adder pipes (Zen 4, which has 2 FADD pipes next to its 2 FMA pipes). Either way, add-only code reaches at most <strong>half the peak</strong>. The same holds for multiply-only code. Peak FLOPS figures describe dense linear algebra, not general FP code.</p>`, "easy") +
@@ -856,6 +1193,21 @@ M(`<p>On Zen 4, 256-bit FMAs have 4-cycle latency and issue 2 per cycle, while 5
 Q(`<p>Why can a 64-bit multiplier accept a new operation every cycle while a divider can’t? Why does a model calibrated on Skylake badly mispredict a hash-table benchmark on Ice Lake or Zen 4?</p>`,
 `<p>A multiply sums independent partial products in a tree, which pipelines naturally into stages: 3-cycle latency, one new multiply per cycle. A divide produces quotient digits one step at a time, and each step needs the remainder from the step before. That recurrence reuses the same hardware every iteration, so a new divide can’t start until the unit is free, or at best partly overlaps.</p>
 <p>Divider designs vary widely between cores. Agner Fog measures 64-bit DIV at 35 to 88 cycles on Skylake, 15 on Ice Lake, and 10 to 18 on Zen 4. A hash table with a prime bucket count does one divide per lookup, so on Skylake the divider dominates, and on the newer cores it matters far less. A model that keeps Skylake’s divider overstates the cost on newer cores and overstates what replacing the divide (with a multiply by a reciprocal, or a power-of-two table) would gain.</p>`, "medium") +
+Q(`<p>A 64-bit integer divide on Skylake takes roughly 35 to 88 cycles depending on the operands, while on Ice Lake it takes about 15 regardless. What makes divide latency data-dependent, what kind of hardware change removes most of it, and how should a model charge divides?</p>`,
+`<p><strong>Why it varies:</strong> dividers are iterative: each step produces a fixed number of quotient bits (radix 2 gives 1 bit per step, radix 4 gives 2, radix 16 gives 4). A divider that can skip leading zero bits, or exit early when the remaining quotient bits are known, takes time proportional to the number of significant quotient bits. A 64-by-32 divide with a small quotient finishes much faster than a full 128-by-64 divide. On older Intel cores, 64-bit divides also went partly through microcode, adding uops and latency.</p>
+<p><strong>What removes it:</strong> a higher-radix divider, more quotient bits per cycle using SRT-style digit selection with redundant remainders, so each step is fast and the number of steps for 64 bits is small. Ice Lake’s faster divider is the visible result. Once there are only a dozen or so steps, early exit saves little, and latency becomes nearly constant. Newer cores also pipeline parts of the divider, allowing a new divide to start before the previous one finishes, although throughput stays far below a multiply’s.</p>
+<p><strong>In a model:</strong></p>
+<ul>
+<li>A timing-only model doesn’t know operand values, so use a latency distribution measured per workload or a fixed typical value, and say so. A model with values can compute the exact latency from the operand sizes using the target core’s rule.</li>
+<li>Model the divider as a non-pipelined (or partly pipelined) resource, so back-to-back independent divides queue.</li>
+<li>Calibrate per core. A model calibrated on one generation can be several times wrong on another for divide-heavy code (hashing with modulo, some compression, address calculations with non-power-of-two sizes).</li>
+</ul>`, "hard") +
+Q(`<p>With FMA units, an add is just an FMA with a multiplier of 1. Yet Zen 4 has separate FP add pipes alongside its FMA pipes, and Golden Cove added fast adders with lower latency than its FMA. Why keep dedicated adders when FMA can do the job?</p>`,
+`<p><strong>Latency:</strong> an FMA pipeline is built for the full multiply, align, add, normalize, and round sequence, typically 4 cycles. An add that goes through it pays the same latency. A dedicated adder skips the multiplier array and can take 2 or 3 cycles. Code dominated by dependent additions (reductions, prefix sums, accumulations in physics and finance) runs up to twice as fast on the shorter pipeline.</p>
+<p><strong>Throughput:</strong> extra add pipes give more FP operations per cycle in mixed code without the area of more full FMA units. Many kernels have more adds than multiplies, such as sums after products, or complex arithmetic. Zen 4’s two FMA plus two FADD pipes can sustain 4 FP vector operations per cycle when the mix allows.</p>
+<p><strong>Area and power:</strong> the multiplier array is most of an FMA unit’s area and switching energy. An adder is much smaller. Using the FMA for every add powers the multiplier for a multiply by 1.</p>
+<p><strong>Accuracy is unaffected:</strong> FMA with multiplier 1 and a dedicated add give identical IEEE results (one rounding in both cases), so the choice is purely about performance.</p>
+<p><strong>For a model:</strong> FP add and FMA need separate latencies and port sets. A model that treats all FP arithmetic as FMA-latency misses half the speedup of add chains on these cores, and one that treats all adds as fast-adder latency is optimistic on cores without fast adders.</p>`, "hard") +
 `<h3 id="sec-model">Arithmetic in Performance Models</h3>` +
 M(`<p>At <code>-O3</code> without <code>-ffast-math</code>, GCC does not vectorize <code>float s = 0; for (i = 0; i &lt; n; i++) s += x[i];</code>. Why not? On Zen 4 (FP add latency 3, two 256-bit FP add pipes), how large is the gap to a fully vectorized sum when x is in L1? How can the programmer close it without <code>-ffast-math</code>?</p>`,
 `<ul>
@@ -892,7 +1244,18 @@ M(`<p>A CPU socket with 12 channels of DDR5-4800 (460.8 GB/s peak, about 80% sus
 <li><strong>(a)</strong> BF16: 8.03 × 10<sup>9</sup> × 2 B = 16.1 GB per token, about <strong>23 tokens/s</strong>. INT8: 8.03 GB, about <strong>46 tokens/s</strong>. INT4: 4 + 32 / 128 = 4.25 bits per weight, 8.03 × 10<sup>9</sup> × 4.25 / 8 ≈ 4.27 GB, about <strong>86 tokens/s</strong>.</li>
 <li><strong>(b)</strong> Each token needs about 2 FLOPs per parameter, 16.1 GFLOP, so 86 tokens/s needs about 1.4 TFLOP/s. Peak is 96 × 3.5 GHz × 2 pipes × 8 FP32 lanes × 2 ≈ 10.8 TFLOP/s, so about <strong>13%</strong>: firmly memory-bound, with room for the dequantization work.</li>
 <li><strong>(c)</strong> Long contexts: each token also reads the whole KV cache, which grows with context length and can exceed the weights. Larger batches: the weights are read once for every token in the batch, so the cost per token falls until the socket becomes compute-bound. Both change which bound applies.</li>
-</ol>`, "hard"),
+</ol>`, "hard") +
+Q(`<p>Your model treats every 256-bit vector instruction as one class: latency 4, any of 2 vector ports. List the effects this misses on real x86 cores, and say for each which kind of code it would make the model wrong on.</p>`,
+`<ul>
+<li><strong>Port restrictions:</strong> shuffles and permutes often run on only one port (port 5 on many Intel cores). Code heavy in shuffles (transposes, string processing, some crypto) is limited to one per cycle. The model says two.</li>
+<li><strong>Latency differences by operation:</strong> lane-crossing permutes take about 3 cycles, simple logic ops 1, FP adds 2 to 4, FMA 4, divides and square roots tens of cycles and not fully pipelined. Dependent chains of cheap ops run faster than modeled, divide-heavy code much slower.</li>
+<li><strong>Bypass delays:</strong> integer-vector versus FP-vector domains, and transfers to and from general-purpose registers, add cycles.</li>
+<li><strong>Width splitting:</strong> some cores execute wide vectors as two halves (Zen 4 runs 512-bit operations on 256-bit units). Throughput halves for those operations.</li>
+<li><strong>Upper-lane power-up:</strong> on Skylake-era cores, the upper 128 bits of the vector units are power-gated when idle. The first 256-bit instructions after a quiet period run at reduced throughput for roughly 10 microseconds while the lanes power up. Short bursts of AVX code run slower than steady-state.</li>
+<li><strong>Frequency licenses:</strong> heavy 256- and 512-bit use can lower the core clock on some Intel server parts, affecting surrounding scalar code too. The model reports cycles, which hides it.</li>
+<li><strong>Memory side:</strong> 32-byte loads that cross a cache line cost two accesses, gathers expand into many uops and loads, and masked stores have their own costs.</li>
+</ul>
+<p>Fix: model per-operation latency and port sets from the vendor’s tables or measurements, add domain bypass delays, and treat frequency effects in a separate time model. Validate with microbenchmarks for each class before trusting kernel-level results.</p>`, "hard"),
 },
 {
   id: "intv-branch",
@@ -921,6 +1284,17 @@ Q(`<p>A branch depends on a load that misses to DRAM (400 cycles), and it is mis
 <p>Upside: wrong-path loads often touch lines the correct path will need soon (for example, the other side of an if-else reading the same data structure), so they act as prefetches. They can also pollute the cache. Simulators that don’t execute the wrong path (trace-driven ones) miss both effects.</p>`, "hard") +
 Q(`<p>Why do cores predict branches at all? Suppose a branch occurs every 5 instructions and takes 15 cycles from fetch to resolution. What IPC would a core get if it stopped fetching at every branch until it resolved?</p>`,
 `<p>Each group of 5 instructions would cost at least 15 cycles, so IPC ≤ 5 / 15 = <strong>0.33</strong>, no matter how wide the core. Prediction lets fetch continue down the likely path, and the cost becomes (mispredicts × penalty) instead of (branches × resolution time). With 95% accuracy, only 1 in 20 branches pays the 15 cycles.</p>`, "easy") +
+Q(`<p>You estimate that a better predictor removes 2 mispredicts per 1,000 instructions, at 20 cycles each, so it should save 40 cycles per 1,000 instructions. The simulator shows only about half that. Give the mechanisms that make the real saving smaller than mispredicts × penalty, and one that can make it larger.</p>`,
+`<p><strong>Why the saving is smaller:</strong></p>
+<ul>
+<li><strong>Overlap with misses:</strong> many removed mispredicts happened while a cache miss blocked retirement. The refill overlapped the miss, so the mispredict cost little. Removing it saves little.</li>
+<li><strong>The removed mispredicts were cheap ones:</strong> branches that resolve quickly cost only the refill. The expensive ones, which depend on slow loads, are often the hard-to-predict data-dependent branches that the new predictor doesn’t fix.</li>
+<li><strong>Another limit takes over:</strong> with fewer flushes, the window fills further and hits the next limit (ROB, memory bandwidth, a dependence chain). Part of the time saved goes to waiting on it.</li>
+<li><strong>Wrong-path prefetching is lost:</strong> wrong-path loads often touch lines the correct path needs soon after, especially for if-else branches that rejoin. Removing the mispredict removes that free prefetch.</li>
+<li><strong>A slower predictor:</strong> if the new predictor has more latency, its override bubbles or extra pipeline stage eat part of the gain.</li>
+</ul>
+<p><strong>Why it can be larger:</strong> a mispredict also squashes independent work that would have issued useful misses. On memory-bound code, a correct prediction lets the core reach the next miss sooner, raising memory-level parallelism. Removing one mispredict can then save more than its refill penalty.</p>
+<p>The point for an interview: “mispredicts × penalty” is an upper bound on a first-order model. The real gain needs simulation, or at least an interval model that knows what each mispredict overlapped with.</p>`, "hard") +
 `<h3 id="sec-predictors">Predictor Structures</h3>` +
 Q(`<p>A loop branch is taken 3 times then not taken once, repeating (pattern T T T N). What is the misprediction rate with (a) a 1-bit last-outcome predictor, (b) a 2-bit saturating counter, (c) a predictor using the branch’s own last 4 outcomes as history?</p>`,
 `<ol>
@@ -987,6 +1361,73 @@ M(`<p>You have a 32 KB budget for a direction predictor.</p>
 <li><strong>(c)</strong> The perceptron puts about 4,000 / 512 ≈ 8 branches on each row, and branches with different correlations fight over the same weights: much heavier aliasing. gshare spreads each branch over many counters, one per history pattern.</li>
 <li>What each can learn: the perceptron sees 63 bits of history but learns only linearly separable functions of it. gshare learns any function of its 17 bits, one counter per pattern, but nothing older. Hashed perceptrons and TAGE are the ways to get long history without either limit.</li>
 </ol>`, "medium") +
+Q(`<p>What is static branch prediction, and why does “backward taken, forward not taken” work as well as it does? Where is static prediction still used in modern cores?</p>`,
+`<p><strong>Static prediction</strong> decides the direction from the instruction itself, without any history. The classic rule is backward taken, forward not taken (BTFN):</p>
+<ul>
+<li>A branch whose target is at a lower address (backward) is usually a loop’s closing branch, which is taken on every iteration except the last.</li>
+<li>A forward branch is often a check for a rare case (error handling, a bounds check), which is usually not taken. Compilers lay out code so that the common path falls through.</li>
+</ul>
+<p>On typical code BTFN gets roughly two thirds to three quarters of branches right, much worse than a dynamic predictor’s 95% to 99%, but far better than nothing.</p>
+<p><strong>Where it is still used:</strong></p>
+<ul>
+<li>The first time a branch is seen, when it misses in the BTB and the predictor has no entry. Decode can recognize a backward direct branch and redirect fetch early.</li>
+<li>Through compiler layout: <code>__builtin_expect</code> and profile-guided optimization put the likely path first, which helps both static fallbacks and the instruction cache.</li>
+<li>Some ISAs have had hint bits in branch instructions, though modern x86 cores ignore the old prefix hints.</li>
+</ul>`, "easy") +
+Q(`<p>What is a global history register, what goes into it, and why does a predictor that uses it predict better than one that only looks at each branch’s own past?</p>`,
+`<p>A <strong>global history register</strong> is a shift register holding the outcomes of the most recent branches the program executed, all branches together: 1 for taken, 0 for not taken, newest at one end. Modern designs keep hundreds or thousands of bits, and often fold in path information such as some bits of each branch’s address or target.</p>
+<p>The predictor combines the history with the branch’s address (for example by XOR, as gshare does) to index a table of counters. The same branch then gets different predictions depending on how the program got there.</p>
+<p><strong>Why it helps:</strong> branches are correlated. In</p>
+<pre><code>if (x &gt; 0) a = 1;
+if (x &gt; 5) b = 2;</code></pre>
+<p>the second branch is never taken when the first wasn’t. Its own past says nothing about that, but the outcome of the previous branch, which sits in the global history, gives it away. Loop exits, nested conditions, and checks on the same variable all create correlations like this.</p>
+<p>The history is updated speculatively with each predicted outcome as the front end runs ahead, and repaired on a mispredict.</p>`, "easy") +
+Q(`<p>Zen 1 used a hashed perceptron predictor, and Zen 2 added a TAGE predictor behind it. What kinds of branches does each capture well, where does each fail, and why would a design use both?</p>`,
+`<p><strong>Perceptron:</strong> each branch (hashed by address) has a vector of weights, one per history bit. The prediction is the sign of the weighted sum of the history bits. Training adjusts the weights when the prediction was wrong or not confident.</p>
+<ul>
+<li>Strength: it can use very long histories, since cost grows linearly with history length, and it learns which history bits matter, ignoring the rest. Good when the outcome is correlated with a few specific branches far back.</li>
+<li>Weakness: it can only learn <em>linearly separable</em> functions of the history. A branch whose outcome is the XOR of two earlier branches can’t be learned. Computing a large sum also adds latency.</li>
+</ul>
+<p><strong>TAGE:</strong> several tagged tables indexed by geometrically increasing history lengths, with the longest matching entry providing the prediction.</p>
+<ul>
+<li>Strength: it memorizes exact history patterns, so any function of the history works, including non-linear ones. Short histories train fast, and long ones catch rare deep correlations.</li>
+<li>Weakness: every distinct pattern needs its own entry. Branches whose outcome depends on one bit far back, with noise in between, create many patterns and waste capacity, where a perceptron would need one weight.</li>
+</ul>
+<p><strong>Why both:</strong> they fail on different branches, so combining them (as a second-level predictor that overrides the first, or as a statistical corrector on top of TAGE) captures more of both kinds. The cost is storage, power, and latency, which is why the larger predictor typically runs a cycle or two behind a fast first-level one.</p>`, "hard") +
+Q(`<p>The best academic predictor in recent competitions is TAGE-SC-L: TAGE plus a statistical corrector (SC) and a loop predictor (L). What does each addition fix that TAGE alone gets wrong?</p>`,
+`<p><strong>Loop predictor:</strong> a loop that runs exactly <em>N</em> iterations each time is perfectly predictable: taken <em>N</em> − 1 times, then not taken. TAGE can only learn the exit if its history covers all <em>N</em> iterations and the history is clean, which fails for loops of hundreds of iterations, or loops whose bodies contain other branches that fill the history with noise. The loop predictor counts iterations per branch, and once it has seen the same trip count several times in a row, it predicts the exit with high confidence.</p>
+<p><strong>Statistical corrector:</strong> TAGE predicts from exact pattern matches. Some branches are biased (taken 80% of the time regardless of history) or correlate weakly with many history bits. TAGE’s weak or newly allocated entries can predict them worse than their plain bias. The corrector is a perceptron-like sum of counters indexed by the branch address, the TAGE prediction, and several short histories. When TAGE’s confidence is low and the corrector strongly disagrees, the corrector’s prediction is used.</p>
+<p><strong>The combination:</strong> TAGE handles most branches. The corrector catches the statistically biased ones where TAGE is unsure, and the loop predictor catches long fixed-count loops. Each addition adds only a few percent to the storage but removes a class of mispredicts.</p>
+<p>In a commercial design, the loop predictor is the easiest to justify: cheap, and it fixes a predictable case. The statistical corrector is harder because it adds latency on the prediction path.</p>`, "hard") +
+Q(`<p>A server binary with tens of megabytes of hot code mispredicts much more in your model than the same predictor does on SPEC CPU, even though most of its branches are individually simple. Explain the role of aliasing, how tagging and hashing reduce it, and what this means for evaluating predictors.</p>`,
+`<p><strong>Aliasing:</strong> predictor tables are indexed by a hash of the branch address and history. With many branches, unrelated branches map to the same entry and overwrite each other’s state.</p>
+<ul>
+<li><strong>Destructive aliasing:</strong> two branches with opposite behavior share a counter, so each one’s update pushes the other toward a wrong prediction.</li>
+<li><strong>Constructive or neutral aliasing:</strong> two mostly-taken branches share a counter and agree. No harm, sometimes faster training.</li>
+</ul>
+<p>SPEC CPU benchmarks mostly have small branch footprints that fit in the tables, so aliasing is rare. A server binary with hundreds of thousands of active branches doesn’t fit, and the predictor degrades toward a cold or contended state.</p>
+<p><strong>Reducing it:</strong></p>
+<ul>
+<li><strong>Tags</strong> (TAGE): an entry is used only if a partial tag of the branch and history matches, so a conflicting branch misses and falls back to a shorter history instead of using wrong state. Costs bits per entry.</li>
+<li><strong>Better hashing:</strong> XOR-folding long histories with the address spreads branches over the table. A poor hash concentrates them.</li>
+<li><strong>Bias tables and bimodal fallbacks:</strong> keep a small amount of state per branch for the common case where history isn’t needed.</li>
+<li><strong>Larger tables or a second level:</strong> more entries, at the cost of latency, often in the BTB as well, since BTB misses grow the same way.</li>
+</ul>
+<p><strong>For evaluation:</strong> a predictor tuned on SPEC CPU can rank wrongly on servers. Include large-footprint traces (databases, JVMs, web servers) and report MPKI by suite. Also check warm-up: on large-footprint workloads, short traces never warm the predictor, so measured MPKI is inflated.</p>`, "hard") +
+Q(`<p>Binary search and branchy sorts have branches whose outcomes depend on data and look random to any history-based predictor. What can hardware do about them, what can software do, and what does each cost?</p>`,
+`<p><strong>Software:</strong></p>
+<ul>
+<li><strong>Branchless code:</strong> replace the branch with a conditional move or arithmetic. In binary search, compute the next index with <code>cmov</code>. The data dependence remains, but there are no mispredicts. Cost: both paths’ work is always done, and the select sits on the dependence chain, so when the branch is predictable this is slower.</li>
+<li><strong>Restructuring:</strong> branch-free layouts (Eytzinger order for search trees) also improve cache behavior, and sorts that partition with branchless loops avoid the 50% unpredictable compare.</li>
+<li><strong>Prefetching both sides:</strong> in a search, prefetch both possible next elements so that a mispredict at least doesn’t also cost a cache miss.</li>
+</ul>
+<p><strong>Hardware:</strong></p>
+<ul>
+<li><strong>Predication or select-on-the-fly:</strong> convert a hard-to-predict short hammock into a select at decode (dynamic predication, studied but rarely shipped). Needs confidence estimation to apply it only to unpredictable branches.</li>
+<li><strong>Branch precomputation or runahead:</strong> run the branch’s backward slice (the few instructions that compute its condition) ahead of the main thread, so the outcome is known before fetch reaches the branch. Effective when the slice is short and its inputs are available early. Costs a second execution context and slice-extraction logic.</li>
+<li><strong>Faster resolution:</strong> reducing the time from fetch to resolve (shorter pipelines, prioritizing the branch’s inputs) shrinks the cost of each mispredict without removing it.</li>
+</ul>
+<p>For data-dependent branches, software fixes are usually the practical ones. Hardware can only guess the data, so its options amount to computing the condition earlier.</p>`, "hard") +
 `<h3 id="sec-spec">Speculation and Recovery</h3>` +
 Q(`<p>What state must be restored after a branch mispredict? Separate architectural from microarchitectural state, and say which microarchitectural state is usually <em>not</em> restored.</p>`,
 `<p><strong>Architectural:</strong> nothing needs restoring, because nothing past the branch has committed. That’s the point of in-order retirement.</p>
@@ -1035,6 +1476,30 @@ M(`<p>Your TAGE predictor’s longest history is 1,024 branches. Up to 128 predi
 <li><strong>(b)</strong> Pointers: 128 × 11 = 1,408 bits, 176 bytes. Full copies: 128 × 1,024 = 131,072 bits, <strong>16 KB</strong>, about 93× more, and each copy would have to be written in the cycle the block is predicted.</li>
 <li><strong>(c)</strong> The folded registers are 12 × 3 × 11 = 396 bits per checkpoint. Checkpointing them costs 128 × 396 = 50,688 bits, about <strong>6.2 KB</strong>. The alternative is to undo them: each update shifts a new bit in and the bit at its table’s history length out, so recovery can reverse the updates for the squashed bits by reading them back from the circular buffer, at a few cycles per bit. Recovery sits on the mispredict path, so many designs pay for the checkpoints.</li>
 </ol>`, "hard") +
+Q(`<p>A trace-driven model can’t fetch wrong-path instructions: after a mispredict it just stalls fetch until the branch resolves. List the effects this misses and say whether each makes the model optimistic or pessimistic.</p>`,
+`<ul>
+<li><strong>Wrong-path cache prefetching</strong> (model pessimistic): wrong-path loads and instruction fetches often touch lines the correct path needs soon, especially on if-else paths that rejoin. On some workloads this is a significant benefit.</li>
+<li><strong>Cache and TLB pollution</strong> (model optimistic): wrong-path accesses evict useful lines and fill MSHRs with requests the core will never use, and can tie up DRAM bandwidth.</li>
+<li><strong>Resource contention</strong> (model optimistic): wrong-path uops occupy ports, scheduler entries, and load-queue entries while they run, delaying older correct-path work that is still executing.</li>
+<li><strong>Predictor state</strong> (either way): wrong-path branches may update the global history and return-address stack speculatively. If the real design repairs them perfectly, there is no effect. If repair is imperfect (the RAS especially), real accuracy is lower than modeled.</li>
+<li><strong>Branch resolution timing</strong> (model optimistic): wrong-path instructions compete with the mispredicted branch’s own inputs, which can delay its resolution.</li>
+<li><strong>Power</strong> (model optimistic): wrong-path work is a real fraction of the dynamic energy, often 10% or more on branchy code.</li>
+</ul>
+<p>Net effect on IPC is usually a few percent and workload-dependent, often close to cancelling. It matters most for studies of caches and prefetchers (where wrong-path accesses change hit rates) and of power. To bound it without a full execution-driven model, some trace models inject synthetic wrong-path loads using addresses from nearby correct-path code.</p>`, "hard") +
+Q(`<p>A local-history predictor keeps a separate history per branch in a table. Why is it much harder to update speculatively and repair after a mispredict than a global history register? What do real designs do instead?</p>`,
+`<p><strong>Global history</strong> is one shift register. Speculative update is a shift, and repair means restoring the register’s value at the mispredicted branch, which is cheap to checkpoint (or to recover with a pointer into a circular buffer of outcomes).</p>
+<p><strong>Local histories</strong> are many entries, one per branch, in a table. A loop branch inside a tight loop may have several instances in flight at once. Problems:</p>
+<ul>
+<li>To predict instance <em>k</em>, the history must include the predicted outcomes of instances 1 to <em>k</em> − 1, which haven’t resolved. So the table entry must be updated speculatively at prediction time.</li>
+<li>On a mispredict, every entry updated by wrong-path branches must be restored. That is an arbitrary set of entries, not one register, so a single checkpoint doesn’t work. You need either an undo log of (entry, old value) per in-flight branch, or per-entry speculative copies.</li>
+<li>If updates wait until retirement, in-flight instances read stale history, and a loop with several iterations in flight predicts all of them from the same old pattern.</li>
+</ul>
+<p><strong>What designs do:</strong></p>
+<ul>
+<li>Rely on global history, which captures most of what local history would, given long enough histories (TAGE).</li>
+<li>Use a loop predictor, a special case of local history, with a small number of entries and speculative iteration counters that are simple to repair: on a mispredict, reset to the retired count.</li>
+<li>Accept imperfect repair for the remaining local components, since a few mispredicts after a flush cost less than full repair logic.</li>
+</ul>`, "hard") +
 `<h3 id="sec-eval">Evaluating a Predictor</h3>` +
 Q(`<p>Design an experiment to evaluate a new branch predictor. Why report both MPKI and IPC?</p>`,
 `<ol>
@@ -1055,7 +1520,18 @@ Q(`<p>A trace-driven predictor study updates the predictor immediately after eac
 <li>Keep the history speculative and immediate, as hardware does, but delay table updates by a realistic number of branches through a FIFO of pending updates. The window size divided by the branch spacing is a good first estimate.</li>
 <li>Report MPKI with no delay and with the realistic delay, and treat the gap as the study’s error bar.</li>
 <li>Where possible, add wrong-path history pollution and repair, which a trace has no record of.</li>
-</ul>`, "hard"),
+</ul>`, "hard") +
+Q(`<p>A new predictor lowers MPKI on your trace suite, but on the real system it gives no gain, and on some workloads raises MPKI. What differences between trace studies and real execution could explain it?</p>`,
+`<ul>
+<li><strong>Context switches and interrupts:</strong> traces of one user process run uninterrupted. Real systems switch to other processes, the kernel, and interrupt handlers, which overwrite predictor state. A predictor that needs long warm-up (big tables, long histories) loses more on every switch than a small, fast-training one.</li>
+<li><strong>SMT sharing:</strong> two threads share the tables. A predictor sized for one thread’s working set thrashes with two.</li>
+<li><strong>Kernel and library code:</strong> traces often omit OS code, which has many branches executed rarely, hard on large tables.</li>
+<li><strong>Trace length and warm-up:</strong> short traces don’t represent long-run behavior, and warm-up done differently from the real machine can bias results either way.</li>
+<li><strong>Update timing:</strong> trace studies often update immediately after each branch, while hardware updates at resolution or retirement, so tight loops see stale state. Predictors relying on fast training are overestimated.</li>
+<li><strong>Latency:</strong> a larger predictor may need more cycles, leading to more override bubbles or a split into fast and slow levels. The MPKI gain is real, but cycles are lost elsewhere.</li>
+<li><strong>Security mitigations:</strong> predictor flushes or partitioning on privilege changes (against Spectre v2) wipe state frequently on some systems.</li>
+</ul>
+<p>The fix: evaluate with full-system traces including the OS, with realistic context-switch intervals and SMT pairing, update the predictor at the time the real design would, and measure IPC in a timing model, not only MPKI.</p>`, "hard"),
 },
 {
   id: "intv-fe",
@@ -1113,6 +1589,12 @@ M(`<p>A hot loop is 12 instructions in 52 bytes, ending in a taken branch to its
 <li><strong>(c)</strong> 32-byte alignment always gives offset 0: <strong>2 cycles</strong>, 1.30× faster than the expected unaligned case. 16-byte alignment gives offset 0 or 16 with equal odds: (2 + 3) / 2 = <strong>2.5 cycles</strong>, barely better than chance, because a 52-byte loop fits in 2 windows only at offsets up to 12.</li>
 <li>This is how a loop can slow down by a third with no source change, and why aligning loop heads to 32 bytes helps this loop where 16-byte alignment doesn’t.</li>
 </ol>`, "medium") +
+Q(`<p>The same hot loop runs measurably slower after an unrelated code change shifts its address by a few bytes. How can alignment change front-end throughput on an x86 core? Name the alignment boundaries that matter and what the uop cache and loop buffer change.</p>`,
+`<p><strong>Fetch blocks:</strong> the legacy decode path fetches aligned 16- or 32-byte blocks. A loop body that fits in one block when aligned may straddle two after a shift, so each iteration needs an extra fetch cycle, and the taken branch at the end may land in a block with few useful bytes.</p>
+<p><strong>The uop cache:</strong> entries are tied to aligned code regions (32 or 64 bytes depending on the core), with a limit on uops and on branches per region. A shift can split the loop over more regions, or push a region over its limit so it can’t be cached and falls back to the slower decoders.</p>
+<p><strong>The JCC erratum fix on Skylake-derived cores:</strong> after a microcode update, jumps that cross or end on a 32-byte boundary can’t be cached in the uop cache. A loop branch that moves onto a boundary goes through the legacy decoders every iteration.</p>
+<p><strong>Loop buffer:</strong> when the loop fits, uops replay from the allocation queue and fetch alignment no longer matters. But the buffer has a size limit, and a loop just over it becomes alignment-sensitive.</p>
+<p><strong>What to do:</strong> compilers align hot loop heads (<code>-falign-loops</code>) and assemblers can pad to avoid boundary-crossing jumps. When benchmarking, randomize or control code layout (link order, environment size), since an alignment effect of a few percent can look like a real change.</p>`, "medium") +
 `<h3 id="sec-prefetch">Prefetching and BTB Reach</h3>` +
 Q(`<p>Fetch-directed instruction prefetching (FDIP) keeps no tables of its own. Why is that its main strength? Why does it also mean that the BTB, not the prefetcher, decides how much instruction cache latency gets hidden?</p>`,
 `<p><strong>Strength:</strong> the branch predictor already is a model of the program’s control flow. FDIP just reads future addresses from the FTQ, filters out lines that are present or in flight, and requests the rest. It needs no extra storage or training, and it follows calls and far taken branches that next-line and stream prefetchers can’t. Engineers at Arm (Ishii et al., 2021) showed that FDIP with a large enough BTB matches far more complex prefetchers on server traces.</p>
@@ -1287,6 +1769,11 @@ Q(`<p>Why is the store queue usually smaller than the load queue? Use Skylake’
 Q(`<p>On a TSO machine (x86), a load executed early and is waiting to retire. 16 older loads are ahead of it, and 5 of them haven’t executed yet. An invalidation arrives for the line this load read. What must happen, and why? What if all 16 older loads had already executed?</p>`,
 `<p>TSO requires loads to appear to execute in program order. This load got its value before some older loads got theirs. If another core wrote the line, an older load could later read a value that is <em>newer</em> than what this younger load saw, which would make the younger load appear to execute first: a visible load–load reordering. So the core must squash this load and everything younger and re-execute from it (Intel calls this a memory-ordering machine clear).</p>
 <p>If every older load had already executed, all of them and this load obtained their values before the remote write, which is equivalent to executing them in order before the write. No reordering is visible, so no squash is needed (some implementations squash anyway for simplicity). The point to make: out-of-order loads are allowed; what TSO forbids is <em>observable</em> reordering, and the snoop of the load queue is how the core detects it.</p>`, "hard") +
+Q(`<p>To catch memory-ordering violations, every store that computes its address searches the load queue for younger loads to the same address that already executed. Why is that search expensive in a load queue of about 200 entries? Describe two alternatives that avoid an associative load-queue search and what each gives up.</p>`,
+`<p><strong>Why it is expensive:</strong> the search compares the store’s address (and size) against every load-queue entry, filtered by age, in the cycle the store address is ready. With 2 store addresses per cycle and 200 entries, that is 400 address comparisons per cycle in a CAM, plus age logic. The search is on a timing-critical path and burns energy on every store. On TSO machines, incoming invalidations also search the queue.</p>
+<p><strong>Alternative 1, value-based replay at retirement</strong> (Cain and Lipasti, 2004): don’t search at all during execution. Before a load retires, re-execute it against the cache and compare the value with the one it used. A mismatch means a violation, so flush from the load. Gives up cache bandwidth (a second access per load, though filters can skip loads that can’t be affected) and adds retirement latency for loads.</p>
+<p><strong>Alternative 2, filtering:</strong> keep the search, but rarely do it. A small Bloom filter or a table of hashed addresses of executed, unretired loads tells a store when no younger load could possibly match, so the CAM search is skipped. Gives up some area for the filter, and false positives still search. Most stores need no search.</p>
+<p>Others: banked load queues split by address bits, so a store searches only one bank, and age-ordered search only among loads executed out of order with respect to stores, which a dependence predictor makes rare.</p>`, "hard") +
 `<h3 id="sec-fwd">Store-to-Load Forwarding</h3>` +
 Q(`<p>On a recent x86 core, which of these loads can be satisfied by store-to-load forwarding, and what happens to the one that can’t?</p>
 <pre><code>I0: mov qword [rax], rcx      ; 8-byte store
@@ -1323,6 +1810,20 @@ M(`<p>A loop compiled at -O0 keeps its counter in memory: each iteration loads i
 Q(`<p>On many Intel cores, a load first checks older stores using only address bits 11:0. A loop computes <code>a[i] = b[i] * k</code> over float arrays. When (a − b) mod 4096 is a small positive number such as 32 bytes, the loop runs about 2× slower than when it is 2,048. Explain, and say how you would confirm it.</p>`,
 `<p>The store to a[i] has the same low 12 address bits as the load of b[j] whenever b + 4j ≡ a + 4i (mod 4096), i.e., j = i + (a − b)/4 = i + 8 here. So the load of b[i+8], which out-of-order execution runs early, finds an older, still-buffered store (to a[i]) whose low 12 bits match. The quick check flags a possible dependence, and the load waits for the full address comparison, a few cycles, before it can proceed. That happens on nearly every iteration. With an offset of 2,048 bytes, a matching store would be 512 iterations old and long since drained, so nothing matches.</p>
 <p>This is called <strong>4K aliasing</strong>. Confirm it with the Intel event <code>LD_BLOCKS_PARTIAL.ADDRESS_ALIAS</code>, or by sweeping the offset between the arrays and watching the slowdown appear only for small positive offsets mod 4096. Fix it by padding or aligning allocations so the arrays aren’t a multiple of 4 KB apart. The partial compare exists because full-address comparison across the whole store queue is expensive (next question).</p>`, "hard") +
+Q(`<p>Intel cores split each store into a store-address uop and a store-data uop, which can execute at different times. A younger load matches the store’s address, but the store data isn’t ready yet. What happens to the load? Why split stores at all, and what goes wrong in a model that treats a store as one operation?</p>`,
+`<p><strong>The load:</strong> it can’t take data that doesn’t exist, and it can’t read the cache, which holds the stale value. It is blocked: marked as waiting on that store-queue entry and retried (or woken) when the store data arrives. It then forwards normally. Its latency is the data’s arrival time plus the forwarding latency.</p>
+<p><strong>Why split:</strong></p>
+<ul>
+<li>The address often depends on different, earlier-ready values than the data. A store <code>a[i] = f(x)</code> has its address ready early and its data late. Computing the address early lets younger loads check for conflicts early: a load that doesn’t match can proceed with confidence instead of speculating.</li>
+<li>The two halves use different execution resources: an AGU for the address and a data port for the value, which can be scheduled independently.</li>
+<li>An early address also lets the store start a request for ownership (RFO) or a TLB lookup before the data is ready.</li>
+</ul>
+<p><strong>What a single-operation model gets wrong:</strong></p>
+<ul>
+<li>It makes the address wait for the data. Loads behind the store wait for the address to be known (or speculate past it), so the model sees more ambiguity and more memory-dependence stalls or violations than the real core.</li>
+<li>It mispredicts port usage: one uop where the core uses two ports.</li>
+<li>It gets blocked-load timing wrong: in the model, a matching load waits for both halves, while on the real core it waits only for the data if the address was early.</li>
+</ul>`, "hard") +
 `<h3 id="sec-mdp">Memory Dependence Speculation</h3>` +
 Q(`<p>You built a new memory dependence predictor. What statistics would you collect to evaluate it, and what upper and lower bounds would you compare it against?</p>`,
 `<ul>
@@ -1339,6 +1840,28 @@ M(`<p>A Golden Cove-class core has a 192-entry load queue, a 114-entry store que
 <li><strong>(b)</strong> Each check must<ul><li>Test byte-range <em>overlap</em> (address plus size), not equality</li><li>Must restrict itself to entries on the correct side in age (older stores for a load, younger loads for a store)</li><li>A load must select the <em>youngest</em> matching older store, which adds a priority encoder</li></ul> Full physical addresses are 40+ bits wide.</li>
 <li><strong>(c)</strong><ul><li>Compare a few low address bits first and do the full compare only on a match (which is exactly what causes 4K aliasing)</li><li>Split the queues into banks by address bits so a search touches only one bank</li><li>Filter with a small table or Bloom filter that says whether any in-flight store could match</li><li>Search only the relevant age range</li><li>Skip load-queue searches for stores when no younger load has executed yet</li></ul></li>
 </ol>`, "hard") +
+Q(`<p>Explain the store sets memory dependence predictor (Chrysos and Emer, 1998): what the store set ID table and last fetched store table hold, how a load learns which store to wait for, and how the predictor fails. Why does it beat a simple “this load must wait for all older stores” bit?</p>`,
+`<p><strong>The idea:</strong> each load that has ever conflicted with a store is placed in a <em>store set</em> together with those stores. A load waits only for the most recent in-flight store in its set.</p>
+<ul>
+<li><strong>Store set ID table (SSIT):</strong> indexed by instruction address, it gives the store set ID for loads and stores that have one.</li>
+<li><strong>Last fetched store table (LFST):</strong> indexed by store set ID, it holds the in-flight tag of the most recently renamed store in that set.</li>
+</ul>
+<p><strong>At rename:</strong> a store looks up its set and becomes the set’s last fetched store, recording a dependence on the previous one (so stores in a set issue in order). A load looks up its set and gets a dependence on the store currently in the LFST. When that store issues, the dependence clears. On a violation, the load and the store are put in the same set, merging sets if needed.</p>
+<p><strong>Why it beats a wait bit:</strong> a wait bit (as in the Alpha 21264) makes a load wait for <em>every</em> older store’s address, even if only one store ever conflicted. Store sets wait for one specific store, so the load can still issue past unrelated stores. The difference matters in code with many stores in flight, such as loops that write several arrays.</p>
+<p><strong>Failure modes:</strong></p>
+<ul>
+<li>Sets grow over time through merging, and loads wait on stores they no longer conflict with. Tables are cleared periodically to stop this, which then costs a few relearning violations.</li>
+<li>Aliasing in the SSIT puts unrelated instructions in the same set.</li>
+<li>A load that conflicts with different stores in different iterations, in a pattern, waits on the last one in the set, which may not be the one it needs this time.</li>
+</ul>`, "hard") +
+Q(`<p>A load is predicted to depend on an older store. Should it wait until that store’s address is known, until the store’s data is ready, or until all older stores have addresses? Compare the three for latency, recovery risk, and hardware cost.</p>`,
+`<ul>
+<li><strong>Wait for the specific store’s address:</strong> when it is known, the load compares. If they match, it forwards (if the data is ready, otherwise it waits for it). If they don’t match, it proceeds. Lowest latency for a correct prediction of “no conflict this time.” Needs the predictor to name a specific store (store sets) and a wakeup on that store’s address computation.</li>
+<li><strong>Wait for the specific store’s data</strong> (or for the store to issue fully): simpler, since one wakeup event covers address and data, and the load can then forward directly. Slower when the store’s data comes late but the addresses wouldn’t have matched, since the load waits for nothing. Many designs effectively do this because the store executes as a unit or the address and data are close in time.</li>
+<li><strong>Wait for all older store addresses:</strong> no prediction of which store is needed, just a bit per load (the Alpha 21264’s wait table). Safest: once all older addresses are known, the load knows exactly what it overlaps. Slowest: one late store address blocks the load, even if that store is unrelated. Cheapest to build.</li>
+</ul>
+<p><strong>Recovery risk:</strong> the first two can still violate if the predictor named the wrong store (another older store matches). The third can only violate through stores whose addresses were known but compared incorrectly, which is a bug, not a prediction.</p>
+<p>The choice depends on how often loads that once conflicted still conflict. Workloads with stable store-load pairs (stack spills and reloads, struct fields) favor the specific-store forms. Workloads with changing pairs (indirect stores through pointers) favor the conservative one. Most real designs combine a precise predictor with a fallback to “wait for all” for loads that keep violating.</p>`, "hard") +
 `<h3 id="sec-stores">Stores After Retirement</h3>` +
 Q(`<p>When does a store become visible to other cores? Why isn’t that the same moment it retires?</p>`,
 `<p>At retirement the store becomes architecturally committed: it will definitely happen, and the core has promised the program it happened. But it becomes <em>visible to other cores</em> only when it writes into the coherent L1 cache, which requires the line in a writable state (Modified or Exclusive). That may take a whole read-for-ownership miss. Until then it sits in the store buffer, visible only to this core’s own later loads through forwarding.</p>
@@ -1362,6 +1885,21 @@ M(`<p>Stores are 10% of instructions on a core running at IPC 3. Committed store
 <li><strong>(a)</strong> Stores arrive at 3 × 0.1 = 0.3 per cycle. Average drain time per store: 1 + 0.05 × 50 = 3.5 cycles, so the drain capacity is 1 / 3.5 ≈ 0.286 stores per cycle. That’s less than 0.3, so the store buffer fills and stays full: IPC is capped near 0.286 / 0.1 ≈ <strong>2.86</strong>, and lower in practice because misses arrive in bursts.</li>
 <li><strong>(b)</strong> With early RFOs, the ownership fetches for several buffered stores overlap with each other and with the drain of the stores ahead of them. When a missing store reaches the head, its line is often already there, so the effective drain time approaches 1 cycle per store and the cap disappears. TSO still requires stores to become visible in order; it doesn’t forbid fetching ownership early.</li>
 </ol>`, "hard") +
+Q(`<p>Non-temporal stores (<code>movntdq</code> on x86) write combine in a buffer and go to memory without first reading the line into the cache. When are they faster than ordinary stores, when are they slower, and what ordering rule do they break that code must fix with <code>sfence</code>?</p>`,
+`<p><strong>Ordinary stores</strong> to a line not in the cache must first read it (a read for ownership), so writing 64 bytes moves 128 bytes over the memory bus: the line read in, then written back later. They also evict other data from the cache.</p>
+<p><strong>Non-temporal stores</strong> collect a full line in a write-combining buffer and write it directly to memory: no read, no cache pollution.</p>
+<p><strong>Faster when:</strong></p>
+<ul>
+<li>Writing large buffers that won’t be read again soon (larger than the LLC): memset, streaming output, copying big arrays. The bus traffic roughly halves, and on bandwidth-bound code that is close to 2× faster.</li>
+<li>The cache holds data that the rest of the program needs, which ordinary stores would evict.</li>
+</ul>
+<p><strong>Slower when:</strong></p>
+<ul>
+<li>The data is read soon after: it now comes from DRAM instead of the cache.</li>
+<li>Writes are partial or scattered: a partly filled write-combining buffer is flushed as several partial writes, which is inefficient, and there are only about a dozen such buffers.</li>
+<li>The buffer is small enough to stay in cache: ordinary stores hit and are cheaper.</li>
+</ul>
+<p><strong>Ordering:</strong> x86 TSO normally makes stores visible in program order. Non-temporal stores are weakly ordered: they can become visible after later ordinary stores. Code that writes a buffer with non-temporal stores and then sets a flag must put an <code>sfence</code> between them, or another core might see the flag before the data. Libraries such as glibc’s memcpy switch to non-temporal stores above a size threshold related to the cache size.</p>`, "hard") +
 `<h3 id="sec-mlp">Capacity and Memory-Level Parallelism</h3>` +
 M(`<p>An Intel Skylake-class core can track about 10–12 outstanding L1D misses (fill buffers). With 80 ns DRAM latency and 64-byte lines, what bandwidth can one core pull from DRAM through demand misses alone? Measured single-core bandwidth on such chips is noticeably higher. Why?</p>`,
 `<p>Little’s law: bandwidth = bytes in flight / latency = 12 × 64 B / 80 ns ≈ <strong>9.6 GB/s</strong> (8 GB/s with 10 buffers).</p>
@@ -1392,7 +1930,17 @@ Q(`<p>How would you test a load/store queue model for correctness when accesses 
 <li><strong>Ordering scenarios:</strong><ul><li>Load before the older store’s address resolves, then aliasing</li><li>Several older stores to the same address (the youngest older must win)</li><li>Stores with address known but data not</li></ul></li>
 <li><strong>Golden reference:</strong> run random load/store streams over a small address range (to force collisions) and check every load’s value against an in-order functional model. Even a timing-only model can track byte-level “which store produced this byte” and compare that.</li>
 <li><strong>Invariants:</strong><ul><li>Retired stores drain in order</li><li>No load completes with data from a younger store</li><li>Violations always trigger a flush from the load</li></ul></li>
-</ol>`, "medium"),
+</ol>`, "medium") +
+Q(`<p>Skylake has a 72-entry load queue but only 12 L1D fill buffers, so at most 12 L1D misses can be outstanding at once. Why doesn’t a bigger load queue raise memory-level parallelism past that? How do the L2 hardware prefetchers get around the limit, and what does it mean for modeling a bandwidth-bound loop?</p>`,
+`<p><strong>Why the load queue doesn’t help:</strong> each L1D miss to a different line needs a fill buffer until the data returns. Loads to a line already being fetched merge into the existing buffer, but a 13th distinct line must wait for a buffer to free. With about 80 ns latency, 12 outstanding lines give at most 12 × 64 B / 80 ns ≈ 9.6 GB/s per core from DRAM by demand misses alone. The rest of the load queue just holds loads waiting for a buffer.</p>
+<p><strong>How prefetchers get around it:</strong> the L2 prefetchers issue their requests from the L2, which has its own, larger set of miss-tracking entries (on the order of 32 or more). Prefetched lines land in the L2 (or LLC), so demand loads then miss the L1 but hit the L2, holding a fill buffer for only about 15 cycles instead of the full DRAM latency. Each buffer then serves many more lines per second.</p>
+<p><strong>Consequences:</strong></p>
+<ul>
+<li>A single core’s streaming bandwidth is limited by fill buffers when prefetching is off, and by the L2’s miss handling and the uncore when it is on. Turning prefetchers off in an experiment can cut bandwidth several times.</li>
+<li>Software prefetches to L1 occupy fill buffers too, so they hit the same limit.</li>
+<li>In a model, the fill buffers, the L2 miss-tracking entries, and the prefetcher must all be modeled. A model with an unlimited L1 MSHR count, or one that models the load queue as the limit, overestimates single-core bandwidth on random access and gets the effect of prefetching wrong.</li>
+</ul>
+<p>Later cores raised the count (Golden Cove has 16 fill buffers), still far below load-queue sizes, for the same timing and area reasons.</p>`, "hard"),
 },
 {
   id: "intv-mem",
@@ -1462,8 +2010,6 @@ M(`<p>Two SMT threads alternate reading a shared buffer through different virtua
 <li>The fix is free: map the buffer at the same virtual address in both processes, or share it between threads of one process.</li>
 </ol>`, "medium") +
 `<h3 id="sec-tlb">Address Translation</h3>` +
-Q(`<p>How can a workload hit in the L3 on most accesses and still miss in the TLB on most of them?</p>`,
-`<p>TLB reach is entries × page size. With 4 KB pages, Zen 5’s 4,096-entry L2 DTLB reaches 16 MB and Zen 4’s 3,072 entries reach 12 MB, less than a 32 MB L3. A random-access working set of 20 to 30 MB fits in the L3 but spans more pages than the TLB covers, so most accesses also pay for a page walk. 2 MB pages raise the reach 512-fold.</p>`, "easy") +
 Q(`<p>Why should a model send page-walk reads through the cache hierarchy instead of charging a fixed walk latency? What other walker details set translation throughput?</p>`,
 `<p>A walk is a chain of dependent loads, and its cost depends on where the page-table entries are: the upper levels are almost always in the page-walk caches, while the leaf entries sit in L1 or L2 for small footprints and in L3 or DRAM for large random ones. A fixed latency is wrong in both directions, and it misses that page-table lines compete with data for cache capacity and bandwidth (huge pages shrink the tables so they stay cached).</p>
 <p>Throughput details:</p>
@@ -1617,9 +2163,6 @@ Q(`<p>An out-of-order x86 core executes loads out of order, yet TSO requires loa
 Q(`<p>In the IRIW litmus test, two threads each write one location, and two reader threads read both locations in opposite orders. Arm and RISC-V forbid the outcome where the readers disagree on which write came first, while POWER allows it. What property does that reflect, and what hardware arrangement would allow it?</p>`,
 `<p>The property is multi-copy atomicity: a store becomes visible to all other cores at the same moment. Then, once each reader’s two loads are ordered (by acquire, a barrier, or a dependency), both readers must agree on the order of the two writes.</p>
 <p>POWER isn’t multi-copy atomic: a store can become visible to some cores before others. One arrangement that causes this is cores or hardware threads that share a store buffer or a cache through which stores pass, and forward stores to each other before they are visible to everyone. A reader next to the first writer sees x first, while a reader next to the second writer sees y first. Forbidding the outcome means no core may read a store before it is visible to all, for example by not forwarding between SMT threads from a shared store buffer before commit. The payoff is much simpler reasoning for programmers and tools.</p>`, "hard") +
-Q(`<p>Why does a full fence on x86 cost tens of cycles even when no stores are pending? Why do lock-free algorithms prefer acquire and release orderings?</p>`,
-`<p><code>mfence</code> must drain the store buffer and keep later loads from executing until it has, which serializes the memory pipeline. Even with an empty buffer this costs tens of cycles on recent x86 cores, and with buffered store misses it costs hundreds.</p>
-<p>Acquire and release order only what they need to. Under TSO, plain x86 loads and stores already behave as acquire and release, so those orderings are free. On Arm, <code>ldar</code> and <code>stlr</code> are cheaper than a full <code>dmb</code>. Locks use locked read-modify-write instructions, which also drain the buffer but combine that with the atomic operation.</p>`, "easy") +
 M(`<p>A producer on an x86 core publishes each message by writing 64 bytes (8 stores) into a ring-buffer slot, then the slot’s ready flag, then executing <code>mfence</code>. At the fence, the store buffer holds those 9 stores. Stores commit to L1 in order, one per cycle when they hit. The slot’s line and the flag’s line both miss, since the consumer read them last, and each needs a 60-cycle ownership transfer. The fence costs 30 cycles on top of the drain.</p>
 <ul>
 <li>(a) How long does the fence take if each ownership request starts only when its store reaches the head of the buffer, and if both start early?</li>
@@ -1645,7 +2188,12 @@ M(`<p>Sixteen threads each increment their own 8-byte counter, and the 16 counte
 <li>Demand per line: 8 threads × 1 / 50 ns = 0.16 increments per ns. The line can move at most once per 70 ns, about 0.014 per ns, so it is saturated more than ten times over.</li>
 <li><strong>(a)</strong> With the line saturated, each thread waits for the other 7 transfers before its own: about 8 × 70 = <strong>560 ns per increment</strong>, 11× slower than the 50 ns it wanted.</li>
 <li><strong>(b)</strong> One counter per line takes 16 × 64 B = <strong>1 KB</strong> instead of 128 B, and each thread is back to one increment per 50 ns plus an L1 hit. Even 2 KB, with 128-byte padding, is trivial next to an 11× slowdown.</li>
-</ol>`, "medium"),
+</ol>`, "medium") +
+Q(`<p>32 threads each increment one shared 64-bit counter with <code>lock xadd</code> in a loop. Throughput stays flat or falls as you add threads. What limits it, and why do per-thread counters that are summed only when read scale almost perfectly?</p>`,
+`<p><strong>What limits it:</strong> each atomic increment needs the line in M state in the incrementing core. With 32 cores contending, every increment moves the line from the previous owner: an invalidation or forward through the directory or snoop filter, then the data transfer. Throughput is about one increment per line transfer, which is tens of nanoseconds on a large server (more across sockets), regardless of how many threads try. Adding threads adds queueing, not throughput, and fairness or retry effects can make it fall.</p>
+<p>The locked instruction also acts as a full barrier on x86, so each thread’s own pipeline stalls around it, but the line transfer dominates.</p>
+<p><strong>Per-thread counters:</strong> each thread increments its own counter, in its own cache line (padded to 64 bytes, or 128 on cores whose prefetchers fetch line pairs). The line stays in M in that core’s L1, so each increment is an ordinary L1 hit, a few cycles. Reading the total sums all counters, which costs one line transfer per thread but happens rarely.</p>
+<p>The trade-off is that the sum is not a single atomic snapshot: it may mix values from slightly different moments. That is fine for statistics and reference counts that are only checked against zero rarely, and not fine where every increment must be totally ordered. Linux’s per-CPU counters and many allocators use this pattern.</p>`, "medium"),
 },
 {
   id: "intv-diag",
@@ -1729,6 +2277,41 @@ M(`<p>A join loop on a Golden Cove-class core at 5 GHz has one independent DRAM 
 <li>The fill buffers bind at <strong>25 cycles</strong>, with the scheduler just behind. Check: at 25 cycles per iteration the ROB holds 14 × 400 / 25 = 224 entries, under 512, and the scheduler 6 × 400 / 25 = 96, just under 97.</li>
 <li>Doubling the scheduler gains <strong>nothing</strong>, because the fill buffers still bind at 25. Doubling the fill buffers alone moves the bound to the scheduler at 24.7, about 1%. Only growing both together gets anywhere: 32 fill buffers and a 194-entry scheduler give the register file’s 15.2, a 1.6× speedup. The structures are balanced, which is how a good design looks.</li>
 </ol>`, "hard") +
+Q(`<p>What is the difference between latency-bound and throughput-bound code? Give one example of each and one measurement that tells them apart.</p>`,
+`<p><strong>Latency-bound:</strong> the time is set by a chain of dependent operations, each waiting for the previous result. Adding execution units or width doesn’t help, and only shorter latencies do. Examples: a linked-list traversal (each load’s address comes from the previous load), or a running sum of floating-point values in one accumulator.</p>
+<p><strong>Throughput-bound:</strong> there is plenty of independent work, and the time is set by how many operations a resource can do per cycle (ports, load bandwidth, memory bandwidth). Shorter latency doesn’t help, and only more throughput does. Examples: summing a large array with several accumulators, or streaming copy of a large buffer.</p>
+<p><strong>How to tell them apart:</strong></p>
+<ul>
+<li>Per-port or per-resource utilization: near 100% on one resource suggests throughput-bound, low utilization with stalls suggests latency-bound.</li>
+<li>An experiment: double the independent work (unroll with more accumulators, or run two copies on SMT siblings). Latency-bound code runs nearly twice the work in the same time, throughput-bound code takes twice as long.</li>
+</ul>`, "easy") +
+Q(`<p>Stall counters say “ROB full, head is a load miss” for 40% of cycles. That says where cycles were lost but not what to fix first. How would you build a critical-path analysis from a simulator trace, and what can it tell you that the stall counters can’t?</p>`,
+`<p><strong>Building the graph</strong> (after Fields, Bodík, and Hill): for each dynamic instruction create nodes for its key events, typically dispatch (D), execute (E), and commit (C). Add edges with latencies:</p>
+<ul>
+<li>D to E (wait to issue), E to C (complete before commit)</li>
+<li>Data dependences: E of producer to E of consumer, weighted by the producer’s latency</li>
+<li>In-order constraints: D to D and C to C of consecutive instructions, with width limits</li>
+<li>Resource constraints: C of instruction <em>i</em> to D of instruction <em>i</em> + ROB size (a full ROB), and similarly for other structures</li>
+<li>Control: E of a mispredicted branch to D of the next correct-path instruction, weighted by the refill time</li>
+</ul>
+<p>The longest path through the graph is the execution time. Record the graph from the simulator, then compute the critical path offline.</p>
+<p><strong>What it tells you that counters can’t:</strong></p>
+<ul>
+<li><strong>Slack:</strong> how much each event could be delayed without changing total time. Shortening an event with slack does nothing, which is why removing a large stall category sometimes gains little.</li>
+<li><strong>Edge attribution:</strong> how many critical cycles come from memory latency, from the ROB limit, from branch refills, from execution latency. Unlike counters, these sum exactly to total time without double counting.</li>
+<li><strong>What-if answers without re-running:</strong> shrink one class of edge latency (say, L2 hit latency by 2 cycles) and recompute the path to estimate the gain, including the point where another path becomes critical.</li>
+</ul>
+<p>Cost: large traces and graph size, so analyze windows of a few million instructions. Validate the graph by checking that its critical path matches the simulated cycle count.</p>`, "hard") +
+Q(`<p>Top-Down reports a store-heavy kernel as “back-end bound, memory bound,” but L1D load misses are low. Name four store-side or memory-pipeline causes that fit, and the counter or experiment that confirms each.</p>`,
+`<ul>
+<li><strong>Store buffer full:</strong> stores miss and drain slowly, so allocation stalls when the store buffer fills. Confirm with resource-stall counters for the store buffer, and with L1D or L2 RFO (read-for-ownership) miss counts. Fixes: non-temporal stores for big writes, or reducing store misses.</li>
+<li><strong>4K aliasing:</strong> loads are falsely matched to older stores whose addresses differ by a multiple of 4096, because the first check uses only the low 12 bits. Confirm with the core’s address-alias counter (<code>LD_BLOCKS_PARTIAL.ADDRESS_ALIAS</code> on Intel), and by shifting one array’s offset by 64 bytes and seeing the stall vanish.</li>
+<li><strong>Store-forwarding failures:</strong> a load overlaps an older store but can’t forward (wider than the store, or misaligned with it), so it waits until the store commits. Confirm with blocked-load counters for store forwarding (<code>LD_BLOCKS.STORE_FORWARD</code>).</li>
+<li><strong>Split accesses:</strong> loads or stores crossing a cache line need two accesses, and those crossing a page need two translations. Confirm with split-load and split-store counters, and by aligning the data.</li>
+<li><strong>Page walks:</strong> large or sparse data causes DTLB misses even though the data is in cache. Confirm with page-walk cycle counters, and by trying 2 MB pages.</li>
+<li><strong>Contended lines:</strong> stores to lines other cores also write (true or false sharing) cause coherence misses that don’t look like capacity misses. Confirm with HITM (hit-modified) counters or a cache-to-cache transfer count.</li>
+</ul>
+<p>The general lesson: “memory bound” in Top-Down includes every stall attributed to the memory pipeline, not only load misses. Drill down to the next level before choosing a fix.</p>`, "hard") +
 `<h3 id="sec-shift">Bottlenecks That Move</h3>` +
 Q(`<p>The front end delivers fewer instructions than the back end can execute. Which back-end improvements won’t help, and which might still help a little?</p>`,
 `<p><strong>Won’t help:</strong> more execution units, wider issue, a bigger scheduler, a bigger ROB or register file, wider retirement. The back end is already waiting for instructions, and more capacity just sits empty.</p>
@@ -1752,6 +2335,30 @@ Q(`<p>Rename reports “store queue full” as its top stall reason, but stores 
 <li><strong>Mostly senior stores:</strong> the drain is slow. Look at store misses, which drain in order under TSO so one miss blocks every store behind it, at fences or locked instructions that wait for the drain, and at bursts beyond the 1 or 2 commits per cycle (memset, memcpy). Fixes: early ownership requests, non-temporal stores for large copies, fewer fences.</li>
 <li><strong>Mostly unretired stores:</strong> retirement is blocked, so the cause is whatever sits at the ROB head, usually a load miss. The store queue just happens to be the first structure to fill.</li>
 </ul>`, "medium") +
+Q(`<p>Top-Down says a workload is 30% “bad speculation.” You fix the worst branches and the run gets 6% faster, not the 30% you hoped. Why do Top-Down fractions not predict speedup, even when the fix fully removes its category?</p>`,
+`<ul>
+<li><strong>Slots are not time.</strong> Top-Down counts issue slots, not cycles of critical path. A lost slot in a cycle where other slots were used, or where the back end would have stalled anyway, is not a lost cycle.</li>
+<li><strong>Overlap:</strong> mispredicts that happened during a memory stall show up as bad-speculation slots, but the stall would have taken the same time. Removing the mispredicts leaves the stall.</li>
+<li><strong>The next bottleneck:</strong> with fewer flushes, the window fills further and hits memory or core limits. The slots move from “bad speculation” to “back-end bound” instead of to “retiring.” Amdahl’s law applies with the new limit.</li>
+<li><strong>The fix wasn’t free:</strong> branchless code adds instructions and puts selects on the dependence chain, so some of the gain is spent on more retiring work and longer chains.</li>
+<li><strong>Attribution conventions:</strong> “bad speculation” includes slots from wrong-path uops and recovery bubbles, estimated by formulas that approximate the real loss, especially on cores where the counters for recovery cycles are coarse.</li>
+</ul>
+<p>Use Top-Down to choose where to look, not to predict gains. For a prediction, run the idealized experiment (a perfect predictor in a model, or a version of the code with the branch removed on silicon), and measure the actual change in cycles.</p>`, "hard") +
+Q(`<p>A workload alternates between a memory-bound phase and a compute-bound phase, about 50 ms each. Whole-run averages say it is “moderately back-end bound” with “moderate MLP,” which describes neither phase. How do you analyze it, and what goes wrong with design decisions made from the averages?</p>`,
+`<p><strong>How to analyze:</strong></p>
+<ul>
+<li>Sample counters over time in short intervals (1 ms or 10 million instructions), and plot IPC, miss rates, and Top-Down categories as time series. Phases show as distinct plateaus.</li>
+<li>Classify intervals by behavior (clustering on counter vectors, as SimPoint does with basic-block vectors), and analyze each cluster separately, weighted by its time.</li>
+<li>Tie phases to code with sampling profiles per phase, so each one gets the fix that suits it.</li>
+</ul>
+<p><strong>What goes wrong with averages:</strong></p>
+<ul>
+<li><strong>Wrong bottleneck:</strong> an average of “40% memory, 40% core” suggests balanced improvements, while each phase needs only one. Halving memory latency speeds the memory phase a lot and the compute phase not at all.</li>
+<li><strong>Wrong sizing:</strong> average occupancy of the ROB or MSHRs hides that one phase pins them at the limit, and that phase alone would benefit from a larger structure.</li>
+<li><strong>Wrong speedup estimate:</strong> gains combine per phase by time (Amdahl), not by average rates. A 2× speedup on the memory phase gives 1.33× overall, not what an averaged model predicts.</li>
+<li><strong>Power and frequency:</strong> the compute phase may hit power limits and lower the clock, while the memory phase doesn’t. Averaged power hides that.</li>
+</ul>
+<p>In a simulator, make sure the sampled regions cover both phases in the right proportion, or the model only ever sees one of them.</p>`, "hard") +
 `<h3 id="sec-metrics">When the Metric Misleads</h3>` +
 Q(`<p>A change raises IPC by 10%, but execution time barely improves. Give three explanations.</p>`,
 `<ol>
@@ -1790,6 +2397,31 @@ M(`<p>Three benchmarks each run 10<sup>9</sup> instructions, at IPC 1.0, 2.0, an
 </ul></li>
 </ol>
 <p>The arithmetic mean of ratios is biased toward big speedups (a 2× gain and a 2× loss don’t cancel) and shouldn’t be used. The geometric mean treats every benchmark equally regardless of runtime, which is why SPEC uses it. Total time is right only if the suite literally represents the real workload mix. Report the geomean plus the distribution, and say which benchmarks moved.</p>`, "hard") +
+Q(`<p>A design change lets the core run at 5.4 GHz instead of 5.0 GHz, but IPC drops from 2.10 to 1.98 on a suite. Is it a win? Explain how to compare, and why the answer depends on how memory-bound each benchmark is. What must a cycle-level model do to get this right?</p>`,
+`<p><strong>Compare time, not IPC:</strong> performance is IPC × frequency for a fixed instruction count. Here 1.98 × 5.4 = 10.69 versus 2.10 × 5.0 = 10.50 billion instructions per second, a 1.8% gain overall. But averages hide the spread.</p>
+<p><strong>Why it depends on memory-boundness:</strong> DRAM latency is fixed in nanoseconds. At a higher clock, each miss costs more cycles, so IPC falls further on memory-bound benchmarks:</p>
+<ul>
+<li>Compute-bound code: IPC barely changes with frequency, so the full 8% clock gain shows up, minus whatever IPC the design change itself costs.</li>
+<li>Memory-bound code: time is dominated by nanoseconds of DRAM latency. A faster clock helps only the compute part, and if the change also lowered IPC for core reasons, these benchmarks may get slower.</li>
+</ul>
+<p>So part of the IPC drop is just the frequency change, and part is the design change itself. Separate them before judging the design.</p>
+<p><strong>What the model must do:</strong></p>
+<ul>
+<li>Express memory and uncore latencies in nanoseconds (or in their own clock domain), and convert to core cycles at the simulated frequency. A model with DRAM fixed at, say, 400 core cycles makes frequency changes look free.</li>
+<li>Report time per benchmark, and the geomean of time ratios, not IPC.</li>
+<li>Run the old design at the new frequency too, which isolates the design’s own IPC cost.</li>
+</ul>`, "hard") +
+Q(`<p>A new replacement policy lowers the LLC miss rate by 10%, but the workload gets slower. Give mechanisms by which fewer misses can mean worse performance.</p>`,
+`<ul>
+<li><strong>Lower memory-level parallelism:</strong> the remaining misses are the ones on dependent chains (pointer chasing), while the misses removed were independent ones that overlapped each other. Time is set by serialized misses, which didn’t change, and less overlap elsewhere can make it worse.</li>
+<li><strong>Different misses hurt differently:</strong> the policy keeps lines that are accessed often but are not latency-critical (prefetched streams that the core tolerated well), and evicts lines whose misses stall the core (instruction lines, page-table entries, pointer-chasing data).</li>
+<li><strong>Higher hit latency:</strong> a more complex policy may add a pipeline stage to the LLC, or the policy’s metadata update may conflict with lookups. Every hit gets slower, and there are many more hits than misses.</li>
+<li><strong>Prefetch interaction:</strong> fewer demand misses because the policy retained prefetched lines, but prefetches are now late or useless, or more bandwidth is spent on them.</li>
+<li><strong>Writeback traffic:</strong> the policy evicts more dirty lines, increasing DRAM write traffic and read latency under contention.</li>
+<li><strong>Other cores:</strong> in a shared LLC, one core’s miss rate fell because it took capacity from others, whose slowdown outweighs its gain.</li>
+<li><strong>Measurement:</strong> the miss rate is per access, and the new policy changed the access count (more prefetches counted as hits), so the rate fell without the miss count falling.</li>
+</ul>
+<p>The metric to watch is time and stall cycles caused by misses, not miss rate. MPKI and the average latency seen by demand loads are much better proxies than miss rate.</p>`, "hard") +
 `<h3 id="sec-sweeps">Experiments and Attribution</h3>` +
 M(`<p>You doubled the ROB and the scheduler together and performance improved by 9%. How do you find out which change caused it?</p><p>Here are the numbers: baseline IPC 2.00, ROB doubled 2.02, scheduler doubled 2.04, both doubled 2.18. Quantify the interaction.</p>`,
 `<p>Run the full factorial: baseline, ROB only, scheduler only, both. If ROB-only gives 1%, scheduler-only gives 2%, and both give 9%, the changes interact: each one was hiding the other’s benefit, because whichever structure was smaller filled first. Then confirm with the stall breakdown: in the baseline, which structure was full when allocation stalled, and what happened to those stalls in each variant? Report the interaction honestly; saying “the scheduler gave 2%” would be wrong for the combined design.</p>
@@ -1841,7 +2473,26 @@ M(`<p>A 128-core server has 12 channels of DDR5-5600 and sustains about 80% of p
 <li><strong>(b)</strong> Lines in flight: 128 × 48 = 6,144, or 393,216 bytes. Loaded latency = max(120 ns, 393,216 B / 430 GB/s) ≈ <strong>914 ns</strong>.</li>
 <li><strong>(c)</strong> The fixed-latency model gives every core 25.6 GB/s, 3.3 TB/s in total, 7.6× more than the DRAM can deliver. Really each core gets 430 / 128 ≈ <strong>3.4 GB/s</strong>, at more than seven times the idle latency.</li>
 <li>Past about 17 cores, more cores only add latency. The model needs loaded latency, from a DRAM model with queues, to get any of this right.</li>
-</ol>`, "hard"),
+</ol>`, "hard") +
+Q(`<p>Your model shows perfect branch prediction gains 12%, a perfect L2 gains 20%, and both together 40%. A colleague attributes 12% to branches, 20% to the L2, and 8% to “interaction.” Why is any split of the 40% partly arbitrary, and how would you report it so that a design decision isn’t biased by the order of the experiments?</p>`,
+`<p><strong>Why the split is arbitrary:</strong> the gains don’t add. Fixing branches is worth 12% with the real L2 but more with a perfect L2, because with fewer stalls on misses, the window is more often full of useful work for mispredicts to destroy, and vice versa. So “the value of branch prediction” depends on what else has been fixed. Attributing in one order (branches first) gives 12% to branches and the remaining 28% to the L2. The other order gives 20% to the L2 and 20% to branches. Both are correct accounts of a sequence, and neither is <em>the</em> value of each fix.</p>
+<p><strong>How to report it:</strong></p>
+<ul>
+<li>Report the full table: baseline, each fix alone, and both. With two factors that is four runs, and it shows the interaction directly.</li>
+<li>If a single number per factor is needed, use the Shapley value: average each factor’s marginal gain over all orders. Here: branches (12 + 20) / 2 = 16%, L2 (20 + 28) / 2 = 24%. It sums to the total and doesn’t depend on the order.</li>
+<li>For more factors, use a fractional factorial design (as in the Plackett–Burman approach) to estimate main effects and the important interactions without running every combination.</li>
+</ul>
+<p><strong>For the decision:</strong> what matters is the gain of the fix you can actually build, in the context of the other fixes you plan. If the next design improves both the predictor and the L2 (partially, not perfectly), simulate that combination directly. The idealized numbers tell you where the potential is, not how to split credit.</p>`, "hard") +
+Q(`<p>Each benchmark is represented by 10 SimPoints, and a change shows a 0.8% geomean gain. How do you know if that is real or sampling noise? Explain how statistical sampling (SMARTS-style) gives a confidence interval, and how to design the comparison so the noise largely cancels.</p>`,
+`<p><strong>The problem:</strong> SimPoint picks representative intervals by clustering, but gives no error bound. If the chosen intervals don’t represent the change’s effect (for example, the change matters only in a phase that no SimPoint covers), the measured gain can be off by more than 0.8%.</p>
+<p><strong>Statistical sampling</strong> (Wunderlich et al., 2003): simulate many short intervals, a few thousand instructions each, chosen systematically across the whole run, with functional warming of caches and predictors between them. Each interval gives a CPI sample. The mean CPI then has a confidence interval from the sample variance: about ±2 × (standard deviation / √n) at 95%. Choose the number of samples to reach the target error, such as ±1% at 99.7%.</p>
+<p><strong>Comparing two designs:</strong> sample the <em>same</em> intervals for both and compute the confidence interval of the per-sample <em>difference</em>, not of each CPI separately. Intervals that are slow in one design are usually slow in the other, so the variance of the difference is much smaller than either variance. A 0.8% change can be significant this way, even when each design’s CPI is only known to ±2%.</p>
+<p><strong>Other checks:</strong></p>
+<ul>
+<li>Report per-benchmark gains with their intervals, not only the geomean.</li>
+<li>Check for warm-up bias: intervals right after a fast-forward with too short a warm-up show cold-cache behavior that may dominate a small change.</li>
+<li>If a few benchmarks drive the geomean, verify those with longer detailed runs.</li>
+</ul>`, "hard"),
 },
 {
   id: "intv-sim",
@@ -1862,6 +2513,44 @@ Q(`<p>What is warm-up in simulation, and why is it needed?</p>`,
 `<p>Before measuring a sample, the caches, TLBs, branch predictors, and prefetchers must hold the state they would have had if the whole program had run up to that point. Starting them empty (cold) makes every early access miss and every branch mispredict, biasing the sample toward lower IPC. Warm-up runs instructions (often functionally, which is faster) to fill these structures before statistics are collected.</p>`, "easy") +
 Q(`<p>What is a SimPoint?</p>`,
 `<p>A representative interval of a program. SimPoint splits the execution into fixed-size intervals, describes each by which basic blocks it executes (a basic-block vector), clusters similar intervals, and picks one interval per cluster, weighted by cluster size. Simulating a handful of these in detail approximates the whole program at a tiny fraction of the cost.</p>`, "easy") +
+Q(`<p>What is an instruction trace for a CPU timing model? What does each record typically contain, and what can’t a trace tell the model?</p>`,
+`<p>A <strong>trace</strong> is a recording of the instructions a program executed, in order, captured once (with a binary instrumentation tool such as Pin or DynamoRIO, a functional simulator, or hardware tracing) and replayed many times into the timing model.</p>
+<p><strong>A typical record:</strong></p>
+<ul>
+<li>The instruction’s address (PC), and its opcode or a decoded class</li>
+<li>Source and destination registers, so the model can build dependences</li>
+<li>For loads and stores, the memory address and access size</li>
+<li>For branches, whether it was taken and its target</li>
+<li>Sometimes the instruction bytes or uop breakdown, and markers for system events</li>
+</ul>
+<p><strong>What it can’t tell the model:</strong></p>
+<ul>
+<li>Wrong-path instructions: only the correct path was recorded.</li>
+<li>Effects that depend on timing: in multithreaded programs, the interleaving of threads and which thread wins a lock, which change if the modeled core is faster or slower.</li>
+<li>Values, unless recorded, so value-dependent latencies (divides, denormals) are unknown.</li>
+<li>Anything left out of the capture, such as OS code if only user code was traced.</li>
+</ul>`, "easy") +
+Q(`<p>To run SPEC CPU benchmarks in a detailed model, you fast-forward billions of instructions functionally and simulate short regions in detail. What state must be warmed before each region, how long does warming take, and why do multi-megabyte LLCs make this harder? Compare functional warming with checkpoints of warmed state.</p>`,
+`<p><strong>State that needs warming:</strong> anything whose contents depend on long history: caches at every level (and their replacement state), TLBs, branch predictors and BTBs, prefetcher tables, and coherence directories. Pipeline state (ROB, queues) fills in a few thousand cycles and needs no special treatment.</p>
+<p><strong>How long:</strong> roughly as long as it takes for the structure’s contents to be replaced. Predictors and L1 caches warm in a few million instructions. A 32 MB LLC holds 512K lines, and lines that are reused only every few hundred million instructions still affect hit rate, so it may need hundreds of millions of instructions of warming, far longer than the detailed region itself.</p>
+<p><strong>Functional warming:</strong> during fast-forward, every memory access and branch updates the caches and predictors (but no timing). Always accurate for the current configuration, but it slows fast-forward several times, and it must be redone for every configuration that changes those structures.</p>
+<p><strong>Checkpoints of warmed state:</strong> save architectural state plus cache and predictor contents at each region start, once. Fast to start a region, but the saved state is only valid for the configuration it was made with. Changing the LLC size invalidates the cache part. Workarounds: store a larger superset cache (or a memory-access trace for the warm-up window) and reconstruct smaller configurations from it, which works for LRU-like inclusive policies but not for all policies.</p>
+<p>Check the warm-up: rerun a region with twice the warming. If the result changes beyond the noise, warming was too short.</p>`, "hard") +
+Q(`<p>Compare a cycle-driven simulator (every component is ticked every cycle) with an event-driven one (components schedule future events in a queue). Which is faster for a core model, which for a memory system, and what bugs does each style tend to produce?</p>`,
+`<p><strong>Cycle-driven:</strong></p>
+<ul>
+<li>Simple and predictable: every stage does its work each cycle, in a fixed order, and state changes are easy to reason about.</li>
+<li>Efficient when most components have work most cycles, which is true for a busy out-of-order core.</li>
+<li>Wasteful when components are mostly idle: a DRAM controller or an idle core still gets ticked. Large multicore models spend most of their time ticking idle parts.</li>
+<li>Typical bugs: stage evaluation order effects (an instruction passing two stages in one cycle if a later stage reads an earlier stage’s just-written output).</li>
+</ul>
+<p><strong>Event-driven:</strong></p>
+<ul>
+<li>Components schedule events (“this miss completes at cycle 1,234”) and the simulator jumps between event times. Fast when activity is sparse: memory systems, interconnects, idle cores, long latencies.</li>
+<li>Overhead per event (priority queue operations) is high relative to the simple per-cycle work of a core pipeline.</li>
+<li>Typical bugs: ordering among events at the same time, which depends on insertion order or on tie-breaking rules, and can make results change when unrelated code is edited. Also, events whose target was squashed or freed and that fire anyway.</li>
+</ul>
+<p><strong>Common practice:</strong> a hybrid. The core is ticked every cycle while it is active, and memory and uncore components use events. gem5 is event-driven throughout but its CPU models schedule a tick event every cycle while active, which is effectively cycle-driven for the core. Whatever the style, define tie-breaking explicitly, so results don’t depend on the order of event insertion.</p>`, "hard") +
 `<h3 id="sec-struct">Structure and Data</h3>` +
 Q(`<p>How would you represent an instruction’s lifecycle and the main structures (ROB, scheduler, physical register file, load/store queues) in a C cycle-level model? Justify each data structure choice.</p>`,
 `<ul>
@@ -1876,6 +2565,31 @@ Q(`<p>How do you model a multi-cycle or variable-latency operation (a divide, or
 `<p>Don’t simulate the waiting; schedule its end. At issue, compute the completion cycle (now + latency, or for a load, now + the latency returned by the cache model) and insert a completion event into a time-ordered event structure. Each cycle, process only events due this cycle: write back, set ready bits, wake consumers. Unrelated instructions are never touched by the waiting operation.</p>
 <p>Resource occupancy is modeled separately:</p><ul><li>A pipelined unit is “busy” only in its issue cycle</li><li>A non-pipelined divider has a busy-until cycle</li><li>A load miss occupies an MSHR until its fill returns</li></ul><p>For loads, the scheduler must handle speculative wakeup: consumers may have been woken for an L1 hit and must be replayed when the cache model reports a miss.</p>
 <p><strong>Event structures:</strong> a binary heap costs O(log n) per insert and remove, about 11 levels at 2,000 events; with ~6 completions per cycle that’s on the order of 130 sift steps per simulated cycle. A calendar queue inserts in O(1) into bucket[(now + latency) mod H] and each cycle just drains the current bucket. The catch: the horizon H must exceed the longest latency (400+ cycles for DRAM), or long events go to an overflow list that is re-sorted when their time comes.</p>`, "hard") +
+Q(`<p>You are moving a trace-driven model to execution-driven so it can fetch wrong-path instructions. What does the timing model need from the functional model to fetch and execute down a wrong path, and how do you undo it when the branch resolves?</p>`,
+`<p><strong>What it needs:</strong></p>
+<ul>
+<li>The ability to execute from an arbitrary PC chosen by the timing model’s predictor, not the PC the program would really take.</li>
+<li>Speculative state: registers and memory as the wrong path would see them. Wrong-path loads should read the values older correct-path and wrong-path stores produced, so their addresses (and therefore cache effects) are realistic.</li>
+<li>Safety: a wrong-path load to an unmapped address, a divide by zero, or a system call must not crash the simulator or change the real program state. Faults must be recorded and suppressed until the instruction would retire.</li>
+</ul>
+<p><strong>Two common designs:</strong></p>
+<ul>
+<li><strong>Checkpoint and roll back:</strong> the functional model executes speculatively, and at each predicted branch it saves register state and logs memory writes. On a mispredict it restores the checkpoint and undoes logged writes. Accurate, but it costs memory and time per branch.</li>
+<li><strong>Timing-first with a reference model:</strong> the timing model executes instructions itself (it has a full functional core inside), and a separate, simple functional model executes only correct-path instructions at retirement. The two are compared at every retired instruction, and on a mismatch the timing model’s state is reloaded from the reference. Used in GEMS-style simulators. It also finds bugs in the timing model’s execution.</li>
+</ul>
+<p><strong>Undo:</strong> on a mispredict, squash wrong-path instructions in the timing model, restore register and memory state in the functional model (or reload it), and keep the side effects that real hardware also keeps: cache fills and predictor training by wrong-path accesses. Getting that last split right is the point of the exercise.</p>`, "hard") +
+Q(`<p>Profiling shows your multicore simulator spends 60% of its host time in the LLC model. How do you make it much faster without changing any simulated result, and how do you prove you didn’t?</p>`,
+`<p><strong>Find out where the time goes first:</strong> a profiler on the simulator (perf, VTune) per function and per source line. Typical culprits in cache models are linear tag searches, replacement-state updates, memory allocation per request, and cache-unfriendly data layout in the simulator itself.</p>
+<p><strong>Typical fixes:</strong></p>
+<ul>
+<li><strong>Data layout:</strong> store the tags of a set contiguously (struct of arrays), so a lookup reads one or two host cache lines instead of chasing pointers to per-line objects. For a 16-way set with 8-byte tags, that is 128 bytes.</li>
+<li><strong>Faster search:</strong> SIMD compare of all ways at once, or a small hash map from line address to way for very associative caches.</li>
+<li><strong>Avoid allocation:</strong> preallocate request objects in pools instead of calling malloc and free per access.</li>
+<li><strong>Cheaper replacement state:</strong> exact LRU with a timestamp per way is a scan. Use per-set age bits or the exact policy the hardware uses, which is often a cheaper tree-PLRU or RRIP anyway.</li>
+<li><strong>Skip work:</strong> don’t model idle structures each cycle. Use events for the LLC and DRAM.</li>
+<li><strong>Parallelism:</strong> simulate cores on host threads with periodic synchronization, which changes results unless designed carefully, so it belongs in a separate, explicitly approximate mode.</li>
+</ul>
+<p><strong>Proving equivalence:</strong> run the full regression suite before and after, and require bit-identical outputs: every statistic, not just IPC, and per-access event logs for a few short runs. Any change in a deterministic simulator means a behavior change, which must be explained before merging. Keep the old implementation behind a flag for a while to compare.</p>`, "hard") +
 `<h3 id="sec-cycle">Getting the Cycle Right</h3>` +
 Q(`<p>In what order should you update pipeline stages within one simulated cycle, and what subtle error does each choice introduce?</p>`,
 `<p>The usual answer is <strong>reverse pipeline order</strong>: retire, writeback, issue, dispatch, rename, decode, fetch. Each stage then consumes what the stage before it produced in the <em>previous</em> cycle, so an instruction can’t travel through several stages in one simulated cycle.</p>
@@ -1905,6 +2619,21 @@ M(`<p>In 40% of simulated cycles the whole core is stalled waiting on DRAM, in s
 <p>Risks: something may still happen during a “stall”: prefetchers issuing requests, the DRAM model scheduling refresh or reordering, timers and interrupts, other cores in a multicore model. Skip only to the earliest pending event of <em>any</em> component. Statistics must also be credited for the skipped cycles (occupancy histograms, stall counters), or they silently drift.</p>`, "hard") +
 Q(`<p>Why should a simulator use a fixed random seed for anything random (replacement policies, arbitration ties, synthetic traffic)?</p>`,
 `<p>So runs are reproducible: the same configuration gives exactly the same cycle count. That makes regression testing by exact comparison possible, lets you bisect a performance change to a single commit, and ensures a small difference between two configurations is the design and not a different random draw. To study sensitivity to randomness, run several fixed seeds deliberately.</p>`, "easy") +
+Q(`<p>The core runs at 5 GHz, the mesh and LLC at 2.5 GHz, and DDR5-5600 memory at its own clock. How do you model multiple clock domains in a cycle-level simulator, and what errors appear if you just convert every latency to whole core cycles?</p>`,
+`<p><strong>How to model it:</strong></p>
+<ul>
+<li>Keep a global time base fine enough to represent every clock, such as picoseconds, or the least common multiple of the periods. Each domain has its own period and advances on its own clock edges.</li>
+<li>Components in a domain are ticked only on their edges. A 2.5 GHz mesh is ticked every other core cycle, and the DRAM controller on its own period.</li>
+<li>Crossings between domains go through modeled synchronizers or asynchronous FIFOs, each with a latency of one to a few destination-domain cycles, as on real hardware.</li>
+<li>Frequency changes (DVFS, turbo) change a domain’s period at run time, which this structure supports directly.</li>
+</ul>
+<p><strong>Errors from rounding to core cycles:</strong></p>
+<ul>
+<li><strong>Quantization:</strong> a 0.4 ns crossing becomes 2 core cycles regardless of where in the slow clock period the request arrived. On real hardware, a request may wait up to a full slow-domain period for the next edge, so latency varies. The average is about right but the distribution is wrong, which matters for queueing.</li>
+<li><strong>Wrong bandwidth:</strong> a link that can accept one flit per mesh cycle accepts one every 2 core cycles. If the model lets it accept one per core cycle, bandwidth doubles.</li>
+<li><strong>Wrong frequency scaling:</strong> when core frequency changes, latencies that should stay fixed in nanoseconds (the uncore and DRAM) must change in core cycles. A model with latencies hard-coded in core cycles makes faster cores look better than they are.</li>
+</ul>
+<p>Check with a sweep of core frequency: memory-bound benchmarks should show IPC falling as frequency rises, roughly tracking the share of time spent on fixed-nanosecond latencies.</p>`, "hard") +
 `<h3 id="sec-verify">Verification and Trust</h3>` +
 Q(`<p>How would you verify that your model never retires out of order, and that dependences and speculative recovery are correct?</p>`,
 `<ol>
@@ -1979,6 +2708,17 @@ M(`<p>Your model predicts a new prefetcher’s speedups on four workloads as 1.1
 <li><strong>(b)</strong> Predicted: (1.12 × 1.03 × 1.20 × 0.98)<sup>1/4</sup> ≈ <strong>1.079</strong>. Measured: (1.08 × 1.04 × 1.11 × 0.95)<sup>1/4</sup> ≈ <strong>1.043</strong>.</li>
 <li><strong>(c)</strong> Ranking: predicted 1.20 > 1.12 > 1.03 > 0.98, measured 1.11 > 1.08 > 1.04 > 0.95, the same order. But the model says ship (+7.9%) and silicon says don’t (+4.3%). A preserved ranking doesn’t make the model fit for a threshold decision. The speedup error does. Start with the third workload (+9 points): the prefetcher’s bandwidth use or pollution is probably modeled too kindly.</li>
 </ol>`, "medium") +
+Q(`<p>You are validating your model against real hardware using performance counters. Which counters do you trust, which do you treat with care, and why do microbenchmarks come before full applications?</p>`,
+`<p><strong>Trustworthy:</strong> retired instructions, core cycles at a fixed frequency (disable turbo and power management for validation), and retired branches and mispredicts. These are architectural or simple, and vendors test them well.</p>
+<p><strong>Treat with care:</strong></p>
+<ul>
+<li><strong>Cache miss counters:</strong> definitions differ per core: whether prefetches are counted, whether a miss to a line already being fetched counts again, and which level a miss is attributed to. Read the vendor’s event descriptions and errata, then confirm the definition with a microbenchmark that has a known answer.</li>
+<li><strong>Stall and occupancy counters:</strong> often count a condition per cycle with specific rules (counting only when a particular stage is blocked), not the stall a model would report. They are useful for trends, not for exact matching.</li>
+<li><strong>Uop counts:</strong> fused versus unfused domain, and microcoded instructions, must match the model’s definition.</li>
+<li><strong>Multiplexed counters:</strong> when more events are measured than there are counters, the tool time-slices and scales them, which adds noise and errors on phase-changing code.</li>
+</ul>
+<p><strong>Why microbenchmarks first:</strong> each one isolates a single mechanism with a known expected result: a dependent chain for latency, independent operations for throughput, a pointer chase over a sweep of sizes for each cache level, a stream for bandwidth. Disagreements point directly at one parameter. On a full application, errors in many parameters mix and cancel, and you can tune the model to match for the wrong reasons. Once the microbenchmarks match, applications show what the microbenchmarks didn’t cover, such as interactions and unmodeled features.</p>
+<p>Report the remaining error per benchmark, and say which features the model doesn’t include.</p>`, "hard") +
 `<h3 id="sec-analytic">Analytical Models and Power</h3>` +
 Q(`<p>In interval analysis, an isolated long data cache miss costs about the full memory latency, even though the core keeps dispatching useful work into the ROB behind it. Why doesn’t that work reduce the penalty? Why do misses within one ROB of each other cost almost nothing extra?</p>`,
 `<p>Behind the miss, dispatch continues until the ROB fills, then stops until the miss returns. That fill time is useful, but it is offset afterward: when the miss returns, the window drains and dispatch has to ramp back up to its steady rate. To first order the two cancel, and the miss costs about its latency.</p>
@@ -2019,7 +2759,24 @@ M(`<p>A feature raises IPC by 5% and core power by 8% at the same frequency.</p>
 <li><strong>(a)</strong> The clock must drop until power is back at the cap: f = 1.08<sup>−1/3</sup> ≈ 0.975. Performance: 1.05 × 0.975 ≈ <strong>1.023, +2.3%</strong>. Power stays at the cap, so energy per task scales with time: 1 / 1.023 ≈ 0.977, <strong>2.3% less</strong>.</li>
 <li><strong>(b)</strong> Performance <strong>+5%</strong>. Energy per task = power × time = 1.08 / 1.05 ≈ 1.029, <strong>2.9% more</strong>. EDP = 1.029 / 1.05 ≈ 0.980, <strong>2% better</strong>.</li>
 <li><strong>(c)</strong> Both. At the cap, it gains 2.3% and also saves energy, since the IPC gain (5%) exceeds a third of the power cost (2.7%). Uncapped, it gains 5% for 2.9% more energy per task, a good trade for a performance part, and a worse one for a battery-powered part that is usually lightly loaded and judged on energy.</li>
-</ol>`, "hard"),
+</ol>`, "hard") +
+Q(`<p>Compare mechanistic analytical models (interval analysis, first-order queueing models) with empirical ones (regression or machine learning trained on simulator or hardware results) for exploring design spaces. Where does each fail, and how would you combine them?</p>`,
+`<p><strong>Mechanistic models</strong> derive performance from how the hardware works: base CPI from width and dependences, plus penalties for misses and mispredicts computed from the window and latencies.</p>
+<ul>
+<li>Strengths: they explain <em>why</em>, generalize to configurations never simulated, and need only a few parameters per workload (miss rates, branch behavior, dependence statistics).</li>
+<li>Failures: effects left out of the model, such as interactions between mechanisms (prefetching and bandwidth, wrong-path effects), and queueing under contention, which needs a more detailed model. Errors of 10% or more on complex workloads are common.</li>
+</ul>
+<p><strong>Empirical models</strong> fit a function from configuration parameters (and workload features) to measured or simulated performance.</p>
+<ul>
+<li>Strengths: they capture interactions without anyone having to understand them, and once trained, predict in microseconds, which allows searching huge design spaces.</li>
+<li>Failures: extrapolation. Outside the range of training configurations, or on workloads unlike the training set, they can be badly wrong without warning. They also need many detailed simulations to train, and they don’t explain their predictions.</li>
+</ul>
+<p><strong>Combining them:</strong></p>
+<ul>
+<li>Use the mechanistic model’s outputs (estimated miss penalties, MLP) as features for the empirical one, which then learns only the correction. That needs far fewer training points and extrapolates better.</li>
+<li>Use either to prune the design space, then verify the best candidates with detailed simulation.</li>
+<li>Check the empirical model’s error on held-out configurations near the edge of the space, not only on random ones.</li>
+</ul>`, "hard"),
 },
 {
   id: "intv-design",
