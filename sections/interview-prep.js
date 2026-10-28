@@ -70,7 +70,7 @@ section({
 <li><strong>Yellow:</strong> you know the concept but stumble on details or interactions. Spend most of your time here.</li>
 <li><strong>Red:</strong> you can’t answer without looking it up. Fix these first if they are foundational (renaming, dependences, retirement, cache misses).</li>
 </ul>
-<p>Every question is tagged <strong>Easy</strong>, <strong>Medium</strong>, or <strong>Hard</strong>. Across the section the split is about 20% easy, 35% medium, and 45% hard, and each page follows roughly the same mix. Hard questions involve multi-step math, a trap, or an open-ended trade-off. The numbers in the trickiest answers were checked with a small cycle-level simulation or a script.</p>
+<p>Every question is tagged <strong>Easy</strong>, <strong>Medium</strong>, or <strong>Hard</strong>. Across the section the split is about 18% easy, 37% medium, and 45% hard, but the two tabs differ. The Conceptual tabs are about 27% easy, 47% medium, and 26% hard. The Math tabs are almost all hard, about 80% hard and 19% medium. Pages vary around these averages. Hard questions involve multi-step math, a trap, or an open-ended trade-off. The numbers in the trickiest answers were checked with a small cycle-level simulation or a script.</p>
 
 <h3 id="sec-order">Study Order</h3>
 <ol>
