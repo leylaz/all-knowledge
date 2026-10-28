@@ -45,5 +45,7 @@ const GLOSSARY = {
   "UVM": { def: "Universal Verification Methodology: the standard SystemVerilog class library for building reusable testbenches.", page: "verif-testbench" },
   "store-to-load forwarding": { def: "A load gets its data straight from an older, not-yet-committed store to the same address in the store queue.", page: "lsq" },
   "memory-level parallelism": { def: "The average number of cache misses outstanding at once. Higher MLP hides more of the memory latency.", page: "latency-tolerance" },
-  "Little's law": { def: "Average occupancy = throughput × average time in the system. Sizes queues: entries needed = rate × residency.", page: "perf-bounds/bounds" }
+  "Little's law": { def: "Average occupancy = throughput × average time in the system. Sizes queues: entries needed = rate × residency.", page: "perf-bounds/bounds" },
+  "register pressure": { def: "The number of values live at the same point in a program. When it exceeds the registers available, the allocator spills.", page: "comp-regalloc/liveness" },
+  "red zone": { def: "The 128 bytes below rsp that a System V x86-64 leaf function may use without moving rsp.", page: "comp-regalloc/frames" }
 };

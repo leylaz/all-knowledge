@@ -256,7 +256,7 @@ end:
 <h3 id="sec-codegen">The Back End: From IR to Assembly</h3>
 <ol>
 <li><strong>Instruction selection:</strong> each IR operation is matched to target instructions. The comparison and branch become one compare-and-branch on RISC-V, or a compare plus a conditional jump on x86; <code>x * 2</code> becomes a shift (RISC-V) or an address-computation trick (x86).</li>
-<li><strong>Register allocation:</strong> the IR assumes unlimited virtual registers; the real ISA has 31 or 32 (or 16 on x86-64). The allocator assigns each value a register and <em>spills</em> values to the stack when it runs out.</li>
+<li><strong>Register allocation:</strong> the IR assumes unlimited virtual registers, but the real ISA has 31 or 32 (or 16 on x86-64). The allocator assigns each value a register and <em>spills</em> values to the stack when it runs out (see <a href="#/comp-regalloc">Register Allocation, Spills, and Stack Frames</a>).</li>
 <li><strong>Calling convention (ABI):</strong> arguments go in specific registers (RISC-V: a0, a1, ...; x86-64: rdi, rsi, ...) and the return value comes back in a0 or eax. A call may overwrite <em>caller-saved</em> registers, so any value needed after a call (here, <code>x</code> and <code>y</code> survive the printf call) is kept in a <em>callee-saved</em> register, which the function must save and restore itself.</li>
 <li><strong>Instruction scheduling:</strong> instructions are reordered to hide latencies, for example moving a load earlier so its result is ready when needed.</li>
 <li><strong>Emission:</strong> the final assembly text, with labels, directives, and a stack frame.</li>
@@ -309,7 +309,7 @@ f:
         mov     eax, ebx               ; return value: y
         pop     rbx
         ret</code></pre>
-<p>Same structure, different ISA conventions: flags set by <code>cmp</code> and tested by <code>jle</code> (RISC-V has no flags), arguments in edi and esi, and an extra rule that variadic calls report how many vector registers carry arguments.</p>
+<p>Same structure, different ISA conventions: flags set by <code>cmp</code> and tested by <code>jle</code> (RISC-V has no flags), arguments in edi and esi, and an extra rule that variadic calls report how many vector registers carry arguments. The instructions themselves are covered in <a href="#/isa-x86">x86-64 Instructions to Know</a>.</p>
 `,
   practice: {
     guided: [
@@ -322,6 +322,159 @@ f:
       {
         q: `<p>What is SSA form, and why do compilers need phi instructions?</p>`,
         a: `<p>In static single assignment form, every variable is assigned exactly once, so each use has exactly one definition, which makes analyses such as constant propagation and dead code elimination simple and fast. When control flow merges, a value may come from different definitions depending on the path taken, like <code>y</code> in <code>f</code>, which is either <code>x * 2</code> or 0. A phi instruction at the merge point selects the right one based on the predecessor block. Phis don't exist in hardware; the back end turns them into register moves on the incoming edges or simply assigns both paths the same register.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "comp-regalloc",
+  region: "comp",
+  title: "Register Allocation, Spills, and Stack Frames",
+  sections: [
+    { id: "vregs", label: "Virtual Registers" },
+    { id: "liveness", label: "Liveness and Interference" },
+    { id: "assign", label: "Assigning Registers" },
+    { id: "spill", label: "Spill and Fill" },
+    { id: "frames", label: "Prologue and Epilogue" },
+    { id: "cost", label: "What It Costs the Core" }
+  ],
+  body: `
+<p>The IR names every value with its own <strong>virtual register</strong>, as many as it needs. The machine has a small, fixed set of <strong>physical registers</strong>, and the <strong>register allocator</strong> maps one onto the other. When more values are alive at once than there are registers, some of them go to memory: a <strong>spill</strong> stores a value to a stack slot, and a <strong>fill</strong> (also called a reload) loads it back before its next use. The stack frame that holds those slots, and the saved registers, is built by the function's <strong>prologue</strong> and taken down by its <strong>epilogue</strong>.</p>
+<h3 id="sec-vregs">Virtual Registers</h3>
+<p>In SSA form each value, such as <code>%cmp</code> or <code>%mul</code> in the <a href="#/comp-ir/ssa">LLVM IR for f</a>, is a virtual register: defined once and not limited in number. Instruction selection keeps them virtual, so the machine code before allocation looks like real assembly except that its operands are names such as <code>%7</code> instead of <code>rbx</code>.</p>
+<p>The allocator has fewer physical registers to work with than the ISA names:</p>
+<ul>
+<li><strong>x86-64:</strong> 16 general-purpose registers, minus rsp (the stack pointer) and rbp when the function keeps a frame pointer, so 14 or 15 are allocatable. Intel's APX extension raises the count to 32.</li>
+<li><strong>RISC-V and AArch64:</strong> 32 integer register names, of which about 27 to 29 are allocatable once the zero register, the stack pointer, and platform-reserved registers (RISC-V's gp and tp, for example) are taken out.</li>
+<li><strong>Vector registers:</strong> 16 on x86-64 with AVX2, 32 with AVX-512, and 32 on AArch64 and in the RISC-V V extension.</li>
+</ul>
+<p>Some operands are <strong>precolored</strong>: the ABI or the ISA fixes their register before allocation starts. Arguments arrive in rdi, rsi, and so on, the return value must end up in rax, and x86's <code>div</code> reads and writes rdx:rax implicitly. The allocator plans around these fixed points.</p>
+<h3 id="sec-liveness">Liveness and Interference</h3>
+<p>A value is <strong>live</strong> from its definition to its last use: in that span it holds something a later instruction still needs. Two values <strong>interfere</strong> if they are live at the same time, and interfering values can't share a register. Take this block, with instruction indices starting at 0:</p>
+<pre><code>0: v0 = load [a]
+1: v1 = load [b]
+2: v2 = v0 * v1
+3: v3 = load [c]
+4: v4 = v2 + v3
+5: v5 = v0 + v4
+6: ret v5</code></pre>
+<div class="tbl"><table>
+<tr><th>After instruction</th><th>Live values</th><th>Count</th></tr>
+<tr><td>0</td><td>v0</td><td>1</td></tr>
+<tr><td>1</td><td>v0, v1</td><td>2</td></tr>
+<tr><td>2</td><td>v0, v2</td><td>2</td></tr>
+<tr><td>3</td><td>v0, v2, v3</td><td>3</td></tr>
+<tr><td>4</td><td>v0, v4</td><td>2</td></tr>
+<tr><td>5</td><td>v5</td><td>1</td></tr>
+</table></div>
+<p>The largest count, 3 after instruction 3, is the block's <strong>register pressure</strong>. v1 dies at instruction 2 just as v2 is born, so the two don't interfere and v2 can reuse v1's register. The <strong>interference graph</strong> has one node per value and an edge per interfering pair:</p>
+<ul>
+<li>v0 interferes with v1, v2, v3, and v4, since it stays live from instruction 0 to 5.</li>
+<li>v2 interferes with v3.</li>
+</ul>
+<p>v0, v2, and v3 form a triangle, so no assignment with fewer than 3 registers exists.</p>
+<h3 id="sec-assign">Assigning Registers</h3>
+<p>Allocation is graph coloring: give each value a color (a register) so that no two neighbors share one, using at most <em>k</em> colors for <em>k</em> registers. Optimal coloring is NP-complete, so allocators use heuristics:</p>
+<ul>
+<li><strong>Graph coloring</strong> (Chaitin, 1981, refined by Briggs): repeatedly remove a value with fewer than <em>k</em> neighbors, since a free color is guaranteed for it later, then color the values in reverse order of removal. If every remaining value has <em>k</em> or more neighbors, choose one to spill by its cost (uses weighted by loop depth) divided by its number of neighbors.</li>
+<li><strong>Linear scan</strong> (Poletto and Sarkar, 1999): sort the live ranges by start, walk them once, and give each a free register, spilling the range that ends furthest away when none is free. It runs in linear time, so JIT compilers such as HotSpot's client compiler use it.</li>
+<li><strong>Production compilers:</strong> LLVM's greedy allocator assigns the most expensive ranges first and splits a range around high-pressure regions rather than spilling it whole. GCC uses IRA (the integrated register allocator) followed by LRA, which fixes up the ISA's operand constraints.</li>
+</ul>
+<p>Both also <strong>coalesce</strong>: when a copy <code>v7 = v3</code> joins two values that don't interfere, giving them the same register deletes the move. Phi instructions turn into exactly such copies, so coalescing is what makes leaving SSA cheap.</p>
+<h3 id="sec-spill">Spill and Fill</h3>
+<p>When the pressure exceeds the registers, the allocator <strong>spills</strong> a value: it gives the value a stack slot, stores it after its definition, and inserts a <strong>fill</strong> before each later use. With only 2 registers for the block above, v0 is the natural choice. It is live across the peak at instruction 3 without being used there (its uses are at 2 and 5):</p>
+<pre><code>0: v0 = load [a]
+   store [sp+8], v0       ; spill
+1: v1 = load [b]
+2: v2 = v0 * v1           ; last use of v0 before the gap
+3: v3 = load [c]
+4: v4 = v2 + v3
+   v0' = load [sp+8]      ; fill
+5: v5 = v0' + v4
+6: ret v5</code></pre>
+<p>Now at most 2 values are in registers at any point: v2 and v3 after instruction 3, then v4 and v0' just before instruction 5. Allocators make spills cheaper in a few ways:</p>
+<ul>
+<li><strong>Rematerialization:</strong> if a value is cheap to recompute (a constant, an address such as <code>lea rax, [rip+table]</code>, or a load from memory nothing has written since), redo it instead of storing and reloading. Here v0 came from <code>load [a]</code>, so if nothing in between can write <code>a</code>, the fill can load <code>[a]</code> again and the spill store disappears.</li>
+<li><strong>Live-range splitting:</strong> spill a value only across the high-pressure region and keep it in a register elsewhere.</li>
+<li><strong>Loop-aware costs:</strong> spill costs are weighted by loop depth, so a value used once before a loop is spilled before one used on every iteration.</li>
+</ul>
+<p>Calls force the same trade-off. Caller-saved registers don't survive a call, so a value live across one must sit in a callee-saved register (which the prologue then has to save) or be stored before the call and reloaded after it, a spill and fill by another name.</p>
+<h3 id="sec-frames">Prologue and Epilogue</h3>
+<p>The <strong>prologue</strong> is the code at a function's entry that builds its stack frame: it saves the callee-saved registers the function will use and reserves room for locals and spill slots. The <strong>epilogue</strong> undoes it in reverse order just before <code>ret</code>. A typical x86-64 (System V ABI) function that keeps a frame pointer:</p>
+<pre><code>g:
+        push    rbp                ; save the caller's frame pointer
+        mov     rbp, rsp           ; rbp marks the base of this frame
+        push    rbx                ; save a callee-saved register g uses
+        sub     rsp, 24            ; 24 bytes of locals and spill slots
+        ...                        ; body
+        add     rsp, 24            ; free the locals
+        pop     rbx                ; restore in reverse order
+        pop     rbp
+        ret</code></pre>
+<div class="tbl"><table>
+<tr><th>Address</th><th>Contents</th></tr>
+<tr><td>[rbp+8]</td><td>Return address, pushed by the caller's <code>call</code></td></tr>
+<tr><td>[rbp]</td><td>The caller's rbp</td></tr>
+<tr><td>[rbp-8]</td><td>The caller's rbx</td></tr>
+<tr><td>[rbp-32] to [rbp-9]</td><td>Locals and spill slots, with rsp pointing at rbp-32</td></tr>
+</table></div>
+<p>The rules the prologue follows:</p>
+<ul>
+<li><strong>Who saves what:</strong> on System V x86-64, rbx, rbp, and r12 to r15 are callee-saved. Everything else (rax, rcx, rdx, rsi, rdi, r8 to r11, and all vector registers) is caller-saved. RISC-V's callee-saved set is s0 to s11.</li>
+<li><strong>Stack alignment:</strong> rsp must be a multiple of 16 at every <code>call</code>. The call pushes an 8-byte return address, so on entry rsp is 8 past a multiple of 16. In <code>g</code>, <code>push rbp</code> realigns it, <code>push rbx</code> moves it 8 off again, and <code>sub rsp, 24</code> realigns it. In <a href="#/comp-ir/codegen">f</a>, the single <code>push rbx</code> does the whole job.</li>
+<li><strong>The return address:</strong> x86's <code>call</code> pushes it onto the stack, while RISC-V's <code>call</code> writes it into ra, so a non-leaf RISC-V function saves ra in its prologue.</li>
+<li><strong>The frame pointer is optional:</strong> at <code>-O2</code>, GCC and Clang omit it on x86-64 (<code>-fomit-frame-pointer</code>), which frees rbp and saves two instructions. The frame is then addressed off rsp. Fedora 38 and Ubuntu 24.04 turned frame pointers back on for their packages so that profilers can walk the stack cheaply.</li>
+<li><strong>The red zone:</strong> a System V leaf function may use the 128 bytes below rsp without moving rsp, because signal handlers are guaranteed not to touch them. Kernels compile with <code>-mno-red-zone</code>, since an interrupt in kernel mode pushes onto the current stack.</li>
+<li><strong>No frame at all:</strong> a leaf function whose values fit in caller-saved registers needs no prologue. <strong>Shrink-wrapping</strong> moves the prologue onto only the paths that need it, so an early-return check runs before any register is saved.</li>
+<li><strong>Extra prologue work:</strong> <code>endbr64</code> as the first instruction when control-flow enforcement (CET) is on, a stack canary under <code>-fstack-protector</code>, and stack probes for frames larger than a 4 KiB page. <code>leave</code> is a one-instruction epilogue for <code>mov rsp, rbp</code> plus <code>pop rbp</code>.</li>
+<li><strong>Windows x64 differs:</strong> arguments go in rcx, rdx, r8, and r9, rdi, rsi, and xmm6 to xmm15 are callee-saved too, and the caller reserves 32 bytes of shadow space for the callee.</li>
+</ul>
+<h3 id="sec-cost">What It Costs the Core</h3>
+<ul>
+<li><strong>A spill is a store, a fill is a load:</strong> each takes a store or load slot, and the fill usually gets its data by store-to-load forwarding, which takes about as long as an L1 hit. Off the critical dependence chain, that is only a few extra micro-ops. On the chain, the forwarding latency adds to every iteration, which is why spilling a loop's accumulator is far worse than spilling a loop-invariant value.</li>
+<li><strong>Hardware softens it:</strong> a stack engine in the front end tracks rsp, so a run of <code>push</code> and <code>pop</code> doesn't serialize on it. Some cores (AMD since Zen 2) also forward stack stores to later loads at rename, which hides part of the spill latency.</li>
+<li><strong>Calls cost a frame:</strong> a small non-leaf function pays for the call, the prologue, the epilogue, and the return on every invocation. Inlining removes all four and lets the allocator work across the old call boundary.</li>
+<li><strong>Spotting spills:</strong> in <code>-S</code> output, look for a store to <code>[rsp+N]</code> after a definition and loads from the same slot inside a loop. Clang's <code>-Rpass-missed=regalloc</code> reports the number of spills and reloads generated in each loop.</li>
+</ul>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Here is a block with 6 values. Count only v0 to v5 (the pointers p and q have their own registers), with instruction indices starting at 0:</p>
+<pre><code>0: v0 = load [p]
+1: v1 = load [p+8]
+2: v2 = load [p+16]
+3: v3 = v0 + v1
+4: v4 = v3 * v2
+5: v5 = v4 - v0
+6: store [q], v5</code></pre>
+<ul><li>(a) List the live values after each instruction and give the register pressure.</li><li>(b) The target has only 2 registers for these values. Show that v0 must go to memory, then rewrite the block so it fits, using one spill store, one fill, and a change of instruction order if needed.</li><li>(c) No instruction between 0 and 5 writes memory. How can the spill store be removed entirely?</li></ul>`,
+        a: `<ol type="a"><li>Live after each instruction:<ul><li>After 0: v0 (1).</li><li>After 1: v0, v1 (2).</li><li>After 2: v0, v1, v2 (3).</li><li>After 3: v0, v2, v3 (3), since v1's last use is instruction 3.</li><li>After 4: v0, v4 (2).</li><li>After 5: v5 (1).</li></ul>The register pressure is <strong>3</strong>, after instructions 2 and 3.</li>
+<li>Two constraints:<ul><li>Instruction 4 needs v3 and v2 in registers, and v0 is still live there (it is used at 5). That is 3 values, so v0 must be in memory at instruction 4: spill it, and fill it just before instruction 5.</li><li>Instruction 3 needs v0 and v1 in registers. In the original order, v2 is already loaded by then, which makes 3 again. v2 is a plain load and nothing writes memory in between, so its load can move to just after instruction 3.</li></ul>The rewritten block (labels keep their original numbers):<pre><code>0: v0 = load [p]
+   store [sp], v0      ; spill
+1: v1 = load [p+8]
+3: v3 = v0 + v1        ; v0 leaves its register here
+2: v2 = load [p+16]    ; moved after 3
+4: v4 = v3 * v2
+   v0 = load [sp]      ; fill
+5: v5 = v4 - v0
+6: store [q], v5</code></pre>Values in registers after each step: v0, then v0 and v1, then v3, then v3 and v2, then v4, then v4 and v0, then v5. That is never more than <strong>2</strong>.</li>
+<li><strong>Rematerialize v0:</strong> it came from <code>load [p]</code> and nothing writes memory before instruction 5, so the fill can be <code>load [p]</code> again. The store to the stack slot disappears, and the cost is one extra load.</li></ol>`
+      },
+      {
+        q: `<p>A System V x86-64 function makes calls, uses the callee-saved registers rbx, r12, and r13, doesn't keep a frame pointer, and needs 40 bytes of locals and spill slots. Write its prologue and epilogue with the smallest frame that keeps the stack correctly aligned. How many bytes does the whole frame occupy, return address included?</p>`,
+        a: `<ol><li>On entry, rsp is 8 past a multiple of 16, because the caller's <code>call</code> pushed the 8-byte return address onto an aligned stack.</li><li>Three pushes move rsp down by 24 bytes: 8 + 24 = 32 bytes below the aligned point, so rsp is aligned again.</li><li><code>sub rsp, N</code> must keep it aligned, so N is a multiple of 16, and N ≥ 40. The smallest is <strong>N = 48</strong> (8 bytes of padding).</li><li>Prologue: <code>push rbx</code>, <code>push r12</code>, <code>push r13</code>, <code>sub rsp, 48</code>.</li><li>Epilogue, in reverse order: <code>add rsp, 48</code>, <code>pop r13</code>, <code>pop r12</code>, <code>pop rbx</code>, <code>ret</code>.</li><li>Frame size: 8 (return address) + 24 (saved registers) + 48 = <strong>80 bytes</strong>, a multiple of 16 as expected.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A loop computes <code>acc += x[i] * s</code> for 300 million values of i, where s is loop-invariant. On a 4.0 GHz core:</p><ul><li>FP add latency is 3 cycles, and the multiply is off the loop-carried chain.</li><li>Store-to-load forwarding takes 5 cycles from the store to the dependent load's result.</li><li>The loop uses 1 load per iteration and the core can do 3 loads per cycle.</li><li>With everything in registers, the loop runs at 3 cycles per iteration, set by the chain of adds into <code>acc</code>.</li></ul><p>Register pressure forces the allocator to spill either <code>acc</code> or <code>s</code>. (a) Give the cycles per iteration and the total time for each choice. (b) Both values are used once per iteration, so a cost model based on use counts can't tell them apart. What should break the tie, and what can the programmer do if the compiler chooses badly?</p>`,
+        a: `<ol type="a"><li><strong>Spill acc:</strong> each iteration loads <code>acc</code>, adds, and stores it back, and the next iteration's load depends on that store. The loop-carried chain becomes 5 (forwarding) + 3 (add) = <strong>8 cycles per iteration</strong>, and 300 × 10<sup>6</sup> × 8 = 2.4 × 10<sup>9</sup> cycles, or <strong>0.60 s</strong> at 4.0 GHz.<br><strong>Spill s:</strong> each iteration adds a fill of <code>s</code>, but nothing writes <code>s</code> inside the loop, so the fill depends on nothing and runs early. The chain stays the 3-cycle add, and loads rise to 2 per iteration, 2 per 3 cycles, well under 3 per cycle. That is <strong>3 cycles per iteration</strong>: 9 × 10<sup>8</sup> cycles, or <strong>0.225 s</strong>. Spilling <code>acc</code> is 8 / 3 ≈ <strong>2.7× slower</strong>.</li>
+<li>The tie-breaker is whether the value is on a <strong>loop-carried dependence</strong>: a spilled value that the loop also writes puts store-to-load forwarding on the critical path, and a read-only one doesn't. Better still, <code>s</code> can be rematerialized from its original memory location without any spill store. If the compiler gets it wrong, the programmer can reduce pressure (split the loop, or move other live values out of it), or check the regalloc remarks and the <code>-S</code> output to confirm which value was spilled. On a core that forwards stack stores at rename, the penalty for spilling <code>acc</code> shrinks, but that is a prediction and not something to count on.</li></ol>`
+      },
+      {
+        q: `<p>Most x86-64 code is compiled without a frame pointer, yet Fedora and Ubuntu recently rebuilt their packages with one. What does keeping rbp as a frame pointer cost, what does it buy, and why did the trade-off change?</p>`,
+        a: `<p><strong>Cost:</strong></p><ul><li>One fewer allocatable register: 14 instead of 15 general-purpose registers, so register-hungry functions spill a little more.</li><li>Two or three extra instructions per non-leaf call (<code>push rbp</code>, <code>mov rbp, rsp</code>, and a <code>pop rbp</code> or <code>leave</code>).</li><li>The measured overall slowdown is usually around 1% or less, with a few register-starved hot loops losing more.</li></ul><p><strong>Benefit:</strong> every frame starts with the caller's rbp next to the return address, so a profiler or debugger can walk the whole call stack by following a linked list. Without it, stack walking needs DWARF unwind tables, which a sampling profiler such as <code>perf</code> can't evaluate cheaply in the kernel. It falls back to copying a chunk of the user stack per sample and unwinding later, which is slow, large, and often truncated.</p><p><strong>Why it changed:</strong> continuous, fleet-wide profiling became standard practice, and the speedups it finds are worth far more than about 1%. With 16 general-purpose registers, giving up one costs much less than it did on 32-bit x86, which had only 8.</p>`
       }
     ]
   }
