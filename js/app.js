@@ -14,6 +14,7 @@ async function checkPrivate() {
     if (!db) return;
     PRIVATE_UID = uid; PRIVATE_DB = db; PRIVATE_OK = true;
     await loadDbFlags();
+    await loadDbSecFlags();
     await loadDbSolved();
     await loadDbAnswers();
     window.claude.use("sample").then(s => { SAMPLE = s; if (s) addGradeButtons(); })
@@ -71,7 +72,7 @@ function renderHome() {
   <div class="wrap">
     <section class="intro">
       <h1>All Knowledge</h1>
-      <p>From transistors to workloads, laid out like a die. <a href="#/drill">Drill a random question</a>.</p>
+      <p>From transistors to workloads, laid out like a die. <a href="#/drill">Drill a random question</a> or <a href="#/review">review what you've flagged</a>.</p>
     </section>
     <section class="results" id="results" aria-live="polite" hidden></section>
     ${typeof floorplanSVG === "function" ? floorplanSVG() : ""}
@@ -100,7 +101,7 @@ function sideNav(curId, curSec) {
     const secs = pageSections(page);
     if (!secs.length) return "";
     return `<ul class="subsec">${secs.map(s => s.group ? `<li class="grp-label">${s.group}</li>` :
-      `<li><a class="${curSec === s.id ? "cur" : ""}" href="#/${base}/${s.id}">${s.label}</a></li>`).join("")}</ul>`;
+      `<li><a class="${curSec === s.id ? "cur" : ""}" href="#/${base}/${s.id}">${s.label}${secFlag(base + "/" + s.id) ? SIDE_STAR : ""}</a></li>`).join("")}</ul>`;
   };
   return `<nav class="side" id="side" aria-label="All sections">
     <a class="home" href="#/">All Knowledge</a>
@@ -109,9 +110,12 @@ function sideNav(curId, curSec) {
       return `<div class="grp">
       <a class="rg ${isCurR && !curSec ? "cur" : ""}" href="#/r/${r.id}">${r.name}</a>
       ${isCurR ? subFor(r, "r/" + r.id) : ""}
-      <ul>${r.id === "intv" ? `<li><a class="${curId === "flagged" ? "cur" : ""}" href="#/flagged">Flagged Questions</a></li><li><a class="${curId === "drill" ? "cur" : ""}" href="#/drill">Random Drill</a></li>` : ""}${visibleNotes().filter(n => n.region === r.id).map(n =>
+      <ul>${r.id === "intv" ? `<li><a class="${curId === "drill" ? "cur" : ""}" href="#/drill">Random Drill</a></li>` : ""}${visibleNotes().filter(n => n.region === r.id).map(n =>
         `<li><a class="${curId === n.id && !curSec ? "cur" : ""}" href="#/${n.id}">${n.title}</a>${curId === n.id ? subFor(n, n.id) : ""}</li>`).join("")}</ul>
-    </div>`; }).join("")}
+    </div>${r.id === "intv" ? `<div class="grp">
+      <a class="rg ${curId === "review" && !curSec ? "cur" : ""}" href="#/review">Review</a>
+      <ul><li><a class="${curId === "review" && !curSec ? "cur" : ""}" href="#/review">Flagged for Review</a>${curId === "review" ? subFor(REVIEW_PAGE, "review") : ""}</li></ul>
+    </div>` : ""}`; }).join("")}
   </nav>`;
 }
 
@@ -145,6 +149,7 @@ function layout(curId, curSec, inner) {
   decorateFlags();
   decorateSolved();
   decorateAnswers();
+  decorateSecFlags(curId);
   if (typeof initCalcs === "function") initCalcs(app);
   if (typeof initTraces === "function") initTraces(app);
   decorateGlossary(curId);
@@ -250,7 +255,7 @@ function decorateFlags() {
   });
 }
 app.addEventListener("click", e => {
-  const btn = e.target.closest(".flag-btn");
+  const btn = e.target.closest(".flag-btn:not(.sec-flag)");
   if (!btn) return;
   const card = btn.closest(".prob");
   const snip = cardSnip(card);
@@ -275,6 +280,103 @@ function flagIndex() {
   }
   return FLAG_INDEX;
 }
+
+/* ---------- Flagged subsections ----------
+   Every <h3 id="sec-..."> on a public notes page or section overview
+   (not the interview pages) gets a flag button. A flag is keyed by page
+   and section id, keeps the heading's label in case the section is later
+   renamed or removed, and carries an optional note. Stored like the
+   question flags: the owner's in the private db, everyone else's in this
+   browser. */
+const SEC_FLAG_KEY = "sec-flags";
+const SIDE_STAR = ' <span class="side-flag" aria-label="flagged">★</span>';
+let SEC_FLAGS = [], SEC_FLAG_SAVE = Promise.resolve(), SEC_NOTE_TIMER = null;
+try { SEC_FLAGS = JSON.parse(localStorage.getItem(SEC_FLAG_KEY) || "[]"); } catch (e) { SEC_FLAGS = []; }
+if (!Array.isArray(SEC_FLAGS)) SEC_FLAGS = [];
+const secFlagDoc = () => PRIVATE_DB.doc("data/users/" + PRIVATE_UID + "/" + SEC_FLAG_KEY);
+async function loadDbSecFlags() {
+  try {
+    const snap = await secFlagDoc().get();
+    const f = snap.exists ? (snap.data() || {}).flags : null;
+    SEC_FLAGS = Array.isArray(f) ? f.slice() : [];
+  } catch (e) { console.error("Subsection flags failed to load; using this browser's copy:", e); }
+}
+function saveSecFlags() {
+  const copy = SEC_FLAGS.map(f => Object.assign({}, f));
+  if (PRIVATE_OK) {
+    SEC_FLAG_SAVE = SEC_FLAG_SAVE.then(() => secFlagDoc().set({ flags: copy })).catch(e => console.error("Saving subsection flags failed:", e));
+    return;
+  }
+  try { localStorage.setItem(SEC_FLAG_KEY, JSON.stringify(copy)); } catch (e) {}
+}
+const secFlag = key => SEC_FLAGS.find(f => f.key === key);
+/* The page a layout id names, if its subsections can be flagged. */
+function flaggablePage(curId) {
+  const page = curId.startsWith("r/") ? REGIONS.find(r => "r/" + r.id === curId) : NOTES.find(n => n.id === curId);
+  return page && !page.private && page.id !== "intv" && page.region !== "intv" ? page : null;
+}
+function headText(h) {
+  const c = h.cloneNode(true);
+  c.querySelectorAll(".flag-btn").forEach(b => b.remove());
+  return c.textContent.replace(/\s+/g, " ").trim();
+}
+function secNoteBox(key) {
+  const box = document.createElement("div");
+  box.className = "sec-note";
+  box.innerHTML = '<input type="text" class="sec-note-text" aria-label="Why this is flagged" placeholder="Why flag this? (optional note)">';
+  const input = box.firstElementChild;
+  input.dataset.key = key;
+  input.value = (secFlag(key) || {}).note || "";
+  return box;
+}
+function decorateSecFlags(curId) {
+  if (!flaggablePage(curId)) return;
+  app.querySelectorAll('.note .body h3[id^="sec-"]').forEach(h => {
+    if (h.querySelector(".flag-btn")) return;
+    const key = curId + "/" + h.id.slice(4);
+    const btn = document.createElement("button");
+    btn.type = "button"; btn.className = "flag-btn sec-flag"; btn.dataset.key = key;
+    btn.setAttribute("aria-label", "Flag this subsection for review");
+    setFlagBtn(btn, !!secFlag(key));
+    h.appendChild(btn);
+    if (secFlag(key)) h.after(secNoteBox(key));
+  });
+}
+function markSide(key, on) {
+  const a = document.querySelector(`.side a[href="#/${key}"]`);
+  if (!a) return;
+  const star = a.querySelector(".side-flag");
+  if (on && !star) a.insertAdjacentHTML("beforeend", SIDE_STAR);
+  if (!on && star) star.remove();
+}
+app.addEventListener("click", e => {
+  const btn = e.target.closest(".sec-flag");
+  if (!btn) return;
+  const key = btn.dataset.key, i = SEC_FLAGS.findIndex(f => f.key === key);
+  const h = btn.closest("h3"), next = h && h.nextElementSibling;
+  if (i >= 0) {
+    SEC_FLAGS.splice(i, 1);
+    if (next && next.classList.contains("sec-note")) next.remove();
+  } else {
+    const item = btn.closest(".rev-item"), kept = item && item.querySelector(".sec-note-text");
+    SEC_FLAGS.push({ key, label: h ? headText(h) : btn.dataset.label, note: kept ? kept.value : "", at: Date.now() });
+    if (h) { h.after(secNoteBox(key)); h.nextElementSibling.firstElementChild.focus(); }
+  }
+  saveSecFlags();
+  setFlagBtn(btn, i < 0);
+  markSide(key, i < 0);
+  const count = document.getElementById("secFlagCount");
+  if (count) count.textContent = String(SEC_FLAGS.length);
+});
+app.addEventListener("input", e => {
+  const input = e.target.closest(".sec-note-text");
+  if (!input) return;
+  const f = secFlag(input.dataset.key);
+  if (!f) return;
+  f.note = input.value;
+  clearTimeout(SEC_NOTE_TIMER);
+  SEC_NOTE_TIMER = setTimeout(saveSecFlags, 600);
+});
 
 /* ---------- Solved problems and the random drill ----------
    Any practice or interview card can be marked solved. Like flags, a
@@ -547,25 +649,68 @@ function renderDrill() {
   form.addEventListener("change", () => form.requestSubmit());
 }
 
-function renderFlagged() {
-  const idx = flagIndex();
-  const flagged = new Set(FLAGS.map(f => f.snip));
-  const found = new Set();
-  let html = "";
-  for (const n of visibleNotes().filter(x => x.region === "intv")) {
-    const cards = idx.filter(c => c.note === n && flagged.has(c.snip));
-    if (!cards.length) continue;
-    cards.forEach(c => found.add(c.snip));
-    html += `<h3><a href="#/${n.id}">${n.title}</a></h3>` + cards.map(c => c.html).join("");
+/* ---------- The review page ----------
+   Flagged subsections, grouped by page in sidebar order, each with its
+   first sentence and your note, then the flagged interview questions.
+   Unflagged items stay listed until you leave the page. */
+const REVIEW_PAGE = { sections: [{ id: "subsections", label: "Subsections" }, { id: "questions", label: "Interview Questions" }] };
+function firstSentence(t) {
+  const m = t.match(/^[\s\S]{30,}?[.!?:](?=\s+[A-Z"“(]|$)/);
+  const s = m ? m[0] : t;
+  return s.length > 220 ? s.slice(0, 200).replace(/\s+\S*$/, "") + "…" : s;
+}
+const revItem = (key, title, desc) => `<div class="rev-item">
+  <button type="button" class="flag-btn sec-flag" data-key="${esc(key)}" data-label="${esc(title)}" aria-label="Flag this subsection for review"></button>
+  <p class="rev-title">${desc === null ? esc(title) : `<a href="#/${key}">${esc(title)}</a>`}</p>
+  ${desc ? `<p class="rev-desc">${esc(desc)}</p>` : ""}
+  <div class="sec-note"><input type="text" class="sec-note-text" data-key="${esc(key)}" aria-label="Why this is flagged" placeholder="Why flag this? (optional note)"></div>
+</div>`;
+function renderReview() {
+  const idx = searchIndex();
+  const order = [];
+  for (const r of visibleRegions().filter(r => !r.private)) {
+    order.push({ base: "r/" + r.id, title: r.name });
+    for (const n of visibleNotes().filter(n => n.region === r.id && !n.private)) order.push({ base: n.id, title: n.title });
   }
-  const missing = FLAGS.filter(f => !found.has(f.snip));
-  if (missing.length) html += `<h3>No Longer Found</h3><p>These questions were edited or removed after you flagged them.</p><ul>${missing.map(f => {
+  const keys = new Set(SEC_FLAGS.map(f => f.key)), found = new Set();
+  let subs = "";
+  for (const pg of order) {
+    const hits = idx.filter(c => c.base === pg.base && c.sec && keys.has(c.base + "/" + c.sec));
+    if (!hits.length) continue;
+    hits.forEach(c => found.add(c.base + "/" + c.sec));
+    subs += `<p class="rev-page"><a href="#/${pg.base}">${pg.title}</a></p>` +
+      hits.map(c => revItem(c.base + "/" + c.sec, c.label, firstSentence(c.rest))).join("");
+  }
+  const missing = SEC_FLAGS.filter(f => !found.has(f.key));
+  if (missing.length) subs += `<p class="rev-page">No Longer Found</p><p>These subsections were renamed or removed after you flagged them.</p>` +
+    missing.map(f => revItem(f.key, f.label || f.key, null)).join("");
+
+  const cidx = flagIndex();
+  const flagged = new Set(FLAGS.map(f => f.snip)), foundQ = new Set();
+  let qs = "";
+  for (const n of visibleNotes().filter(x => x.region === "intv")) {
+    const cards = cidx.filter(c => c.note === n && flagged.has(c.snip));
+    if (!cards.length) continue;
+    cards.forEach(c => foundQ.add(c.snip));
+    qs += `<p class="rev-page"><a href="#/${n.id}">${n.title}</a></p>` + cards.map(c => c.html).join("");
+  }
+  const missingQ = FLAGS.filter(f => !foundQ.has(f.snip));
+  if (missingQ.length) qs += `<p class="rev-page">No Longer Found</p><p>These questions were edited or removed after you flagged them.</p><ul>${missingQ.map(f => {
     const li = document.createElement("li"); li.textContent = f.snip + "…"; return li.outerHTML; }).join("")}</ul>`;
-  layout("flagged", null, `
-    <p class="region"><a href="#/r/intv" style="text-decoration:none">${REGIONS.find(r => r.id === "intv").name}</a></p>
-    <h1>Flagged Questions</h1>
-    <p class="flag-note"><span id="flagCount">${FLAGS.length}</span> flagged. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."} Unflagged questions stay listed until you leave the page.</p>
-    <div class="body">${html || "<p>No questions flagged yet. Use ☆ Flag on any interview question.</p>"}</div>`);
+
+  layout("review", null, `
+    <p class="region">Review</p>
+    <h1>Flagged for Review</h1>
+    ${tocHTML(REVIEW_PAGE, "review")}
+    <p class="flag-note">Flagged: <span id="secFlagCount">${SEC_FLAGS.length}</span> subsections, <span id="flagCount">${FLAGS.length}</span> interview questions. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."} Unflagged items stay listed until you leave the page.</p>
+    <div class="body">
+      <h3 id="sec-subsections">Subsections</h3>
+      ${subs || "<p>No subsections flagged yet. Use ☆ Flag next to any subsection heading on a notes page.</p>"}
+      <h3 id="sec-questions">Interview Questions</h3>
+      ${qs || "<p>No questions flagged yet. Use ☆ Flag on any interview question.</p>"}
+    </div>`);
+  app.querySelectorAll(".rev-item .sec-flag").forEach(b => setFlagBtn(b, true));
+  app.querySelectorAll(".rev-item .sec-note-text").forEach(input => { input.value = (secFlag(input.dataset.key) || {}).note || ""; });
 }
 
 function renderRegion(r, sec) {
@@ -576,7 +721,7 @@ function renderRegion(r, sec) {
     ${tocHTML(r, "r/" + r.id)}
     <ul class="sublist">${notes.map(n => `<li><a href="#/${n.id}">${n.title}</a></li>`).join("")}</ul>
     ${r.id === "pipe" && typeof pipelineSVG === "function" ? pipelineSVG() : ""}
-    ${r.id === "intv" ? `<p class="flag-note"><a href="#/flagged">★ Flagged Questions</a> (<span id="flagCount">${FLAGS.length}</span>) · <a href="#/drill">Random Drill</a></p>` : ""}
+    ${r.id === "intv" ? `<p class="flag-note"><a href="#/review/questions">★ Flagged Questions</a> (<span id="flagCount">${FLAGS.length}</span>) · <a href="#/drill">Random Drill</a></p>` : ""}
     ${r.private ? '<div id="privbody"><p>Loading…</p></div>' : `<div class="body">${r.body}</div>${practiceHTML(r.practice)}`}`);
 }
 
@@ -631,7 +776,8 @@ function searchIndex() {
     for (const part of parts) {
       const m = part.match(/^<h3 id="sec-([^"]+)"/);
       const sec = m ? m[1] : null;
-      SEARCH_INDEX.push({ base, title, sec, label: sec ? (labels.get(sec) || plain(part.match(/<h3[^>]*>(.*?)<\/h3>/)[1])) : "", text: plain(part) });
+      SEARCH_INDEX.push({ base, title, sec, label: sec ? (labels.get(sec) || plain(part.match(/<h3[^>]*>(.*?)<\/h3>/)[1])) : "", text: plain(part),
+        rest: sec ? plain(part.replace(/^<h3[^>]*>.*?<\/h3>/, "")) : "" });
     }
     if (n.practice) SEARCH_INDEX.push({ base, title, sec: "practice", label: "Practice Problems",
       text: plain([...(n.practice.guided || []), ...(n.practice.interview || [])].map(x => x.q + " " + x.a).join(" ")) });
@@ -688,7 +834,8 @@ function route() {
   menuBtn.setAttribute("aria-expanded", "false");
   /* Leaving home ends the search, so coming back shows the full page. */
   if (parts[0]) q.value = "";
-  if (parts[0] === "flagged") { renderFlagged(); window.scrollTo(0, 0); return; }
+  if (parts[0] === "review") { renderReview(); goToSection(parts[1]); return; }
+  if (parts[0] === "flagged") { renderReview(); goToSection("questions"); return; }
   if (parts[0] === "drill") { renderDrill(); window.scrollTo(0, 0); return; }
   if (parts[0] === "r") {
     const r = REGIONS.find(x => x.id === parts[1]);

@@ -63,7 +63,7 @@ for (const n of NOTES.filter(n => n.region === "intv" && !n.private))
     if (!(n.body || "").includes(`data-qid="${n.id}-${t}1"`)) err(n.id, `the ${name} tab has no questions`);
 
 /* ---------- Links ---------- */
-const ROUTES = new Set(["", "flagged", "drill"]);
+const ROUTES = new Set(["", "flagged", "drill", "review"]);
 function checkHref(where, href) {
   const parts = href.replace(/^#\/?/, "").split("/");
   if (parts.length === 1 && ROUTES.has(parts[0])) return;
