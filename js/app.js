@@ -394,7 +394,7 @@ function decorateAnswers() {
     const box = document.createElement("div");
     box.className = "ans";
     box.innerHTML = `<p class="ans-label">Your answer</p>
-      <textarea class="ans-text" rows="4" aria-label="Your answer" placeholder="Work it out here before opening the answer."></textarea>
+      <textarea class="ans-text" rows="8" aria-label="Your answer" placeholder="Work it out here before opening the answer."></textarea>
       <div class="ans-bar"><span class="ans-status" aria-live="polite"></span></div>
       <div class="ans-fb" aria-live="polite" hidden></div>`;
     box.querySelector(".ans-text").value = v ? v.text || "" : "";
@@ -445,15 +445,16 @@ function gradePrompt(snip, answer) {
 
 Reply in under 200 words, in exactly this format:
 **Verdict:** Correct, Partly correct, or Incorrect.
-**What's right:**
-- one bullet per point
-**What's missing or wrong:**
-- one bullet per point, or "- Nothing." if the answer is complete
+**What's missing:**
+- one bullet per point the answer leaves out, or "- Nothing." if nothing is missing
+**What's wrong:**
+- one bullet per incorrect statement or number, or "- Nothing." if nothing is wrong
 **Tip:** one sentence on what to say or practice next time.
 
 Rules:
 - Judge the reasoning and the final numbers. Accept a different valid approach and small rounding differences.
 - Don't repeat the reference answer in full. Name only what the candidate needs.
+- Don't list what the candidate got right. Report only what is missing and what is wrong.
 - If the answer is blank, a guess with no reasoning, or off topic, say so.
 - Use "- " bullet points for lists. Never use semicolons to separate list items.
 - Write math as TeX inside \\( and \\).
