@@ -260,5 +260,143 @@ Little-endian puts the “little end” at the lowest address, so the bytes look
       }
     ]
   }
+},
+
+{
+  id: "isa-x86",
+  region: "isa",
+  title: "x86-64 Instructions to Know",
+  sections: [
+    { id: "syntax", label: "Reading the Syntax" },
+    { id: "regs", label: "Registers and Operand Sizes" },
+    { id: "move", label: "Moving Data" },
+    { id: "alu", label: "Arithmetic, Logic, and Flags" },
+    { id: "ctrl", label: "Branches, Calls, and Returns" },
+    { id: "idioms", label: "Idioms the Core Recognizes" },
+    { id: "vector", label: "Vector Instructions" }
+  ],
+  body: `
+<p>A few dozen x86-64 instructions cover nearly everything in compiler output and in the hot loops a profiler points at. This page lists them with the details that matter for reading assembly and for reasoning about how the core runs them. The listings use Intel syntax, like the rest of this site.</p>
+<h3 id="sec-syntax">Reading the Syntax</h3>
+<ul>
+<li><strong>Intel syntax</strong> (Intel's manuals, <code>objdump -M intel</code>, <code>gcc -masm=intel</code>) puts the destination first: <code>add rax, rbx</code> means rax = rax + rbx.</li>
+<li><strong>AT&amp;T syntax</strong> (the default for GCC, the GNU assembler, and objdump on Linux) puts the source first, marks registers with %, immediates with $, and puts the operand size in a suffix: <code>add rax, 10</code> is <code>addq $10, %rax</code>.</li>
+<li><strong>Memory operands</strong> have the form base + index × scale + displacement, with a scale of 1, 2, 4, or 8 and a signed 32-bit displacement. Intel writes <code>[rbx+rcx*8+16]</code> and AT&amp;T writes <code>16(%rbx,%rcx,8)</code>. RIP-relative operands such as <code>[rip+table]</code> reach globals in position-independent code (see <a href="#/isa-addressing/pc-rel">PC-relative addressing</a>).</li>
+<li><strong>Operand size:</strong> when no register fixes it, Intel syntax spells it out: <code>mov DWORD PTR [rdi], 0</code> stores 4 bytes.</li>
+<li><strong>One memory operand:</strong> most instructions allow at most one, so copying memory to memory takes a load and a store. String instructions such as <code>rep movsb</code> are the exception.</li>
+</ul>
+<h3 id="sec-regs">Registers and Operand Sizes</h3>
+<div class="tbl"><table>
+<tr><th>64-bit</th><th>32-bit</th><th>16-bit</th><th>8-bit</th><th>Role in the System V ABI</th></tr>
+<tr><td>rax</td><td>eax</td><td>ax</td><td>al</td><td>Return value</td></tr>
+<tr><td>rbx</td><td>ebx</td><td>bx</td><td>bl</td><td>Callee-saved</td></tr>
+<tr><td>rcx</td><td>ecx</td><td>cx</td><td>cl</td><td>Argument 4, and the count for variable shifts</td></tr>
+<tr><td>rdx</td><td>edx</td><td>dx</td><td>dl</td><td>Argument 3, and the high half for <code>mul</code> and <code>div</code></td></tr>
+<tr><td>rsi</td><td>esi</td><td>si</td><td>sil</td><td>Argument 2</td></tr>
+<tr><td>rdi</td><td>edi</td><td>di</td><td>dil</td><td>Argument 1</td></tr>
+<tr><td>rbp</td><td>ebp</td><td>bp</td><td>bpl</td><td>Frame pointer, or callee-saved</td></tr>
+<tr><td>rsp</td><td>esp</td><td>sp</td><td>spl</td><td>Stack pointer</td></tr>
+<tr><td>r8, r9</td><td>r8d, r9d</td><td>r8w, r9w</td><td>r8b, r9b</td><td>Arguments 5 and 6</td></tr>
+<tr><td>r10, r11</td><td>r10d, r11d</td><td>r10w, r11w</td><td>r10b, r11b</td><td>Caller-saved scratch</td></tr>
+<tr><td>r12 to r15</td><td>r12d to r15d</td><td>r12w to r15w</td><td>r12b to r15b</td><td>Callee-saved</td></tr>
+</table></div>
+<ul>
+<li><strong>A 32-bit write zeroes bits 63 to 32.</strong> <code>mov eax, 1</code> sets all of rax. Compilers use the 32-bit form whenever the value fits, because it needs no REX prefix and is a byte shorter.</li>
+<li><strong>An 8- or 16-bit write keeps the rest of the register.</strong> The result depends on the register's old value, which is a real input that renaming can't remove. Compilers read bytes and words with <code>movzx</code> or <code>movsx</code> instead.</li>
+<li><strong>Other state:</strong> rip (the program counter), rflags (CF carry, ZF zero, SF sign, OF overflow, plus PF and AF), 16 vector registers (32 with AVX-512, plus the mask registers k0 to k7), and the legacy x87 floating-point stack.</li>
+</ul>
+<h3 id="sec-move">Moving Data</h3>
+<div class="tbl"><table>
+<tr><th>Instruction</th><th>What it does</th><th>Worth knowing</th></tr>
+<tr><td><code>mov dst, src</code></td><td>Copies a register, an immediate, or memory (on one side only)</td><td>Register-to-register moves are often eliminated at rename</td></tr>
+<tr><td><code>movzx</code>, <code>movsx</code>, <code>movsxd</code></td><td>Copy a narrower value with zero or sign extension</td><td>The clean way to read bytes and words. <code>movsxd</code> sign-extends 32 bits to 64</td></tr>
+<tr><td><code>lea dst, [address]</code></td><td>Computes the address expression and writes it, with no memory access and no flags</td><td>Used as a three-operand add and for multiplies by 3, 5, and 9</td></tr>
+<tr><td><code>push src</code>, <code>pop dst</code></td><td>rsp −= 8 then store, or load then rsp += 8</td><td>The front end's stack engine does the rsp updates</td></tr>
+<tr><td><code>cmovcc dst, src</code></td><td>Copies if the condition holds</td><td>Replaces a branch with a data dependence on the flags</td></tr>
+<tr><td><code>xchg</code></td><td>Swaps two operands</td><td>With a memory operand it is implicitly locked: an atomic swap and a full barrier</td></tr>
+</table></div>
+<h3 id="sec-alu">Arithmetic, Logic, and Flags</h3>
+<p>Most arithmetic is two-operand and destructive: <code>add rax, rbx</code> overwrites rax, so keeping both inputs costs an extra <code>mov</code> or an <code>lea</code>. Intel's APX extension adds three-operand forms. Nearly every arithmetic instruction also writes the flags.</p>
+<div class="tbl"><table>
+<tr><th>Instruction</th><th>What it does</th><th>Worth knowing</th></tr>
+<tr><td><code>add</code>, <code>sub</code></td><td>Add or subtract</td><td>Set all the arithmetic flags</td></tr>
+<tr><td><code>inc</code>, <code>dec</code></td><td>Add or subtract 1</td><td>Leave CF unchanged, so a later reader of CF also depends on an older instruction</td></tr>
+<tr><td><code>imul dst, src</code>, <code>imul dst, src, imm</code></td><td>Low half of a product</td><td>The common multiply. One-operand <code>mul</code> and <code>imul</code> give the full 128-bit product in rdx:rax</td></tr>
+<tr><td><code>div</code>, <code>idiv</code></td><td>Divide rdx:rax by the operand: quotient in rax, remainder in rdx</td><td>The slowest common integer instruction, so compilers turn division by a constant into a multiply and a shift</td></tr>
+<tr><td><code>and</code>, <code>or</code>, <code>xor</code>, <code>not</code>, <code>neg</code></td><td>Bitwise operations, and two's-complement negation</td><td>The bitwise three clear CF and OF</td></tr>
+<tr><td><code>shl</code>, <code>shr</code>, <code>sar</code></td><td>Shift left, logical right, arithmetic right</td><td>A variable shift count must be in cl</td></tr>
+<tr><td><code>cmp a, b</code></td><td>Computes a − b, sets the flags, discards the result</td><td>Usually fused with the following branch</td></tr>
+<tr><td><code>test a, b</code></td><td>Computes a AND b, sets the flags, discards the result</td><td><code>test eax, eax</code> checks for zero or negative in 2 bytes</td></tr>
+<tr><td><code>lock add</code>, <code>lock xadd</code>, <code>lock cmpxchg</code></td><td>Atomic read-modify-write on memory</td><td>Also a full memory barrier on x86, so far slower than the plain instruction</td></tr>
+</table></div>
+<h3 id="sec-ctrl">Branches, Calls, and Returns</h3>
+<p>A conditional jump tests the flags left by the last instruction that wrote them. Signed and unsigned comparisons use different conditions:</p>
+<div class="tbl"><table>
+<tr><th>After <code>cmp a, b</code></th><th>Signed</th><th>Unsigned</th></tr>
+<tr><td>a = b</td><td><code>je</code> (also <code>jz</code>)</td><td><code>je</code></td></tr>
+<tr><td>a ≠ b</td><td><code>jne</code></td><td><code>jne</code></td></tr>
+<tr><td>a &lt; b</td><td><code>jl</code></td><td><code>jb</code></td></tr>
+<tr><td>a ≤ b</td><td><code>jle</code></td><td><code>jbe</code></td></tr>
+<tr><td>a &gt; b</td><td><code>jg</code></td><td><code>ja</code></td></tr>
+<tr><td>a ≥ b</td><td><code>jge</code></td><td><code>jae</code></td></tr>
+</table></div>
+<p>The signed conditions read SF and OF, and the unsigned ones read CF. The same condition codes name <code>setcc</code> (write 0 or 1 to a byte register) and <code>cmovcc</code>.</p>
+<ul>
+<li><strong><code>jmp label</code></strong> is a direct, PC-relative jump. <code>jmp rax</code> and <code>jmp [table+rax*8]</code> are indirect, as in switch jump tables.</li>
+<li><strong><code>call target</code></strong> pushes the address of the next instruction and jumps. <strong><code>ret</code></strong> pops that address and jumps to it, and the return address stack predicts where it goes.</li>
+<li><strong><code>call rax</code></strong> and <strong><code>call [rax+16]</code></strong> are indirect calls, as for C++ virtual functions and calls through the <a href="#/comp-plt">PLT</a>.</li>
+<li><strong>Branch or <code>cmov</code>:</strong> a <code>cmov</code> always waits for both inputs and the flags, while a predicted branch lets the core run ahead. <code>cmov</code> wins when the branch is hard to predict, and the branch wins when it's predictable and one input is slow, such as a cache miss.</li>
+</ul>
+<h3 id="sec-idioms">Idioms the Core Recognizes</h3>
+<div class="tbl"><table>
+<tr><th>Idiom</th><th>What the core does with it</th></tr>
+<tr><td><code>xor eax, eax</code> (also <code>sub eax, eax</code>, <code>pxor xmm0, xmm0</code>)</td><td>A zeroing idiom: recognized at rename as independent of the old value, so it needs no execution unit, and it takes 2 bytes against 5 for <code>mov eax, 0</code>. It writes the flags, so compilers use <code>mov</code> when the flags must survive.</td></tr>
+<tr><td><code>mov rax, rbx</code></td><td>Move elimination: rename points rax at rbx's physical register, with zero latency. Most cores do this often but not every time.</td></tr>
+<tr><td><code>cmp</code> or <code>test</code> followed by <code>jcc</code></td><td>Macro-fusion: the pair decodes into one micro-op. Intel cores also fuse <code>add</code>, <code>sub</code>, <code>and</code>, <code>inc</code>, and <code>dec</code> with some conditions.</td></tr>
+<tr><td><code>add eax, [rdi]</code></td><td>Micro-fusion: the load and the add stay one micro-op through rename and split only for execution.</td></tr>
+<tr><td><code>lea eax, [rdi+rdi*2]</code>, <code>lea eax, [rdi+rsi]</code></td><td>Arithmetic on the address unit: 3 × rdi, or a three-operand add that leaves the flags alone. On older Intel cores (Sandy Bridge to Skylake), an <code>lea</code> with three components took 3 cycles instead of 1.</td></tr>
+<tr><td><code>nop DWORD PTR [rax+rax*1+0x0]</code></td><td>A multi-byte no-op, used to align loop heads in a single instruction.</td></tr>
+<tr><td><code>pause</code></td><td>A spin-wait hint: it slows the spin loop and avoids a pipeline flush when the lock is finally released.</td></tr>
+</table></div>
+<h3 id="sec-vector">Vector Instructions</h3>
+<ul>
+<li><strong>SSE:</strong> 16 xmm registers of 128 bits. Scalar floating point uses them too: <code>addsd</code> adds one double and <code>addss</code> one float. x87 survives mostly for <code>long double</code>.</li>
+<li><strong>AVX and AVX2:</strong> 256-bit ymm registers and the VEX encoding, which has non-destructive three-operand forms: <code>vaddps ymm0, ymm1, ymm2</code>.</li>
+<li><strong>AVX-512:</strong> 32 zmm registers of 512 bits, plus mask registers that turn individual lanes on or off.</li>
+<li><strong>Suffixes:</strong> <code>ps</code> is packed single, <code>pd</code> packed double, <code>ss</code> and <code>sd</code> scalar. Integer vector instructions start with p, as in <code>vpaddd</code>.</li>
+<li><strong>Loads and stores:</strong> <code>vmovups</code> takes any alignment, <code>vmovaps</code> faults on a misaligned address, and <code>vbroadcastss</code> copies one float into every lane.</li>
+<li><strong>FMA:</strong> <code>vfmadd231ps ymm0, ymm1, ymm2</code> computes ymm0 = ymm1 × ymm2 + ymm0. The digits give the order: operands 2 and 3 are multiplied, and operand 1 is added.</li>
+<li><strong><code>vzeroupper</code></strong> at the end of AVX code clears the upper halves of the vector registers, which avoids a transition penalty when legacy SSE code runs next. Compilers insert it.</li>
+</ul>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A compiler turns <code>x * 45</code> into:</p><pre><code>lea  rax, [rdi+rdi*8]
+lea  rax, [rax+rax*4]</code></pre><p>(a) What is in rax when rdi = 7? (b) On a core where a two-component <code>lea</code> has 1-cycle latency and <code>imul</code> has 3-cycle latency, how much latency does this save over <code>imul rax, rdi, 45</code>?</p>`,
+        a: `<ol type="a"><li>The first <code>lea</code> computes rdi + 8 × rdi = 9 × 7 = 63. The second computes rax + 4 × rax = 5 × 63 = <strong>315</strong>, which is 45 × 7.</li><li>The two <code>lea</code>s are dependent, so the result is ready after 1 + 1 = 2 cycles, against 3 for <code>imul</code>: <strong>1 cycle saved</strong>. The cost is one more instruction, and a compiler only does this when the constant factors into 3, 5, or 9 in a step or two.</li></ol>`
+      },
+      {
+        q: `<p>rax holds 0xFFFF_FFFF_FFFF_FFFF before each of these instructions, and the byte at [rdi] is 0x80. Give rax after each one:</p><ul><li>(a) <code>mov eax, 1</code></li><li>(b) <code>mov ax, 1</code></li><li>(c) <code>mov al, 1</code></li><li>(d) <code>movsx eax, BYTE PTR [rdi]</code></li></ul><p>(e) With ecx = 0xFFFF_FFFF and edx = 2, the code runs <code>cmp ecx, edx</code>. Is <code>jl</code> taken? Is <code>jb</code> taken?</p>`,
+        a: `<ol type="a"><li>A 32-bit write zeroes the upper half: <strong>0x0000_0000_0000_0001</strong>.</li><li>A 16-bit write keeps bits 63 to 16: <strong>0xFFFF_FFFF_FFFF_0001</strong>.</li><li>An 8-bit write keeps bits 63 to 8: <strong>0xFFFF_FFFF_FFFF_FF01</strong>.</li><li>0x80 sign-extends to eax = 0xFFFF_FF80, and the 32-bit write zeroes the upper half: <strong>0x0000_0000_FFFF_FF80</strong>.</li><li>Signed, ecx is −1 and −1 &lt; 2, so <strong><code>jl</code> is taken</strong>. Unsigned, ecx is 4,294,967,295, which is greater than 2, so <strong><code>jb</code> is not taken</strong>.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>For <code>int lt(int a, int b) { return a &lt; b; }</code>, GCC emits:</p><pre><code>xor   eax, eax
+cmp   edi, esi
+setl  al
+ret</code></pre><p>Why does it zero eax at all, why with <code>xor</code>, and why must the <code>xor</code> come before the <code>cmp</code> rather than after it?</p>`,
+        a: `<ul><li><strong>Why zero eax:</strong> <code>setl</code> writes only al. The function returns all 32 bits of eax, so bits 31 to 8 must be 0. Writing al alone would also merge with rax's old value, a dependence on whatever last wrote rax.</li><li><strong>Why <code>xor</code>:</strong> it is 2 bytes, and it is a zeroing idiom. Rename sees that the result doesn't depend on eax's old value, so it breaks the dependence and needs no execution unit. Intel cores also record that the upper bits are known zero, so the later write to al needs no merge micro-op.</li><li><strong>Why before the <code>cmp</code>:</strong> <code>xor</code> writes the flags. Placed between <code>cmp</code> and <code>setl</code>, it would overwrite the comparison result, and <code>setl</code> would read the flags of the <code>xor</code>. The alternative, <code>setl al</code> then <code>movzx eax, al</code>, adds a micro-op after the comparison, on the path to the return value.</li></ul>`
+      },
+      {
+        q: `<p>This loop computes a single-precision dot product:</p><pre><code>.L3: vmovups      ymm0, YMMWORD PTR [rdi+rax]
+     vfmadd231ps  ymm1, ymm0, YMMWORD PTR [rsi+rax]
+     add          rax, 32
+     cmp          rax, rdx
+     jne          .L3</code></pre><p>The core:</p><ul><li>Renames 6 micro-ops per cycle.</li><li>Fuses <code>cmp</code> with <code>jne</code>, and keeps a load folded into an FMA as one micro-op through rename.</li><li>Does 3 loads per cycle.</li><li>Has 2 fully pipelined FMA units with 4-cycle latency.</li></ul><p>(a) How many micro-ops does rename see per iteration? (b) How many cycles does an iteration take, and what limits it? (c) If the loop is unrolled with several independent accumulators, what is the best throughput in FMAs per cycle, and how many accumulators does it take to reach it?</p>`,
+        a: `<ol type="a"><li><code>vmovups</code> is 1, the FMA with its folded load is 1, <code>add</code> is 1, and the fused <code>cmp</code>/<code>jne</code> is 1: <strong>4 micro-ops</strong>.</li><li>Each iteration's FMA needs the previous one's ymm1, so the loop-carried chain is <strong>4 cycles per iteration</strong>. The other limits are far lower:<ul><li>Rename: 4 / 6 ≈ 0.67 cycles.</li><li>Loads: 2 / 3 ≈ 0.67 cycles.</li><li>FMA units: 1 / 2 = 0.5 cycles.</li></ul>The loop is <strong>latency-bound</strong> at 0.25 FMAs per cycle, which is 8 lanes × 2 FLOPs × 0.25 = 4 FLOPs per cycle.</li><li>Each FMA still needs 2 loads (one from each array), and the core does 3 loads per cycle, so loads cap it at <strong>1.5 FMAs per cycle</strong>, below the 2 the FMA units could take. Rename doesn't bind: unrolled 6 times, an iteration is 6 <code>vmovups</code> + 6 FMAs with folded loads + <code>add</code> + fused <code>cmp</code>/<code>jne</code> = 14 micro-ops, 14 / 6 ≈ 2.3 cycles, against 12 / 3 = 4 cycles of loads. Each accumulator can start one FMA every 4 cycles, so reaching 1.5 per cycle takes 1.5 × 4 = <strong>6 accumulators</strong>, a 6× speedup (24 FLOPs per cycle). Adding more doesn't help, because loads become the limit.</li></ol>`
+      }
+    ]
+  }
 }
 ]);
