@@ -2002,6 +2002,139 @@ M(`<p>A 1 MB, 16-way L2 with 64-byte lines and 48-bit physical addresses stores,
 <li><strong>(b)</strong> 8,192 tags in 512 sets: offset 7 and index 9 bits leave a 32-bit tag again. 32 + 2 × 4 = 40 bits × 8,192 = 327,680 bits = <strong>40 KB</strong>, saving 32 KB.</li>
 <li><strong>(c)</strong> The plain cache holds 16,384 lines, so 700 KB of hot lines fit. The sectored cache has only 8,192 tags, and each hot sector uses a whole one, so it holds at most 8,192 × 64 B = <strong>512 KB</strong> of hot data and misses on the rest. Sectoring saves tag area when access is dense and halves effective capacity when it is sparse.</li>
 </ol>`, "medium") +
+`<h3 id="sec-repl">Matching Policies to Workloads</h3>` +
+Q(`<p>548.exchange2_r’s hot data, a few KB of puzzle state and lookup tables, fits easily in a Zen 4 core’s 32 KB, 8-way L1D, which serves up to 3 loads per cycle. Which replacement policy would you build into this L1D, and what actually decides it?</p>`,
+`<p>Not hit rate. Once the hot set fits, the misses are compulsory plus a few conflicts, and every policy that fills empty ways first gets nearly the same hit rate. The cost of the policy decides, above all the update on every hit:</p>
+<ul>
+<li><strong>True LRU:</strong> an 8-way order needs at least log<sub>2</sub>(8!) ≈ 15.3, so 16 bits per set, or 28 bits as a matrix, and up to 3 hits per cycle rewrite it.</li>
+<li><strong>Tree PLRU:</strong> 7 bits per set, and a hit sets only the 3 bits on its path. This is the usual L1 choice.</li>
+<li><strong>NRU:</strong> 8 bits, one set per hit, but after a clear its victim choice is arbitrary.</li>
+<li><strong>FIFO</strong> (3 bits) and <strong>Random</strong> (one LFSR for the whole cache) never update on a hit, but they ignore recency: on an occasional miss they can evict the hottest line, such as the top of the stack.</li>
+</ul>
+<p>Choose tree PLRU. Scan- and thrash-resistant policies (RRIP, SHiP, Hawkeye) buy nothing here, because nothing threatens the hot set, and their extra state and training logic would sit next to the most timing-critical array in the core.</p>`, "easy") +
+Q(`<p>OpenBLAS DGEMM on a Raptor Cove core packs a panel of B that fills about half of the 2 MB, 16-way L2, reuses it for a whole block of rows of A, then packs the next panel. A colleague proposes switching the L2 from LRU to LIP, because LIP beats LRU on thrashing loops. What happens to DGEMM?</p>`,
+`<p>It gets slower. DGEMM is LRU-friendly: the panel is reused at short range, which is exactly what LRU keeps.</p>
+<ul>
+<li><strong>Under LRU,</strong> each panel line enters at MRU, is hit many times, and ages out only after the next panel replaces it.</li>
+<li><strong>Under LIP,</strong> each newly packed panel line enters at the LRU position, so the next fill to its set evicts it unless it is hit first. Packing reads B from L3 and writes the panel at the same time, so source lines and panel lines alternate in each set and keep evicting one another. Many panel lines are gone before the kernel’s first read.</li>
+<li><strong>The old panel is stuck.</strong> Its lines reached MRU through many hits and are now dead, but LIP moves a line down only when another line is promoted past it, so they hold about half of every set.</li>
+</ul>
+<p>Keep LRU or PLRU in the L2. If thrash resistance is wanted for other code, use DIP or DRRIP: their leader sets would show LRU (or SRRIP) missing less on DGEMM, so the follower sets would keep it.</p>`, "easy") +
+Q(`<p>A vertical blur in 538.imagick_r walks down the columns of a 4,096-row image of 4-byte pixels whose rows are 16 KB apart, on Zen 5’s 48 KB, 12-way L1D (64 sets, 64-byte lines). Almost every access misses, although the next column reuses the same lines. A teammate suggests replacing tree PLRU with SRRIP. Will it help?</p>`,
+`<p>No. A 16 KB stride is 16,384 / 64 = 256 lines, a multiple of the 64 sets, so all 4,096 rows of a column map to one set. That set holds 12 lines, so the walk is a cyclic loop of 4,096 lines over 12 ways. Even OPT can keep at most 12 of them, under 0.3% of the column, and the best realistic policy (BRRIP or LIP) keeps 11. These are conflict misses, and no replacement policy fixes a set that is about 340 times oversubscribed.</p>
+<p>Fixes:</p>
+<ul>
+<li><strong>Pad each row by one line:</strong> a 16,448-byte stride is 257 lines, and gcd(257, 64) = 1, so the walk spreads over all 64 sets. The column still needs 4,096 lines, 256 KB, more than the 768-line L1D, so the next column now hits in the L2 instead of the L1D.</li>
+<li><strong>Block the loop:</strong> process the 16 columns that share each line together, so every line is fully used while it is resident.</li>
+<li><strong>In hardware:</strong> hash upper address bits into the index. An L1D can’t do this cheaply because its index must stay within the page offset.</li>
+</ul>
+<p>After the fix, keep tree PLRU: the remaining reuse is short-range.</p>`, "easy") +
+Q(`<p>Each time step of 519.lbm_r (SPECrate FP) reads one lattice and writes the other, about 400 MB together, in address order. Running alone on a Zen 4 CCD with a 32 MB, 16-way L3 (64-byte lines), its L3 hit rate is near zero under LRU. A colleague says lbm is streaming, so no replacement policy can help. Is that right? What is the best any policy could do, and which real policies get close?</p>`,
+`<p>Not quite. A single pass, like one <code>memcpy</code>, is a true stream: no line is reused, so even OPT gets zero hits. lbm repeats its pass every time step, so every line is reused at a distance of 400 MB. That makes it a cyclic loop larger than the cache, which a policy can partly fix.</p>
+<ul>
+<li><strong>Upper bound:</strong> OPT with bypass keeps a fixed 32 MB of the lattice and bypasses the rest, so 32 / 400 = <strong>8%</strong> of accesses hit.</li>
+<li><strong>LRU, FIFO, and SRRIP:</strong> 0%. Every line is evicted long before its reuse.</li>
+<li><strong>Random:</strong> 400 / 32 × 16 = 200 lines compete for each set’s 16 ways. Between two uses of a line, the other 199 lines all miss, and the line survives each with probability 15/16: (15/16)<sup>199</sup> ≈ 3 × 10<sup>−6</sup>. Effectively 0%. Random beats LRU only when the loop is just above the cache size.</li>
+<li><strong>LIP:</strong> 15 of 16 ways keep lattice lines and one churns: 15/16 × 8% = <strong>7.5%</strong>, almost OPT.</li>
+<li><strong>BRRIP</strong> (which DRRIP selects here): a little below LIP. Its 1-in-32 insertions at RRPV 2 leave the set with no RRPV-3 line, which forces aging, and the kept lines, hit only once per time step, drift to RRPV 3 and are evicted.</li>
+<li><strong>BIP</strong> (which DIP selects): below BRRIP, because each 1-in-32 MRU insertion pushes a kept line toward eviction.</li>
+</ul>
+<p>Is it worth it? lbm is bandwidth-bound, so at most 8% fewer DRAM reads means at most about 8% faster. The policy matters far more when lbm shares the L3 with other programs: it decides whether lbm’s stream evicts their data.</p>`, "medium") +
+Q(`<p>An iterative solver sweeps the same data every iteration, and the data is 1.25 times the LLC. To reason about it, take one 4-way set that sees the cycle A B C D E over and over. Rank the steady-state hit rates of LRU, FIFO, NRU, SRRIP, Random, LIP, BIP, BRRIP, and OPT. What would DIP and DRRIP do?</p>`,
+`<ul>
+<li><strong>LRU: 0%.</strong> The victim is always the line needed next: E evicts A, A evicts B, and so on.</li>
+<li><strong>FIFO: 0%.</strong> With no hits, LRU order and fill order are the same, so FIFO evicts the same lines.</li>
+<li><strong>NRU: 0%.</strong> No line is ever hit, so after each clear the victim search sweeps the ways in fill order, like FIFO.</li>
+<li><strong>SRRIP: 0%.</strong> Every line enters at RRPV 2 and is never hit, so all lines age together and the oldest goes first, FIFO again.</li>
+<li><strong>LIP: 60%.</strong> Once the set is full, a new line enters at LRU and is the next victim. Three lines stay resident and hit, and one way churns through the other two: 3 hits per 5 accesses.</li>
+<li><strong>BRRIP: 60%.</strong> The same as LIP: resident lines sit at RRPV 0, and new lines enter at RRPV 3 and evict each other.</li>
+<li><strong>BIP: just under 60%.</strong> A 1-in-32 MRU insertion occasionally changes which three lines stay, costing a few misses each time.</li>
+<li><strong>Random: about 60%</strong> in simulation. A line survives each miss with probability 3/4, so many lines last until their reuse. It collapses when the loop is many times the cache, as in the 519.lbm_r question in this tab.</li>
+<li><strong>OPT: 75%.</strong> On a miss it evicts the line used just before, whose next use is furthest away, so the next miss comes 4 accesses later.</li>
+</ul>
+<p><strong>DIP</strong> sees its BIP leader sets missing less than its LRU leaders, so PSEL moves and the followers use BIP. <strong>DRRIP</strong> picks BRRIP the same way. Both land near 60%. Note that one more way would let plain LRU hit 100%: when capacity is almost enough, the policy matters most.</p>`, "hard") +
+Q(`<p>531.deepsjeng_r probes a transposition table of hundreds of MB at Zobrist-hash indices, spread uniformly over the table. A key-value store runs YCSB with Zipfian keys over a 4 GB table. Each runs alone on a 32 MB LLC. Which replacement policy suits each, and does SHiP help either one?</p>`,
+`<p><strong>deepsjeng: policy doesn’t matter.</strong> When every line is equally likely to be referenced next, no policy without knowledge of the future can predict reuse, and all of them (LRU, Random, RRIP, LFU) get a hit rate of about cache size / table size, a few percent here. Choose the cheapest one and spend the effort elsewhere:</p>
+<ul>
+<li>More misses in flight (software prefetch, batched probes).</li>
+<li>Huge pages for TLB reach.</li>
+<li>Smaller lines or sectors, since each probe uses 8 to 16 bytes of a 64-byte line.</li>
+</ul>
+<p><strong>YCSB with Zipfian keys: frequency wins.</strong> Popularity is skewed and stable, so how often a line has been used predicts its reuse better than how recently. LFU with aging keeps the hot keys and lets one-off keys pass through. LRU does reasonably well too, because hot keys recur often, and SRRIP with frequency promotion (a hit lowers the RRPV by 1) approximates LFU in 2 bits per line.</p>
+<p><strong>SHiP helps neither.</strong> Its signature is the load PC, and every probe in both programs comes from the same few PCs in the lookup code. Each PC’s counter averages hot and cold keys, stays above zero, and inserts everything at RRPV 2, so SHiP behaves exactly like SRRIP. Hawkeye fails for the same reason. The reuse here depends on the key, not the instruction.</p>`, "medium") +
+Q(`<p>Your 505.mcf_r LLC trace shows two kinds of misses. About 70% come from the pricing loop (<code>primal_bea_mpp</code>), which rescans an arc array larger than the LLC every pricing iteration, and these overlap 6 to 8 at a time. The rest come from tree updates (<code>refresh_potential</code>) chasing pointers through node structures, and these are serialized. Hawkeye cuts LLC misses by 15% compared with SRRIP, but IPC rises only 2%. Explain, and propose a better policy.</p>`,
+`<p>Hawkeye imitates OPT, and OPT minimizes the number of misses, not the cycles they cost. The two kinds of misses cost very different amounts:</p>
+<ul>
+<li><strong>Arc misses</strong> are a cyclic loop larger than the cache, which is where OPT finds most of its savings: keep a fixed slice of the array. But they overlap 6 to 8 deep and are easy to prefetch, so each one removed saves only about 1/7 of a memory latency.</li>
+<li><strong>Node misses</strong> are serialized: each one costs a full memory latency, because the next address depends on the data it returns.</li>
+</ul>
+<p>So the 15% of misses that Hawkeye removed were mostly the cheap ones. A cycle-aware policy would keep node lines, especially the upper levels of the tree, even at the cost of more total misses:</p>
+<ul>
+<li><strong>Cost-aware replacement</strong> (MLP-aware replacement, ISCA 2006): estimate each miss’s cost as its latency divided by the misses overlapping it, and prefer to evict lines whose misses were cheap.</li>
+<li><strong>PC-based insertion with cost-weighted training:</strong> the two loops have different load PCs, so a SHiP- or Hawkeye-style predictor can insert arc lines at distant priority (or bypass them) and protect node lines, if hits on node lines count more in training.</li>
+<li>Give the arc scan the thrash-resistant treatment (BRRIP-like) only with the capacity left over after the nodes.</li>
+</ul>
+<p>Measure stall cycles per miss by PC, attributing cycles where a missing load blocks the ROB head, and compare CPI stacks, not miss counts.</p>`, "hard") +
+Q(`<p>On a Raptor Cove core (32 KB L1I, 2 MB 16-way L2 shared by code and data), 502.gcc_r loses many cycles to front-end stalls from L1I misses that also miss the L2, while its data misses are mostly hidden. Its hot code is about 1.5 MB, and the data that passes through the L2 is several times larger. How should the L2 replacement policy treat instruction lines, and why isn’t tree PLRU enough?</p>`,
+`<p>Under PLRU, code and data compete on recency alone. Data fills far outnumber code fills, so a code line that isn’t fetched again within about 16 fills to its set is evicted, though the compiler will run that function again soon. Yet the two kinds of miss cost very different amounts:</p>
+<ul>
+<li><strong>An instruction miss</strong> stops fetch. The window drains and nothing new enters it. Fetch-directed prefetching can hide L2 hits, but not trips to the L3.</li>
+<li><strong>A data miss</strong> overlaps with other work in a 512-entry ROB.</li>
+</ul>
+<p>So the L2 should value code lines above data lines:</p>
+<ul>
+<li>Insert instruction lines with higher priority than data (RRPV 0 rather than 2, or near MRU), or protect them on hits.</li>
+<li>Better, protect the code lines whose misses actually starved decode, as EMISSARY (ISCA 2023) does with one bit per line. Many code misses are hidden by the fetch queue and don’t need protection.</li>
+<li>Cap how many ways per set protected code may hold, so code can’t squeeze out data that is reused.</li>
+<li>PC-based predictors like SHiP help on the data side. For code, the fetch address is the signature, so they add little.</li>
+</ul>
+<p>Keep PLRU in the L1I itself: its reuse is short-range and every fetch is a hit that needs a cheap update. Measure front-end stall cycles caused by L2 code misses before and after, not the overall L2 miss rate, which can even rise.</p>`, "medium") +
+Q(`<p>On an 8-core part with an inclusive LLC (as on Intel client parts through Skylake), a pipeline-parallel compressor like PARSEC’s dedup passes chunks between stages through lock-protected queues. L2 misses on the queue heads and locks are frequent. A colleague proposes switching the LLC from LRU-like replacement to DRRIP to cut them. What happens?</p>`,
+`<p>Those misses don’t change, and other misses may rise.</p>
+<ul>
+<li><strong>They are coherence misses.</strong> The line left the requester’s L2 because another core wrote it, invalidating the copy, not because anything evicted it. A replacement policy only picks victims, so no LLC policy reduces them. Their cost is set by the protocol: the latency of the LLC or the snoop filter, and whether the line comes from the LLC or from another core’s cache.</li>
+<li><strong>The policy can make things worse through inclusion.</strong> Each stage’s private hot data hits in its L1 and L2 and sends no hits to the LLC, so the LLC sees those lines as unused. A policy that ages unused lines faster, as DRRIP does when it picks BRRIP, may evict them, and inclusion then back-invalidates the private copies. These inclusion victims are misses the core never caused. The queue heads and locks themselves are safe: every transfer goes through the LLC and refreshes them.</li>
+</ul>
+<p>Fixes:</p>
+<ul>
+<li>For inclusion victims, temporal locality hints from the cores or query-based selection (ask the cores before evicting a line they hold), from TLA (MICRO 2010), or a non-inclusive LLC.</li>
+<li>For the queue misses, fewer transfers per item (batching), and padding so the head, the tail, and the lock sit in different lines, which removes false sharing.</li>
+</ul>`, "medium") +
+Q(`<p>502.gcc_r compiles a series of source files, and each compilation runs passes whose working sets differ and mostly fit in the LLC. Compare LFU, LIP, BIP, BRRIP, SRRIP, and DIP or DRRIP on this program. Which adapt to a new pass, and how fast?</p>`,
+`<ul>
+<li><strong>LFU:</strong> the worst. Lines hot in the previous pass keep high counts, and the new pass’s lines start at 1 and are evicted first. Aging (halving every count in a set when one saturates) removes the stale lines only after the new ones have been hit enough to saturate a counter.</li>
+<li><strong>LIP:</strong> the old pass’s lines sit near MRU, dead, and never move down, since only a promotion pushes them toward LRU. New lines churn through the LRU way and stay only if they are hit before the next miss to their set.</li>
+<li><strong>BIP and BRRIP:</strong> one fill in 32 is given a protected position, so the new working set gets in, but slowly: replacing a whole set takes on the order of 32 fills per way.</li>
+<li><strong>SRRIP</strong> (and LRU): fast. New lines enter at RRPV 2 and are promoted on reuse, while the dead lines age by one each time the set has no RRPV-3 line, and are victims within a few misses to the set.</li>
+<li><strong>DIP and DRRIP:</strong> set dueling picks LRU or SRRIP in recency-friendly passes and BIP or BRRIP in any pass that thrashes. The 10-bit PSEL needs at most about 512 net leader-set misses to cross its midpoint, spread over 64 leader sets, which is quick compared with passes of millions of instructions. The cost is that the leader sets running the wrong policy keep paying for it.</li>
+</ul>
+<p>The general lesson: thrash-resistant insertion and frequency counts both resist change, which is what makes them good for loops and skewed reuse and bad for phase changes. Dueling or aging is what lets them adapt.</p>`, "hard") +
+Q(`<p>Four copies of 519.lbm_r and four of 520.omnetpp_r share a 32 MB, 16-way LLC that runs DRRIP with one PSEL. omnetpp’s LLC misses are much higher than when it runs with four copies of itself. Why, and what would you change?</p>`,
+`<p>PSEL counts every core’s misses in the leader sets, and the lbm copies cause most of them. Their cyclic sweep thrashes the SRRIP leaders and keeps a few lines in the BRRIP leaders, so BRRIP wins and every follower set inserts with BRRIP, for omnetpp too. That hurts omnetpp twice:</p>
+<ul>
+<li>Its new lines enter at RRPV 3, alongside lbm’s new lines. lbm misses far more often, so the next lbm fill to the set evicts an omnetpp line before omnetpp reuses it.</li>
+<li>omnetpp’s reuse is recency-friendly, and it does best when its lines get a chance to be hit, which is what SRRIP’s RRPV-2 insertion gives.</li>
+</ul>
+<p>The right policy differs by program: lbm’s lines should be inserted at RRPV 3 or bypassed, and omnetpp’s inserted at RRPV 2. Options:</p>
+<ul>
+<li><strong>Thread-aware DRRIP</strong> (from the RRIP paper, as TADIP is for DIP): one PSEL per core, with each core dueling in its own leader sets while the other cores keep their current choice.</li>
+<li><strong>SHiP:</strong> lbm’s and omnetpp’s loads have different PCs, so lbm’s signatures train to zero and insert at RRPV 3, while omnetpp’s stay above zero.</li>
+<li><strong>Partitioning:</strong> utility-based cache partitioning (MICRO 2006), or Intel’s Cache Allocation Technology, limits lbm to a few ways, since extra ways give it almost nothing.</li>
+</ul>
+<p>Measure each core’s misses in the leader sets, PSEL over time, and omnetpp’s miss rate alone versus in the mix.</p>`, "hard") +
+Q(`<p>You replace DRRIP with SHiP in a model of 500.perlbench_r’s LLC, and misses barely change. Hawkeye does slightly worse than DRRIP. Explain both results and propose a fix.</p>`,
+`<p>Both predict reuse from the load PC. An interpreter runs every script operation through a few op handlers, so a handful of PCs load all of the script’s data: hot variables and single-use strings alike. Each PC’s prediction averages lines that are reused and lines that are dead.</p>
+<ul>
+<li><strong>SHiP:</strong> such a PC’s counter stays above zero, since some of its lines hit, so its lines enter at RRPV 2, just as under SRRIP. SHiP turns into plain SRRIP for most fills, and since it has no set dueling, it also loses BRRIP for phases that thrash. The net change is close to zero.</li>
+<li><strong>Hawkeye:</strong> its prediction is binary, and a mixed PC flips between cache-friendly and cache-averse as training goes on. While averse, all of its lines, the hot ones too, enter at RRPV 7 and are evicted before reuse. While friendly, its dead lines are protected and must age out. Wrong predictions in either direction cost more than DRRIP’s neutral insertion.</li>
+<li><strong>Prefetches:</strong> prefetched lines carry no demand PC, and both policies treat them crudely.</li>
+</ul>
+<p>Fixes:</p>
+<ul>
+<li>Richer signatures: the PC plus a history of recent PCs (as in Glider, MICRO 2019), or the data address region (SHiP-Mem), so different script data get different predictions.</li>
+<li>A separate signature for prefetch fills, as SHiP++ uses.</li>
+<li>Set dueling between the learned policy and DRRIP, so it can never do worse than DRRIP.</li>
+</ul>`, "hard") +
 `<h3 id="sec-way">Way Prediction in the Data Cache</h3>` +
 Q(`<p>Two processes on the SMT siblings of an AMD core read a shared-memory buffer mapped at different virtual addresses in each. Profiling shows a high L1D miss rate, though the buffer is only 16 KB. Explain it, say how you’d confirm it, and why AMD chose to treat a utag mismatch as a miss.</p>`,
 `<p>The L1D’s utag is a hash of linear (virtual) address bits. One physical line reached through two virtual addresses has two different utags, but only one can be stored with the line. An access through the other mapping finds no matching utag, which counts as an L1 miss: it goes to the L2, and the line is retagged under the new hash. Then the other thread misses on its next access. The line never leaves the L2, so the symptom is L1 misses that all hit in L2 on a tiny buffer.</p>
