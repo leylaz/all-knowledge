@@ -2015,6 +2015,93 @@ Q(`<p>FP8 training uses two formats: E4M3 (4 exponent bits, 3 mantissa bits, max
 <li>Matrix units must accept a scale per operand (or per block) and apply it in the higher-precision accumulator. The accumulation itself stays in FP32 or at least BF16.</li>
 <li>Block scaling adds 8 bits of scale per block, a few percent of storage, and logic in the datapath.</li>
 </ul>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Convert an FP32 bit pattern to FP16 (1 sign, 5 exponent, 10 fraction bits) using integer operations only, as a hardware converter or a model of one would. Match IEEE 754 exactly:</p>
+<ul>
+<li>Round to nearest, ties to even, including into and out of the subnormal range.</li>
+<li>Values that round above 65504 become infinity.</li>
+<li>Every NaN becomes a quiet NaN with the same sign: set the quiet bit (fraction bit 9) and keep the top 10 fraction bits of the input, so a signaling NaN never turns into infinity.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <string.h>`,
+todo: String.raw`uint16_t f32_to_f16(uint32_t x) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`uint16_t f32_to_f16(uint32_t x) {
+    uint32_t sign = (x >> 16) & 0x8000;
+    int exp = (x >> 23) & 0xFF;
+    uint32_t frac = x & 0x7FFFFF;
+
+    if (exp == 0xFF)                       /* infinity or NaN */
+        return sign | 0x7C00 | (frac ? 0x200 | (frac >> 13) : 0);
+
+    int e = exp - 127 + 15;                /* rebias */
+    if (e >= 31) return sign | 0x7C00;     /* far too big */
+
+    uint32_t mant = frac | 0x800000;       /* 24-bit significand, implicit 1 */
+    int shift = 13;                        /* bits to drop for a normal FP16 */
+    if (e <= 0) {                          /* FP16 subnormal (or zero) */
+        if (exp == 0) return sign;         /* FP32 zero or subnormal: below 2^-126 */
+        shift = 14 - e;
+        if (shift > 25) return sign;       /* below half the smallest subnormal */
+        e = 0;
+    }
+    uint32_t kept = mant >> shift;
+    uint32_t rest = mant & ((1u << shift) - 1), half = 1u << (shift - 1);
+    if (rest > half || (rest == half && (kept & 1))) kept++;
+
+    /* For normals, kept still holds the implicit 1 in bit 10. Adding the
+       exponent field lets a rounding carry ripple from the fraction into
+       the exponent (and from the top normal into infinity). */
+    if (e == 0) return sign | kept;        /* a carry to 0x400 is the smallest normal */
+    return sign | ((uint32_t)(e - 1) << 10) + kept;
+}`,
+tests: String.raw`static uint32_t bits(float f) { uint32_t u; memcpy(&u, &f, 4); return u; }
+static float pow2(int k) { float f = 1; while (k > 0) { f *= 2; k--; } while (k < 0) { f /= 2; k++; } return f; }
+
+static void expect(const char *name, uint32_t in, uint16_t want) {
+    uint16_t got = f32_to_f16(in);
+    CHECK(got == want, "%s (0x%08X): got 0x%04X, expected 0x%04X", name, (unsigned)in, got, want);
+}
+
+int main(void) {
+    expect("1.0", bits(1.0f), 0x3C00);
+    expect("-2.0", bits(-2.0f), 0xC000);
+    expect("-0.0", bits(-0.0f), 0x8000);
+    expect("65504, the largest FP16", bits(65504.0f), 0x7BFF);
+    expect("65519 rounds down", bits(65519.0f), 0x7BFF);
+    expect("65520 ties up to infinity", bits(65520.0f), 0x7C00);
+    expect("1e10 overflows", bits(1e10f), 0x7C00);
+    expect("1 + 2^-11 ties to even (down)", bits(1.0f + pow2(-11)), 0x3C00);
+    expect("1 + 3*2^-11 ties to even (up)", bits(1.0f + 3 * pow2(-11)), 0x3C02);
+    expect("2^-14, smallest normal", bits(pow2(-14)), 0x0400);
+    expect("2^-24, smallest subnormal", bits(pow2(-24)), 0x0001);
+    expect("2^-25 ties to even (zero)", bits(pow2(-25)), 0x0000);
+    expect("0.75 * 2^-24 rounds up", bits(0.75f * pow2(-24)), 0x0001);
+    expect("1.5 * 2^-24 ties to even (up)", bits(1.5f * pow2(-24)), 0x0002);
+    expect("1023.5 * 2^-24 carries into the exponent", bits(1023.5f * pow2(-24)), 0x0400);
+    expect("1e-8 underflows", bits(1e-8f), 0x0000);
+    expect("FP32 subnormal", 0x00000001, 0x0000);
+    expect("infinity", 0x7F800000, 0x7C00);
+    expect("quiet NaN", 0x7FC00000, 0x7E00);
+    expect("signaling NaN stays NaN", 0x7F800001, 0x7E00);
+    expect("negative NaN with payload", 0xFFC02000, 0xFE01);
+    expect("pi", bits(3.14159265f), 0x4248);
+    return REPORT();
+}`,
+a: `<p>Split the input into sign, exponent, and fraction, then handle the cases in order:</p>
+<ol>
+<li><strong>Infinity and NaN</strong> (exponent all ones): keep infinity. For a NaN, OR in the quiet bit, because a signaling NaN whose payload sits only in the low 13 bits would otherwise truncate to an all-zero fraction, which is infinity.</li>
+<li><strong>Rebias</strong> the exponent from 127 to 15. If it is 31 or more, the value overflows even before rounding.</li>
+<li><strong>Choose how many bits to drop:</strong> 13 for a normal result. For a subnormal result, more: <code>14 − e</code>, where the implicit 1 is kept so it shifts down into the fraction.</li>
+<li><strong>Round</strong> with the dropped bits: up if more than half, and on an exact half only if the kept value is odd.</li>
+<li><strong>Assemble</strong> with an addition, not an OR. A carry out of the fraction then increments the exponent for free: 1023.5 × 2<sup>−24</sup> rounds from the largest subnormal to the smallest normal, and 65520 rounds into the infinity pattern.</li>
+</ol>
+<p>Converters in real hardware use exactly this guard, round, and sticky logic. In a performance model, the same care matters when you emulate low-precision formats for accuracy studies: a converter that truncates instead of rounding to nearest even biases every accumulated result.</p>`
+}) +
 `<h3 id="sec-units">Arithmetic Units</h3>` +
 Q(`<p>Why does one FMA count as 2 FLOPs in peak-performance figures? A kernel does only FP additions, perfectly vectorized and with enough independent chains. What fraction of the advertised peak can it reach?</p>`,
 `<p>An FMA does a multiply and an add, so peak FLOPS = FMA pipes × lanes × 2 × frequency. An addition is 1 FLOP per vector lane per issue slot, whether it runs on the FMA pipe as a × 1 + b (Skylake) or on separate adder pipes (Zen 4, which has 2 FADD pipes next to its 2 FMA pipes). Either way, add-only code reaches at most <strong>half the peak</strong>. The same holds for multiply-only code. Peak FLOPS figures describe dense linear algebra, not general FP code.</p>`, "easy") +
@@ -2062,6 +2149,79 @@ Q(`<p>With FMA units, an add is just an FMA with a multiplier of 1. Yet Zen 4 ha
 <p><strong>Area and power:</strong> the multiplier array is most of an FMA unit’s area and switching energy. An adder is much smaller. Using the FMA for every add powers the multiplier for a multiply by 1.</p>
 <p><strong>Accuracy is unaffected:</strong> FMA with multiplier 1 and a dedicated add give identical IEEE results (one rounding in both cases), so the choice is purely about performance.</p>
 <p><strong>For a model:</strong> FP add and FMA need separate latencies and port sets. A model that treats all FP arithmetic as FMA-latency misses half the speedup of add chains on these cores, and one that treats all adds as fast-adder latency is optimistic on cores without fast adders.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Write the full 64 × 64 → 128-bit multiply that an integer multiplier produces, using only 64-bit arithmetic (no <code>__int128</code>), the way you would on a target without a wide multiply or in a model of a 32-bit datapath.</p>
+<ul>
+<li><code>umul128()</code>: unsigned product, high and low 64 bits.</li>
+<li><code>smulh()</code>: the high 64 bits of the signed product (what Arm’s <code>SMULH</code> and x86’s one-operand <code>IMUL</code> return in the high half). Derive it from the unsigned product rather than multiplying signed values.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>`,
+todo: String.raw`void umul128(uint64_t a, uint64_t b, uint64_t *hi, uint64_t *lo) {
+    /* TODO */
+}
+
+int64_t smulh(int64_t a, int64_t b) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`void umul128(uint64_t a, uint64_t b, uint64_t *hi, uint64_t *lo) {
+    uint64_t a0 = (uint32_t)a, a1 = a >> 32, b0 = (uint32_t)b, b1 = b >> 32;
+    uint64_t p00 = a0 * b0, p01 = a0 * b1, p10 = a1 * b0, p11 = a1 * b1;
+    /* Sum the middle column in 64 bits: each term is below 2^32, so the
+       total is below 3 * 2^32 and can't overflow. */
+    uint64_t mid = (p00 >> 32) + (uint32_t)p01 + (uint32_t)p10;
+    *lo = (mid << 32) | (uint32_t)p00;
+    *hi = p11 + (p01 >> 32) + (p10 >> 32) + (mid >> 32);
+}
+
+int64_t smulh(int64_t a, int64_t b) {
+    uint64_t hi, lo;
+    umul128((uint64_t)a, (uint64_t)b, &hi, &lo);
+    /* Reading a negative number as unsigned adds 2^64, which adds the other
+       operand to the high half. Subtract it back. */
+    if (a < 0) hi -= (uint64_t)b;
+    if (b < 0) hi -= (uint64_t)a;
+    return (int64_t)hi;
+}`,
+tests: String.raw`static uint64_t rnd64(void) {
+    return (uint64_t)rand() << 62 ^ (uint64_t)rand() << 31 ^ (uint64_t)rand();
+}
+
+int main(void) {
+    uint64_t hi, lo, M = UINT64_MAX;
+    umul128(M, M, &hi, &lo);
+    CHECK(hi == M - 1 && lo == 1, "max * max: hi %llx lo %llx", (unsigned long long)hi, (unsigned long long)lo);
+    umul128(1ull << 32, 1ull << 32, &hi, &lo);
+    CHECK(hi == 1 && lo == 0, "2^32 * 2^32: hi %llx lo %llx", (unsigned long long)hi, (unsigned long long)lo);
+    umul128(0xFFFFFFFFull, 0xFFFFFFFFull, &hi, &lo);
+    CHECK(hi == 0 && lo == 0xFFFFFFFE00000001ull, "(2^32-1)^2: lo %llx", (unsigned long long)lo);
+    CHECK(smulh(-1, -1) == 0, "smulh(-1, -1) = %lld", (long long)smulh(-1, -1));
+    CHECK(smulh(-1, 1) == -1, "smulh(-1, 1) = %lld", (long long)smulh(-1, 1));
+    CHECK(smulh(INT64_MIN, INT64_MIN) == 1ll << 62, "smulh(MIN, MIN) = %llx", (unsigned long long)smulh(INT64_MIN, INT64_MIN));
+    CHECK(smulh(INT64_MIN, 2) == -1, "smulh(MIN, 2) = %lld", (long long)smulh(INT64_MIN, 2));
+
+    /* Against the compiler's 128-bit type. */
+    srand(3);
+    int bad_u = 0, bad_s = 0;
+    for (int i = 0; i < 200000; i++) {
+        uint64_t a = rnd64(), b = rnd64();
+        unsigned __int128 p = (unsigned __int128)a * b;
+        umul128(a, b, &hi, &lo);
+        if (hi != (uint64_t)(p >> 64) || lo != (uint64_t)p) bad_u++;
+        __int128 q = (__int128)(int64_t)a * (int64_t)b;
+        if (smulh((int64_t)a, (int64_t)b) != (int64_t)(q >> 64)) bad_s++;
+    }
+    CHECK(bad_u == 0, "%d random unsigned products were wrong", bad_u);
+    CHECK(bad_s == 0, "%d random signed high halves were wrong", bad_s);
+    return REPORT();
+}`,
+a: `<p>Split each operand into 32-bit halves, so <em>a</em> × <em>b</em> = <em>a</em><sub>1</sub><em>b</em><sub>1</sub>·2<sup>64</sup> + (<em>a</em><sub>1</sub><em>b</em><sub>0</sub> + <em>a</em><sub>0</sub><em>b</em><sub>1</sub>)·2<sup>32</sup> + <em>a</em><sub>0</sub><em>b</em><sub>0</sub>. Each partial product fits in 64 bits. The only trap is the carry out of the middle column: add the low halves of the two cross products to the high half of <em>a</em><sub>0</sub><em>b</em><sub>0</sub> in a 64-bit sum (at most 3 × (2<sup>32</sup> − 1), so it can’t overflow), then the sum’s upper bits carry into the high word. Adding the full cross products first overflows on inputs like max × max.</p>
+<p>For the signed high half, a negative operand read as unsigned is <em>a</em> + 2<sup>64</sup>, which adds <em>b</em> · 2<sup>64</sup> to the product, so subtract <em>b</em> from the high word (and likewise for <em>b</em>). The low word is the same signed or unsigned, which is why ISAs have one low-multiply but separate signed and unsigned high-multiplies.</p>
+<p>Hardware does the same decomposition at a finer grain: a Booth-encoded partial-product array reduced by a Wallace or Dadda tree, then one carry-propagate add. That is why a 64-bit multiply has 3 to 4 cycles of latency but is fully pipelined.</p>`
+}) +
 `<h3 id="sec-model">Arithmetic in Performance Models</h3>` +
 M(`<p>At <code>-O3</code> without <code>-ffast-math</code>, GCC does not vectorize <code>float s = 0; for (i = 0; i &lt; n; i++) s += x[i];</code>. Why not? On Zen 4 (FP add latency 3, two 256-bit FP add pipes), how large is the gap to a fully vectorized sum when x is in L1? How can the programmer close it without <code>-ffast-math</code>?</p>`,
 `<ul>
@@ -2282,6 +2442,124 @@ Q(`<p>Binary search and branchy sorts have branches whose outcomes depend on dat
 <li><strong>Faster resolution:</strong> reducing the time from fetch to resolve (shorter pipelines, prioritizing the branch’s inputs) shrinks the cost of each mispredict without removing it.</li>
 </ul>
 <p>For data-dependent branches, software fixes are usually the practical ones. Hardware can only guess the data, so its options amount to computing the condition earlier.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Implement a gshare predictor and measure it on synthetic branch patterns.</p>
+<ul>
+<li>A table of 2<sup><code>index_bits</code></sup> two-bit counters, all starting at 1 (weakly not taken). Predict taken when a counter is 2 or 3.</li>
+<li>Global history holds the last <code>hist_bits</code> outcomes, newest in bit 0 (1 = taken). <code>hist_bits</code> ≤ <code>index_bits</code>, and 0 makes the predictor bimodal.</li>
+<li>Index = ((pc &gt;&gt; 2) XOR history), masked to <code>index_bits</code>.</li>
+<li><code>gs_update()</code> trains the counter that made the prediction, then shifts the outcome into the history.</li>
+</ul>
+<p>Then write <code>run()</code>, which predicts and updates a trace and returns the number of mispredictions.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+typedef struct {
+    uint8_t *ctr;
+    uint32_t hist;
+    int index_bits, hist_bits;
+} gshare_t;`,
+todo: String.raw`void gs_init(gshare_t *g, int index_bits, int hist_bits) {
+    /* TODO */
+}
+
+int gs_predict(const gshare_t *g, uint32_t pc) {
+    /* TODO */
+    return 0;
+}
+
+void gs_update(gshare_t *g, uint32_t pc, int taken) {
+    /* TODO */
+}
+
+int run(gshare_t *g, const uint32_t *pc, const uint8_t *taken, int n) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`static uint32_t gs_index(const gshare_t *g, uint32_t pc) {
+    uint32_t h = g->hist & ((1u << g->hist_bits) - 1);
+    return ((pc >> 2) ^ h) & ((1u << g->index_bits) - 1);
+}
+
+void gs_init(gshare_t *g, int index_bits, int hist_bits) {
+    g->index_bits = index_bits;
+    g->hist_bits = hist_bits;
+    g->hist = 0;
+    g->ctr = malloc(1u << index_bits);
+    for (uint32_t i = 0; i < 1u << index_bits; i++) g->ctr[i] = 1;
+}
+
+int gs_predict(const gshare_t *g, uint32_t pc) {
+    return g->ctr[gs_index(g, pc)] >= 2;
+}
+
+void gs_update(gshare_t *g, uint32_t pc, int taken) {
+    uint8_t *c = &g->ctr[gs_index(g, pc)];   /* index with the old history */
+    if (taken && *c < 3) (*c)++;
+    if (!taken && *c > 0) (*c)--;
+    g->hist = (g->hist << 1) | (taken != 0);
+}
+
+int run(gshare_t *g, const uint32_t *pc, const uint8_t *taken, int n) {
+    int miss = 0;
+    for (int i = 0; i < n; i++) {
+        miss += gs_predict(g, pc[i]) != taken[i];
+        gs_update(g, pc[i], taken[i]);
+    }
+    return miss;
+}`,
+tests: String.raw`#define N 8000
+static uint32_t pc[N];
+static uint8_t tk[N];
+
+static int measure(int index_bits, int hist_bits) {
+    gshare_t g;
+    gs_init(&g, index_bits, hist_bits);
+    int m = run(&g, pc, tk, N);
+    free(g.ctr);
+    return m;
+}
+
+int main(void) {
+    /* Always taken: every new history value seen during warm-up costs one
+       miss (history 0, 1, 11, ..., all ones), then it is perfect. */
+    for (int i = 0; i < N; i++) { pc[i] = 0x401000; tk[i] = 1; }
+    CHECK(measure(14, 12) == 13, "always taken, 12 history bits: %d misses, expected 13", measure(14, 12));
+    CHECK(measure(14, 0) == 1, "always taken, bimodal: %d misses, expected 1", measure(14, 0));
+
+    /* Alternating T, N: bimodal gets every one wrong, history learns it. */
+    for (int i = 0; i < N; i++) tk[i] = !(i & 1);
+    CHECK(measure(14, 0) == N, "alternating, bimodal: %d misses, expected %d", measure(14, 0), N);
+    CHECK(measure(14, 8) <= 10, "alternating, 8 history bits: %d misses, expected at most 10", measure(14, 8));
+
+    /* A loop branch taken 7 times then not taken, 1,000 times. */
+    for (int i = 0; i < N; i++) tk[i] = (i % 8) != 7;
+    CHECK(measure(14, 0) == 1001, "loop exit, bimodal: %d misses, expected 1001", measure(14, 0));
+    CHECK(measure(14, 12) <= 30, "loop exit, 12 history bits: %d misses, expected at most 30", measure(14, 12));
+    CHECK(measure(14, 4) > 900, "loop of 8 with only 4 history bits should still miss the exit: %d", measure(14, 4));
+
+    /* Two branches whose outcomes are correlated: B copies A, A random. */
+    srand(9);
+    for (int i = 0; i < N; i += 2) {
+        pc[i] = 0x401000; tk[i] = rand() & 1;
+        pc[i + 1] = 0x401040; tk[i + 1] = tk[i];
+    }
+    int m = measure(14, 4);
+    CHECK(m > 1700 && m < 2300, "correlated pair: %d misses, expected about 2000 (A only)", m);
+    return REPORT();
+}`,
+a: `<p>The details that trip people up: train the counter that made the prediction, so index with the history from before this outcome, and only then shift the outcome in. Saturate the counters at 0 and 3.</p>
+<p>What the checks show:</p>
+<ul>
+<li><strong>Always taken:</strong> with 12 history bits, the warm-up passes through 13 different history values (0, 1, 11, up to twelve 1s), each with a fresh weakly-not-taken counter, so 13 misses. History has a training cost on every new pattern.</li>
+<li><strong>Alternating:</strong> a bimodal counter flips between 1 and 2 and is wrong every time. One bit of history separates the two cases, so gshare is right after warm-up.</li>
+<li><strong>Loop exit:</strong> to predict the exit of an 8-iteration loop, the history must reach back past 7 taken outcomes. With 12 bits it does, and only warm-up misses remain. With 4 bits, the history before the exit looks like every other iteration, so it misses about once per loop, just like bimodal.</li>
+<li><strong>Correlation:</strong> branch A is random and can’t be predicted, but B equals A, and the history’s newest bit is A’s outcome, so B is predicted perfectly. Misses are about half of A’s 4,000 executions.</li>
+</ul>
+<p>Real predictors such as TAGE keep several tables with geometrically longer histories, so short patterns train fast and long ones are still caught. Gshare’s single XOR-hashed table makes unrelated branches share counters, which is the aliasing that tagged tables reduce.</p>`
+}) +
 `<h3 id="sec-spec">Speculation and Recovery</h3>` +
 Q(`<p>What state must be restored after a branch mispredict? Separate architectural from microarchitectural state, and say which microarchitectural state is usually <em>not</em> restored.</p>`,
 `<p><strong>Architectural:</strong> nothing needs restoring, because nothing past the branch has committed. That’s the point of in-order retirement.</p>
@@ -2354,6 +2632,127 @@ Q(`<p>A local-history predictor keeps a separate history per branch in a table. 
 <li>Use a loop predictor, a special case of local history, with a small number of entries and speculative iteration counters that are simple to repair: on a mispredict, reset to the retired count.</li>
 <li>Accept imperfect repair for the remaining local components, since a few mispredicts after a flush cost less than full repair logic.</li>
 </ul>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Implement a 16-entry return address stack that the front end updates speculatively, with the usual cheap repair. A call pushes its return address and a return pops a prediction, both at prediction time, so a mispredicted path can corrupt the stack.</p>
+<ul>
+<li>It is circular: a push onto a full stack overwrites the oldest entry. Track how many entries are valid (at most 16). <code>ras_pop()</code> on an empty stack returns 0, meaning no prediction.</li>
+<li><code>ras_checkpoint()</code> runs at every predicted branch and saves the top-of-stack pointer, the valid count, and the top entry’s value. <code>ras_restore()</code> puts back those three things after a mispredict, and nothing else.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+
+#define RAS 16
+
+typedef struct {
+    uint64_t e[RAS];
+    int tos;     /* slot of the next push */
+    int count;   /* valid entries */
+} ras_t;
+
+typedef struct { int tos, count; uint64_t top; } ras_ckpt_t;`,
+todo: String.raw`void ras_init(ras_t *r) {
+    /* TODO */
+}
+
+void ras_push(ras_t *r, uint64_t ret) {
+    /* TODO */
+}
+
+uint64_t ras_pop(ras_t *r) {
+    /* TODO */
+    return 0;
+}
+
+ras_ckpt_t ras_checkpoint(const ras_t *r) {
+    ras_ckpt_t c = {0};
+    /* TODO */
+    return c;
+}
+
+void ras_restore(ras_t *r, ras_ckpt_t c) {
+    /* TODO */
+}`,
+impl: String.raw`void ras_init(ras_t *r) { r->tos = 0; r->count = 0; }
+
+void ras_push(ras_t *r, uint64_t ret) {
+    r->e[r->tos] = ret;
+    r->tos = (r->tos + 1) % RAS;
+    if (r->count < RAS) r->count++;
+}
+
+uint64_t ras_pop(ras_t *r) {
+    if (r->count == 0) return 0;
+    r->tos = (r->tos + RAS - 1) % RAS;
+    r->count--;
+    return r->e[r->tos];
+}
+
+ras_ckpt_t ras_checkpoint(const ras_t *r) {
+    ras_ckpt_t c = { r->tos, r->count, r->e[(r->tos + RAS - 1) % RAS] };
+    return c;
+}
+
+void ras_restore(ras_t *r, ras_ckpt_t c) {
+    r->tos = c.tos;
+    r->count = c.count;
+    r->e[(c.tos + RAS - 1) % RAS] = c.top;
+}`,
+tests: String.raw`int main(void) {
+    ras_t r;
+    ras_init(&r);
+    CHECK(ras_pop(&r) == 0, "an empty stack must give no prediction");
+
+    /* Recursion 20 deep: the 16 innermost returns are right, then the
+       stack is empty instead of returning garbage. */
+    for (int d = 0; d < 20; d++) ras_push(&r, 0x1000 + d);
+    int right = 0, none = 0;
+    for (int d = 19; d >= 0; d--) {
+        uint64_t p = ras_pop(&r);
+        if (p == (uint64_t)(0x1000 + d)) right++;
+        if (p == 0) none++;
+    }
+    CHECK(right == 16 && none == 4, "20-deep recursion: %d right, %d empty, expected 16 and 4", right, none);
+
+    /* Wrong path pops one return and pushes a call: the repair fixes it. */
+    ras_init(&r);
+    ras_push(&r, 0xA); ras_push(&r, 0xB);
+    ras_ckpt_t c = ras_checkpoint(&r);
+    CHECK(ras_pop(&r) == 0xB, "wrong-path pop should predict 0xB");
+    ras_push(&r, 0xBAD);       /* overwrites the slot that held 0xB */
+    ras_push(&r, 0xBAD2);
+    ras_restore(&r, c);
+    uint64_t p1 = ras_pop(&r), p2 = ras_pop(&r);
+    CHECK(p1 == 0xB && p2 == 0xA, "after repair: 0x%llx, 0x%llx, expected 0xB, 0xA", (unsigned long long)p1, (unsigned long long)p2);
+
+    /* Two wrong-path pops then a push corrupt a deeper entry: the cheap
+       repair restores only the top, so the second return is wrong. */
+    ras_init(&r);
+    ras_push(&r, 0xA); ras_push(&r, 0xB);
+    c = ras_checkpoint(&r);
+    ras_pop(&r); ras_pop(&r);
+    ras_push(&r, 0xBAD);       /* overwrites 0xA's slot */
+    ras_restore(&r, c);
+    p1 = ras_pop(&r); p2 = ras_pop(&r);
+    CHECK(p1 == 0xB && p2 == 0xBAD, "deep corruption: 0x%llx, 0x%llx, expected 0xB then 0xBAD", (unsigned long long)p1, (unsigned long long)p2);
+
+    /* Restoring the count matters: a wrong path that pops the stack empty. */
+    ras_init(&r);
+    ras_push(&r, 0xC);
+    c = ras_checkpoint(&r);
+    ras_pop(&r);
+    CHECK(ras_pop(&r) == 0, "the wrong path sees an empty stack");
+    ras_restore(&r, c);
+    CHECK(ras_pop(&r) == 0xC, "after repair the stack holds 0xC again");
+    return REPORT();
+}`,
+a: `<p>A call’s return address is the most predictable target there is, as long as the stack matches the program’s call depth. Two things break it:</p>
+<ul>
+<li><strong>Overflow:</strong> deeper recursion than the stack size overwrites the oldest entries. Tracking a valid count lets the stack say “no prediction” instead of returning a stale address from the other end of the circle.</li>
+<li><strong>Wrong-path updates:</strong> the front end pushes and pops before branches resolve. Saving the pointer at each branch fixes pure pushes and pops. Saving the top entry too fixes the common pop-then-push case, where a wrong-path call overwrites the entry the correct path will pop next (Skadron et al., 1998).</li>
+</ul>
+<p>The third check shows the limit: if the wrong path pops twice and then pushes, it overwrites an entry below the saved top, and the repair can’t see it. Fixing that needs a full copy per checkpoint or a linked-list stack that never overwrites live entries, which some recent cores use. In a model, the misprediction cost of returns on deep, recursive, or exception-heavy code depends directly on which of these schemes you assume.</p>`
+}) +
 `<h3 id="sec-eval">Evaluating a Predictor</h3>` +
 Q(`<p>Design an experiment to evaluate a new branch predictor. Why report both MPKI and IPC?</p>`,
 `<ol>
@@ -2449,6 +2848,58 @@ Q(`<p>The same hot loop runs measurably slower after an unrelated code change sh
 <p><strong>The JCC erratum fix on Skylake-derived cores:</strong> after a microcode update, jumps that cross or end on a 32-byte boundary can’t be cached in the uop cache. A loop branch that moves onto a boundary goes through the legacy decoders every iteration.</p>
 <p><strong>Loop buffer:</strong> when the loop fits, uops replay from the allocation queue and fetch alignment no longer matters. But the buffer has a size limit, and a loop just over it becomes alignment-sensitive.</p>
 <p><strong>What to do:</strong> compilers align hot loop heads (<code>-falign-loops</code>) and assemblers can pad to avoid boundary-crossing jumps. When benchmarking, randomize or control code layout (link order, environment size), since an alignment effect of a few percent can look like a real change.</p>`, "medium") +
+C({
+lvl: "medium",
+q: `<p>Count fetch cycles for a stream of basic blocks. The fetch unit reads up to one aligned <code>window</code>-byte chunk per cycle (32 bytes on Golden Cove and Zen 4). A cycle’s fetch stops at the end of the aligned window, or right after a taken branch, whichever comes first, and the next cycle starts at the next address or the branch target.</p>
+<p>Block <em>i</em> starts at <code>start</code> and is <code>len</code> bytes long. If <code>taken</code> is set it ends in a taken branch to block <em>i</em> + 1. Otherwise block <em>i</em> + 1 starts right after it and fetch simply continues. Return the total fetch cycles.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+
+typedef struct { uint32_t start, len; int taken; } block_t;`,
+todo: String.raw`long fetch_cycles(const block_t *b, int n, uint32_t window) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`long fetch_cycles(const block_t *b, int n, uint32_t window) {
+    long cycles = 0;
+    int open = 0;   /* a cycle is still fetching from the current window */
+    for (int i = 0; i < n; i++) {
+        uint32_t first = b[i].start / window, last = (b[i].start + b[i].len - 1) / window;
+        /* The first window is already being fetched if we fell through into
+           it from the previous block in the same window. */
+        cycles += (last - first + 1) - (open && i > 0 && first == (b[i - 1].start + b[i - 1].len - 1) / window);
+        /* Fetch continues in the same cycle only if this block falls through
+           and doesn't end exactly on a window boundary. */
+        open = !b[i].taken && (b[i].start + b[i].len) % window != 0;
+    }
+    return cycles;
+}`,
+tests: String.raw`int main(void) {
+    block_t a[] = { {0x1000, 20, 1}, {0x2000, 20, 1} };
+    CHECK(fetch_cycles(a, 2, 32) == 2, "two aligned 20-byte blocks: %ld, expected 2", fetch_cycles(a, 2, 32));
+
+    block_t b[] = { {0x101C, 20, 1} };
+    CHECK(fetch_cycles(b, 1, 32) == 2, "20 bytes crossing a boundary: %ld, expected 2", fetch_cycles(b, 1, 32));
+
+    /* A 16-byte loop body at 0x1018 crosses a boundary, at 0x1020 it doesn't. */
+    block_t loop1[100], loop2[100];
+    for (int i = 0; i < 100; i++) { loop1[i] = (block_t){0x1018, 16, 1}; loop2[i] = (block_t){0x1020, 16, 1}; }
+    CHECK(fetch_cycles(loop1, 100, 32) == 200, "misaligned loop: %ld, expected 200", fetch_cycles(loop1, 100, 32));
+    CHECK(fetch_cycles(loop2, 100, 32) == 100, "aligned loop: %ld, expected 100", fetch_cycles(loop2, 100, 32));
+
+    /* Fall-through blocks share windows. */
+    block_t ft[] = { {0x1000, 10, 0}, {0x100A, 10, 0}, {0x1014, 30, 1} };
+    CHECK(fetch_cycles(ft, 3, 32) == 2, "fall-through chain: %ld, expected 2", fetch_cycles(ft, 3, 32));
+    block_t edge[] = { {0x1000, 32, 0}, {0x1020, 8, 1} };
+    CHECK(fetch_cycles(edge, 2, 32) == 2, "fall-through at a window edge: %ld, expected 2", fetch_cycles(edge, 2, 32));
+    block_t tk[] = { {0x1000, 8, 1}, {0x1008, 8, 1} };
+    CHECK(fetch_cycles(tk, 2, 32) == 2, "taken branch into the same window: %ld, expected 2", fetch_cycles(tk, 2, 32));
+    CHECK(fetch_cycles(a, 2, 64) == 2, "64-byte windows: %ld, expected 2", fetch_cycles(a, 2, 64));
+    return REPORT();
+}`,
+a: `<p>Each block costs one cycle per aligned window it touches: <code>last − first + 1</code>, from the windows of its first and last byte. The only subtlety is a block that falls through: the next block continues in the same cycle if it starts in the window that is still being fetched. That holds unless the previous block ended exactly at the window’s end, in which case the next window needs a new cycle anyway.</p>
+<p>A taken branch always ends the cycle, even when its target is in the same window. A 16-byte loop body that straddles a 32-byte boundary therefore takes 2 fetch cycles per iteration instead of 1, halving front-end throughput for that loop when it runs from the I-cache. Compilers align hot loop heads to 16 or 32 bytes for this reason, and the uop cache or loop buffer hides much of it on modern cores.</p>`
+}) +
 `<h3 id="sec-prefetch">Prefetching and BTB Reach</h3>` +
 Q(`<p>Fetch-directed instruction prefetching (FDIP) keeps no tables of its own. Why is that its main strength? Why does it also mean that the BTB, not the prefetcher, decides how much instruction cache latency gets hidden?</p>`,
 `<p><strong>Strength:</strong> the branch predictor already is a model of the program’s control flow. FDIP just reads future addresses from the FTQ, filters out lines that are present or in flight, and requests the rest. It needs no extra storage or training, and it follows calls and far taken branches that next-line and stream prefetchers can’t. Engineers at Arm (Ishii et al., 2021) showed that FDIP with a large enough BTB matches far more complex prefetchers on server traces.</p>
@@ -2522,6 +2973,71 @@ M(`<p>A server trace has 9 BTB misses on taken branches per 1,000 instructions. 
 <li><strong>(b)</strong> 50.4 / 146.7 ≈ <strong>34%</strong> of the BTB’s cost shows up under the instruction cache.</li>
 <li><strong>(c)</strong> Halving every term: CPI = 0.50 + 0.073 = 0.573, a speedup of 0.647 / 0.573 ≈ <strong>1.13</strong>. If only the redirects and mispredicts halved: 0.50 + 0.048 + 0.050 = 0.599, a speedup of about <strong>1.08</strong>. Misattributing the exposed misses makes the BTB look about 40% less valuable than it is.</li>
 </ol>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Model a decoupled front end and measure what fetch-directed instruction prefetching (FDIP) buys. A branch predictor puts one fetch block per cycle into a fetch target queue (FTQ) of <code>q</code> entries, and fetch takes one block per cycle from the head. Block <em>i</em>’s cache line misses if <code>miss[i]</code> is set, and a fill takes <code>lat</code> cycles. Each cycle <em>c</em>:</p>
+<ol>
+<li><strong>Fetch:</strong> if the head block’s line is present (no miss, or its fill finished by cycle <em>c</em>), take it out of the FTQ. If it misses and no fill has started, start one now.</li>
+<li><strong>Predict:</strong> if the FTQ has space and blocks remain, add the next block. With <code>fdip</code> set, a block that misses starts its fill as soon as it enters the FTQ.</li>
+</ol>
+<p>A block added in cycle <em>c</em> can be fetched from cycle <em>c</em> + 1. Return the cycle the last block is fetched, plus 1.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdlib.h>`,
+todo: String.raw`long frontend(const int *miss, int n, int q, int lat, int fdip) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`long frontend(const int *miss, int n, int q, int lat, int fdip) {
+    long *ready = malloc(sizeof(long) * n);   /* -1: no fill started yet */
+    int head = 0, tail = 0;                   /* FTQ holds blocks head..tail-1 */
+    long c = 0, last = 0;
+    while (head < n) {
+        if (head < tail) {
+            if (!miss[head] || (ready[head] >= 0 && ready[head] <= c)) { last = c; head++; }
+            else if (ready[head] < 0) ready[head] = c + lat;
+        }
+        if (tail < n && tail - head < q) {
+            ready[tail] = (miss[tail] && fdip) ? c + lat : -1;
+            tail++;
+        }
+        c++;
+    }
+    free(ready);
+    return last + 1;
+}`,
+tests: String.raw`static long go(const char *pattern, int q, int lat, int fdip) {
+    int n = 0, miss[64];
+    for (const char *p = pattern; *p; p++) miss[n++] = *p == 'M';
+    return frontend(miss, n, q, lat, fdip);
+}
+
+int main(void) {
+    CHECK(go("....", 4, 10, 0) == 5, "no misses: %ld cycles, expected 5", go("....", 4, 10, 0));
+    CHECK(go("..M.", 4, 10, 0) == 15, "one miss, no FDIP: %ld, expected 15", go("..M.", 4, 10, 0));
+    CHECK(go("..M.", 4, 10, 1) == 14, "one miss, FDIP: %ld, expected 14", go("..M.", 4, 10, 1));
+    CHECK(go("..MM", 4, 10, 0) == 25, "two misses, no FDIP: %ld, expected 25", go("..MM", 4, 10, 0));
+    CHECK(go("..MM", 4, 10, 1) == 14, "two misses, FDIP overlaps them: %ld, expected 14", go("..MM", 4, 10, 1));
+    CHECK(go("..M..M", 2, 10, 1) == 24, "FTQ of 2 can't reach the second miss: %ld, expected 24", go("..M..M", 2, 10, 1));
+    CHECK(go("..M..M", 8, 10, 1) == 16, "FTQ of 8 reaches it: %ld, expected 16", go("..M..M", 8, 10, 1));
+
+    /* A server-like stream: 1 block in 8 misses, 30-cycle L2 hits. */
+    char big[65];
+    for (int i = 0; i < 64; i++) big[i] = i % 8 == 3 ? 'M' : '.';
+    big[64] = 0;
+    long off = go(big, 24, 30, 0), on = go(big, 24, 30, 1);
+    CHECK(off == 305 && on == 106, "64 blocks: %ld without FDIP and %ld with, expected 305 and 106", off, on);
+    return REPORT();
+}`,
+a: `<p>The loop is short once the order within a cycle is fixed: fetch first, then predict, so a block can’t be added and fetched in the same cycle, and space freed by fetch is reusable at once.</p>
+<p>What the checks show:</p>
+<ul>
+<li>With one isolated miss, FDIP saves only one cycle, because the predictor is just one block ahead of fetch when nothing stalls.</li>
+<li>FDIP pays off when misses are close together: while fetch waits on the first miss, the predictor keeps filling the FTQ and starts the second fill, so the two latencies overlap (14 cycles instead of 25).</li>
+<li>The FTQ size is the prefetch distance. With 2 entries, the predictor stops before it reaches the second miss. With 8, it reaches it during the first stall.</li>
+<li>On the 64-block stream, with a 30-cycle fill every 8 blocks, the 24-entry FTQ hides two of every three misses completely and part of the third: 106 cycles instead of 305.</li>
+</ul>
+<p>This is why modern cores decouple the predictor from fetch with a deep queue (Golden Cove and Zen 4 run the predictor well ahead of the I-cache), and why BTB capacity matters for instruction prefetch: the predictor can only run ahead through branches it knows about.</p>`
+}) +
 `<h3 id="sec-decode">Decode and the Op Cache</h3>` +
 Q(`<p>Why do x86 cores keep an op cache in front of their decoders, while Arm removed the macro-op cache when the Cortex-A715 dropped 32-bit support?</p>`,
 `<p><strong>x86:</strong> instructions are 1 to 15 bytes long, so finding their boundaries takes length decoding and predecode bits, and wide decoders are expensive in power and area. The op cache skips all of that on hot code:</p>
@@ -2678,6 +3194,96 @@ Q(`<p>Intel cores split each store into a store-address uop and a store-data uop
 <li>It mispredicts port usage: one uop where the core uses two ports.</li>
 <li>It gets blocked-load timing wrong: in the model, a matching load waits for both halves, while on the real core it waits only for the data if the address was early.</li>
 </ul>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Decide what a load gets from the store queue. <code>sq</code> holds the stores older than the load, oldest first. Each byte of the load comes from the youngest store that writes it, or from memory if none does. Return:</p>
+<ul>
+<li><strong>FWD_NONE</strong> if no store writes any of the load’s bytes. Set <code>*out</code> from <code>mem</code>, the load’s bytes in memory.</li>
+<li><strong>FWD_FULL</strong> if one store supplies every byte, its address and data are known, and it contains the whole load. Set <code>*out</code> to those bytes (little-endian, zero-extended).</li>
+<li><strong>FWD_STALL</strong> otherwise: any older store with an unknown address, bytes from more than one store, a mix of store and memory bytes, or a supplying store whose data isn’t ready. The load waits for the stores to drain.</li>
+</ul>
+<p>Sizes are 1, 2, 4, or 8 bytes, and accesses may be unaligned.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+
+typedef struct {
+    uint32_t addr;
+    int size;
+    uint64_t data;
+    int addr_ok, data_ok;
+} sq_entry_t;
+
+typedef enum { FWD_NONE, FWD_FULL, FWD_STALL } fwd_t;`,
+todo: String.raw`fwd_t load_lookup(const sq_entry_t *sq, int n, uint32_t addr, int size,
+                  uint64_t mem, uint64_t *out) {
+    /* TODO */
+    return FWD_STALL;
+}`,
+impl: String.raw`fwd_t load_lookup(const sq_entry_t *sq, int n, uint32_t addr, int size,
+                  uint64_t mem, uint64_t *out) {
+    for (int s = 0; s < n; s++)
+        if (!sq[s].addr_ok) return FWD_STALL;   /* can't rule out an overlap */
+    int src[8], from_store = 0;
+    for (int b = 0; b < size; b++) {
+        src[b] = -1;
+        for (int s = n - 1; s >= 0; s--) {      /* youngest first */
+            uint32_t a = addr + b;
+            if (a - sq[s].addr < (uint32_t)sq[s].size) { src[b] = s; break; }
+        }
+        from_store += src[b] >= 0;
+    }
+    uint64_t mask = size == 8 ? ~0ull : (1ull << (8 * size)) - 1;
+    if (from_store == 0) { *out = mem & mask; return FWD_NONE; }
+    for (int b = 1; b < size; b++)
+        if (src[b] != src[0]) return FWD_STALL;  /* two stores, or store and memory */
+    const sq_entry_t *st = &sq[src[0]];
+    if (src[0] < 0 || !st->data_ok) return FWD_STALL;
+    *out = (st->data >> (8 * (addr - st->addr))) & mask;
+    return FWD_FULL;
+}`,
+tests: String.raw`static const char *name[] = {"NONE", "FULL", "STALL"};
+
+static void expect(const char *what, const sq_entry_t *sq, int n, uint32_t addr, int size,
+                   fwd_t want, uint64_t want_val) {
+    uint64_t v = 0xDEAD;
+    fwd_t r = load_lookup(sq, n, addr, size, 0x1122334455667788ull, &v);
+    CHECK(r == want, "%s: got %s, expected %s", what, name[r], name[want]);
+    if (r == want && want != FWD_STALL)
+        CHECK(v == want_val, "%s: value 0x%llx, expected 0x%llx", what, (unsigned long long)v, (unsigned long long)want_val);
+}
+
+int main(void) {
+    sq_entry_t one[] = { {0x100, 8, 0x0807060504030201ull, 1, 1} };
+    expect("same address and size", one, 1, 0x100, 8, FWD_FULL, 0x0807060504030201ull);
+    expect("upper half of an 8-byte store", one, 1, 0x104, 4, FWD_FULL, 0x08070605);
+    expect("unaligned 2 bytes inside", one, 1, 0x103, 2, FWD_FULL, 0x0504);
+    expect("no overlap reads memory", one, 1, 0x108, 4, FWD_NONE, 0x55667788);
+    expect("straddles the store's end", one, 1, 0x106, 4, FWD_STALL, 0);
+
+    sq_entry_t two[] = { {0x200, 4, 0xAABBCCDD, 1, 1}, {0x204, 4, 0x11223344, 1, 1} };
+    expect("8-byte load over two 4-byte stores", two, 2, 0x200, 8, FWD_STALL, 0);
+    expect("4-byte load from the younger store", two, 2, 0x204, 4, FWD_FULL, 0x11223344);
+
+    sq_entry_t over[] = { {0x300, 8, 0x0807060504030201ull, 1, 1}, {0x302, 2, 0xEEFF, 1, 1} };
+    expect("younger store covers the load", over, 2, 0x302, 2, FWD_FULL, 0xEEFF);
+    expect("bytes from both stores", over, 2, 0x300, 4, FWD_STALL, 0);
+    expect("older store only", over, 2, 0x304, 4, FWD_FULL, 0x08070605);
+
+    sq_entry_t unk[] = { {0x400, 4, 1, 1, 1}, {0, 8, 0, 0, 0} };
+    expect("an older store's address is unknown", unk, 2, 0x900, 4, FWD_STALL, 0);
+
+    sq_entry_t nodata[] = { {0x500, 4, 0, 1, 0} };
+    expect("supplying store's data isn't ready", nodata, 1, 0x500, 4, FWD_STALL, 0);
+    expect("non-overlapping store with no data", nodata, 1, 0x504, 4, FWD_NONE, 0x55667788);
+
+    sq_entry_t wrap[] = { {0xFFFFFFFC, 4, 0x01020304, 1, 1} };
+    expect("store at the top of the address space", wrap, 1, 0x0, 4, FWD_NONE, 0x55667788);
+    return REPORT();
+}`,
+a: `<p>Work byte by byte: for each byte of the load, scan the older stores from youngest to oldest and stop at the first one that covers it. The unsigned comparison <code>a − st.addr &lt; st.size</code> checks containment in one step and can’t be fooled by wraparound at the top of the address space.</p>
+<p>Then classify. No covered bytes means read memory. If every byte names the same store, that store contains the load and can forward, provided its data is ready. Anything else stalls. A store with an unknown address stalls every younger load in this conservative model. Real cores instead predict that the load is independent (memory dependence prediction) and replay it if a store later turns out to overlap.</p>
+<p>The rule “one store must contain the whole load” mirrors the forwarding rules in Intel’s and AMD’s optimization manuals. A load that spans two stores, or a narrow store followed by a wide load, can’t forward and waits until the stores commit, which costs on the order of 10 or more cycles. This is a classic performance bug in code that writes a struct field by field and then copies it as a whole.</p>`
+}) +
 `<h3 id="sec-mdp">Memory Dependence Speculation</h3>` +
 Q(`<p>You built a new memory dependence predictor. What statistics would you collect to evaluate it, and what upper and lower bounds would you compare it against?</p>`,
 `<ul>
@@ -2794,7 +3400,101 @@ Q(`<p>Skylake has a 72-entry load queue but only 12 L1D fill buffers, so at most
 <li>Software prefetches to L1 occupy fill buffers too, so they hit the same limit.</li>
 <li>In a model, the fill buffers, the L2 miss-tracking entries, and the prefetcher must all be modeled. A model with an unlimited L1 MSHR count, or one that models the load queue as the limit, overestimates single-core bandwidth on random access and gets the effect of prefetching wrong.</li>
 </ul>
-<p>Later cores raised the count (Golden Cove has 16 fill buffers), still far below load-queue sizes, for the same timing and area reasons.</p>`, "hard"),
+<p>Later cores raised the count (Golden Cove has 16 fill buffers), still far below load-queue sizes, for the same timing and area reasons.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Model a non-blocking cache’s miss status holding registers (MSHRs). Requests to <code>addr</code> arrive at cycle <code>arrive[i]</code> and are handled one per cycle in order. A request issues at the later of its arrival and one cycle after the previous request issued. At issue time <em>t</em>:</p>
+<ul>
+<li>If its 64-byte line has been filled by cycle <em>t</em>, it hits and finishes at <em>t</em> + <code>HIT</code>.</li>
+<li>Else, if an MSHR is filling that line and has fewer than <code>TARGETS</code> requests, it merges and finishes when the fill does.</li>
+<li>Else, if that line’s MSHR is full of requests, the request (and every later one) stalls until the fill completes, then issues as a hit.</li>
+<li>Else it needs a free MSHR: it allocates one and finishes at <em>t</em> + <code>MISS</code>, when the line is filled and the MSHR frees. If none is free, it stalls until the earliest fill completes, then tries again.</li>
+</ul>
+<p>Fill <code>done[i]</code> for each request. The cache is large enough that filled lines stay.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+
+#define HIT 4
+#define MISS 100
+#define TARGETS 2
+#define MAXLINES 256`,
+todo: String.raw`void run_mshrs(const uint32_t *addr, const long *arrive, int n, int mshrs, long done[]) {
+    /* TODO */
+}`,
+impl: String.raw`void run_mshrs(const uint32_t *addr, const long *arrive, int n, int mshrs, long done[]) {
+    uint32_t line[MAXLINES];  /* every line ever requested */
+    long fill[MAXLINES];      /* cycle its fill completes */
+    int targets[MAXLINES], nlines = 0;
+    long t = 0;
+    for (int i = 0; i < n; i++) {
+        t = i == 0 ? arrive[0] : (arrive[i] > t + 1 ? arrive[i] : t + 1);
+        uint32_t l = addr[i] / 64;
+        int k = 0;
+        while (k < nlines && line[k] != l) k++;
+        for (;;) {
+            if (k < nlines && fill[k] <= t) { done[i] = t + HIT; break; }
+            if (k < nlines) {
+                if (targets[k] < TARGETS) { targets[k]++; done[i] = fill[k]; break; }
+                t = fill[k];                    /* wait for the fill, then hit */
+                continue;
+            }
+            int busy = 0;
+            long first = -1;
+            for (int j = 0; j < nlines; j++)
+                if (fill[j] > t) { busy++; if (first < 0 || fill[j] < first) first = fill[j]; }
+            if (busy < mshrs) {
+                line[nlines] = l; fill[nlines] = t + MISS; targets[nlines] = 1;
+                done[i] = t + MISS;
+                nlines++;
+                break;
+            }
+            t = first;                          /* stall for a free MSHR */
+        }
+    }
+}`,
+tests: String.raw`static void expect(const char *what, const uint32_t *a, const long *arr, int n, int m, const long *want) {
+    long done[16];
+    run_mshrs(a, arr, n, m, done);
+    for (int i = 0; i < n; i++)
+        CHECK(done[i] == want[i], "%s: request %d done at %ld, expected %ld", what, i, done[i], want[i]);
+}
+
+int main(void) {
+    uint32_t abc[] = {0x1000, 0x2000, 0x3000};
+    expect("3 lines, 2 MSHRs", abc, (long[]){0, 1, 2}, 3, 2, (long[]){100, 101, 200});
+    expect("3 lines, 4 MSHRs", abc, (long[]){0, 1, 2}, 3, 4, (long[]){100, 101, 102});
+
+    uint32_t same[] = {0x1000, 0x1008, 0x1010, 0x1018};
+    expect("4 requests to one line, 2 targets", same, (long[]){0, 1, 2, 3}, 4, 2, (long[]){100, 100, 104, 105});
+
+    uint32_t later[] = {0x1000, 0x1000};
+    expect("hit after the fill", later, (long[]){0, 150}, 2, 2, (long[]){100, 154});
+
+    /* A blocked request blocks everything behind it (in order). */
+    uint32_t hol[] = {0x1000, 0x2000, 0x3000, 0x1000};
+    expect("head-of-line blocking", hol, (long[]){0, 1, 2, 3}, 4, 2, (long[]){100, 101, 200, 105});
+
+    /* Streaming 16 lines with 1, 4, and 16 MSHRs: memory-level parallelism. */
+    uint32_t s[16];
+    long arr[16], d[16];
+    for (int i = 0; i < 16; i++) { s[i] = 0x10000 + 64 * i; arr[i] = i; }
+    int ms[3] = {1, 4, 16};
+    long want_last[3] = {1600, 403, 115};
+    for (int k = 0; k < 3; k++) {
+        run_mshrs(s, arr, 16, ms[k], d);
+        CHECK(d[15] == want_last[k], "16-line stream, %d MSHRs: last done at %ld, expected %ld", ms[k], d[15], want_last[k]);
+    }
+    return REPORT();
+}`,
+a: `<p>Keep one record per line: when its fill completes and how many requests it has collected. Then each request runs the four rules in order inside a retry loop. Stalling just moves <em>t</em> forward to the cycle that unblocks it (a fill completing) and retries, and because the next request can issue no earlier than <em>t</em> + 1, a stall blocks everything behind it, like a cache with in-order miss handling.</p>
+<p>Check the cases by hand:</p>
+<ul>
+<li>Two MSHRs and three lines: the third miss waits until cycle 100 for a free MSHR, so it finishes at 200.</li>
+<li>Four requests to one line with 2 targets: two merge into the fill at 100. The third finds the MSHR full, waits for the fill, and hits at 104. The fourth issues a cycle later and hits at 105.</li>
+<li>The 16-line stream is the MLP lesson. One MSHR serializes the misses (16 × 100 = 1,600 cycles). Four overlap four at a time, and the last finishes at 403. Sixteen overlap them all, and the last one finishes at 15 + 100 = 115.</li>
+</ul>
+<p>Little’s law sets the MSHR count you need: bandwidth = outstanding misses × 64 B ÷ latency. Sustaining 64 B per cycle at 100 cycles of latency needs 100 misses in flight, which is why L2 and L3 caches and memory controllers have many more miss buffers than the L1D’s 16 to 24 fill buffers.</p>`
+}),
 },
 {
   id: "intv-mem",
