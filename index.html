@@ -246,6 +246,18 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .ans-fb p { margin: 0 0 6px; }
 .ans-fb ul, .ans-fb ol { padding-left: 1.2em; margin: 0 0 6px; }
 .ans-fb .ans-stale { font-family: var(--sans); font-size: .8rem; color: var(--muted); }
+/* Code box on coding cards: rows come from the reference solution's length. */
+.code-text { min-height: 0; font-family: var(--mono); font-size: .82rem; line-height: 1.5; tab-size: 4; white-space: pre; overflow-x: auto; background: var(--code-bg); }
+.ans-bar { flex-wrap: wrap; }
+.code-run, .code-reset { font: inherit; font-size: .8rem; font-weight: 600; border-radius: 10px; padding: 2px 11px; cursor: pointer; }
+.code-run { color: var(--paper); background: var(--trace); border: 1px solid var(--trace); }
+.code-run:disabled { opacity: .6; cursor: progress; }
+.code-reset { color: var(--muted); background: none; border: 1px solid var(--rule); }
+.code-reset:hover { color: var(--trace); border-color: var(--trace); }
+.code-seed input { width: 5.5em; font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 4px; margin-left: 4px; }
+.prob pre.code-out { margin: 8px 0 0; max-height: 24em; overflow: auto; white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: .8rem; color: var(--ink); border-left: 3px solid var(--rule); }
+.code-status { color: var(--muted); font-style: italic; }
+.code-note { font-size: .85rem; color: var(--muted); }
 .drill-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 16px; margin: 0 0 20px; font-size: .9rem; }
 .drill-bar label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
 .drill-bar label.chk { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 7px; }
@@ -555,6 +567,7 @@ window.MathJax = {
 <script src="js/calc.js"></script>
 <script src="js/trace.js"></script>
 <script src="js/theme.js"></script>
+<script src="js/crun.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

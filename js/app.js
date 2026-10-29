@@ -494,12 +494,17 @@ function decorateAnswers() {
     const snip = cardSnip(card), v = ANSWERS[snip];
     card.dataset.snip = snip;
     const box = document.createElement("div");
-    box.className = "ans";
-    box.innerHTML = `<p class="ans-label">Your answer</p>
+    const skel = card.querySelector(".code-skel");
+    box.className = skel ? "ans code-box" : "ans";
+    box.innerHTML = skel ? `<p class="ans-label">Your code</p>
+      <textarea class="ans-text code-text" rows="${card.dataset.lines}" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Your code"></textarea>
+      <div class="ans-bar"><button type="button" class="code-run">Run</button>${card.dataset.threads ? `<label class="code-seed">Seed <input type="number" min="1" value="1"></label>` : ""}<button type="button" class="code-reset">Reset to skeleton</button><span class="ans-status" aria-live="polite"></span></div>
+      <pre class="code-out" aria-live="polite" hidden></pre>
+      <div class="ans-fb" aria-live="polite" hidden></div>` : `<p class="ans-label">Your answer</p>
       <textarea class="ans-text" rows="12" aria-label="Your answer" placeholder="Work it out here before opening the answer."></textarea>
       <div class="ans-bar"><span class="ans-status" aria-live="polite"></span></div>
       <div class="ans-fb" aria-live="polite" hidden></div>`;
-    box.querySelector(".ans-text").value = v ? v.text || "" : "";
+    box.querySelector(".ans-text").value = v && v.text ? v.text : skel ? skel.textContent : "";
     card.querySelector(".q").after(box);
     showFeedback(card);
   });
@@ -518,7 +523,9 @@ app.addEventListener("input", e => {
   const ta = e.target.closest(".ans-text");
   if (!ta) return;
   const card = ta.closest(".prob"), snip = card.dataset.snip, status = card.querySelector(".ans-status");
-  ANSWERS[snip] = Object.assign({ snip }, ANSWERS[snip], { text: ta.value, at: Date.now() });
+  /* Untouched code is the skeleton, which isn't worth saving. */
+  const skel = card.querySelector(".code-skel"), text = skel && ta.value === skel.textContent ? "" : ta.value;
+  ANSWERS[snip] = Object.assign({ snip }, ANSWERS[snip], { text, at: Date.now() });
   status.textContent = "Saving…";
   clearTimeout(ANS_TIMERS[snip]);
   ANS_TIMERS[snip] = setTimeout(() => {
@@ -526,6 +533,83 @@ app.addEventListener("input", e => {
       .then(() => { status.textContent = PRIVATE_OK ? "Saved to your account" : "Saved in this browser"; })
       .catch(err => { status.textContent = "Not saved"; console.error("Saving answer failed:", err); });
   }, 800);
+});
+
+/* ---------- Code box on coding cards ----------
+   Run compiles and runs the box's code (js/crun.js) and shows the
+   compiler's messages and the program's output under the box. The last
+   output stays on the card for "Get feedback". In the box, Tab indents
+   (Escape first lets Tab leave the box), Enter keeps the line's
+   indentation, and Ctrl+Enter or Cmd+Enter runs. */
+const CODE_OUT = {};
+function runCode(card) {
+  const btn = card.querySelector(".code-run"), out = card.querySelector(".code-out");
+  if (!btn || btn.disabled || CRUN.busy()) return;
+  const seedEl = card.querySelector(".code-seed input");
+  const seed = Math.max(1, parseInt(seedEl ? seedEl.value : "1", 10) || 1);
+  const status = document.createElement("span"), body = document.createElement("span");
+  status.className = "code-status";
+  out.hidden = false; out.textContent = ""; out.append(status, body);
+  let text = "";
+  const show = s => { text += s; body.textContent = text; };
+  btn.disabled = true; btn.textContent = "Running…";
+  const done = () => {
+    CODE_OUT[card.dataset.snip] = text;
+    if (document.body.contains(btn)) { btn.disabled = false; btn.textContent = "Run"; }
+  };
+  CRUN.run(card.querySelector(".ans-text").value, { threads: !!card.dataset.threads, seed }, (type, data) => {
+    if (type === "status") status.textContent = data + "\n";
+    else if (type === "out" || type === "err") { status.textContent = ""; show(data); }
+    else if (type === "diag") show(data + "\n");
+    else if (type === "fail") {
+      status.textContent = "";
+      show(data.diag ? data.diag + "\nCompilation failed.\n" : `Couldn't run the code: ${data.msg}\n`);
+      done();
+    } else if (type === "done") {
+      status.textContent = "";
+      if (text && !text.endsWith("\n")) show("\n");
+      show(data.msg ? data.msg + "\n" : `Exited with status ${data.status} after ${data.ms} ms${card.dataset.threads ? ` (seed ${seed})` : ""}.\n`);
+      done();
+    }
+  });
+}
+app.addEventListener("click", e => {
+  const run = e.target.closest(".code-run");
+  if (run) { runCode(run.closest(".prob")); return; }
+  const reset = e.target.closest(".code-reset");
+  if (!reset) return;
+  /* The artifact host blocks confirm(), so changed code takes a second click. */
+  const card = reset.closest(".prob"), ta = card.querySelector(".ans-text"), skel = card.querySelector(".code-skel").textContent;
+  if (ta.value !== skel && !reset.dataset.armed) {
+    reset.dataset.armed = "1"; reset.textContent = "Click again to discard your code";
+    setTimeout(() => { delete reset.dataset.armed; reset.textContent = "Reset to skeleton"; }, 4000);
+    return;
+  }
+  delete reset.dataset.armed; reset.textContent = "Reset to skeleton";
+  ta.value = skel;
+  ta.dispatchEvent(new Event("input", { bubbles: true }));
+});
+let CODE_TAB_EXIT = false;
+app.addEventListener("keydown", e => {
+  const ta = e.target.closest(".code-text");
+  if (!ta) return;
+  if (e.key === "Escape") { CODE_TAB_EXIT = true; return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); runCode(ta.closest(".prob")); return; }
+  const { selectionStart: s, selectionEnd: end, value: v } = ta;
+  const lineStart = v.lastIndexOf("\n", s - 1) + 1;
+  if (e.key === "Tab" && !CODE_TAB_EXIT && !e.altKey && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    if (e.shiftKey) {
+      const n = (v.slice(lineStart).match(/^ {1,4}/) || [""])[0].length;
+      if (n) { ta.setSelectionRange(lineStart, lineStart + n); document.execCommand("insertText", false, ""); ta.setSelectionRange(Math.max(lineStart, s - n), Math.max(lineStart, end - n)); }
+    } else document.execCommand("insertText", false, "    ");
+  } else if (e.key === "Enter" && !e.shiftKey && !e.altKey) {
+    const indent = v.slice(lineStart, s).match(/^[ \t]*/)[0] + (/\{\s*$/.test(v.slice(lineStart, s)) ? "    " : "");
+    if (!indent) return;
+    e.preventDefault();
+    document.execCommand("insertText", false, "\n" + indent);
+  }
+  if (e.key !== "Shift") CODE_TAB_EXIT = false;
 });
 
 /* Question and stored answer as plain text, from the card's source HTML
@@ -543,6 +627,35 @@ function gradePrompt(snip, answer) {
   if (!qEl || !aEl) return null;
   const qn = qEl.querySelector(".qn");
   if (qn) qn.remove();
+  if (t.content.querySelector(".code-skel")) return `You are reviewing a candidate's C solution to a coding question in an interview for a CPU performance modeling and performance architecture role. Compare it with the reference solution, which is correct. The code runs as WebAssembly (32-bit pointers)${t.content.querySelector("[data-threads]") ? ", and threads are simulated on one core with sequentially consistent memory, so also judge the memory orderings by reasoning" : ""}.
+
+Reply in under 250 words, in exactly this format:
+**Verdict:** Correct, Partly correct, or Incorrect.
+**Bugs:**
+- one bullet per bug, with the input or interleaving that triggers it, or "- Nothing." if there are none
+**Missing cases:**
+- one bullet per case the code doesn't handle, or "- Nothing."
+**Performance and style:**
+- at most three bullets on complexity, memory traffic, or clarity that an interviewer would raise, or "- Nothing."
+**Tip:** one sentence on what to practice next time.
+
+Rules:
+- Judge correctness first. Accept a different valid approach.
+- If the code is still the unchanged skeleton, or doesn't attempt the problem, say so.
+- Don't paste the reference solution. Quote at most one short line of the candidate's code per bullet.
+- Use "- " bullet points for lists. Never use semicolons to separate list items.
+
+Question:
+${cardText(qEl.innerHTML)}
+
+Reference solution and explanation:
+${cardText(aEl.innerHTML)}
+
+Candidate's code:
+${answer}
+
+Output of the candidate's last run:
+${CODE_OUT[snip] || "(not run yet)"}`;
   return `You are grading a candidate's answer to an interview question for a CPU performance modeling and performance architecture role. Compare it with the reference answer, which is correct.
 
 Reply in under 200 words, in exactly this format:
@@ -576,7 +689,7 @@ app.addEventListener("click", async e => {
   if (!btn || btn.disabled || !SAMPLE) return;
   const card = btn.closest(".prob"), snip = card.dataset.snip, el = card.querySelector(".ans-fb");
   const answer = ((ANSWERS[snip] || {}).text || "").trim();
-  if (!answer) { el.hidden = false; el.innerHTML = "<p>Write an answer first.</p>"; return; }
+  if (!answer) { el.hidden = false; el.innerHTML = card.querySelector(".code-skel") ? "<p>Write some code first.</p>" : "<p>Write an answer first.</p>"; return; }
   const prompt = gradePrompt(snip, answer);
   if (!prompt) { el.hidden = false; el.innerHTML = "<p>This question's stored answer couldn't be found.</p>"; return; }
   btn.disabled = true; btn.textContent = "Grading…";

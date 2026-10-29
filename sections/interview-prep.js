@@ -1,20 +1,44 @@
 /* Section: CPU Performance Interview Prep (public).
    Reasoning questions for CPU modeling / performance architecture interviews.
    Every question is a card; the answer is hidden behind "Show answer".
-   Each page has a Conceptual tab and a Math tab, numbered from 1. */
+   Each page has Conceptual, Math, and Coding tabs, numbered from 1. */
 (function () {
 const LVL = { easy: "Easy", medium: "Medium", hard: "Hard" };
 /* Q() makes a conceptual card and M() one whose answer rests on a multi-step
    calculation. Each returns a placeholder, and tabbed() later sorts a page's
-   cards into a Conceptual tab (shown first) and a Math tab, repeating the
-   topic headings in each, and numbers the cards from 1 within each tab. */
+   cards into a Conceptual tab (shown first), a Math tab, and a Coding tab,
+   repeating the topic headings in each, and numbers the cards from 1 within
+   each tab. */
 const CARDS = [];
 const card = tab => (q, a, lvl) => `\u0000${CARDS.push({ tab, q, a, lvl }) - 1}\u0000`;
 const Q = card("c"), M = card("m");
-const TABS = [["c", "Conceptual"], ["m", "Math"]];
-const render = (qid, n, c) => `
-<div class="prob" data-qid="${qid}"><div class="q"><p class="qn">Q${n}${c.lvl ? ` <span class="lvl ${c.lvl}">${LVL[c.lvl]}</span>` : ""}</p>${c.q}</div>
-<details><summary>Show answer</summary><div class="a">${c.a}</div></details></div>`;
+/* C() makes a coding card from { q, lvl, head, todo, impl, tests, a,
+   threads }. The skeleton in the code box is head + todo + tests, and the
+   reference solution is head + impl + tests: `head` holds the includes and
+   types, `todo` the stubs to fill in, `impl` the reference code, and
+   `tests` a main() that prints a line per failed check and a total. `a`
+   explains the solution. `threads` runs it on simulated pthreads. The box
+   starts as tall as the reference solution. */
+const CHECK = String.raw`static int passed, failed;
+#define CHECK(cond, ...) do { if (cond) passed++; else { failed++; \
+    printf("FAIL (line %d): ", __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
+#define REPORT() (printf("%d of %d checks passed\n", passed, passed + failed), failed != 0)
+`;
+const esc = s => s.replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[ch]);
+const C = p => {
+  const top = p.head.trim() + "\n\n" + CHECK + "\n";
+  const skel = top + p.todo.trim() + "\n\n" + p.tests.trim() + "\n";
+  const sol = top + p.impl.trim() + "\n\n" + p.tests.trim() + "\n";
+  return `\u0000${CARDS.push({ tab: "k", q: p.q, lvl: p.lvl, skel, sol, impl: p.impl.trim(), a: p.a, threads: !!p.threads }) - 1}\u0000`;
+};
+const TABS = [["c", "Conceptual"], ["m", "Math"], ["k", "Coding"]];
+const lvlTag = c => c.lvl ? ` <span class="lvl ${c.lvl}">${LVL[c.lvl]}</span>` : "";
+const render = (qid, n, c) => c.tab !== "k" ? `
+<div class="prob" data-qid="${qid}"><div class="q"><p class="qn">Q${n}${lvlTag(c)}</p>${c.q}</div>
+<details><summary>Show answer</summary><div class="a">${c.a}</div></details></div>` : `
+<div class="prob code-prob" data-qid="${qid}" data-lines="${c.sol.split("\n").length}"${c.threads ? ` data-threads="1"` : ""}><div class="q"><p class="qn">Q${n}${lvlTag(c)}</p>${c.q}${c.threads ? `<p class="code-note">Runs on simulated threads: one core, with a thread switch possible at every atomic operation, lock call, and <code>sched_yield()</code>. Change the seed to try another interleaving.</p>` : ""}</div>
+<pre class="code-skel" hidden>${esc(c.skel)}</pre>
+<details><summary>Show solution</summary><div class="a"><pre><code>${esc(c.impl)}</code></pre>${c.a}</div></details></div>`;
 function tabbed(page) {
   const [intro, ...parts] = page.body.split(/(?=<h3 id="sec-)/);
   const sections = [], panels = [];
@@ -51,7 +75,8 @@ section({
   body: `
 <h3 id="sec-how">How to Use These Pages</h3>
 <p>Each page is one interview topic. Questions are written to test reasoning, not recall: most give you a scenario, a measurement, or a design change and ask what happens, why, and how you would prove it. Answer each one out loud before opening the answer. The answers are what a strong candidate would say, including the traps an interviewer is fishing for.</p>
-<p>Every page has two tabs. <strong>Conceptual</strong>, shown first, holds questions you answer by reasoning about mechanisms. <strong>Math</strong> holds questions whose answer rests on a multi-step calculation. The topic headings repeat in each tab, and questions are numbered from 1 within each tab. Instructions in code examples are numbered from I0, and cycles from cycle 0.</p>
+<p>Every page has three tabs. <strong>Conceptual</strong>, shown first, holds questions you answer by reasoning about mechanisms. <strong>Math</strong> holds questions whose answer rests on a multi-step calculation. <strong>Coding</strong> holds C problems you write, compile, and run in the page. The topic headings repeat in each tab, and questions are numbered from 1 within each tab. Instructions in code examples are numbered from I0, and cycles from cycle 0.</p>
+<p>Each coding problem opens with a skeleton: the includes, the functions to fill in, and a <code>main()</code> that runs checks and prints any failure. The box starts as tall as the reference solution. Run compiles with Clang 21 to WebAssembly in your browser (about 15 MB to download the first time, then cached) and prints the program's output. Your code saves as you type. Concurrency problems run on simulated threads: one core, with a thread switch possible at every atomic operation, lock call, and <code>sched_yield()</code>, chosen from a seed you can change to replay or vary the interleaving. Memory there is always sequentially consistent, so a missing acquire or release won't show up as a failure. Check orderings by reasoning.</p>
 <p class="callout">Terminology: questions about Intel cores or a generic core use Intel's term, uop, meaning a fused-domain uop (the unit rename and retire count) unless the question says unfused. Questions about AMD cores count macro-ops, AMD's equivalent. The note in the <a href="#/r/fe">Front End overview</a> maps the terms across Intel, AMD, and Arm.</p>
 
 <h3 id="sec-answer">How to Answer Out Loud</h3>
@@ -70,7 +95,7 @@ section({
 <li><strong>Yellow:</strong> you know the concept but stumble on details or interactions. Spend most of your time here.</li>
 <li><strong>Red:</strong> you can’t answer without looking it up. Fix these first if they are foundational (renaming, dependences, retirement, cache misses).</li>
 </ul>
-<p>Every question is tagged <strong>Easy</strong>, <strong>Medium</strong>, or <strong>Hard</strong>. The Conceptual tab on each page is about 20% easy, 35% medium, and 45% hard. The Math tab is about 20% medium and 80% hard. Hard questions involve multi-step math, a trap, or an open-ended trade-off. The numbers in the trickiest answers were checked with a small cycle-level simulation or a script.</p>
+<p>Every question is tagged <strong>Easy</strong>, <strong>Medium</strong>, or <strong>Hard</strong>. The Conceptual tab on each page is about 20% easy, 35% medium, and 45% hard. The Math and Coding tabs are about 20% medium and 80% hard. Hard questions involve multi-step math, a trap, or an open-ended trade-off. The numbers in the trickiest answers were checked with a small cycle-level simulation or a script.</p>
 
 <h3 id="sec-order">Study Order</h3>
 <ol>
@@ -324,6 +349,96 @@ Q(`<p>A tight loop is 5 instructions ending in a taken branch, fully independent
 <li><strong>Software:</strong> unrolling the loop by 2 makes the body 9 instructions and 1 taken branch, which helps every front end. It costs code size and can spill out of the uop cache.</li>
 </ul>
 <p>For a model: the taken-branch limit has to be modeled explicitly. A model that only counts bytes or instructions per cycle overestimates IPC on small loops, which are exactly the kernels that dominate many benchmarks.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Model the issue stage of a 2-wide in-order core. Write <code>schedule()</code>, which fills <code>issue[i]</code> with the cycle instruction <em>i</em> issues and returns the cycle the last result is ready (the largest <code>issue[i] + latency</code>). The first instruction issues in cycle 0. Each instruction issues in the earliest cycle that satisfies every rule:</p>
+<ul>
+<li><strong>In order:</strong> never before the instruction ahead of it.</li>
+<li><strong>Width:</strong> at most <code>width</code> instructions per cycle.</li>
+<li><strong>Ports:</strong> at most one LOAD or STORE per cycle, and at most one MUL per cycle. Units are pipelined.</li>
+<li><strong>RAW:</strong> a source register is ready <code>latency</code> cycles after its producer issues. Latencies: ALU 1, MUL 3, LOAD 4, STORE 1.</li>
+<li><strong>WAW:</strong> results are written when ready, so an instruction must become ready strictly after any older instruction that writes the same register.</li>
+<li>Register 0 always reads as zero and writes to it are dropped, so it creates no dependences. STORE reads <code>rs1</code> and <code>rs2</code> and writes nothing.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+
+typedef enum { ALU, MUL, LOAD, STORE } op_t;
+typedef struct { op_t op; int rd, rs1, rs2; } instr_t;
+
+static const int LATENCY[] = { [ALU] = 1, [MUL] = 3, [LOAD] = 4, [STORE] = 1 };
+#define NREGS 32`,
+todo: String.raw`int schedule(const instr_t *code, int n, int width, int issue[]) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`int schedule(const instr_t *code, int n, int width, int issue[]) {
+    int ready[NREGS] = {0};   /* cycle each register's newest value is ready */
+    int cycle = 0, in_cycle = 0, mem_used = 0, mul_used = 0, last = 0;
+    for (int i = 0; i < n; i++) {
+        const instr_t *in = &code[i];
+        int lat = LATENCY[in->op];
+        int t = cycle;
+        if (in->rs1) t = t > ready[in->rs1] ? t : ready[in->rs1];
+        if (in->rs2) t = t > ready[in->rs2] ? t : ready[in->rs2];
+        int writes = in->op != STORE && in->rd != 0;
+        if (writes && t + lat <= ready[in->rd]) t = ready[in->rd] - lat + 1;
+        /* Width and port limits only bind if we stay in the current cycle. */
+        int is_mem = in->op == LOAD || in->op == STORE, is_mul = in->op == MUL;
+        if (t == cycle && (in_cycle == width || (is_mem && mem_used) || (is_mul && mul_used))) t++;
+        if (t != cycle) { cycle = t; in_cycle = mem_used = mul_used = 0; }
+        issue[i] = t;
+        in_cycle++;
+        mem_used |= is_mem;
+        mul_used |= is_mul;
+        if (writes) ready[in->rd] = t + lat;
+        if (t + lat > last) last = t + lat;
+    }
+    return last;
+}`,
+tests: String.raw`static void expect(const char *name, const instr_t *code, int n, int width,
+                   const int *want, int want_last) {
+    int issue[16];
+    int last = schedule(code, n, width, issue);
+    for (int i = 0; i < n; i++)
+        CHECK(issue[i] == want[i], "%s: I%d issues in cycle %d, expected %d", name, i, issue[i], want[i]);
+    CHECK(last == want_last, "%s: last result ready in cycle %d, expected %d", name, last, want_last);
+}
+
+int main(void) {
+    instr_t indep[] = { {ALU, 1, 2, 3}, {ALU, 4, 5, 6}, {ALU, 7, 8, 9}, {ALU, 10, 11, 12} };
+    expect("4 independent ALU ops", indep, 4, 2, (int[]){0, 0, 1, 1}, 2);
+
+    instr_t load_use[] = { {LOAD, 1, 2, 0}, {ALU, 2, 1, 1}, {ALU, 3, 4, 5} };
+    expect("load-use", load_use, 3, 2, (int[]){0, 4, 4}, 5);
+
+    instr_t two_loads[] = { {LOAD, 1, 2, 0}, {LOAD, 3, 4, 0} };
+    expect("one memory port", two_loads, 2, 2, (int[]){0, 1}, 5);
+
+    instr_t waw[] = { {LOAD, 1, 2, 0}, {ALU, 1, 3, 4} };
+    expect("WAW behind a load", waw, 2, 2, (int[]){0, 4}, 5);
+
+    instr_t muls[] = { {MUL, 1, 2, 3}, {MUL, 4, 5, 6}, {ALU, 7, 1, 4} };
+    expect("one multiplier", muls, 3, 2, (int[]){0, 1, 4}, 5);
+
+    instr_t chain[] = { {ALU, 1, 2, 3}, {ALU, 2, 1, 1} };
+    expect("dependent pair, 4 wide", chain, 2, 4, (int[]){0, 1}, 2);
+
+    instr_t zero[] = { {LOAD, 0, 1, 0}, {ALU, 2, 0, 0} };
+    expect("register 0", zero, 2, 2, (int[]){0, 0}, 4);
+
+    instr_t store[] = { {ALU, 1, 2, 3}, {STORE, 0, 4, 1}, {LOAD, 5, 4, 0}, {ALU, 6, 7, 8} };
+    expect("store then load", store, 4, 2, (int[]){0, 1, 2, 2}, 6);
+
+    return REPORT();
+}`,
+a: `<p>One pass in program order is enough, because an in-order machine never issues an instruction before the one ahead of it. For each instruction, start at the current issue cycle and push the candidate cycle later for each rule:</p>
+<ul>
+<li><strong>RAW:</strong> wait for <code>ready[rs]</code>, the cycle the newest value of each source is ready.</li>
+<li><strong>WAW:</strong> if <code>t + lat</code> would not be after <code>ready[rd]</code>, move to <code>ready[rd] − lat + 1</code>. Without this, the short ALU op in the WAW check would write <code>r1</code> before the older load and then be overwritten by stale data.</li>
+<li><strong>Width and ports:</strong> they only bind if the instruction stays in the same cycle as instructions already issued there. If the dependence rules already moved it to a later cycle, that cycle is empty.</li>
+</ul>
+<p>The common bug is to check width and ports first and dependences second. That can leave an instruction in a cycle where the port is free but a later cycle was required. Also note that STORE writes nothing, so its <code>rd</code> field must not create a WAW dependence. In the last check, the store issues in cycle 1 behind the ALU result, and the load has to wait for cycle 2 because the store holds the only memory port in cycle 1.</p>`
+}) +
 `<h3 id="sec-stalls">Stalls, Flushes and Recovery</h3>` +
 Q(`<p>Renaming removes false dependences and branch prediction hides control dependences. Give one structural, one data, and one control hazard that still costs cycles on a modern out-of-order core.</p>`,
 `<ul>
@@ -383,7 +498,100 @@ Q(`<p>Queues sit between the pipeline stages: a fetch queue, the decode queue, t
 <li>When one stage is slower <em>on average</em>, the queue in front of it is always full and the one after it is always empty. Throughput is the slowest stage’s rate, whatever the queue sizes.</li>
 <li>After a mispredict, everything in the queues is wrong-path and is flushed. Deep queues add nothing and can lengthen the refill if they add pipeline stages.</li>
 </ul>
-<p>Sizing rule: make a queue deep enough to cover the typical burst on either side, measured from occupancy histograms. Beyond that, extra entries cost area and power and add nothing.</p>`, "hard"),
+<p>Sizing rule: make a queue deep enough to cover the typical burst on either side, measured from occupancy histograms. Beyond that, extra entries cost area and power and add nothing.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Model the classic 5-stage pipeline (IF, ID, EX, MEM, WB). Write <code>simulate()</code>, which fills <code>wb[i]</code> with the cycle instruction <em>i</em> is in WB and returns the total cycle count. Instruction 0 is in IF in cycle 0. The trace is dynamic: the instruction after a taken branch is its target.</p>
+<ul>
+<li>One instruction per stage. An instruction stalled in ID holds the next one in IF.</li>
+<li>ALU, LOAD, STORE, and BRANCH spend 1 cycle in EX. MUL spends 3 cycles in EX and isn’t pipelined, so nothing else can enter EX until it leaves.</li>
+<li>Full forwarding: an ALU or MUL result can be used by an instruction entering EX the cycle after the producer leaves EX. A LOAD result can be used in EX the cycle after the load leaves MEM.</li>
+<li>ALU, MUL, and BRANCH read <code>rs1</code> and <code>rs2</code> when they enter EX. LOAD reads <code>rs1</code>. STORE reads <code>rs1</code> in EX and its data <code>rs2</code> in MEM, so its data never causes a stall.</li>
+<li>Branches are predicted not taken and resolve at the end of EX. After a taken branch, the next instruction enters IF the cycle after the branch leaves EX.</li>
+<li>Register 0 is always zero and creates no dependences.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+
+typedef enum { ALU, MUL, LOAD, STORE, BRANCH } op_t;
+typedef struct { op_t op; int rd, rs1, rs2, taken; } instr_t;
+#define NREGS 32`,
+todo: String.raw`int simulate(const instr_t *code, int n, int wb[]) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`static int max(int a, int b) { return a > b ? a : b; }
+
+int simulate(const instr_t *code, int n, int wb[]) {
+    int avail[NREGS] = {0};   /* first cycle a consumer may enter EX */
+    int prev_if = -1, prev_id = 0, prev_ex = 0, prev_ex_end = -1, redirect = -1;
+    for (int i = 0; i < n; i++) {
+        const instr_t *in = &code[i];
+        /* IF: one cycle after the previous fetch, but the previous
+           instruction must have moved on to ID. */
+        int f = i == 0 ? 0 : max(prev_if + 1, prev_id);
+        if (redirect >= 0) { f = redirect; redirect = -1; }
+        int d = i == 0 ? 1 : max(f + 1, prev_ex);          /* ID */
+        int e = max(d + 1, prev_ex_end + 1);                 /* EX: unit free */
+        int reads2 = in->op == ALU || in->op == MUL || in->op == BRANCH;
+        if (in->rs1) e = max(e, avail[in->rs1]);
+        if (reads2 && in->rs2) e = max(e, avail[in->rs2]);
+        int ex_end = e + (in->op == MUL ? 2 : 0);
+        wb[i] = ex_end + 2;
+        if ((in->op == ALU || in->op == MUL) && in->rd) avail[in->rd] = ex_end + 1;
+        if (in->op == LOAD && in->rd) avail[in->rd] = ex_end + 2;
+        if (in->op == BRANCH && in->taken) redirect = ex_end + 1;
+        prev_if = f; prev_id = d; prev_ex = e; prev_ex_end = ex_end;
+    }
+    return n ? wb[n - 1] + 1 : 0;
+}`,
+tests: String.raw`static void expect(const char *name, const instr_t *code, int n, const int *want, int want_total) {
+    int wb[16];
+    int total = simulate(code, n, wb);
+    for (int i = 0; i < n; i++)
+        CHECK(wb[i] == want[i], "%s: I%d in WB in cycle %d, expected %d", name, i, wb[i], want[i]);
+    CHECK(total == want_total, "%s: %d cycles, expected %d", name, total, want_total);
+}
+
+int main(void) {
+    instr_t indep[] = { {ALU, 1, 2, 3}, {ALU, 4, 5, 6}, {ALU, 7, 8, 9}, {ALU, 10, 11, 12}, {ALU, 13, 14, 15} };
+    expect("no hazards", indep, 5, (int[]){4, 5, 6, 7, 8}, 9);
+
+    instr_t load_use[] = { {LOAD, 1, 2}, {ALU, 3, 1, 4} };
+    expect("load-use", load_use, 2, (int[]){4, 6}, 7);
+
+    instr_t gap[] = { {LOAD, 1, 2}, {ALU, 5, 6, 7}, {ALU, 3, 1, 4} };
+    expect("load, gap, use", gap, 3, (int[]){4, 5, 6}, 7);
+
+    instr_t mul[] = { {MUL, 1, 2, 3}, {ALU, 4, 1, 1}, {ALU, 5, 6, 7} };
+    expect("MUL holds EX", mul, 3, (int[]){6, 7, 8}, 9);
+
+    instr_t br[] = { {ALU, 1, 2, 3}, {BRANCH, 0, 1, 0, 1}, {ALU, 4, 5, 6} };
+    expect("taken branch", br, 3, (int[]){4, 5, 8}, 9);
+
+    instr_t ld_br[] = { {LOAD, 1, 2}, {BRANCH, 0, 1, 0, 1}, {ALU, 4, 5, 6} };
+    expect("load feeds a taken branch", ld_br, 3, (int[]){4, 6, 9}, 10);
+
+    instr_t nt[] = { {BRANCH, 0, 1, 2, 0}, {ALU, 4, 5, 6} };
+    expect("not-taken branch", nt, 2, (int[]){4, 5}, 6);
+
+    instr_t zero[] = { {LOAD, 0, 2}, {ALU, 3, 0, 0} };
+    expect("register 0", zero, 2, (int[]){4, 5}, 6);
+
+    instr_t st[] = { {LOAD, 1, 2}, {STORE, 0, 3, 1}, {LOAD, 4, 5}, {STORE, 0, 4, 6} };
+    expect("store data vs. store address", st, 4, (int[]){4, 5, 6, 8}, 9);
+
+    return REPORT();
+}`,
+a: `<p>Track, for each instruction, the cycle it enters IF, ID, and EX, and the cycle it leaves EX. Every rule becomes a <code>max()</code>:</p>
+<ul>
+<li><strong>IF:</strong> one cycle after the previous fetch, but not before the previous instruction has moved into ID (a stall in ID backs up IF). A taken branch overrides this with the cycle after it leaves EX, which is a 2-cycle penalty when the branch didn’t stall.</li>
+<li><strong>ID:</strong> one cycle after IF, but not before the previous instruction has moved into EX.</li>
+<li><strong>EX:</strong> one cycle after ID, after the previous instruction leaves EX (this is what a 3-cycle unpipelined MUL blocks), and after every source is forwardable.</li>
+<li>MEM and WB follow EX directly, because EX is in order and every instruction spends one cycle in each.</li>
+</ul>
+<p>The forwarding rules set when a value is usable in EX: an ALU or MUL result one cycle after the producer leaves EX, and a LOAD result two cycles after (one after MEM). That gives the single load-use bubble, and none when one instruction separates the load from its use. A load feeding a branch costs the bubble plus the 2-cycle redirect.</p>
+<p>Traps the checks cover: STORE data is read in MEM, so a load followed by a store of the loaded value doesn’t stall, but a load followed by a store that uses it as the address does. Register 0 never creates a dependence. A MUL delays independent instructions too, because EX is busy.</p>`
+}),
 },
 {
   id: "intv-renaming",
@@ -449,6 +657,84 @@ Q(`<p>A load misses to DRAM and a long chain depends on its value. Value predict
 <li>Memory consistency gets harder: a predicted value must still be consistent with what other cores wrote, so the comparison has to happen at the right point in the ordering rules.</li>
 </ul>
 <p>A restricted form does ship widely: zero idioms and move elimination are value “prediction” with 100% accuracy, decided by the instruction encoding alone.</p>`, "hard") +
+C({
+lvl: "medium",
+q: `<p>How much does renaming buy on a trace? Write <code>makespan()</code>: give every instruction the earliest start time that its dependences allow, with unlimited execution units, and return the cycle the last result is ready (the largest <code>start + lat</code>). Sources are read at start, and a result is written <code>lat</code> cycles later. Register −1 means none.</p>
+<ul>
+<li>With <code>renamed</code> set, only true dependences (RAW) constrain: a source is ready when its most recent older producer’s result is.</li>
+<li>Without renaming, also honor the false dependences. <strong>WAR:</strong> an instruction’s write must land strictly after every older read of the value it overwrites. <strong>WAW:</strong> its write must land strictly after the previous write of the same register.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+
+typedef struct { int rd, rs1, rs2, lat; } instr_t;
+#define NREGS 16`,
+todo: String.raw`int makespan(const instr_t *code, int n, int renamed) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`static int max(int a, int b) { return a > b ? a : b; }
+
+int makespan(const instr_t *code, int n, int renamed) {
+    int ready[NREGS] = {0};       /* when the newest value is ready */
+    int last_read[NREGS];         /* latest read of the newest value */
+    for (int r = 0; r < NREGS; r++) last_read[r] = -1;
+    int end = 0;
+    for (int i = 0; i < n; i++) {
+        const instr_t *in = &code[i];
+        int t = 0;
+        if (in->rs1 >= 0) t = max(t, ready[in->rs1]);
+        if (in->rs2 >= 0) t = max(t, ready[in->rs2]);
+        if (!renamed && in->rd >= 0) {
+            t = max(t, last_read[in->rd] - in->lat + 1);   /* WAR */
+            t = max(t, ready[in->rd] - in->lat + 1);       /* WAW */
+        }
+        if (in->rs1 >= 0) last_read[in->rs1] = max(last_read[in->rs1], t);
+        if (in->rs2 >= 0) last_read[in->rs2] = max(last_read[in->rs2], t);
+        if (in->rd >= 0) { ready[in->rd] = t + in->lat; last_read[in->rd] = -1; }
+        end = max(end, t + in->lat);
+    }
+    return end;
+}`,
+tests: String.raw`static void expect(const char *name, const instr_t *code, int n, int want_renamed, int want_plain) {
+    int a = makespan(code, n, 1), b = makespan(code, n, 0);
+    CHECK(a == want_renamed, "%s, renamed: %d cycles, expected %d", name, a, want_renamed);
+    CHECK(b == want_plain, "%s, not renamed: %d cycles, expected %d", name, b, want_plain);
+}
+
+int main(void) {
+    /* r1 = load (4) / r2 = r1 + r3 / r3 = r4 + r5 / r6 = r3 + r3 */
+    instr_t war[] = { {1, 7, -1, 4}, {2, 1, 3, 1}, {3, 4, 5, 1}, {6, 3, 3, 1} };
+    expect("WAR on r3", war, 4, 5, 6);
+
+    /* r1 = load (4) / r1 = r2 + r3 */
+    instr_t waw[] = { {1, 7, -1, 4}, {1, 2, 3, 1} };
+    expect("WAW on r1", waw, 2, 4, 5);
+
+    /* r1 = r1 + r1, three times: a true chain either way */
+    instr_t chain[] = { {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 1, 1} };
+    expect("self chain", chain, 3, 3, 3);
+
+    /* r1 = mul (3) / r4 = r1 + r5 / r1 = r6 + r7 / r8 = r1 + r4 */
+    instr_t mixed[] = { {1, 2, 3, 3}, {4, 1, 5, 1}, {1, 6, 7, 1}, {8, 1, 4, 1} };
+    expect("reuse of r1", mixed, 4, 5, 5);
+
+    /* r1 reused as a temporary three times:
+       r1 = load (5) / r2 = r1 + r1 / r1 = r3 + r4 / r5 = r1 + r1 / r1 = r6 + r6 / r8 = r1 + r1 */
+    instr_t temp[] = { {1, 7, -1, 5}, {2, 1, 1, 1}, {1, 3, 4, 1}, {5, 1, 1, 1}, {1, 6, 6, 1}, {8, 1, 1, 1} };
+    expect("r1 as a reused temporary", temp, 6, 6, 8);
+
+    return REPORT();
+}`,
+a: `<p>Keep two times per architectural register: when its newest value is ready, and the latest time that value is read. Each rule then becomes a lower bound on the start time:</p>
+<ul>
+<li><strong>RAW:</strong> <code>t ≥ ready[src]</code></li>
+<li><strong>WAR:</strong> the write at <code>t + lat</code> must come after the last read, so <code>t ≥ last_read[rd] − lat + 1</code></li>
+<li><strong>WAW:</strong> <code>t ≥ ready[rd] − lat + 1</code></li>
+</ul>
+<p>After placing the instruction, record its reads first and then reset <code>last_read[rd]</code>, because the instruction’s own read of <code>rd</code> was of the old value. In the last check, renaming lets the second and third uses of <code>r1</code> run in cycles 0 to 2, beside the load. Without renaming, the second write of <code>r1</code> must wait until the add has read the loaded value in cycle 5 (WAR) and the load has written it (WAW), and the third write waits for the second one’s reader, so the trace takes 8 cycles instead of 6.</p>
+<p>A trap: when the overwriting instruction is slow, WAR often costs nothing, because its write lands late anyway. False dependences hurt most when a short-latency op reuses a register still being read by work waiting on a long-latency producer.</p>
+<p>This is the dataflow limit of the trace: a real core can only get closer to it with a big enough window and enough units, which makes it a useful upper bound to compute in a model before arguing about structure sizes.</p>`
+}) +
 `<h3 id="sec-mech">Rename Mechanics</h3>` +
 Q(`<p>Rename the sequence from Q1. Initial map: r<em>n</em> → p<em>n</em> for every architectural register. Free list, in order: p32, p33, p34, p35. Give each renamed instruction, the final map, and the physical register each instruction frees when it commits. What happens to the next instruction that writes a register?</p>`,
 `<ol>
@@ -598,6 +884,149 @@ Q(`<p>The core has 8 rename checkpoints. Branch B2 mispredicts and recovers, and
 <p><strong>At B1’s recovery:</strong> B1 is older, so everything after it is wrong path, including B2 and the few correct-path instructions renamed after B2’s recovery. Restore B1’s checkpoint and free every checkpoint taken after B1: the branches between B1 and B2, B2’s own checkpoint, and any checkpoints taken on the path after B2’s recovery. B2’s recovery turns out to have been wasted work, but it was still the right thing to do at the time, since the core couldn’t know B1 would mispredict.</p>
 <p>The implementation is usually a circular buffer of checkpoints in age order, so “free everything younger than X” is just resetting the tail pointer to X. That is the same reason the free list is a FIFO.</p>
 <p><strong>The bug if checkpoints are freed only at retirement:</strong> squashed branches never retire, so their checkpoints are never freed. The pool slowly drains, and rename stalls on “no free checkpoint” more and more often, a performance bug that looks like a branch-heavy code problem rather than a leak. The check that catches it: at any cycle, the number of allocated checkpoints must equal the number of unresolved branches in the ROB that hold one.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Build the rename stage for x86-64’s 16 integer registers with Golden Cove’s 280 integer physical registers. At reset, architectural register <em>i</em> maps to physical <em>i</em>, and physical registers 16 to 279 are free, handed out in that order.</p>
+<ul>
+<li><code>rn_rename()</code> renames one instruction. Register −1 means none. It returns 0 and changes nothing if a destination needs a register and none is free. Otherwise it fills the physical sources, the new destination, and the destination’s previous mapping (−1 if none).</li>
+<li><code>rn_retire()</code> runs when an instruction retires and frees its previous mapping. Freed registers are reused after the ones already free.</li>
+<li><code>rn_checkpoint()</code> saves state at a branch, into one of 8 slots. <code>rn_restore()</code> rolls back to a checkpoint after a mispredict: the mappings return to what they were, and every register allocated after the checkpoint is free again, while registers freed by retirement since then stay free. Make restore cost O(registers), not O(instructions squashed).</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <string.h>
+
+#define ARCH 16
+#define PHYS 280
+#define CKPTS 8`,
+todo: String.raw`typedef struct {
+    int rat[ARCH];   /* architectural to physical */
+    /* TODO: add a free list and checkpoints */
+} rename_t;
+
+void rn_init(rename_t *r) {
+    /* TODO */
+}
+
+int rn_rename(rename_t *r, int rd, int rs1, int rs2,
+              int *pdst, int *ps1, int *ps2, int *pold) {
+    /* TODO */
+    return 0;
+}
+
+void rn_retire(rename_t *r, int pold) {
+    /* TODO */
+}
+
+void rn_checkpoint(rename_t *r, int slot) {
+    /* TODO */
+}
+
+void rn_restore(rename_t *r, int slot) {
+    /* TODO */
+}
+
+int rn_free_count(const rename_t *r) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`/* The free list is a circular FIFO with free-running head and tail
+   counters. Allocation advances head and a free appends at tail, so a
+   checkpoint only needs the RAT and head: restoring head hands back every
+   register allocated since, in the same order, while frees appended at
+   the tail in the meantime stay. It never overflows, because at most
+   PHYS - ARCH registers are free at once. */
+typedef struct { int rat[ARCH]; unsigned head; } ckpt_t;
+typedef struct {
+    int rat[ARCH];
+    int fl[PHYS];
+    unsigned fl_head, fl_tail;
+    ckpt_t ck[CKPTS];
+} rename_t;
+
+void rn_init(rename_t *r) {
+    for (int i = 0; i < ARCH; i++) r->rat[i] = i;
+    r->fl_head = r->fl_tail = 0;
+    for (int p = ARCH; p < PHYS; p++) r->fl[r->fl_tail++ % PHYS] = p;
+}
+
+int rn_rename(rename_t *r, int rd, int rs1, int rs2,
+              int *pdst, int *ps1, int *ps2, int *pold) {
+    if (rd >= 0 && r->fl_tail == r->fl_head) return 0;
+    *ps1 = rs1 >= 0 ? r->rat[rs1] : -1;   /* read sources before the write */
+    *ps2 = rs2 >= 0 ? r->rat[rs2] : -1;
+    if (rd >= 0) {
+        *pold = r->rat[rd];
+        *pdst = r->fl[r->fl_head++ % PHYS];
+        r->rat[rd] = *pdst;
+    } else {
+        *pold = *pdst = -1;
+    }
+    return 1;
+}
+
+void rn_retire(rename_t *r, int pold) {
+    if (pold >= 0) r->fl[r->fl_tail++ % PHYS] = pold;
+}
+
+void rn_checkpoint(rename_t *r, int slot) {
+    memcpy(r->ck[slot].rat, r->rat, sizeof r->rat);
+    r->ck[slot].head = r->fl_head;
+}
+
+void rn_restore(rename_t *r, int slot) {
+    memcpy(r->rat, r->ck[slot].rat, sizeof r->rat);
+    r->fl_head = r->ck[slot].head;
+}
+
+int rn_free_count(const rename_t *r) {
+    return (int)(r->fl_tail - r->fl_head);
+}`,
+tests: String.raw`int main(void) {
+    rename_t r;
+    int d, s1, s2, old;
+    rn_init(&r);
+    CHECK(rn_free_count(&r) == 264, "free count at reset %d, expected 264", rn_free_count(&r));
+
+    /* I0: r1 = r2 + r3 */
+    rn_rename(&r, 1, 2, 3, &d, &s1, &s2, &old);
+    CHECK(d == 16 && s1 == 2 && s2 == 3 && old == 1, "I0 got d=%d s=%d,%d old=%d", d, s1, s2, old);
+    /* I1: r1 = r1 + r1 reads the new r1 and replaces it */
+    rn_rename(&r, 1, 1, 1, &d, &s1, &s2, &old);
+    CHECK(d == 17 && s1 == 16 && s2 == 16 && old == 16, "I1 got d=%d s=%d,%d old=%d", d, s1, s2, old);
+    /* I2: compare r1, r4 writes no register */
+    rn_rename(&r, -1, 1, 4, &d, &s1, &s2, &old);
+    CHECK(d == -1 && old == -1 && s1 == 17 && s2 == 4, "I2 got d=%d s=%d,%d old=%d", d, s1, s2, old);
+    CHECK(rn_free_count(&r) == 262, "free count %d, expected 262", rn_free_count(&r));
+
+    /* Checkpoint at a branch, run down the wrong path, retire I0 meanwhile. */
+    rn_checkpoint(&r, 3);
+    rn_rename(&r, 5, 1, -1, &d, &s1, &s2, &old);   /* gets 18 */
+    rn_rename(&r, 1, 5, -1, &d, &s1, &s2, &old);   /* gets 19 */
+    rn_rename(&r, 6, -1, -1, &d, &s1, &s2, &old);  /* gets 20 */
+    CHECK(d == 20, "third wrong-path register %d, expected 20", d);
+    rn_retire(&r, 1);    /* I0 retires: frees its old mapping, p1 */
+    rn_restore(&r, 3);
+    CHECK(r.rat[1] == 17 && r.rat[5] == 5 && r.rat[6] == 6, "restore left r1=%d r5=%d r6=%d", r.rat[1], r.rat[5], r.rat[6]);
+    CHECK(rn_free_count(&r) == 263, "free count after restore %d, expected 263", rn_free_count(&r));
+    rn_rename(&r, 7, -1, -1, &d, &s1, &s2, &old);
+    CHECK(d == 18, "first register after restore %d, expected 18", d);
+
+    /* Exhaust the free list: 262 more renames succeed, then one stalls. */
+    int ok = 0;
+    for (int i = 0; i < 300; i++) ok += rn_rename(&r, i % ARCH, -1, -1, &d, &s1, &s2, &old);
+    CHECK(ok == 262, "%d renames succeeded with 262 free, expected 262", ok);
+    CHECK(d == 1, "the last register handed out was p%d, expected p1", d);
+    int before = r.rat[2];
+    CHECK(rn_rename(&r, 2, 3, -1, &d, &s1, &s2, &old) == 0 && r.rat[2] == before, "a rename with no free register must stall and change nothing");
+    rn_retire(&r, 200);
+    CHECK(rn_rename(&r, 2, 3, -1, &d, &s1, &s2, &old) == 1 && d == 200, "after a retire the freed register should be used, got %d", d);
+
+    return REPORT();
+}`,
+a: `<p>Reading the sources before writing the destination is what makes <code>r1 = r1 + r1</code> read the old mapping. The previous mapping goes into the ROB with the instruction, and it is freed when the instruction retires, because only then can no older instruction still need that value.</p>
+<p>The key choice is the free list. A circular FIFO with free-running <code>head</code> and <code>tail</code> counters lets a checkpoint be just the RAT plus <code>head</code>. Restoring <code>head</code> returns every register allocated on the wrong path in one step, and registers that retirement appended at the tail in the meantime stay free. A stack-based free list breaks here: after a restore you can’t tell which entries on the stack were pushed by retirement and which were popped by the wrong path. The alternatives are walking the squashed ROB entries backwards (O(instructions), which is what cores without checkpoints do) or keeping a free bit-vector per checkpoint.</p>
+<p>Real cores store as many checkpoints as they can afford (each is 16 × 9 bits of RAT plus the head) and fall back to the ROB walk when a branch has none. A restore makes the free list exact again in one cycle, which is what keeps mispredict recovery short.</p>`
+}) +
 `<h3 id="sec-sizing">Sizing and Performance</h3>` +
 Q(`<p>Skylake has 180 integer physical registers, 16 architectural integer registers, and a 224-entry ROB. In a phase where almost every instruction writes an integer register, how many instructions can be in flight? What does that imply when a load misses to DRAM?</p>`,
 `<p>The committed state permanently holds about 16 registers (in practice a few more for internal temporaries), so roughly 180 − 16 = <strong>164</strong> registers are available for in-flight destinations. If nearly every instruction writes one, rename stalls on an empty free list at about 164 instructions in flight, well before the ROB’s 224. The effective window is about 164.</p>
@@ -744,6 +1173,121 @@ Q(`<p>Your model retires up to 8 uops per cycle. The real core’s retirement al
 <li><strong>Multi-uop instruction boundaries:</strong> if the last uop of an instruction falls outside this cycle’s retirement width, the earlier uops wait too.</li>
 </ul>
 <p><strong>How to find out:</strong> on silicon, compare retired uops per cycle with the retirement width over time, and look for cycles where the ROB head is complete but retirement is below width. Microbenchmarks that mix each suspect instruction with independent work measure its effect. In the model, record the reason for every retirement slot left unused while the head is complete. If such cycles are rare, retirement isn’t worth modeling in more detail, and the plain width limit is enough.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Write the reorder buffer’s bookkeeping as a circular buffer. The size is 8 here so the checks wrap often. Golden Cove’s ROB has 512 entries.</p>
+<ul>
+<li><code>rob_alloc()</code> adds the youngest instruction and returns its slot, or −1 when the ROB is full.</li>
+<li><code>rob_complete()</code> marks a slot finished.</li>
+<li><code>rob_retire()</code> removes up to <code>width</code> finished instructions from the head, in order, and stops at the first one not finished. It writes their PCs to <code>out</code> and returns how many retired.</li>
+<li><code>rob_flush_after()</code> runs on a mispredict: it removes every instruction younger than <code>slot</code> and returns how many it removed. The next allocation goes to the slot after <code>slot</code>.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+
+#define ROB_SIZE 8
+
+typedef struct { int pc, done; } rob_entry_t;
+typedef struct {
+    rob_entry_t e[ROB_SIZE];
+    int head, tail, count;
+} rob_t;`,
+todo: String.raw`void rob_init(rob_t *r) {
+    /* TODO */
+}
+
+int rob_alloc(rob_t *r, int pc) {
+    /* TODO */
+    return -1;
+}
+
+void rob_complete(rob_t *r, int slot) {
+    /* TODO */
+}
+
+int rob_retire(rob_t *r, int width, int out[]) {
+    /* TODO */
+    return 0;
+}
+
+int rob_flush_after(rob_t *r, int slot) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`void rob_init(rob_t *r) { r->head = r->tail = r->count = 0; }
+
+int rob_alloc(rob_t *r, int pc) {
+    if (r->count == ROB_SIZE) return -1;
+    int s = r->tail;
+    r->e[s] = (rob_entry_t){ pc, 0 };
+    r->tail = (r->tail + 1) % ROB_SIZE;
+    r->count++;
+    return s;
+}
+
+void rob_complete(rob_t *r, int slot) { r->e[slot].done = 1; }
+
+int rob_retire(rob_t *r, int width, int out[]) {
+    int n = 0;
+    while (n < width && r->count > 0 && r->e[r->head].done) {
+        out[n++] = r->e[r->head].pc;
+        r->head = (r->head + 1) % ROB_SIZE;
+        r->count--;
+    }
+    return n;
+}
+
+int rob_flush_after(rob_t *r, int slot) {
+    /* Age of slot = its distance from the head. Everything past it goes. */
+    int age = (slot - r->head + ROB_SIZE) % ROB_SIZE;
+    int removed = r->count - (age + 1);
+    r->count = age + 1;
+    r->tail = (slot + 1) % ROB_SIZE;
+    return removed;
+}`,
+tests: String.raw`int main(void) {
+    rob_t r;
+    int out[8], s[16];
+    rob_init(&r);
+    for (int i = 0; i < 8; i++) s[i] = rob_alloc(&r, 100 + i);
+    CHECK(s[0] == 0 && s[7] == 7, "slots %d..%d, expected 0..7", s[0], s[7]);
+    CHECK(rob_alloc(&r, 999) == -1, "a full ROB must refuse an allocation");
+
+    /* Finish out of order: 1, 2, 0, 5. Retire 4-wide: 0, 1, 2 go, 3 blocks. */
+    rob_complete(&r, 1); rob_complete(&r, 2);
+    CHECK(rob_retire(&r, 4, out) == 0, "nothing may retire while the head is unfinished");
+    rob_complete(&r, 0); rob_complete(&r, 5);
+    int n = rob_retire(&r, 4, out);
+    CHECK(n == 3 && out[0] == 100 && out[2] == 102, "retired %d (first pc %d), expected 3 starting at 100", n, out[0]);
+
+    /* Wrap around: three new entries go to slots 0, 1, 2. */
+    for (int i = 8; i < 11; i++) s[i] = rob_alloc(&r, 100 + i);
+    CHECK(s[8] == 0 && s[10] == 2, "wrapped slots %d..%d, expected 0..2", s[8], s[10]);
+    CHECK(rob_alloc(&r, 999) == -1, "full again after wrapping");
+
+    /* Mispredict at slot 6 (pc 106): removes 107, 108, 109, 110. */
+    CHECK(rob_flush_after(&r, 6) == 4, "flush after slot 6 should remove 4");
+    CHECK(rob_alloc(&r, 200) == 7, "next allocation should reuse slot 7");
+    CHECK(rob_flush_after(&r, 7) == 0, "flushing after the youngest removes nothing");
+
+    /* Width limit, then drain in order across the wrap. */
+    rob_complete(&r, 3); rob_complete(&r, 4); rob_complete(&r, 6); rob_complete(&r, 7);
+    n = rob_retire(&r, 2, out);
+    CHECK(n == 2 && out[0] == 103 && out[1] == 104, "width 2 should retire 103 and 104, got %d", n);
+    n = rob_retire(&r, 8, out);
+    CHECK(n == 3 && out[0] == 105 && out[1] == 106 && out[2] == 200, "drain retired %d, expected 105, 106, 200", n);
+    CHECK(r.count == 0, "ROB should be empty, count %d", r.count);
+
+    /* Mispredict at the head itself keeps exactly one entry. */
+    int h = rob_alloc(&r, 300);
+    rob_alloc(&r, 301); rob_alloc(&r, 302);
+    CHECK(rob_flush_after(&r, h) == 2 && r.count == 1, "flush after the head should leave 1 entry");
+
+    return REPORT();
+}`,
+a: `<p>A separate <code>count</code> resolves the classic ambiguity of a circular buffer: with only <code>head</code> and <code>tail</code>, head equal to tail can mean empty or full. Hardware usually adds a wrap bit to each pointer instead, which also gives a cheap age comparison between two ROB IDs.</p>
+<p>Retirement stops at the first unfinished entry even if younger ones are done, which is the whole point of the ROB: state becomes architectural in program order, so an exception or mispredict at any instruction leaves a precise state.</p>
+<p>A flush is O(1): the age of the mispredicted slot is its distance from the head modulo the size, everything past it is discarded by moving <code>tail</code> to the next slot, and the count follows. Real cores do the same with the branch’s ROB ID, and separately recover the rename map (from a checkpoint or by walking the squashed entries).</p>`
+}) +
 `<h3 id="sec-sizing">Sizing the ROB</h3>` +
 Q(`<p>You double the ROB from 256 to 512 entries and a benchmark gets no faster. Give four distinct explanations and the statistic that separates each.</p>`,
 `<ol>
@@ -817,7 +1361,110 @@ Q(`<p>IBM’s POWER4 and POWER5 tracked instructions in groups of up to 5 in the
 <li><strong>Coarse completion.</strong> A group completes only when all its instructions finish, so a long-latency instruction holds back the others in its group, though they would block retirement anyway.</li>
 <li><strong>Coarse recovery.</strong> A flush inside a group, such as from a load that violates ordering, may have to discard and refetch the whole group.</li>
 </ul>
-<p><strong>How to model it:</strong> form groups in the decode model using the real rules, allocate a completion-table entry per group, and count group-size statistics. Report the effective window as instructions in flight, not entries, and compare it with a per-instruction ROB of the same nominal capacity on the same suite. The difference is exactly what grouping costs. IBM kept groups through POWER8 and moved to per-instruction tracking in POWER9’s completion table, as windows grew and the grouping loss grew with them.</p>`, "hard"),
+<p><strong>How to model it:</strong> form groups in the decode model using the real rules, allocate a completion-table entry per group, and count group-size statistics. Report the effective window as instructions in flight, not entries, and compare it with a per-instruction ROB of the same nominal capacity on the same suite. The difference is exactly what grouping costs. IBM kept groups through POWER8 and moved to per-instruction tracking in POWER9’s completion table, as windows grew and the grouping loss grew with them.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Write a window model that shows how ROB size and miss handling bound memory-level parallelism. Instructions are independent. <code>lat[i]</code> is the cycles from dispatch until instruction <em>i</em> finishes, and any latency of at least <code>MISS_LAT</code> is a cache miss. Each cycle <em>c</em>, starting at 0:</p>
+<ol>
+<li><strong>Retire:</strong> up to <code>width</code> instructions leave the head in order, each only if it finished by cycle <em>c</em> (dispatch cycle + latency ≤ <em>c</em>).</li>
+<li><strong>Dispatch:</strong> up to <code>width</code> instructions enter the ROB in order while it has space. A miss also needs a free MSHR. It holds one from dispatch until it finishes, and a miss that can’t get one stalls dispatch.</li>
+</ol>
+<p>Return the number of cycles until the last instruction retires (its retire cycle + 1). Skip idle cycles so a trace of a million instructions with 300-cycle misses runs quickly.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdlib.h>
+
+#define MISS_LAT 20`,
+todo: String.raw`long run_window(const int *lat, int n, int rob_size, int width, int mshrs) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`long run_window(const int *lat, int n, int rob_size, int width, int mshrs) {
+    long *done = malloc(sizeof(long) * n);   /* finish cycle per instruction */
+    long *miss_end = malloc(sizeof(long) * (mshrs > 0 ? mshrs : 1));
+    int nmiss = 0;                           /* misses holding MSHRs */
+    int head = 0, next = 0;                  /* oldest in ROB, next to dispatch */
+    long c = 0, last = 0;
+    while (head < n) {
+        int r = 0;
+        while (r < width && head < next && done[head] <= c) { head++; r++; last = c; }
+        for (int k = 0; k < nmiss; )          /* release MSHRs of finished misses */
+            if (miss_end[k] <= c) miss_end[k] = miss_end[--nmiss]; else k++;
+        int d = 0;
+        while (d < width && next < n && next - head < rob_size) {
+            if (lat[next] >= MISS_LAT) {
+                if (nmiss == mshrs) break;
+                miss_end[nmiss++] = c + lat[next];
+            }
+            done[next] = c + lat[next];
+            next++; d++;
+        }
+        /* Skip ahead if nothing can happen until something finishes. */
+        long wake = c + 1;
+        if (r == 0 && d == 0 && head < next) {
+            wake = done[head];
+            for (int k = 0; k < nmiss; k++) if (miss_end[k] < wake) wake = miss_end[k];
+            if (wake <= c) wake = c + 1;
+        }
+        c = wake;
+    }
+    free(done); free(miss_end);
+    return last + 1;
+}`,
+tests: String.raw`static int *trace(int n, int every, int miss) {
+    int *t = malloc(sizeof(int) * n);
+    for (int i = 0; i < n; i++) t[i] = (every && i % every == 0) ? miss : 1;
+    return t;
+}
+
+int main(void) {
+    int *t = trace(8, 0, 0);
+    long c = run_window(t, 8, 64, 4, 10);
+    CHECK(c == 3, "8 one-cycle ops, 4 wide: %ld cycles, expected 3", c);
+    free(t);
+
+    t = trace(12, 12, 100);   /* one miss at instruction 0 */
+    c = run_window(t, 12, 8, 4, 10);
+    CHECK(c == 103, "one miss, ROB 8: %ld cycles, expected 103", c);
+    free(t);
+
+    t = trace(16, 8, 100);    /* misses at 0 and 8 */
+    c = run_window(t, 16, 8, 4, 10);
+    CHECK(c == 202, "two misses, ROB 8 (can't overlap): %ld, expected 202", c);
+    c = run_window(t, 16, 16, 4, 10);
+    CHECK(c == 104, "two misses, ROB 16 (overlap): %ld, expected 104", c);
+    c = run_window(t, 16, 16, 4, 1);
+    CHECK(c == 202, "two misses, ROB 16 but 1 MSHR: %ld, expected 202", c);
+    free(t);
+
+    /* A million instructions, a 300-cycle miss every 100: ROB 224 holds
+       3 misses (Skylake), 512 holds 6 (Golden Cove). 16 MSHRs. */
+    int n = 1000000;
+    t = trace(n, 100, 300);
+    long c224 = run_window(t, n, 224, 4, 16), c512 = run_window(t, n, 512, 6, 16);
+    long c512n = run_window(t, n, 512, 4, 16), c1200 = run_window(t, n, 1200, 4, 16);
+    CHECK(c224 == 1063552, "ROB 224, 4 wide: %ld cycles, expected 1063552", c224);
+    CHECK(c512 == 523492, "ROB 512, 6 wide: %ld cycles, expected 523492", c512);
+    CHECK(c512n == 536852, "ROB 512, 4 wide: %ld cycles, expected 536852", c512n);
+    CHECK(c1200 == 250300, "ROB 1200, 4 wide: %ld cycles, expected 250300", c1200);
+    free(t);
+
+    return REPORT();
+}`,
+a: `<p>The loop follows the rules literally, retiring before dispatching in each cycle. Two details matter:</p>
+<ul>
+<li><strong>MSHRs:</strong> a miss holds one from dispatch until it finishes, which is independent of retirement, so release them by finish time each cycle before dispatching.</li>
+<li><strong>Skipping:</strong> when a cycle neither retires nor dispatches, nothing changes until the head finishes or an MSHR frees, so jump to the earlier of the two. Without this, the million-instruction check walks every idle cycle of every miss.</li>
+</ul>
+<p>The small checks show the mechanism. With an 8-entry ROB, the second miss can’t enter while the first one blocks the head, so the two 100-cycle misses run back to back (202 cycles). With 16 entries, both are in flight together (104). One MSHR serializes them again even with the bigger ROB.</p>
+<p>The big checks are the interview point. With a 300-cycle miss every 100 instructions, the ROB fills behind each miss and dispatch stops until it finishes:</p>
+<ul>
+<li>224 entries, 4 wide: 1,063,552 cycles, about 0.94 IPC</li>
+<li>512 entries, 6 wide: 523,492 cycles, about 1.9 IPC</li>
+<li>512 entries, 4 wide: 536,852 cycles, so almost all of the gain came from the ROB, not the width</li>
+<li>1,200 entries, 4 wide: 250,300 cycles, full width</li>
+</ul>
+<p>Little’s law gives the last line: to sustain 4 instructions per cycle while each waits up to 300 cycles, about 4 × 300 = 1,200 must be in flight. Below that, throughput scales roughly with ROB size divided by miss latency, which is why memory-bound code gains from a bigger window long after extra width stops helping.</p>`
+}),
 },
 {
   id: "intv-sched",
@@ -882,6 +1529,131 @@ Q(`<p>Compare a CAM-based scheduler, where each result tag is broadcast to all e
 <li>Scaling: entries² grows quickly, so matrices are used for small queues (a few dozen entries) or split per execution cluster.</li>
 </ul>
 <p>Matrices are also used as <strong>age matrices</strong> for selecting the oldest ready entry, even in schedulers that use CAMs for wakeup. In short: CAM energy grows with width, matrix area grows with entries squared, so wide machines with many small queues favor matrices, and large unified queues favor CAMs or a mix.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Select the oldest ready entries from a 64-entry scheduler with an age matrix, the structure many out-of-order cores use to pick oldest-first without keeping entries in age order. Bit <em>j</em> of <code>older[i]</code> is 1 when entry <em>j</em> is older than entry <em>i</em>. Entries go into any free slot, so slot number says nothing about age.</p>
+<ul>
+<li><code>am_insert()</code> adds a new youngest entry in a free slot. <code>am_remove()</code> frees a slot.</li>
+<li><code>am_select()</code> returns the oldest entry whose bit is set in <code>ready</code>, or −1. It must not loop over all 64 entries comparing ages one by one.</li>
+<li><code>am_select_n()</code> returns up to <code>n</code> oldest ready entries, oldest first, for <code>n</code> issue ports.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+#define IQ 64
+
+typedef struct {
+    uint64_t valid;
+    uint64_t older[IQ];
+} agem_t;`,
+todo: String.raw`void am_init(agem_t *m) {
+    /* TODO */
+}
+
+void am_insert(agem_t *m, int slot) {
+    /* TODO */
+}
+
+void am_remove(agem_t *m, int slot) {
+    /* TODO */
+}
+
+int am_select(const agem_t *m, uint64_t ready) {
+    /* TODO */
+    return -1;
+}
+
+int am_select_n(const agem_t *m, uint64_t ready, int n, int out[]) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`void am_init(agem_t *m) {
+    m->valid = 0;
+    for (int i = 0; i < IQ; i++) m->older[i] = 0;
+}
+
+void am_insert(agem_t *m, int slot) {
+    m->older[slot] = m->valid;     /* every valid entry is older than the new one */
+    m->valid |= 1ull << slot;
+}
+
+void am_remove(agem_t *m, int slot) {
+    uint64_t bit = 1ull << slot;
+    m->valid &= ~bit;
+    for (uint64_t v = m->valid; v; v &= v - 1)   /* clear the column */
+        m->older[__builtin_ctzll(v)] &= ~bit;
+}
+
+int am_select(const agem_t *m, uint64_t ready) {
+    ready &= m->valid;
+    /* The oldest ready entry is the one with no older ready entry. In
+       hardware every row checks this in parallel. */
+    for (uint64_t r = ready; r; r &= r - 1) {
+        int i = __builtin_ctzll(r);
+        if ((m->older[i] & ready) == 0) return i;
+    }
+    return -1;
+}
+
+int am_select_n(const agem_t *m, uint64_t ready, int n, int out[]) {
+    int k = 0;
+    while (k < n) {
+        int i = am_select(m, ready);
+        if (i < 0) break;
+        out[k++] = i;
+        ready &= ~(1ull << i);
+    }
+    return k;
+}`,
+tests: String.raw`int main(void) {
+    agem_t m;
+    am_init(&m);
+    /* Insert in age order into scattered slots: 40, 3, 63, 17, 0. */
+    int order[5] = {40, 3, 63, 17, 0};
+    for (int i = 0; i < 5; i++) am_insert(&m, order[i]);
+
+    CHECK(am_select(&m, ~0ull) == 40, "oldest of all is %d, expected 40", am_select(&m, ~0ull));
+    uint64_t r = (1ull << 63) | (1ull << 17) | (1ull << 0);
+    CHECK(am_select(&m, r) == 63, "oldest of {63,17,0} is %d, expected 63", am_select(&m, r));
+    CHECK(am_select(&m, 1ull << 5) == -1, "slot 5 is empty, so selecting it must give -1");
+    CHECK(am_select(&m, 0) == -1, "nothing ready must give -1");
+
+    int out[4];
+    int n = am_select_n(&m, ~0ull, 3, out);
+    CHECK(n == 3 && out[0] == 40 && out[1] == 3 && out[2] == 63, "3 oldest: %d %d %d", out[0], out[1], out[2]);
+
+    /* Remove the oldest and reuse its slot: slot 40 is now the youngest. */
+    am_remove(&m, 40);
+    am_insert(&m, 40);
+    n = am_select_n(&m, ~0ull, 4, out);
+    CHECK(n == 4 && out[0] == 3 && out[1] == 63 && out[2] == 17 && out[3] == 0, "after reuse: %d %d %d %d", out[0], out[1], out[2], out[3]);
+    n = am_select_n(&m, (1ull << 40) | (1ull << 0), 4, out);
+    CHECK(n == 2 && out[0] == 0 && out[1] == 40, "0 is older than reused 40: got %d %d", out[0], out[1]);
+
+    /* Against a reference: random inserts and removes with sequence numbers. */
+    am_init(&m);
+    long seq[IQ], now = 0;
+    int bad = 0;
+    srand(1);
+    for (int step = 0; step < 20000; step++) {
+        int s = rand() % IQ;
+        if (m.valid >> s & 1) am_remove(&m, s);
+        else { am_insert(&m, s); seq[s] = now++; }
+        uint64_t rdy = ((uint64_t)rand() << 32 | (uint64_t)rand()) ^ ((uint64_t)rand() << 16);
+        int got = am_select(&m, rdy), want = -1;
+        for (int i = 0; i < IQ; i++)
+            if ((m.valid & rdy) >> i & 1 && (want < 0 || seq[i] < seq[want])) want = i;
+        if (got != want) bad++;
+    }
+    CHECK(bad == 0, "%d random selections disagreed with the reference", bad);
+
+    return REPORT();
+}`,
+a: `<p>Insertion is one row write: the new entry is younger than everything valid, so its row is the valid vector. Removal clears its column in every row (in hardware, one bit-line). Selection is the elegant part: entry <em>i</em> is the oldest ready entry exactly when <code>older[i] &amp; ready</code> is zero. Hardware computes that AND-reduction for all rows in parallel, so picking the oldest of 64 costs a few gate delays regardless of how entries are scattered.</p>
+<p>For <em>n</em> ports, repeat with the winner masked off. Hardware does this either as a cascade (slower) or by giving each port its own subset of entries, and real schedulers often only enforce oldest-first approximately for the second and later picks.</p>
+<p>The alternative, keeping entries compacted in age order (shifting on every issue), burns power moving entries and limits size, which is why age matrices appear in large schedulers. The cost is N² bits: 64 × 64 = 4,096 bits for this queue.</p>`
+}) +
 `<h3 id="sec-trace">Tracing a Schedule</h3>` +
 Q(`<p>Integer adds take 1 cycle, a result can be used by a dependent instruction in the next cycle (full bypass), and the core can issue two adds per cycle, oldest first. All four instructions are in the scheduler with ready sources at cycle 0.</p>
 <pre><code>I0: r1 = r2 + r3
@@ -917,6 +1689,88 @@ Q(`<p>On several Intel cores, an integer result consumed by a vector or FP instr
 `<p><strong>Why:</strong> execution units are grouped into clusters (integer, vector/FP, sometimes load/store), each with its own bypass network. Bypassing every result to every unit in the same cycle would need long wires across the core and a huge mux at every input. So results within a cluster bypass in the same cycle, and results that cross clusters go through an extra latch stage or the register file, costing one or more cycles. Physical distance and data width (64-bit integer, 256- or 512-bit vector) make the vector-integer crossing the worst.</p>
 <p><strong>In the scheduler:</strong> wakeup must use a latency that depends on both the producer and the consumer. The producer broadcasts its tag, and a consumer in another cluster treats it as ready one or more cycles later. Some designs avoid the extra logic by adding a uop that moves the value between domains, which costs a slot as well as latency.</p>
 <p><strong>In a model:</strong> store the latency per (producer class, consumer class) pair, not per producer. A model with one latency per instruction class gets integer-vector mixes wrong. Examples: <code>movq xmm0, rax</code> or <code>vmovd</code> chains, vectorized code that extracts lane values to compute addresses, and integer instructions used in vector algorithms. Microbenchmark each crossing on the target core (a chain of alternating domains), since vendors don’t always document it.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Simulate issue from a unified scheduler with Skylake-like ports, and find the cycle each instruction issues. All instructions are in the scheduler at cycle 0. In each cycle, go through the ready, unissued instructions oldest first and give each the lowest-numbered free port that can run it:</p>
+<ul>
+<li>ALU (latency 1): ports 0, 1, 5, 6</li>
+<li>MUL (latency 3, pipelined): port 1</li>
+<li>LOAD (latency 5): ports 2, 3</li>
+</ul>
+<p>An instruction is ready in cycle <em>c</em> when every source’s producer issued at least its latency earlier. Register −1 means none. Each port takes one instruction per cycle.</p>`,
+head: String.raw`#include <stdio.h>
+
+typedef enum { ALU, MUL, LOAD } op_t;
+typedef struct { op_t op; int rd, rs1, rs2; } instr_t;
+
+static const int LAT[] = { [ALU] = 1, [MUL] = 3, [LOAD] = 5 };
+static const unsigned PORTS[] = { [ALU] = 1u << 0 | 1u << 1 | 1u << 5 | 1u << 6,
+                                  [MUL] = 1u << 1, [LOAD] = 1u << 2 | 1u << 3 };
+#define MAXN 64`,
+todo: String.raw`void schedule(const instr_t *code, int n, int issue[]) {
+    /* TODO */
+}`,
+impl: String.raw`void schedule(const instr_t *code, int n, int issue[]) {
+    int producer[MAXN][2];
+    int last_writer[32];
+    for (int r = 0; r < 32; r++) last_writer[r] = -1;
+    for (int i = 0; i < n; i++) {
+        producer[i][0] = code[i].rs1 >= 0 ? last_writer[code[i].rs1] : -1;
+        producer[i][1] = code[i].rs2 >= 0 ? last_writer[code[i].rs2] : -1;
+        if (code[i].rd >= 0) last_writer[code[i].rd] = i;
+        issue[i] = -1;
+    }
+    int left = n;
+    for (int c = 0; left > 0; c++) {
+        unsigned busy = 0;
+        for (int i = 0; i < n; i++) {
+            if (issue[i] >= 0) continue;
+            int ready = 1;
+            for (int k = 0; k < 2; k++) {
+                int p = producer[i][k];
+                /* The producer must have issued in an earlier cycle (not this one). */
+                if (p >= 0 && (issue[p] < 0 || issue[p] == c || issue[p] + LAT[code[p].op] > c)) ready = 0;
+            }
+            unsigned free_ports = PORTS[code[i].op] & ~busy;
+            if (!ready || !free_ports) continue;
+            busy |= free_ports & -free_ports;   /* lowest free port */
+            issue[i] = c;
+            left--;
+        }
+    }
+}`,
+tests: String.raw`static void expect(const char *name, const instr_t *code, int n, const int *want) {
+    int issue[MAXN];
+    schedule(code, n, issue);
+    for (int i = 0; i < n; i++)
+        CHECK(issue[i] == want[i], "%s: I%d issues in cycle %d, expected %d", name, i, issue[i], want[i]);
+}
+
+int main(void) {
+    instr_t five[] = { {ALU, 1, -1, -1}, {ALU, 2, -1, -1}, {ALU, 3, -1, -1}, {ALU, 4, -1, -1}, {ALU, 5, -1, -1} };
+    expect("5 ALU ops on 4 ALU ports", five, 5, (int[]){0, 0, 0, 0, 1});
+
+    instr_t mul_first[] = { {MUL, 1, -1, -1}, {ALU, 2, -1, -1}, {ALU, 3, -1, -1} };
+    expect("MUL oldest", mul_first, 3, (int[]){0, 0, 0});
+
+    instr_t mul_last[] = { {ALU, 1, -1, -1}, {ALU, 2, -1, -1}, {MUL, 3, -1, -1} };
+    expect("ALU ops take port 1 from the MUL", mul_last, 3, (int[]){0, 0, 1});
+
+    instr_t loads[] = { {LOAD, 1, 9, -1}, {LOAD, 2, 9, -1}, {LOAD, 3, 9, -1} };
+    expect("3 loads, 2 load ports", loads, 3, (int[]){0, 0, 1});
+
+    instr_t chain[] = { {LOAD, 1, 9, -1}, {MUL, 2, 1, 1}, {ALU, 3, 2, 1}, {ALU, 4, -1, -1} };
+    expect("load, mul, add chain", chain, 4, (int[]){0, 5, 8, 0});
+
+    instr_t muls[] = { {MUL, 1, -1, -1}, {MUL, 2, -1, -1}, {MUL, 3, 1, 2} };
+    expect("MULs share port 1", muls, 3, (int[]){0, 1, 4});
+
+    return REPORT();
+}`,
+a: `<p>Precompute each instruction’s producers with a last-writer table (this is what renaming gives the scheduler), then step cycles. In each cycle, scan oldest first, check readiness, and take the lowest set bit of the instruction’s allowed ports minus the busy ones (<code>x &amp; -x</code>).</p>
+<p>The third check is the interview point: when two older ALU ops arrive first, the greedy lowest-port choice gives the second one port 1, and the MUL, which can only use port 1, waits a cycle even though ports 5 and 6 sat idle. Intel cores bind ports at allocation using counts of pending work per port to reduce this, and other designs give multiply-capable ports lower priority for simple ALU ops. A model that picks ports greedily at issue will overstate port conflicts on code that mixes ALU and multiply work.</p>
+<p>The readiness test uses “issued at least latency cycles earlier,” which is back-to-back wakeup for 1-cycle ALU ops. A model with a one-cycle wakeup delay would add a bubble to every dependent pair and halve the speed of serial integer code.</p>`
+}) +
 `<h3 id="sec-tradeoffs">Scheduler Trade-Offs</h3>` +
 Q(`<p>The scheduler is full in 30% of cycles. Does that mean it’s too small? What would you check before recommending a bigger one?</p>`,
 `<p>Not necessarily. A full scheduler often means it is full of instructions waiting on a long-latency load. The real problem is then memory latency; the scheduler is just where the waiting happens. Check:</p>
@@ -1988,6 +2842,118 @@ M(`<p>A 1 MB, 16-way L2 with 64-byte lines and 48-bit physical addresses stores,
 <li><strong>(b)</strong> 8,192 tags in 512 sets: offset 7 and index 9 bits leave a 32-bit tag again. 32 + 2 × 4 = 40 bits × 8,192 = 327,680 bits = <strong>40 KB</strong>, saving 32 KB.</li>
 <li><strong>(c)</strong> The plain cache holds 16,384 lines, so 700 KB of hot lines fit. The sectored cache has only 8,192 tags, and each hot sector uses a whole one, so it holds at most 8,192 × 64 B = <strong>512 KB</strong> of hot data and misses on the rest. Sectoring saves tag area when access is dense and halves effective capacity when it is sparse.</li>
 </ol>`, "medium") +
+C({
+lvl: "medium",
+q: `<p>Implement tree pseudo-LRU replacement for one cache set with <code>ways</code> ways, a power of two from 2 to 64 (Skylake’s L1D is 8-way, Zen 4’s L3 is 16-way).</p>
+<ul>
+<li>Keep the state in the low <code>ways − 1</code> bits of a <code>uint64_t</code>. Node 0 is the root, the children of node <em>i</em> are nodes 2<em>i</em> + 1 (left) and 2<em>i</em> + 2 (right), and the leaves are ways 0 to <code>ways − 1</code>, left to right.</li>
+<li>A node bit of 0 means the victim is in its left subtree, and 1 means the right.</li>
+<li><code>plru_touch()</code> runs on every hit and fill. <code>plru_victim()</code> returns the way to evict and doesn’t change the state.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+typedef struct {
+    int ways;       /* power of two, 2 to 64 */
+    uint64_t bits;  /* node i is bit i */
+} plru_t;`,
+todo: String.raw`void plru_init(plru_t *p, int ways) {
+    /* TODO */
+}
+
+void plru_touch(plru_t *p, int way) {
+    /* TODO: point every node on the path to the way away from it */
+}
+
+int plru_victim(const plru_t *p) {
+    /* TODO: follow the bits from the root to a leaf */
+    return 0;
+}`,
+impl: String.raw`void plru_init(plru_t *p, int ways) {
+    p->ways = ways;
+    p->bits = 0;
+}
+
+void plru_touch(plru_t *p, int way) {
+    int node = 0;
+    for (int half = p->ways / 2; half >= 1; half /= 2) {
+        int right = (way & half) != 0;
+        if (right) p->bits &= ~(1ull << node);  /* victim side: left */
+        else p->bits |= 1ull << node;           /* victim side: right */
+        node = 2 * node + 1 + right;
+    }
+}
+
+int plru_victim(const plru_t *p) {
+    int node = 0, way = 0;
+    for (int half = p->ways / 2; half >= 1; half /= 2) {
+        int right = (p->bits >> node) & 1;
+        if (right) way |= half;
+        node = 2 * node + 1 + right;
+    }
+    return way;
+}`,
+tests: String.raw`static int bitrev(int x, int nbits) {
+    int r = 0;
+    for (int i = 0; i < nbits; i++) r |= ((x >> i) & 1) << (nbits - 1 - i);
+    return r;
+}
+
+int main(void) {
+    plru_t p;
+
+    /* Filling an empty 8-way set visits the ways in bit-reversed order. */
+    int fill8[8] = {0, 4, 2, 6, 1, 5, 3, 7};
+    plru_init(&p, 8);
+    for (int i = 0; i < 8; i++) {
+        int v = plru_victim(&p);
+        CHECK(v == fill8[i], "8-way fill %d: victim %d, expected %d", i, v, fill8[i]);
+        plru_touch(&p, v);
+    }
+
+    /* Touch 0..7 then 0 again: true LRU would evict way 1, tree PLRU evicts 4. */
+    plru_init(&p, 8);
+    for (int w = 0; w < 8; w++) plru_touch(&p, w);
+    CHECK(plru_victim(&p) == 0, "after touching 0..7: victim %d, expected 0", plru_victim(&p));
+    plru_touch(&p, 0);
+    CHECK(plru_victim(&p) == 4, "after 0..7 then 0: victim %d, expected 4", plru_victim(&p));
+    CHECK((p.bits >> 7) == 0, "8-way state uses bits above bit 6");
+
+    /* 16-way and 64-way fills. */
+    int sizes[2] = {16, 64}, lg[2] = {4, 6};
+    for (int s = 0; s < 2; s++) {
+        plru_init(&p, sizes[s]);
+        int ok = 1;
+        for (int i = 0; i < sizes[s]; i++) {
+            int v = plru_victim(&p);
+            if (v != bitrev(i, lg[s])) ok = 0;
+            plru_touch(&p, v);
+        }
+        CHECK(ok, "%d-way fill order is wrong", sizes[s]);
+    }
+
+    /* Random hits never make the most recently used way the victim, and
+       every way gets chosen at some point. */
+    srand(7);
+    plru_init(&p, 16);
+    int seen = 0, mru_victim = 0;
+    for (int i = 0; i < 100000; i++) {
+        int w = rand() % 16;
+        plru_touch(&p, w);
+        int v = plru_victim(&p);
+        if (v == w) mru_victim++;
+        seen |= 1 << v;
+    }
+    CHECK(mru_victim == 0, "the MRU way was the victim %d times", mru_victim);
+    CHECK(seen == 0xFFFF, "some ways are never chosen (mask %x)", seen);
+
+    return REPORT();
+}`,
+a: `<p>Both functions walk one root-to-leaf path, so each costs log<sub>2</sub>(ways) steps. At each level the next bit of the way number, from the top, picks the side. A touch points every node on the path away from the touched way, so the victim walk can never reach the most recently used way.</p>
+<p>Why caches use it: true LRU must store an ordering of the ways, at least ⌈log<sub>2</sub>(ways!)⌉ bits per set (16 bits for 8 ways, 45 for 16), and update several ages on every hit. Tree PLRU needs ways − 1 bits (7 and 15) and changes only the log<sub>2</sub>(ways) bits on one path.</p>
+<p>The cost is accuracy. In the second check, touching 0 to 7 and then 0 makes true LRU evict way 1, but the root now points right, so PLRU evicts way 4, which was used more recently than ways 1, 2, and 3. Interviewers often ask for exactly this kind of counterexample.</p>`
+}) +
 `<h3 id="sec-way">Way Prediction in the Data Cache</h3>` +
 Q(`<p>Two processes on the SMT siblings of an AMD core read a shared-memory buffer mapped at different virtual addresses in each. Profiling shows a high L1D miss rate, though the buffer is only 16 KB. Explain it, say how you’d confirm it, and why AMD chose to treat a utag mismatch as a miss.</p>`,
 `<p>The L1D’s utag is a hash of linear (virtual) address bits. One physical line reached through two virtual addresses has two different utags, but only one can be stored with the line. An access through the other mapping finds no matching utag, which counts as an L1 miss: it goes to the L2, and the line is retagged under the new hash. Then the other thread misses on its next access. The line never leaves the L2, so the symptom is L1 misses that all hit in L2 on a tiny buffer.</p>
@@ -2866,4 +3832,6 @@ Q(`<p>A manager asks you to prove that a proposed optimization improves every wo
 <p>Propose:</p><ul><li>A broad, representative suite (SPEC CPU, server and client traces, the customers’ key workloads)</li><li>Report the distribution of speedups including the worst case, not just the geomean</li><li>Deliberately test adversarial cases suggested by the mechanism</li><li>Explain the mechanism so the reasons it helps are clear</li><li>Add guardrails if regressions exist, such as throttling the feature when it detects it isn’t helping (as prefetchers do with accuracy feedback)</li></ul><p>Agree up front on the acceptance criterion, for example “geomean gain above 2% and no workload worse than −1%.”</p>`, "medium"),
 }
 ].map(tabbed));
+/* For tools/check-code.mjs, which compiles and runs every coding card. */
+window.INTV_CODE = CARDS.filter(c => c.tab === "k");
 })();
