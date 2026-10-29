@@ -512,7 +512,8 @@ function decorateAnswers() {
 }
 function addGradeButtons() {
   if (!PRIVATE_OK || !SAMPLE) return;
-  app.querySelectorAll(".ans-bar").forEach(bar => {
+  /* Coding cards only exist on the public site, which has no Claude. */
+  app.querySelectorAll(".ans:not(.code-box) .ans-bar").forEach(bar => {
     if (bar.querySelector(".ans-go")) return;
     const btn = document.createElement("button");
     btn.type = "button"; btn.className = "ans-go"; btn.textContent = "Get feedback";
@@ -536,12 +537,12 @@ app.addEventListener("input", e => {
 });
 
 /* ---------- Code box on coding cards ----------
-   Run compiles and runs the box's code (js/crun.js) and shows the
-   compiler's messages and the program's output under the box. The last
-   output stays on the card for "Get feedback". In the box, Tab indents
+   Coding cards exist only on the public site (coding/, left out of the
+   artifact). Run compiles and runs the box's code (coding/crun.js) and
+   shows the compiler's messages and the program's output under the box.
+   Code saves in this browser like answers do. In the box, Tab indents
    (Escape first lets Tab leave the box), Enter keeps the line's
    indentation, and Ctrl+Enter or Cmd+Enter runs. */
-const CODE_OUT = {};
 function runCode(card) {
   const btn = card.querySelector(".code-run"), out = card.querySelector(".code-out");
   if (!btn || btn.disabled || CRUN.busy()) return;
@@ -554,7 +555,6 @@ function runCode(card) {
   const show = s => { text += s; body.textContent = text; out.scrollTop = out.scrollHeight; };
   btn.disabled = true; btn.textContent = "Running…";
   const done = () => {
-    CODE_OUT[card.dataset.snip] = text;
     if (document.body.contains(btn)) { btn.disabled = false; btn.textContent = "Run"; }
   };
   CRUN.run(card.querySelector(".ans-text").value, { threads: !!card.dataset.threads, seed }, (type, data) => {
@@ -627,35 +627,6 @@ function gradePrompt(snip, answer) {
   if (!qEl || !aEl) return null;
   const qn = qEl.querySelector(".qn");
   if (qn) qn.remove();
-  if (t.content.querySelector(".code-skel")) return `You are reviewing a candidate's C solution to a coding question in an interview for a CPU performance modeling and performance architecture role. Compare it with the reference solution, which is correct. The code runs as WebAssembly (32-bit pointers)${t.content.querySelector("[data-threads]") ? ", and threads are simulated on one core with sequentially consistent memory, so also judge the memory orderings by reasoning" : ""}.
-
-Reply in under 250 words, in exactly this format:
-**Verdict:** Correct, Partly correct, or Incorrect.
-**Bugs:**
-- one bullet per bug, with the input or interleaving that triggers it, or "- Nothing." if there are none
-**Missing cases:**
-- one bullet per case the code doesn't handle, or "- Nothing."
-**Performance and style:**
-- at most three bullets on complexity, memory traffic, or clarity that an interviewer would raise, or "- Nothing."
-**Tip:** one sentence on what to practice next time.
-
-Rules:
-- Judge correctness first. Accept a different valid approach.
-- If the code is still the unchanged skeleton, or doesn't attempt the problem, say so.
-- Don't paste the reference solution. Quote at most one short line of the candidate's code per bullet.
-- Use "- " bullet points for lists. Never use semicolons to separate list items.
-
-Question:
-${cardText(qEl.innerHTML)}
-
-Reference solution and explanation:
-${cardText(aEl.innerHTML)}
-
-Candidate's code:
-${answer}
-
-Output of the candidate's last run:
-${CODE_OUT[snip] || "(not run yet)"}`;
   return `You are grading a candidate's answer to an interview question for a CPU performance modeling and performance architecture role. Compare it with the reference answer, which is correct.
 
 Reply in under 200 words, in exactly this format:
@@ -689,7 +660,7 @@ app.addEventListener("click", async e => {
   if (!btn || btn.disabled || !SAMPLE) return;
   const card = btn.closest(".prob"), snip = card.dataset.snip, el = card.querySelector(".ans-fb");
   const answer = ((ANSWERS[snip] || {}).text || "").trim();
-  if (!answer) { el.hidden = false; el.innerHTML = card.querySelector(".code-skel") ? "<p>Write some code first.</p>" : "<p>Write an answer first.</p>"; return; }
+  if (!answer) { el.hidden = false; el.innerHTML = "<p>Write an answer first.</p>"; return; }
   const prompt = gradePrompt(snip, answer);
   if (!prompt) { el.hidden = false; el.innerHTML = "<p>This question's stored answer couldn't be found.</p>"; return; }
   btn.disabled = true; btn.textContent = "Grading…";

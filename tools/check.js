@@ -15,12 +15,12 @@ const err = (where, msg) => errors.push(`${where}: ${msg}`);
 const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
 const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
 for (const s of scripts) if (!fs.existsSync(path.join(ROOT, s))) err("index.html", `script ${s} does not exist`);
-for (const dir of ["js", "sections"])
+for (const dir of ["js", "sections", "coding"])
   for (const f of fs.readdirSync(path.join(ROOT, dir)))
     if (f.endsWith(".js") && !scripts.includes(`${dir}/${f}`)) err("index.html", `${dir}/${f} is never loaded`);
 
 /* Only data files run here; js/app.js and the widget scripts need a DOM. */
-const DATA = new Set(["js/site.js", "js/diagrams.js", "js/glossary.js", "js/calc.js", "js/trace.js"]);
+const DATA = new Set(["js/site.js", "js/diagrams.js", "js/glossary.js", "js/calc.js", "js/trace.js", "coding/interview.js"]);
 /* Top-level consts aren't properties of the context, so copy them out. */
 const EXPOSE = "\n;" + ["REGIONS", "NOTES", "GLOSSARY", "CALCS", "TRACES"].map(k => `if (typeof ${k} !== "undefined") globalThis.${k} = ${k};`).join(" ");
 const ctx = vm.createContext({ console, window: {}, document: undefined });
@@ -61,6 +61,22 @@ NOTES.forEach(n => checkAnchors(n.id, n));
 for (const n of NOTES.filter(n => n.region === "intv" && !n.private))
   for (const [t, name] of [["c", "Conceptual"], ["m", "Math"]])
     if (!(n.body || "").includes(`data-qid="${n.id}-${t}1"`)) err(n.id, `the ${name} tab has no questions`);
+
+/* ---------- Coding problems (coding/interview.js, public repo only) ----------
+   Each must name an interview page and one of its topic sections, or
+   tabbed() silently drops it, and every interview page needs at least one. */
+const CODING = ctx.window.INTV_CODING || [];
+if (!CODING.length) err("coding/interview.js", "no coding problems loaded");
+CODING.forEach((c, i) => {
+  const where = `coding/interview.js problem ${i + 1} (${c.page}/${c.sec})`;
+  const n = byId.get(c.page);
+  if (!n || n.region !== "intv") return err(where, "names no interview page");
+  if (!(n.sections || []).some(s => s.id === "k-" + c.sec)) err(where, `page has no topic section "${c.sec}"`);
+  if (!["medium", "hard"].includes(c.lvl)) err(where, `level must be medium or hard, not "${c.lvl}"`);
+  for (const k of ["q", "a", "impl", "skel", "sol"]) if (!c[k]) err(where, `missing ${k}`);
+});
+for (const n of NOTES.filter(n => n.region === "intv" && !n.private && n.id !== "intv"))
+  if (!CODING.some(c => c.page === n.id)) err(n.id, "has no coding problems in coding/interview.js");
 
 /* ---------- Links ---------- */
 const ROUTES = new Set(["", "flagged", "drill", "review"]);

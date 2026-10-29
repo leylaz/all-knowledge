@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Compiles and runs every coding card on the interview pages with the same
-   engine the page uses (js/crun.js). A card passes when its skeleton
+   engine the page uses (coding/crun.js). A card passes when its skeleton
    compiles and fails its checks, and its reference solution compiles
    without warnings and passes, on seeds 1 to 5 for thread problems.
    Needs Node 18 or later and, once per clone:
@@ -15,15 +15,15 @@ import { fileURLToPath, pathToFileURL } from "url";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
-const { cEngine, SIM_H, SIM_RT } = require(path.join(ROOT, "js/crun.js"));
+const { cEngine, SIM_H, SIM_RT } = require(path.join(ROOT, "coding/crun.js"));
 const dep = p => pathToFileURL(path.join(ROOT, "node_modules", p)).href;
 
 const ctx = vm.createContext({ console, window: {} });
-for (const s of ["js/site.js", "sections/interview-prep.js"])
+for (const s of ["coding/interview.js"])
   vm.runInContext(fs.readFileSync(path.join(ROOT, s), "utf8"), ctx, { filename: s });
 const filter = process.argv[2] || "";
 const name = c => c.q.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 70);
-const cards = ctx.window.INTV_CODE.filter(c => name(c).includes(filter));
+const cards = ctx.window.INTV_CODING.filter(c => name(c).includes(filter));
 
 let out = "", diag = "";
 const eng = cEngine({ clang: dep("@yowasp/clang/gen/bundle.js"), binaryen: dep("binaryen/index.js"), simH: SIM_H, simRt: SIM_RT },
