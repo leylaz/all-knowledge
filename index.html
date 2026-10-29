@@ -518,6 +518,24 @@ a.lyr-name::after { content: ""; position: absolute; inset: 0; border-radius: 4p
 .body .math mjx-container[display="true"] { margin: 0 !important; }
 .body mjx-container { color: var(--ink); }
 .prob .math { margin: 6px 0 12px; overflow-x: auto; overflow-y: hidden; }
+/* Step-by-step matrices: caption beside a small matrix, stacked on phones */
+.mx-steps { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 18px; align-items: center; margin: 0 0 16px; font-family: var(--sans); font-size: .9rem; line-height: 1.45; }
+.mx-steps > * { border-top: 1px solid var(--rule); padding: 8px 0; }
+.body .mx-steps p { margin: 0; }
+.body .mx-steps .math { margin: 0; font-size: .78rem; }
+@media (max-width: 640px) { .mx-steps { grid-template-columns: minmax(0, 1fr); } .mx-steps > .math { border-top: 0; padding-top: 0; } }
+/* Triangle grid for the LRU matrix's stored bits */
+.tri-fig { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin: 4px 0 18px; font-family: var(--sans); font-size: .88rem; line-height: 1.45; }
+.tri { display: grid; grid-template-columns: 22px repeat(4, 46px); gap: 3px; font-family: var(--mono); font-size: .8rem; text-align: center; }
+.tri span { display: flex; align-items: center; justify-content: center; height: 34px; border-radius: 3px; }
+.tri .h { color: var(--muted); font-family: var(--sans); font-weight: 600; }
+.tri .s, .tri-key .sw.s { background: var(--trace-soft); border: 1.5px solid var(--trace); color: var(--ink); font-weight: 600; }
+.tri .c, .tri-key .sw.c { border: 1.5px dashed var(--muted); color: var(--muted); }
+.tri .d, .tri-key .sw.d { background: var(--code-bg); border: 1.5px solid var(--rule); color: var(--muted); }
+.tri .c i { font-style: normal; text-decoration: overline; }
+.body .tri-key { list-style: none; padding: 0; margin: 0; flex: 1 1 240px; }
+.body .tri-key li { margin-bottom: 6px; }
+.tri-key .sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 8px; vertical-align: -1px; }
 </style>
 </head>
 <body>
