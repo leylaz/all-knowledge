@@ -172,7 +172,7 @@ section({
 <p><strong>Stores don't need it.</strong> A store writes the cache only after it commits, when it's off the critical path. So it can check tags first and then write just the one way that hit, which gets way selection's energy saving for free.</p>
 
 <h3 id="sec-misses">Classifying Misses</h3>
-<p>Compulsory, capacity, conflict, and in multicore systems, coherence.</p>
+<p>Compulsory, capacity, conflict, and in multicore systems, coherence. <a href="#/cache-misses">Classifying Cache Misses</a> defines each class and shows how a model sorts every miss with a seen set and a shadow cache.</p>
 <p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 2 (way prediction and way selection) · Powell et al., "Reducing Set-Associative Cache Energy via Way-Prediction and Selective Direct-Mapping," MICRO 2001 · AMD, <em>Software Optimization Guide for AMD Family 17h Processors</em> (the L1D microtag) · Lipp et al., "Take A Way: Exploring the Security Implications of AMD's Cache Way Predictors," AsiaCCS 2020</p>`,
   practice: {
     guided: [
