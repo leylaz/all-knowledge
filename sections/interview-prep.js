@@ -3654,6 +3654,130 @@ a: `<p>Both functions walk one root-to-leaf path, so each costs log<sub>2</sub>(
 <p>Why caches use it: true LRU must store an ordering of the ways, at least ⌈log<sub>2</sub>(ways!)⌉ bits per set (16 bits for 8 ways, 45 for 16), and update several ages on every hit. Tree PLRU needs ways − 1 bits (7 and 15) and changes only the log<sub>2</sub>(ways) bits on one path.</p>
 <p>The cost is accuracy. In the second check, touching 0 to 7 and then 0 makes true LRU evict way 1, but the root now points right, so PLRU evicts way 4, which was used more recently than ways 1, 2, and 3. Interviewers often ask for exactly this kind of counterexample.</p>`
 }) +
+C({
+lvl: "hard",
+q: `<p>Write a set-associative, write-back, write-allocate cache with true LRU replacement, the core of any cache model. Configure it like Zen 4’s L1D: 32 KB, 8 ways, 64-byte lines. Count hits, misses, and writebacks of dirty victims. <code>cache_flush()</code> writes back every dirty line and returns how many it wrote. Size, ways, and line size are powers of two.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+typedef struct {
+    long hits, misses, writebacks;
+} stats_t;`,
+todo: String.raw`typedef struct {
+    stats_t st;
+    /* TODO: geometry and per-line state */
+} cache_t;
+
+cache_t *cache_new(uint32_t size, int ways, uint32_t line) {
+    /* TODO */
+    return calloc(1, sizeof(cache_t));
+}
+
+/* Returns 1 on a hit. */
+int cache_access(cache_t *c, uint64_t addr, int is_write) {
+    /* TODO */
+    return 0;
+}
+
+long cache_flush(cache_t *c) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`typedef struct { uint64_t tag; uint32_t lru; uint8_t valid, dirty; } line_t;
+
+typedef struct {
+    stats_t st;
+    int ways, off_bits;
+    uint32_t sets;
+    uint32_t clock;     /* LRU timestamp: larger is more recent */
+    line_t *lines;      /* sets * ways */
+} cache_t;
+
+static int log2u(uint32_t x) { int n = 0; while (x >>= 1) n++; return n; }
+
+cache_t *cache_new(uint32_t size, int ways, uint32_t line) {
+    cache_t *c = calloc(1, sizeof *c);
+    c->ways = ways;
+    c->off_bits = log2u(line);
+    c->sets = size / line / ways;
+    c->lines = calloc((size_t)c->sets * ways, sizeof(line_t));
+    return c;
+}
+
+int cache_access(cache_t *c, uint64_t addr, int is_write) {
+    uint64_t block = addr >> c->off_bits;
+    uint32_t set = block % c->sets;
+    uint64_t tag = block / c->sets;
+    line_t *s = &c->lines[(size_t)set * c->ways], *victim = &s[0];
+    c->clock++;
+    for (int w = 0; w < c->ways; w++) {
+        if (s[w].valid && s[w].tag == tag) {
+            s[w].lru = c->clock;
+            s[w].dirty |= is_write;
+            c->st.hits++;
+            return 1;
+        }
+        /* Prefer an invalid way, else the least recently used. */
+        if (!s[w].valid ? victim->valid : (victim->valid && s[w].lru < victim->lru)) victim = &s[w];
+    }
+    c->st.misses++;
+    if (victim->valid && victim->dirty) c->st.writebacks++;
+    *victim = (line_t){ tag, c->clock, 1, (uint8_t)is_write };
+    return 0;
+}
+
+long cache_flush(cache_t *c) {
+    long n = 0;
+    for (size_t i = 0; i < (size_t)c->sets * c->ways; i++)
+        if (c->lines[i].valid && c->lines[i].dirty) { c->lines[i].dirty = 0; n++; }
+    c->st.writebacks += n;
+    return n;
+}`,
+tests: String.raw`#define KB 1024
+#define WAY_STRIDE 4096   /* 64 sets * 64 B: addresses this far apart share a set */
+
+int main(void) {
+    cache_t *c = cache_new(32 * KB, 8, 64);
+    for (int k = 0; k < 8; k++) cache_access(c, (uint64_t)k * WAY_STRIDE, 0);
+    CHECK(c->st.misses == 8 && c->st.hits == 0, "filling set 0: %ld misses, expected 8", c->st.misses);
+    cache_access(c, 0, 0);              /* line 0 becomes MRU */
+    cache_access(c, 8 * WAY_STRIDE, 0); /* evicts line 1, the LRU */
+    CHECK(cache_access(c, 0, 0) == 1, "line 0 was touched recently and must survive");
+    CHECK(cache_access(c, 1 * WAY_STRIDE, 0) == 0, "line 1 was the LRU and must be gone");
+    CHECK(cache_access(c, 64, 0) == 0 && cache_access(c, 64 + 8, 0) == 1, "set 1 is independent, and bytes in one line share it");
+
+    /* Dirty victims are written back, clean ones aren't. */
+    cache_t *d = cache_new(32 * KB, 8, 64);
+    for (int k = 0; k < 9; k++) cache_access(d, (uint64_t)k * WAY_STRIDE, k % 2 == 0);
+    CHECK(d->st.writebacks == 1, "9 writes/reads into one set: %ld writebacks, expected 1 (line 0 was written)", d->st.writebacks);
+    cache_access(d, 0, 0);              /* misses, evicts clean line 1 */
+    CHECK(d->st.writebacks == 1, "evicting a clean line must not write back");
+    cache_access(d, 2 * WAY_STRIDE, 1); /* hit: already dirty */
+    long f = cache_flush(d);
+    CHECK(f == 4, "flush wrote %ld dirty lines, expected 4 (lines 2, 4, 6, 8)", f);
+    CHECK(cache_flush(d) == 0, "a second flush has nothing to write");
+
+    /* Capacity: a 16 KB array fits, a 64 KB array streamed twice misses every time with LRU. */
+    cache_t *e = cache_new(32 * KB, 8, 64);
+    for (int pass = 0; pass < 2; pass++)
+        for (uint64_t a = 0; a < 16 * KB; a += 64) cache_access(e, 0x100000 + a, 0);
+    CHECK(e->st.misses == 256 && e->st.hits == 256, "16 KB twice: %ld misses %ld hits, expected 256 and 256", e->st.misses, e->st.hits);
+    cache_t *g = cache_new(32 * KB, 8, 64);
+    for (int pass = 0; pass < 2; pass++)
+        for (uint64_t a = 0; a < 64 * KB; a += 8) cache_access(g, a, 1);
+    CHECK(g->st.misses == 2048 && g->st.hits == 14336, "64 KB twice in 8 B steps: %ld misses %ld hits", g->st.misses, g->st.hits);
+    CHECK(g->st.writebacks == 1536, "%ld writebacks, expected 1536", g->st.writebacks);
+    return REPORT();
+}`,
+a: `<p>Split the address into offset, set index, and tag: the block number is the address shifted right by log<sub>2</sub>(line), the set is the block number modulo the number of sets (64 here), and the tag is the rest. Keep a timestamp per line for LRU. True LRU over 8 ways is cheap in a model even though hardware approximates it.</p>
+<p>On a miss, choose an invalid way first, else the line with the oldest timestamp. If the victim is dirty, count a writeback. Write-allocate means a write miss fills the line and marks it dirty, so stores to a streamed array cost a read and a later writeback per line.</p>
+<p>Checks worth reasoning through:</p>
+<ul>
+<li>Addresses 4 KB apart map to the same set. That is why power-of-two strides of 4 KB thrash a VIPT L1 with only 8 lines per set.</li>
+<li>The 64 KB stream is twice the capacity, so with LRU every line is evicted before it is reused: 1,024 misses per pass and 7 hits per line from the other 8-byte words. Every line was written, so 1,536 victims are written back: all 2,048 misses evict a dirty line except the first 512 that filled the empty cache.</li>
+</ul>`
+}) +
 `<h3 id="sec-way">Way Prediction in the Data Cache</h3>` +
 Q(`<p>Two processes on the SMT siblings of an AMD core read a shared-memory buffer mapped at different virtual addresses in each. Profiling shows a high L1D miss rate, though the buffer is only 16 KB. Explain it, say how you’d confirm it, and why AMD chose to treat a utag mismatch as a miss.</p>`,
 `<p>The L1D’s utag is a hash of linear (virtual) address bits. One physical line reached through two virtual addresses has two different utags, but only one can be stored with the line. An access through the other mapping finds no matching utag, which counts as an L1 miss: it goes to the L2, and the line is retagged under the new hash. Then the other thread misses on its next access. The line never leaves the L2, so the symptom is L1 misses that all hit in L2 on a tiny buffer.</p>
@@ -3702,6 +3826,153 @@ M(`<p>A graph kernel does independent random 8-byte reads over a 48 GB array, an
 <li><strong>1 GB pages:</strong> 48 pages, all in the 1,024-entry array, so no walks. T = <strong>25 cycles</strong>, no better than 2 MB here.</li>
 <li>2 MB pages win not by hitting in the TLB (83% still miss) but by making walks cheap: their 24,576 leaf entries take 192 KB and stay cached, while 4 KB pages need 12.6 million entries, about 96 MB.</li>
 </ol>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Translate x86-64 virtual addresses with a 4-level page walk over simulated physical memory, behind a small TLB.</p>
+<ul>
+<li><code>cr3</code> is the physical address of the top table. Each level uses 9 bits of the address (47–39, 38–30, 29–21, 20–12) to pick an 8-byte entry. Bit 0 of an entry is Present, bit 7 is PS (page size), and bits 51–12 are the next table’s or the page’s physical address.</li>
+<li>PS in a level-3 entry maps a 1 GB page, and in a level-2 entry a 2 MB page.</li>
+<li>Non-canonical addresses (bits 63–47 not all equal) and non-present entries fault: return 0.</li>
+<li><code>walk()</code> also reports how many entries it read. <code>translate()</code> checks a 16-entry fully associative LRU TLB first, where each entry covers its page size, and walks only on a miss.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+#define MEM_BYTES (1 << 20)
+static uint8_t mem[MEM_BYTES];     /* simulated physical memory */
+
+static uint64_t rd64(uint64_t pa) { uint64_t v; memcpy(&v, &mem[pa], 8); return v; }
+
+#define P  1ull
+#define PS (1ull << 7)
+#define ADDR_MASK 0x000FFFFFFFFFF000ull
+#define TLB 16`,
+todo: String.raw`/* Returns 1 and sets *pa (and *page_bits: 12, 21, or 30) on success, 0 on a fault. */
+int walk(uint64_t cr3, uint64_t va, uint64_t *pa, int *page_bits, int *reads) {
+    /* TODO */
+    return 0;
+}
+
+typedef struct {
+    /* TODO: 16 entries */
+    long walks;
+} tlb_t;
+
+void tlb_init(tlb_t *t) {
+    /* TODO */
+}
+
+int translate(tlb_t *t, uint64_t cr3, uint64_t va, uint64_t *pa) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`int walk(uint64_t cr3, uint64_t va, uint64_t *pa, int *page_bits, int *reads) {
+    *reads = 0;
+    int64_t top = (int64_t)va >> 47;
+    if (top != 0 && top != -1) return 0;            /* non-canonical */
+    uint64_t table = cr3 & ADDR_MASK;
+    for (int level = 4; level >= 1; level--) {
+        int shift = 12 + 9 * (level - 1);
+        uint64_t pte = rd64(table + ((va >> shift) & 511) * 8);
+        (*reads)++;
+        if (!(pte & P)) return 0;
+        if (level == 1 || ((level == 2 || level == 3) && (pte & PS))) {
+            uint64_t mask = (1ull << shift) - 1;
+            *pa = ((pte & ADDR_MASK) & ~mask) | (va & mask);
+            *page_bits = shift;
+            return 1;
+        }
+        table = pte & ADDR_MASK;
+    }
+    return 0;
+}
+
+typedef struct { uint64_t vpage, ppage; int bits; unsigned lru; int valid; } tlbe_t;
+
+typedef struct {
+    tlbe_t e[TLB];
+    unsigned clock;
+    long walks;
+} tlb_t;
+
+void tlb_init(tlb_t *t) { memset(t, 0, sizeof *t); }
+
+int translate(tlb_t *t, uint64_t cr3, uint64_t va, uint64_t *pa) {
+    t->clock++;
+    tlbe_t *victim = &t->e[0];
+    for (int i = 0; i < TLB; i++) {
+        tlbe_t *e = &t->e[i];
+        if (e->valid && (va >> e->bits) == e->vpage) {
+            e->lru = t->clock;
+            *pa = (e->ppage << e->bits) | (va & ((1ull << e->bits) - 1));
+            return 1;
+        }
+        if (!e->valid ? victim->valid : (victim->valid && e->lru < victim->lru)) victim = e;
+    }
+    int bits, reads;
+    t->walks++;
+    if (!walk(cr3, va, pa, &bits, &reads)) return 0;   /* faults aren't cached */
+    *victim = (tlbe_t){ va >> bits, *pa >> bits, bits, t->clock, 1 };
+    return 1;
+}`,
+tests: String.raw`/* Test helpers: a bump allocator of 4 KB table pages, and mappers. */
+static uint64_t next_page = 0x1000;
+static uint64_t new_table(void) { uint64_t p = next_page; next_page += 4096; memset(&mem[p], 0, 4096); return p; }
+static void wr64(uint64_t pa, uint64_t v) { memcpy(&mem[pa], &v, 8); }
+static uint64_t entry(uint64_t table, uint64_t va, int level, int make) {
+    uint64_t slot = table + ((va >> (12 + 9 * (level - 1))) & 511) * 8, e = rd64(slot);
+    if (!(e & P) && make) { e = new_table() | P; wr64(slot, e); }
+    return e & ADDR_MASK;
+}
+static void map(uint64_t cr3, uint64_t va, uint64_t pa, int page_bits) {
+    uint64_t t = cr3;
+    int leaf = (page_bits - 12) / 9 + 1;
+    for (int level = 4; level > leaf; level--) t = entry(t, va, level, 1);
+    wr64(t + ((va >> page_bits) & 511) * 8, pa | P | (leaf > 1 ? PS : 0));
+}
+
+int main(void) {
+    uint64_t cr3 = new_table(), pa;
+    int bits, reads;
+    map(cr3, 0x00007F0000001000ull, 0x0000000123456000ull, 12);
+    map(cr3, 0x0000000040000000ull, 0x0000000080000000ull, 21);   /* 2 MB */
+    map(cr3, 0x0000004000000000ull, 0x0000000400000000ull, 30);   /* 1 GB */
+    map(cr3, 0xFFFF800000000000ull, 0x0000000000200000ull, 12);   /* kernel half */
+
+    CHECK(walk(cr3, 0x00007F0000001ABCull, &pa, &bits, &reads) && pa == 0x123456ABCull && bits == 12 && reads == 4,
+          "4 KB page: pa %llx, %d reads", (unsigned long long)pa, reads);
+    CHECK(walk(cr3, 0x00000000401234ABull, &pa, &bits, &reads) && pa == 0x801234ABull && bits == 21 && reads == 3,
+          "2 MB page: pa %llx, %d reads", (unsigned long long)pa, reads);
+    CHECK(walk(cr3, 0x0000004012345678ull, &pa, &bits, &reads) && pa == 0x412345678ull && bits == 30 && reads == 2,
+          "1 GB page: pa %llx, %d reads", (unsigned long long)pa, reads);
+    CHECK(walk(cr3, 0xFFFF800000000010ull, &pa, &bits, &reads) && pa == 0x200010ull,
+          "kernel address: pa %llx", (unsigned long long)pa);
+    CHECK(!walk(cr3, 0x00007F0000002000ull, &pa, &bits, &reads) && reads == 4, "unmapped neighbor page must fault after 4 reads (%d)", reads);
+    CHECK(!walk(cr3, 0x0000800000000000ull, &pa, &bits, &reads) && reads == 0, "a non-canonical address faults without reading memory");
+
+    /* TLB reach: 32 4 KB pages cycled through a 16-entry LRU TLB always miss. */
+    for (int i = 0; i < 32; i++) map(cr3, 0x10000000ull + 4096ull * i, 0x3000000ull + 4096ull * i, 12);
+    tlb_t t;
+    tlb_init(&t);
+    int ok = 1;
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i < 32; i++)
+            ok &= translate(&t, cr3, 0x10000000ull + 4096ull * i + 8, &pa) && pa == 0x3000000ull + 4096ull * i + 8;
+    CHECK(ok, "translations through the TLB were wrong");
+    CHECK(t.walks == 64, "32 pages twice through 16 entries: %ld walks, expected 64", t.walks);
+
+    /* The same 128 KB inside one 2 MB page: one walk. */
+    tlb_init(&t);
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i < 32; i++) translate(&t, cr3, 0x40000000ull + 4096ull * i, &pa);
+    CHECK(t.walks == 1 && pa == 0x80000000ull + 4096ull * 31, "2 MB page: %ld walks, expected 1", t.walks);
+    return REPORT();
+}`,
+a: `<p>The walk is a loop over four levels. At each level, shift the address by 12 + 9 × (level − 1), mask 9 bits, and read that entry. Stop at a non-present entry (fault), at a level-1 entry, or at a level-2 or level-3 entry with PS set. The page offset is then the low 12, 21, or 30 bits of the virtual address. Check canonical form first with an arithmetic shift: bits 63 to 47 must be all zeros or all ones.</p>
+<p>A TLB entry stores the virtual page number at its own page size, so a 2 MB entry matches any address whose bits above 21 agree. Hardware keeps separate structures per page size, or probes a unified one several ways. Faults aren’t cached, because the OS will fix the mapping and retry.</p>
+<p>The numbers to take away: a 4 KB miss costs 4 dependent memory reads (paging-structure caches usually cut that to one or two), a 2 MB page saves a level, and TLB reach is entries × page size. Cycling through 32 pages with 16 entries and LRU misses every time, while the same 128 KB inside one 2 MB page takes one walk. That is the case for huge pages in large-footprint workloads.</p>`
+}) +
 `<h3 id="sec-dram">DRAM and Bandwidth</h3>` +
 Q(`<p>Why is a fixed DRAM latency fine for modeling a pointer-chasing benchmark but badly wrong for a bandwidth-heavy one?</p>`,
 `<p>Pointer chasing has one miss in flight at a time, so the controller is lightly loaded, requests rarely queue, and latency stays near idle. Bandwidth-heavy code keeps many misses in flight: queues build, bank conflicts multiply, and latency rises steeply as utilization nears 70 to 90% of peak. A fixed latency gives such code no bandwidth ceiling and too low a latency at the same time. Use a DRAM model with banks, row buffers, and timing constraints, and validate its latency-versus-bandwidth curve (with a tool like Intel’s Memory Latency Checker), not just its idle latency.</p>`, "easy") +
@@ -3766,6 +4037,112 @@ Q(`<p>A core holding a line in E can write it without telling anyone. Why can’
 <li><strong>Directory:</strong> the request goes to the line’s home, which sends invalidations to each recorded sharer and tells the requester how many acknowledgments to expect. The sharers acknowledge directly to the requester. The critical path is requester → home → sharer → requester, plus the home’s lookup.</li>
 </ul>
 <p>That cost is why E exists: private data that is read and then written never needs the upgrade.</p>`, "medium") +
+C({
+lvl: "hard",
+q: `<p>Simulate the MESI protocol on a snooping bus for <code>NCORES</code> private caches, tracking each line’s state per core (no capacity limits). Count bus transactions:</p>
+<ul>
+<li><strong>Read:</strong> a hit in M, E, or S needs nothing. A miss sends BusRd. If another cache has the line in M, it flushes the data (a flush, which also updates memory) and both end in S. Else, if any other cache has it, the reader gets S from memory. Else the reader gets E from memory.</li>
+<li><strong>Write:</strong> in M nothing. In E, upgrade to M silently. In S, send BusUpgr and the others go to I. In I, send BusRdX: a cache holding M flushes, else memory supplies the data, all others go to I, and the writer ends in M.</li>
+<li><strong>Evict:</strong> M writes back (count a writeback), and E or S drop silently.</li>
+</ul>
+<p>Count memory reads (a fill that memory supplies) separately from flushes.</p>`,
+head: String.raw`#include <stdio.h>
+#include <string.h>
+
+#define NCORES 4
+#define NLINES 16
+
+typedef enum { I, S, E, M } state_t;
+
+typedef struct {
+    state_t st[NCORES][NLINES];
+    long busrd, busrdx, busupgr, flushes, mem_reads, writebacks;
+} mesi_t;`,
+todo: String.raw`void mesi_read(mesi_t *m, int core, int line) {
+    /* TODO */
+}
+
+void mesi_write(mesi_t *m, int core, int line) {
+    /* TODO */
+}
+
+void mesi_evict(mesi_t *m, int core, int line) {
+    /* TODO */
+}`,
+impl: String.raw`void mesi_read(mesi_t *m, int core, int line) {
+    if (m->st[core][line] != I) return;
+    m->busrd++;
+    int others = 0, owner = -1;
+    for (int c = 0; c < NCORES; c++) {
+        if (c == core || m->st[c][line] == I) continue;
+        others++;
+        if (m->st[c][line] == M) owner = c;
+    }
+    if (owner >= 0) m->flushes++; else m->mem_reads++;
+    for (int c = 0; c < NCORES; c++)
+        if (c != core && m->st[c][line] != I) m->st[c][line] = S;   /* M and E downgrade */
+    m->st[core][line] = others ? S : E;
+}
+
+void mesi_write(mesi_t *m, int core, int line) {
+    state_t s = m->st[core][line];
+    if (s == M) return;
+    if (s == I) {
+        m->busrdx++;
+        int owner = 0;
+        for (int c = 0; c < NCORES; c++) if (c != core && m->st[c][line] == M) owner = 1;
+        if (owner) m->flushes++; else m->mem_reads++;
+    } else if (s == S) {
+        m->busupgr++;
+    }   /* E: silent upgrade */
+    for (int c = 0; c < NCORES; c++) if (c != core) m->st[c][line] = I;
+    m->st[core][line] = M;
+}
+
+void mesi_evict(mesi_t *m, int core, int line) {
+    if (m->st[core][line] == M) m->writebacks++;
+    m->st[core][line] = I;
+}`,
+tests: String.raw`static const char *N = "ISEM";
+
+int main(void) {
+    mesi_t m;
+    memset(&m, 0, sizeof m);
+
+    mesi_read(&m, 0, 0);
+    CHECK(m.st[0][0] == E && m.mem_reads == 1, "first reader gets E (got %c)", N[m.st[0][0]]);
+    mesi_write(&m, 0, 0);
+    CHECK(m.st[0][0] == M && m.busupgr == 0 && m.busrdx == 0, "E to M is silent");
+    mesi_read(&m, 1, 0);
+    CHECK(m.st[0][0] == S && m.st[1][0] == S && m.flushes == 1, "read of an M line: both S, one flush (%c %c)", N[m.st[0][0]], N[m.st[1][0]]);
+    mesi_read(&m, 2, 0);
+    CHECK(m.st[2][0] == S && m.mem_reads == 2 && m.flushes == 1, "third reader gets S from memory");
+    mesi_write(&m, 1, 0);
+    CHECK(m.busupgr == 1 && m.st[1][0] == M && m.st[0][0] == I && m.st[2][0] == I, "S to M sends BusUpgr and invalidates the others");
+    mesi_write(&m, 3, 0);
+    CHECK(m.busrdx == 1 && m.flushes == 2 && m.st[3][0] == M && m.st[1][0] == I, "BusRdX takes the line from the M owner");
+    mesi_evict(&m, 3, 0);
+    CHECK(m.writebacks == 1 && m.st[3][0] == I, "evicting M writes back");
+    mesi_read(&m, 0, 0);
+    CHECK(m.st[0][0] == E && m.mem_reads == 3, "after the writeback, a reader gets E from memory");
+    mesi_evict(&m, 0, 0);
+    CHECK(m.writebacks == 1, "evicting E is silent");
+
+    /* False sharing: cores 0 and 1 alternately increment counters in one line. */
+    memset(&m, 0, sizeof m);
+    for (int i = 0; i < 1000; i++) { mesi_read(&m, i & 1, 5); mesi_write(&m, i & 1, 5); }
+    CHECK(m.busrd == 1000 && m.busupgr == 999 && m.flushes == 999,
+          "ping-pong: %ld BusRd %ld BusUpgr %ld flushes, expected 1000, 999, 999", m.busrd, m.busupgr, m.flushes);
+    /* Padding the counters into separate lines removes all of it. */
+    memset(&m, 0, sizeof m);
+    for (int i = 0; i < 1000; i++) { mesi_read(&m, i & 1, 6 + (i & 1)); mesi_write(&m, i & 1, 6 + (i & 1)); }
+    CHECK(m.busrd == 2 && m.busupgr == 0 && m.busrdx == 0, "padded: %ld BusRd, expected 2 and no upgrades", m.busrd);
+    return REPORT();
+}`,
+a: `<p>Every case is a read of the other caches’ states followed by an update. Two details are easy to miss: a reader must downgrade an E holder to S as well as an M holder, and a write in E needs no bus transaction at all. That silent upgrade is the reason E exists: private data that is read and then written costs one bus transaction instead of two.</p>
+<p>The ping-pong check is the classic false-sharing cost. Each core reads its counter (a miss, because the other core holds the line in M, so the owner flushes) and then writes it (an upgrade, because the line is now shared). That is two bus transactions per increment, about 1,000 BusRd and 999 BusUpgr for 1,000 increments, against two compulsory misses once the counters sit in separate lines. On a real chip each of those transfers costs tens of nanoseconds across the cores, which is why padding to 64 bytes can speed such code up by an order of magnitude.</p>
+<p>A read-for-ownership optimization would let a core that reads and then writes send one BusRdX, and MOESI’s O state lets the dirty owner keep supplying data without writing memory. Both change these counts, so state which protocol a model assumes.</p>`
+}) +
 `<h3 id="sec-scale">Snoop Filters and Directories</h3>` +
 Q(`<p>When Intel grew the private L2 from 256 KB to 1 MB per core in Skylake-SP, it also changed the shared LLC from inclusive to non-inclusive, with a separate snoop filter. Why do those two changes belong together?</p>`,
 `<p>An inclusive LLC holds a copy of every line in the private caches. With 1 MB of L2 per core and 1.375 MB of LLC per core, it would spend most of its capacity duplicating the L2s, leaving little room for shared and victim data. Its evictions would also back-invalidate hot L2 lines often.</p>
@@ -3796,6 +4173,154 @@ M(`<p>A 64-core chip runs at 3 GHz. Each core runs at IPC 1.5 with 20 L2 misses 
 <li><strong>(b)</strong> Forwarded probes: 1.92 × 0.04 × 1.5 ≈ <strong>0.12 per cycle</strong> chip-wide, or about <strong>0.002 per core per cycle</strong>, roughly a thousand times fewer.</li>
 <li>That is the case for directories and snoop filters at high core counts.</li>
 </ol>`, "medium") +
+C({
+lvl: "hard",
+q: `<p>Count coherence messages at a home directory for 64 cores, with either a full sharer bit-vector or a limited-pointer directory. Each line is Uncached, Shared (a set of sharers), or Modified (one owner). Message counts per request:</p>
+<ul>
+<li><strong>Read miss:</strong> Uncached or Shared: request + data = 2, and the reader joins the sharers. Modified by another core: request, forward to the owner, data to the reader, and the owner’s writeback to home = 4, and both become sharers.</li>
+<li><strong>Write miss or upgrade:</strong> Uncached: 2. Shared: request + grant = 2, plus an invalidation and an acknowledgment for each core the directory must invalidate. Modified by another core: 4. The writer becomes the owner.</li>
+<li><strong>Hits</strong> (a read by a sharer or owner, a write by the owner) send nothing.</li>
+<li><strong>Evictions:</strong> a Modified owner writes back (1 message, line becomes Uncached). Shared evictions are silent, so the directory may keep stale sharers and still invalidate them.</li>
+</ul>
+<p>With <code>ptrs</code> &gt; 0, the directory stores at most <code>ptrs</code> sharer IDs. When a line gains more sharers than that, it is marked overflowed, and invalidating it must go to every core except the writer.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+#define CORES 64
+#define LINES 16
+
+typedef enum { UNCACHED, SHARED, MODIFIED } dstate_t;`,
+todo: String.raw`typedef struct {
+    int ptrs;      /* 0 = full bit-vector */
+    long msgs;
+    /* TODO: per-line directory state */
+} dir_t;
+
+void dir_init(dir_t *d, int ptrs) {
+    memset(d, 0, sizeof *d);
+    d->ptrs = ptrs;
+}
+
+void dir_read(dir_t *d, int core, int line) {
+    /* TODO */
+}
+
+void dir_write(dir_t *d, int core, int line) {
+    /* TODO */
+}
+
+void dir_evict(dir_t *d, int core, int line) {
+    /* TODO */
+}`,
+impl: String.raw`typedef struct {
+    dstate_t st;
+    uint64_t sharers;   /* exact set, kept to know who really holds the line */
+    int owner, overflow;
+} dline_t;
+
+typedef struct {
+    int ptrs;      /* 0 = full bit-vector */
+    long msgs;
+    dline_t l[LINES];
+} dir_t;
+
+void dir_init(dir_t *d, int ptrs) {
+    memset(d, 0, sizeof *d);
+    d->ptrs = ptrs;
+}
+
+static void add_sharer(dir_t *d, dline_t *x, int core) {
+    x->sharers |= 1ull << core;
+    if (d->ptrs && __builtin_popcountll(x->sharers) > d->ptrs) x->overflow = 1;
+}
+
+void dir_read(dir_t *d, int core, int line) {
+    dline_t *x = &d->l[line];
+    if (x->st == MODIFIED) {
+        if (x->owner == core) return;
+        d->msgs += 4;
+        x->st = SHARED;
+        x->sharers = 0; x->overflow = 0;
+        add_sharer(d, x, x->owner);
+    } else {
+        if (x->st == SHARED && (x->sharers >> core & 1)) return;
+        d->msgs += 2;
+        if (x->st == UNCACHED) { x->sharers = 0; x->overflow = 0; }
+        x->st = SHARED;
+    }
+    add_sharer(d, x, core);
+}
+
+void dir_write(dir_t *d, int core, int line) {
+    dline_t *x = &d->l[line];
+    if (x->st == MODIFIED) {
+        if (x->owner == core) return;
+        d->msgs += 4;
+    } else if (x->st == SHARED) {
+        int targets = x->overflow ? CORES - 1
+                                  : __builtin_popcountll(x->sharers & ~(1ull << core));
+        d->msgs += 2 + 2 * targets;
+    } else {
+        d->msgs += 2;
+    }
+    x->st = MODIFIED;
+    x->owner = core;
+    x->sharers = 0; x->overflow = 0;
+}
+
+void dir_evict(dir_t *d, int core, int line) {
+    dline_t *x = &d->l[line];
+    if (x->st == MODIFIED && x->owner == core) { d->msgs += 1; x->st = UNCACHED; }
+    /* Shared evictions are silent: the sharer stays recorded. */
+}`,
+tests: String.raw`int main(void) {
+    dir_t d;
+    dir_init(&d, 0);
+    dir_read(&d, 0, 0);
+    CHECK(d.msgs == 2, "read of an uncached line: %ld messages, expected 2", d.msgs);
+    dir_read(&d, 0, 0);
+    CHECK(d.msgs == 2, "a hit sends nothing");
+    dir_write(&d, 0, 0);
+    CHECK(d.msgs == 4, "upgrade by the only sharer: %ld, expected 4", d.msgs);
+    dir_read(&d, 5, 0);
+    CHECK(d.msgs == 8, "read of a modified line: %ld, expected 8", d.msgs);
+    dir_write(&d, 9, 0);
+    CHECK(d.msgs == 14, "write to a line shared by 0 and 5: %ld, expected 14", d.msgs);
+    dir_evict(&d, 9, 0);
+    CHECK(d.msgs == 15, "owner eviction writes back: %ld, expected 15", d.msgs);
+
+    /* 8 readers, then a write by a ninth core. */
+    long full, lim;
+    dir_init(&d, 0);
+    for (int c = 0; c < 8; c++) dir_read(&d, c, 1);
+    dir_write(&d, 63, 1);
+    full = d.msgs;
+    dir_init(&d, 4);
+    for (int c = 0; c < 8; c++) dir_read(&d, c, 1);
+    dir_write(&d, 63, 1);
+    lim = d.msgs;
+    CHECK(full == 16 + 18, "full map, 8 sharers: %ld messages, expected 34", full);
+    CHECK(lim == 16 + 2 + 2 * 63, "4 pointers, overflowed: %ld messages, expected 144", lim);
+
+    /* 3 sharers fit in 4 pointers: no broadcast. */
+    dir_init(&d, 4);
+    for (int c = 0; c < 3; c++) dir_read(&d, c, 2);
+    dir_write(&d, 7, 2);
+    CHECK(d.msgs == 6 + 2 + 6, "4 pointers, 3 sharers: %ld, expected 14", d.msgs);
+
+    /* Silent evictions leave stale sharers that still get invalidations. */
+    dir_init(&d, 0);
+    dir_read(&d, 1, 3); dir_read(&d, 2, 3);
+    dir_evict(&d, 1, 3);
+    dir_write(&d, 2, 3);
+    CHECK(d.msgs == 4 + 4, "stale sharer still invalidated: %ld, expected 8", d.msgs);
+    return REPORT();
+}`,
+a: `<p>Keep the exact sharer set per line even in limited-pointer mode, and add an overflow flag that is set when the set grows beyond the pointer count. The flag decides how many invalidations a write sends: the exact other sharers for a full map or a line that never overflowed, and every other core once it has.</p>
+<p>The comparison is the point: with 8 readers, a full map sends 7 invalidations and 7 acknowledgments, while a 4-pointer directory that overflowed must broadcast to 63 cores, for 144 messages instead of 34. A full bit-vector costs 64 bits per line, though, which at 64 cores is as large as the 64-byte line it tracks if the directory covered all of memory. That is why real designs use limited pointers, coarse vectors (one bit per cluster), or sparse directories that only track lines actually cached.</p>
+<p>Silent Shared evictions save a message per eviction but leave stale sharers, so a later write still invalidates them and waits for their acknowledgments. Some protocols send a clean-eviction notice to keep the directory precise. Which choice wins depends on how often evicted lines are written later.</p>`
+}) +
 `<h3 id="sec-races">Transient States and Races</h3>` +
 Q(`<p>Why can’t a cache that has sent a GetM for a line simply be in M, or stay in I, until the reply arrives?</p>`,
 `<p>M is wrong because the cache has no data yet and other caches may still hold copies, so writing would break the single-writer invariant. I is wrong because the cache has a request outstanding: if a forwarded request or an invalidation for the line arrives in the meantime, it must know it is mid-transaction so it can stall, acknowledge, or merge correctly. It needs a transient state, IM<sup>AD</sup> in the primer’s naming: going from I to M, waiting for data and acknowledgments.</p>`, "easy") +
@@ -3978,6 +4503,80 @@ Q(`<p>Top-Down reports a store-heavy kernel as “back-end bound, memory bound,�
 <li><strong>Contended lines:</strong> stores to lines other cores also write (true or false sharing) cause coherence misses that don’t look like capacity misses. Confirm with HITM (hit-modified) counters or a cache-to-cache transfer count.</li>
 </ul>
 <p>The general lesson: “memory bound” in Top-Down includes every stall attributed to the memory pipeline, not only load misses. Drill down to the next level before choosing a fix.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Build a first-order interval model (after Eyerman, Eeckhout, and Karkhanis) that turns a trace of miss events into a CPI stack. A core of <code>width</code> dispatches <code>n</code> instructions at full width except during miss intervals:</p>
+<ul>
+<li><strong>Base:</strong> <code>n / width</code> cycles.</li>
+<li><strong>Branch:</strong> each mispredicted branch adds <code>br_penalty</code> cycles (front-end refill plus the time the branch took to resolve).</li>
+<li><strong>Memory:</strong> a long-latency load adds <code>mem_lat</code> cycles, unless it falls within <code>rob</code> instructions after the load that started the current miss group. Such loads overlap with that load and add nothing. A load further away starts a new group.</li>
+<li><strong>I-cache:</strong> each instruction-cache miss adds <code>ic_lat</code> cycles. These never overlap with each other or with data misses.</li>
+</ul>
+<p><code>events</code> lists events in instruction order. Return the cycles in each component.</p>`,
+head: String.raw`#include <stdio.h>
+
+typedef enum { BR_MISS, LOAD_MISS, IC_MISS } ev_kind_t;
+typedef struct { long instr; ev_kind_t kind; } event_t;
+
+typedef struct {
+    int width, rob;
+    double br_penalty, mem_lat, ic_lat;
+} core_t;
+
+typedef struct { double base, branch, memory, icache; } stack_t;`,
+todo: String.raw`stack_t cpi_stack(const core_t *c, long n, const event_t *ev, int nev) {
+    stack_t s = {0};
+    /* TODO */
+    return s;
+}`,
+impl: String.raw`stack_t cpi_stack(const core_t *c, long n, const event_t *ev, int nev) {
+    stack_t s = { (double)n / c->width, 0, 0, 0 };
+    long group_start = -1;   /* instruction of the load that opened the group */
+    for (int i = 0; i < nev; i++) {
+        switch (ev[i].kind) {
+        case BR_MISS: s.branch += c->br_penalty; break;
+        case IC_MISS: s.icache += c->ic_lat; break;
+        case LOAD_MISS:
+            if (group_start < 0 || ev[i].instr - group_start >= c->rob) {
+                s.memory += c->mem_lat;
+                group_start = ev[i].instr;
+            }
+            break;
+        }
+    }
+    return s;
+}`,
+tests: String.raw`#include <math.h>
+#define NEAR(a, b) (fabs((a) - (b)) < 1e-6)
+
+int main(void) {
+    core_t golden = { 6, 512, 17, 350, 20 };
+    event_t ev[] = {
+        {1000, LOAD_MISS}, {1300, LOAD_MISS}, {1600, LOAD_MISS}, {1900, LOAD_MISS},
+        {2112, LOAD_MISS},                     /* exactly 512 after 1600 */
+        {3000, BR_MISS}, {3500, BR_MISS},
+        {4000, IC_MISS},
+        {9000, LOAD_MISS}
+    };
+    stack_t s = cpi_stack(&golden, 60000, ev, 9);
+    CHECK(NEAR(s.base, 10000) && NEAR(s.branch, 34) && NEAR(s.memory, 1400) && NEAR(s.icache, 20),
+          "got base %.0f branch %.0f memory %.0f icache %.0f", s.base, s.branch, s.memory, s.icache);
+
+    /* The same events on a Skylake-sized window: 224 entries, 4 wide. */
+    core_t sky = { 4, 224, 16, 350, 20 };
+    s = cpi_stack(&sky, 60000, ev, 9);
+    CHECK(NEAR(s.base, 15000) && NEAR(s.memory, 1750),
+          "Skylake-sized: base %.0f memory %.0f, expected 15000 and 1750", s.base, s.memory);
+    double cpi = (s.base + s.branch + s.memory + s.icache) / 60000;
+    CHECK(NEAR(cpi, (15000 + 32 + 1750 + 20) / 60000.0), "CPI %.4f", cpi);
+
+    CHECK(NEAR(cpi_stack(&sky, 0, ev, 0).base, 0), "no instructions, no cycles");
+    return REPORT();
+}`,
+a: `<p>The model is a sum: a base term at full width plus one penalty per miss interval. The only state needed is where the current group of overlapping loads started. A load within one ROB’s worth of instructions after that load was already in the window when the first miss stalled retirement, so its latency hides under the first one. A load further away can’t have been in the window, so it opens a new group and pays the full latency. This is the main reason ROB size matters for memory-bound code.</p>
+<p>In the example, with a 512-entry ROB, the load at 1,300 overlaps the one at 1,000, the load at 1,600 opens a group that 1,900 joins, and 2,112 is exactly 512 instructions after 1,600, so it opens another. With the load at 9,000 that is four groups, 4 × 350 = 1,400 cycles. With 224 entries, loads 300 instructions apart never overlap, and only 2,112 joins the group opened at 1,900: five groups, 1,750 cycles.</p>
+<p>The value of an interval model in an interview: it explains a CPI stack in a few lines, and it says what each fix buys. Halving branch mispredictions saves the branch component, a bigger ROB merges memory groups, and a wider core shrinks only the base. Its known weaknesses are worth naming too: it ignores dependences between misses (pointer chasing never overlaps), bandwidth limits, and partial overlap.</p>`
+}) +
 `<h3 id="sec-shift">Bottlenecks That Move</h3>` +
 Q(`<p>The front end delivers fewer instructions than the back end can execute. Which back-end improvements won’t help, and which might still help a little?</p>`,
 `<p><strong>Won’t help:</strong> more execution units, wider issue, a bigger scheduler, a bigger ROB or register file, wider retirement. The back end is already waiting for instructions, and more capacity just sits empty.</p>
@@ -4088,6 +4687,83 @@ Q(`<p>A new replacement policy lowers the LLC miss rate by 10%, but the workload
 <li><strong>Measurement:</strong> the miss rate is per access, and the new policy changed the access count (more prefetches counted as hits), so the rate fell without the miss count falling.</li>
 </ul>
 <p>The metric to watch is time and stall cycles caused by misses, not miss rate. MPKI and the average latency seen by demand loads are much better proxies than miss rate.</p>`, "hard") +
+C({
+lvl: "medium",
+q: `<p>Compute top-down level 1 (Yasin, 2014) from Skylake counters. A Skylake core has 4 issue slots per cycle:</p>
+<ul>
+<li>slots = 4 × <code>CPU_CLK_UNHALTED.THREAD</code></li>
+<li>Frontend Bound = <code>IDQ_UOPS_NOT_DELIVERED.CORE</code> / slots</li>
+<li>Bad Speculation = (<code>UOPS_ISSUED.ANY</code> − <code>UOPS_RETIRED.RETIRE_SLOTS</code> + 4 × <code>INT_MISC.RECOVERY_CYCLES</code>) / slots</li>
+<li>Retiring = <code>UOPS_RETIRED.RETIRE_SLOTS</code> / slots</li>
+<li>Backend Bound = 1 − (the other three)</li>
+</ul>
+<p>Counters are sampled with multiplexing, so the four fractions can drift slightly outside [0, 1]. Clamp each to that range, then renormalize so they sum to 1. Also return the largest category’s name.</p>`,
+head: String.raw`#include <stdio.h>
+#include <math.h>
+
+typedef struct {
+    double clk, idq_not_delivered, uops_issued, retire_slots, recovery_cycles;
+} counters_t;
+
+typedef struct {
+    double fe, bad_spec, retiring, be;
+    const char *top;
+} topdown_t;`,
+todo: String.raw`topdown_t topdown(counters_t c) {
+    topdown_t t = {0};
+    /* TODO */
+    return t;
+}`,
+impl: String.raw`static double clamp01(double x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+
+topdown_t topdown(counters_t c) {
+    topdown_t t;
+    double slots = 4 * c.clk;
+    t.fe = clamp01(c.idq_not_delivered / slots);
+    t.bad_spec = clamp01((c.uops_issued - c.retire_slots + 4 * c.recovery_cycles) / slots);
+    t.retiring = clamp01(c.retire_slots / slots);
+    t.be = clamp01(1 - (t.fe + t.bad_spec + t.retiring));
+    double sum = t.fe + t.bad_spec + t.retiring + t.be;
+    t.fe /= sum; t.bad_spec /= sum; t.retiring /= sum; t.be /= sum;
+    t.top = "Frontend Bound";
+    double best = t.fe;
+    if (t.bad_spec > best) { best = t.bad_spec; t.top = "Bad Speculation"; }
+    if (t.retiring > best) { best = t.retiring; t.top = "Retiring"; }
+    if (t.be > best) { t.top = "Backend Bound"; }
+    return t;
+}`,
+tests: String.raw`#include <string.h>
+#define NEAR(a, b) (fabs((a) - (b)) < 1e-9)
+
+int main(void) {
+    /* A memory-bound run: 10 billion cycles, 12 billion uops retired. */
+    counters_t c = { 10e9, 4e9, 13e9, 12e9, 0.1e9 };
+    topdown_t t = topdown(c);
+    CHECK(NEAR(t.fe, 0.10) && NEAR(t.bad_spec, 0.035) && NEAR(t.retiring, 0.30) && NEAR(t.be, 0.565),
+          "got FE %.4f BS %.4f RET %.4f BE %.4f", t.fe, t.bad_spec, t.retiring, t.be);
+    CHECK(strcmp(t.top, "Backend Bound") == 0, "top category %s, expected Backend Bound", t.top);
+
+    /* A branchy, front-end-heavy run. */
+    counters_t b = { 2e9, 3.04e9, 4.36e9, 3.0e9, 0.15e9 };
+    t = topdown(b);
+    CHECK(NEAR(t.fe, 0.38) && NEAR(t.bad_spec, 0.245) && NEAR(t.retiring, 0.375) && NEAR(t.be, 0.0),
+          "got FE %.4f BS %.4f RET %.4f BE %.4f", t.fe, t.bad_spec, t.retiring, t.be);
+    CHECK(strcmp(t.top, "Frontend Bound") == 0, "top category %s, expected Frontend Bound", t.top);
+
+    /* Multiplexing drift: Bad Speculation comes out negative and clamps to
+       0, Frontend and Retiring sum to 1.05, so Backend clamps to 0 and the
+       rest scale down by 1.05. */
+    counters_t d = { 1e9, 1.2e9, 1.0e9, 3.0e9, 0 };
+    t = topdown(d);
+    CHECK(t.be == 0 && NEAR(t.fe, 0.30 / 1.05) && NEAR(t.retiring, 0.75 / 1.05) && t.bad_spec == 0,
+          "drift: FE %.4f BS %.4f RET %.4f BE %.4f", t.fe, t.bad_spec, t.retiring, t.be);
+    CHECK(NEAR(t.fe + t.bad_spec + t.retiring + t.be, 1.0), "the categories must sum to 1");
+    return REPORT();
+}`,
+a: `<p>Everything is measured in issue slots, 4 per cycle on Skylake. Front-end bound counts slots the front end left empty while the back end could have taken uops. Bad speculation counts uops issued but never retired, plus the slots lost while the machine recovered from a mispredict (4 per recovery cycle). Retiring is useful work. Backend bound is the remainder.</p>
+<p>Check the first case by hand: 4 × 10 billion = 40 billion slots. Front end 4/40 = 10%. Bad speculation (13 − 12 + 0.4)/40 = 3.5%. Retiring 12/40 = 30%. Backend bound is the remaining 56.5%, so the next step is level 2 (memory bound versus core bound) for the back end.</p>
+<p>The clamp-and-renormalize step matters in practice: with counter multiplexing, the events are sampled over different intervals, and a raw negative Backend Bound or a sum above 100% will confuse anyone reading the report. Newer Intel cores (Ice Lake and later) have dedicated <code>TOPDOWN</code> slot counters that avoid most of this, and use a different slot width per core, so don’t hard-code 4 outside Skylake-era parts.</p>`
+}) +
 `<h3 id="sec-sweeps">Experiments and Attribution</h3>` +
 M(`<p>You doubled the ROB and the scheduler together and performance improved by 9%. How do you find out which change caused it?</p><p>Here are the numbers: baseline IPC 2.00, ROB doubled 2.02, scheduler doubled 2.04, both doubled 2.18. Quantify the interaction.</p>`,
 `<p>Run the full factorial: baseline, ROB only, scheduler only, both. If ROB-only gives 1%, scheduler-only gives 2%, and both give 9%, the changes interact: each one was hiding the other’s benefit, because whichever structure was smaller filled first. Then confirm with the stall breakdown: in the baseline, which structure was full when allocation stalled, and what happened to those stalls in each variant? Report the interaction honestly; saying “the scheduler gave 2%” would be wrong for the combined design.</p>
@@ -4256,6 +4932,115 @@ Q(`<p>Profiling shows your multicore simulator spends 60% of its host time in th
 <li><strong>Parallelism:</strong> simulate cores on host threads with periodic synchronization, which changes results unless designed carefully, so it belongs in a separate, explicitly approximate mode.</li>
 </ul>
 <p><strong>Proving equivalence:</strong> run the full regression suite before and after, and require bit-identical outputs: every statistic, not just IPC, and per-access event logs for a few short runs. Any change in a deterministic simulator means a behavior change, which must be explained before merging. Keep the old implementation behind a flag for a while to compare.</p>`, "hard") +
+C({
+lvl: "medium",
+q: `<p>Write the event queue of a discrete-event simulator as a binary min-heap. Events are ordered by time, and events at the same time must come out in the order they were scheduled, so runs are deterministic. <code>eq_push()</code> schedules an event and <code>eq_pop()</code> removes the earliest. Both must be O(log n), and the queue grows as needed.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+typedef struct { uint64_t time; int id; } event_t;`,
+todo: String.raw`typedef struct {
+    /* TODO */
+    int n;
+} eq_t;
+
+void eq_init(eq_t *q) {
+    /* TODO */
+}
+
+void eq_push(eq_t *q, uint64_t time, int id) {
+    /* TODO */
+}
+
+/* Returns 0 if empty. */
+int eq_pop(eq_t *q, event_t *out) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`typedef struct { uint64_t time, seq; int id; } node_t;
+
+typedef struct {
+    node_t *h;
+    int n, cap;
+    uint64_t seq;   /* scheduling order breaks ties */
+} eq_t;
+
+static int before(const node_t *a, const node_t *b) {
+    return a->time != b->time ? a->time < b->time : a->seq < b->seq;
+}
+
+void eq_init(eq_t *q) { q->h = NULL; q->n = q->cap = 0; q->seq = 0; }
+
+void eq_push(eq_t *q, uint64_t time, int id) {
+    if (q->n == q->cap) {
+        q->cap = q->cap ? 2 * q->cap : 16;
+        q->h = realloc(q->h, sizeof(node_t) * q->cap);
+    }
+    int i = q->n++;
+    node_t x = { time, q->seq++, id };
+    while (i > 0 && before(&x, &q->h[(i - 1) / 2])) {   /* sift up */
+        q->h[i] = q->h[(i - 1) / 2];
+        i = (i - 1) / 2;
+    }
+    q->h[i] = x;
+}
+
+int eq_pop(eq_t *q, event_t *out) {
+    if (q->n == 0) return 0;
+    *out = (event_t){ q->h[0].time, q->h[0].id };
+    node_t x = q->h[--q->n];
+    int i = 0;
+    for (;;) {                                          /* sift down */
+        int c = 2 * i + 1;
+        if (c >= q->n) break;
+        if (c + 1 < q->n && before(&q->h[c + 1], &q->h[c])) c++;
+        if (!before(&q->h[c], &x)) break;
+        q->h[i] = q->h[c];
+        i = c;
+    }
+    q->h[i] = x;
+    return 1;
+}`,
+tests: String.raw`int main(void) {
+    eq_t q;
+    event_t e;
+    eq_init(&q);
+    CHECK(eq_pop(&q, &e) == 0, "an empty queue must return 0");
+
+    eq_push(&q, 30, 1); eq_push(&q, 10, 2); eq_push(&q, 20, 3);
+    eq_push(&q, 10, 4); eq_push(&q, 10, 5);
+    int want[5] = {2, 4, 5, 3, 1}, ok = 1;
+    for (int i = 0; i < 5; i++) ok &= eq_pop(&q, &e) && e.id == want[i];
+    CHECK(ok, "order should be 2, 4, 5 (ties in scheduling order), 3, 1");
+
+    /* 100,000 random events, with heavy ties, popped while new ones arrive. */
+    srand(5);
+    eq_init(&q);
+    uint64_t now = 0, last_time = 0;
+    int last_id = -1, bad = 0, popped = 0, id = 0;
+    int *seen_at = calloc(200000, sizeof(int));
+    for (int i = 0; i < 100000; i++) {
+        uint64_t t = now + rand() % 8;   /* many events share a time */
+        seen_at[id] = (int)t;
+        eq_push(&q, t, id++);
+        if (rand() % 3 == 0 && eq_pop(&q, &e)) {
+            if (e.time < last_time || (e.time == last_time && e.id < last_id)) bad++;
+            last_time = now = e.time; last_id = e.id; popped++;
+        }
+    }
+    while (eq_pop(&q, &e)) {
+        if (e.time < last_time || (e.time == last_time && e.id < last_id) || (int)e.time != seen_at[e.id]) bad++;
+        last_time = e.time; last_id = e.id; popped++;
+    }
+    CHECK(bad == 0, "%d events came out of order", bad);
+    CHECK(popped == 100000, "popped %d events, expected 100000", popped);
+    return REPORT();
+}`,
+a: `<p>A binary heap in an array: the children of node <em>i</em> are 2<em>i</em> + 1 and 2<em>i</em> + 2. Push appends and sifts up, pop moves the last element to the root and sifts down toward the smaller child. Moving a hole instead of swapping halves the copies.</p>
+<p>The detail that matters for a simulator is the tie-break. A heap is not stable, so two events at the same cycle can come out in either order, and the order changes when unrelated events are added. A model whose results depend on that is nondeterministic, which makes regressions impossible to bisect. Adding a sequence number to the key makes equal-time events FIFO.</p>
+<p>For cycle-level models with many events a few cycles ahead, a calendar queue or a timing wheel (an array of buckets indexed by time modulo its size) gives O(1) push and pop and is what many simulators use. The heap is the right default when event times spread widely.</p>`
+}) +
 `<h3 id="sec-cycle">Getting the Cycle Right</h3>` +
 Q(`<p>In what order should you update pipeline stages within one simulated cycle, and what subtle error does each choice introduce?</p>`,
 `<p>The usual answer is <strong>reverse pipeline order</strong>: retire, writeback, issue, dispatch, rename, decode, fetch. Each stage then consumes what the stage before it produced in the <em>previous</em> cycle, so an instruction can’t travel through several stages in one simulated cycle.</p>
@@ -4300,6 +5085,65 @@ Q(`<p>The core runs at 5 GHz, the mesh and LLC at 2.5 GHz, and DDR5-5600 memory 
 <li><strong>Wrong frequency scaling:</strong> when core frequency changes, latencies that should stay fixed in nanoseconds (the uncore and DRAM) must change in core cycles. A model with latencies hard-coded in core cycles makes faster cores look better than they are.</li>
 </ul>
 <p>Check with a sweep of core frequency: memory-bound benchmarks should show IPC falling as frequency rises, roughly tracking the share of time spent on fixed-nanosecond latencies.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Simulate credit-based flow control on a link with latency <code>L</code> into a receive buffer of <code>B</code> entries, and return the cycle the last of <code>n</code> items is consumed, plus 1. The sender starts with <code>B</code> credits. In each cycle <em>c</em>, in this order:</p>
+<ol>
+<li><strong>Consume:</strong> if <em>c</em> is a multiple of <code>k</code> and the buffer isn’t empty, the receiver removes one item and sends a credit back, which arrives at cycle <em>c</em> + <code>L</code>.</li>
+<li><strong>Arrive:</strong> items sent in cycle <em>c</em> − <code>L</code> enter the buffer.</li>
+<li><strong>Credits:</strong> credits due at cycle <em>c</em> reach the sender.</li>
+<li><strong>Send:</strong> if the sender has a credit and items remain, it spends one and sends one item.</li>
+</ol>
+<p>The order matters: an item that arrives in cycle <em>c</em> can be consumed in cycle <em>c</em> + 1 at the earliest, and a credit that arrives in cycle <em>c</em> can be used in cycle <em>c</em>.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdlib.h>`,
+todo: String.raw`long run_link(int n, int L, int B, int k) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`long run_link(int n, int L, int B, int k) {
+    /* Delay lines indexed by cycle modulo L + 1: items in flight and
+       credits in flight. At most one of each is sent per cycle. */
+    int *item = calloc(L + 1, sizeof(int)), *credit = calloc(L + 1, sizeof(int));
+    int credits = B, buffered = 0, sent = 0, consumed = 0;
+    long c = 0, last = 0;
+    for (; consumed < n; c++) {
+        int slot = (int)(c % (L + 1));
+        if (c % k == 0 && buffered > 0) {
+            buffered--; consumed++; last = c;
+            credit[(c + L) % (L + 1)]++;
+        }
+        buffered += item[slot]; item[slot] = 0;
+        credits += credit[slot]; credit[slot] = 0;
+        if (credits > 0 && sent < n) {
+            credits--; sent++;
+            item[(c + L) % (L + 1)]++;
+        }
+    }
+    free(item); free(credit);
+    return last + 1;
+}`,
+tests: String.raw`int main(void) {
+    /* Round trip for a credit is 2L + 1 cycles: send, arrive after L,
+       consume one cycle later, credit back after L. */
+    long r = run_link(100, 4, 9, 1);
+    CHECK(r == 105, "B = 2L+1 = 9: %ld cycles, expected 105 (full rate)", r);
+    r = run_link(100, 4, 20, 1);
+    CHECK(r == 105, "more buffer than the round trip doesn't help: %ld, expected 105", r);
+    r = run_link(100, 4, 4, 1);
+    CHECK(r == 225, "B = 4 < 9: %ld cycles, expected 225 (4 items per 9 cycles)", r);
+    r = run_link(100, 4, 9, 2);
+    CHECK(r == 205, "receiver takes every 2nd cycle: %ld, expected 205", r);
+    r = run_link(6, 4, 2, 2);
+    CHECK(r == 29, "B = 2, every 2nd cycle, 6 items: %ld, expected 29", r);
+    r = run_link(1, 1, 1, 1);
+    CHECK(r == 3, "one item, latency 1: %ld, expected 3", r);
+    return REPORT();
+}`,
+a: `<p>The structure of any cycle-level model: state in delay lines, and a fixed order of phases within a cycle. A delay line of <code>L</code> + 1 slots indexed by cycle modulo its size holds what arrives in each future cycle. The order of the four phases is the spec. Swap consume and arrive and every item can be consumed in its arrival cycle, which removes a cycle from the round trip and changes every number.</p>
+<p>The result to remember: a credit makes a round trip of 2<code>L</code> + 1 cycles here, so the link runs at full rate only if <code>B</code> ≥ 2<code>L</code> + 1. Below that, throughput is <code>B</code> / (2<code>L</code> + 1): with <code>L</code> = 4 and <code>B</code> = 4, the sender sends a burst of 4 every 9 cycles. Item 99 is sent in cycle 24 × 9 + 3 = 219 and consumed 5 cycles later, so the run takes 225 cycles. This is the same bandwidth-delay product that sizes NoC router buffers and PCIe flow-control credits.</p>
+<p>When the receiver is the bottleneck (every 2nd cycle), buffer size stops mattering once it covers the round trip at the receiver’s rate. The 6-item case with <code>B</code> = 2 is worth tracing by hand: the consume times land on 6, 8, 16, 18, 26, 28, because each credit’s trip is stretched to the next even cycle.</p>`
+}) +
 `<h3 id="sec-verify">Verification and Trust</h3>` +
 Q(`<p>How would you verify that your model never retires out of order, and that dependences and speculative recovery are correct?</p>`,
 `<ol>
@@ -4463,6 +5307,131 @@ Q(`<p>What are the main things a performance architect trades off when deciding 
 `<p>Performance (on which workloads, and how robustly), power (dynamic and leakage, and whether it fits the power budget), area (cost per die, and what else the area could buy), timing (whether it lengthens a critical path or forces an extra stage), and complexity (design and verification effort, schedule risk, bugs). A feature that wins on performance alone often loses once the other four are counted.</p>`, "easy") +
 Q(`<p>When does performance per watt matter more than performance per mm², and vice versa?</p>`,
 `<p>Performance per watt dominates when power is the binding limit: phones and laptops (battery and heat) and data centers (power and cooling costs, and chips that hit their power cap with all cores busy). Performance per mm² dominates when cost per chip is the limit and power isn’t: high-volume, cost-sensitive parts, or deciding how many cores fit on a die. Many server designs care about both, since more cores per die also need more power.</p>`, "easy") +
+C({
+lvl: "hard",
+q: `<p>Implement a PC-indexed stride prefetcher (a reference prediction table, Chen and Baer, 1995). The table is 64 entries, direct-mapped by <code>(pc &gt;&gt; 2) % 64</code>, and each entry holds the full PC as its tag, the last address, a stride, and a state. On each load:</p>
+<ul>
+<li><strong>Table miss:</strong> replace the entry with last = addr, stride = 0, state INIT.</li>
+<li><strong>Table hit:</strong> the access is correct if addr − last equals the stored stride.
+<ul>
+<li>INIT: correct → STEADY, else → TRANSIENT and update the stride.</li>
+<li>TRANSIENT: correct → STEADY, else → NOPRED and update the stride.</li>
+<li>STEADY: correct → STEADY, else → INIT and keep the stride.</li>
+<li>NOPRED: correct → TRANSIENT, else stay NOPRED and update the stride.</li>
+</ul>
+Then set last = addr.</li>
+<li>If the entry is now STEADY, return a prefetch for addr + <code>distance</code> × stride. Otherwise return 0.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+#define RPT 64
+typedef enum { INIT, TRANSIENT, STEADY, NOPRED } rpt_state_t;`,
+todo: String.raw`typedef struct {
+    /* TODO */
+    int distance;
+} rpt_t;
+
+void rpt_init(rpt_t *r, int distance) {
+    /* TODO */
+    r->distance = distance;
+}
+
+uint64_t rpt_access(rpt_t *r, uint64_t pc, uint64_t addr) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`typedef struct {
+    uint64_t tag, last;
+    int64_t stride;
+    rpt_state_t st;
+    int valid;
+} rpt_entry_t;
+
+typedef struct {
+    rpt_entry_t e[RPT];
+    int distance;
+} rpt_t;
+
+void rpt_init(rpt_t *r, int distance) {
+    for (int i = 0; i < RPT; i++) r->e[i].valid = 0;
+    r->distance = distance;
+}
+
+uint64_t rpt_access(rpt_t *r, uint64_t pc, uint64_t addr) {
+    rpt_entry_t *e = &r->e[(pc >> 2) % RPT];
+    if (!e->valid || e->tag != pc) {
+        *e = (rpt_entry_t){ pc, addr, 0, INIT, 1 };
+        return 0;
+    }
+    int64_t delta = (int64_t)(addr - e->last);
+    int correct = delta == e->stride;
+    switch (e->st) {
+    case INIT:      e->st = correct ? STEADY : TRANSIENT; break;
+    case TRANSIENT: e->st = correct ? STEADY : NOPRED; break;
+    case STEADY:    e->st = correct ? STEADY : INIT; break;
+    case NOPRED:    e->st = correct ? TRANSIENT : NOPRED; break;
+    }
+    if (!correct && e->st != INIT) e->stride = delta;   /* STEADY to INIT keeps it */
+    e->last = addr;
+    return e->st == STEADY ? addr + (uint64_t)(r->distance * e->stride) : 0;
+}`,
+tests: String.raw`int main(void) {
+    rpt_t r;
+    rpt_init(&r, 4);
+
+    /* A stream with a 64-byte stride: prefetches start on the third access. */
+    uint64_t p[5];
+    for (int i = 0; i < 5; i++) p[i] = rpt_access(&r, 0x401000, 0x10000 + 64 * i);
+    CHECK(p[0] == 0 && p[1] == 0 && p[2] == 0x10080 + 4 * 64 && p[4] == 0x10100 + 256,
+          "stream: prefetches %llx %llx %llx", (unsigned long long)p[1], (unsigned long long)p[2], (unsigned long long)p[4]);
+
+    /* One irregular access drops STEADY to INIT but keeps the stride, so
+       the stream resumes prefetching right away. */
+    rpt_access(&r, 0x401000, 0x50000);                      /* STEADY -> INIT */
+    uint64_t q = rpt_access(&r, 0x401000, 0x50000 + 64);    /* correct: INIT -> STEADY */
+    CHECK(q == 0x50040 + 256, "after one glitch: prefetch %llx, expected 50140", (unsigned long long)q);
+
+    /* Negative stride (a backwards loop). */
+    rpt_init(&r, 1);
+    uint64_t last = 0;
+    for (int i = 0; i < 4; i++) last = rpt_access(&r, 0x402000, 0x90000 - 8 * i);
+    CHECK(last == 0x90000 - 32, "backwards stride: %llx, expected 8FFE0", (unsigned long long)last);
+
+    /* A pointer chase never settles. */
+    rpt_init(&r, 4);
+    srand(2);
+    int issued = 0;
+    for (int i = 0; i < 1000; i++) issued += rpt_access(&r, 0x403000, (uint64_t)rand() * 64) != 0;
+    CHECK(issued == 0, "random addresses issued %d prefetches", issued);
+
+    /* Two PCs with different strides in different entries don't interfere,
+       but two PCs that map to the same entry thrash it. */
+    rpt_init(&r, 1);
+    int a = 0, b = 0;
+    for (int i = 0; i < 100; i++) {
+        a += rpt_access(&r, 0x404000, 0x100000 + 64 * i) != 0;
+        b += rpt_access(&r, 0x404004, 0x200000 + 128 * i) != 0;
+    }
+    CHECK(a == 98 && b == 98, "separate entries: %d and %d prefetches, expected 98 each", a, b);
+    rpt_init(&r, 1);
+    a = 0;
+    for (int i = 0; i < 100; i++) {
+        a += rpt_access(&r, 0x404000, 0x100000 + 64 * i) != 0;
+        a += rpt_access(&r, 0x404000 + 4 * RPT, 0x200000 + 128 * i) != 0;
+    }
+    CHECK(a == 0, "aliasing PCs: %d prefetches, expected 0", a);
+    return REPORT();
+}`,
+a: `<p>The state machine is a confidence filter: one matching stride is enough to start prefetching (INIT to STEADY), one mismatch in STEADY drops to INIT but keeps the stride, so a stream that skips once resumes on the next access. Two mismatches in a row make the entry relearn. NOPRED keeps irregular loads, such as pointer chasing, from ever issuing prefetches, which protects cache capacity and bandwidth.</p>
+<p>Points an interviewer will probe:</p>
+<ul>
+<li><strong>Distance:</strong> prefetch far enough ahead to cover the latency. With a load every few cycles and DRAM at 400 cycles, distance must be tens of strides, which is why real prefetchers ramp it up as confidence grows.</li>
+<li><strong>Indexing by PC</strong> separates interleaved streams that an address-only prefetcher would mix up. The cost is the aliasing in the last check, where two loads map to one direct-mapped entry and destroy each other’s state.</li>
+<li><strong>Training on misses only</strong> versus every access, and filtering prefetches that hit, are design choices that change accuracy and coverage. Measure both, plus the extra bandwidth.</li>
+</ul>`
+}) +
 `<h3 id="sec-spend">Where to Spend Area</h3>` +
 M(`<p>You can spend the same extra area on either a larger ROB (with the registers and queues to match) or a larger L2. How do you decide?</p><p>Then decide with numbers: growing the L2 from 1 MB to 2 MB raises its latency from 14 to 16 cycles and cuts L2 misses from 10 to 6 per 1,000 instructions. Each L2 miss that hits L3 exposes about 30 cycles, and each L2 hit exposes 30% of its latency (30 L2 hits per 1,000 instructions). Growing the ROB from 320 to 384 instead hides about 64 / 6 ≈ 11 more cycles of each isolated DRAM miss (2 per 1,000 instructions). Which wins?</p>`,
 `<p>Gather evidence for each:</p>
@@ -4517,6 +5486,113 @@ M(`<p>On a server trace, you can spend the same area on one of two options:</p>
 <li>BTB latency: a larger second level costs more bubbles per taken branch found there.</li>
 </ul></li>
 </ol>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Implement Dynamic Insertion Policy with set dueling (Qureshi et al., 2007) for a 1,024-set, 16-way cache with 64-byte lines (a 1 MB L2-sized cache).</p>
+<ul>
+<li><strong>LRU insertion:</strong> a new line becomes most recently used. <strong>BIP:</strong> a new line goes in the LRU position, except every 32nd BIP insertion (a counter, so runs are deterministic), which goes in as MRU. Hits always move the line to MRU.</li>
+<li><strong>Leaders:</strong> sets with <code>set % 32 == 0</code> always use LRU, and <code>set % 32 == 1</code> always use BIP. A miss in an LRU leader increments a 10-bit saturating PSEL counter (0 to 1,023, starting at 512), and a miss in a BIP leader decrements it.</li>
+<li><strong>Followers</strong> use BIP when PSEL ≥ 512, else LRU.</li>
+</ul>
+<p><code>policy</code> forces LRU (0), BIP (1), or runs DIP (2). Return 1 on a hit.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+#define SETS 1024
+#define WAYS 16
+enum { LRU_ONLY, BIP_ONLY, DIP };`,
+todo: String.raw`typedef struct {
+    int policy;
+    long hits, misses;
+    int psel;   /* 0 to 1023 */
+    /* TODO */
+} cache_t;
+
+void cache_init(cache_t *c, int policy) {
+    memset(c, 0, sizeof *c);
+    c->policy = policy;
+    /* TODO */
+}
+
+int cache_access(cache_t *c, uint64_t addr) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`typedef struct {
+    int policy;
+    long hits, misses;
+    uint64_t tag[SETS][WAYS];
+    uint8_t valid[SETS][WAYS];
+    uint32_t stamp[SETS][WAYS];   /* recency: larger is more recent */
+    uint32_t clock;
+    int psel, bip_count;
+} cache_t;
+
+void cache_init(cache_t *c, int policy) {
+    memset(c, 0, sizeof *c);
+    c->policy = policy;
+    c->psel = 512;
+    c->clock = 1;
+}
+
+int cache_access(cache_t *c, uint64_t addr) {
+    uint64_t block = addr >> 6;
+    int set = (int)(block % SETS);
+    uint64_t tag = block / SETS;
+    c->clock++;
+    int victim = 0;
+    for (int w = 0; w < WAYS; w++) {
+        if (c->valid[set][w] && c->tag[set][w] == tag) {
+            c->stamp[set][w] = c->clock;
+            c->hits++;
+            return 1;
+        }
+        if (!c->valid[set][w] ? c->valid[set][victim] : (c->valid[set][victim] && c->stamp[set][w] < c->stamp[set][victim]))
+            victim = w;
+    }
+    c->misses++;
+    int bip;
+    if (c->policy != DIP) bip = c->policy == BIP_ONLY;
+    else if (set % 32 == 0) { bip = 0; if (c->psel < 1023) c->psel++; }
+    else if (set % 32 == 1) { bip = 1; if (c->psel > 0) c->psel--; }
+    else bip = c->psel >= 512;
+    int mru = !bip || (++c->bip_count % 32 == 0);
+    c->tag[set][victim] = tag;
+    c->valid[set][victim] = 1;
+    /* LRU position: older than every line in the set (stamp 0). */
+    c->stamp[set][victim] = mru ? c->clock : 0;
+    return 0;
+}`,
+tests: String.raw`static cache_t c;
+
+static double run(int policy, uint64_t footprint, int passes) {
+    cache_init(&c, policy);
+    for (int p = 0; p < passes; p++)
+        for (uint64_t a = 0; a < footprint; a += 64) cache_access(&c, a);
+    return (double)c.hits / (c.hits + c.misses);
+}
+
+int main(void) {
+    const uint64_t MB = 1 << 20;
+    /* Fits: every policy hits after the first pass. */
+    double l = run(LRU_ONLY, MB / 2, 10), b = run(BIP_ONLY, MB / 2, 10), d = run(DIP, MB / 2, 10);
+    CHECK(l == 0.9 && b == 0.9 && d == 0.9, "512 KB loop: LRU %.3f BIP %.3f DIP %.3f, expected 0.9 each", l, b, d);
+
+    /* 1.25 MB loop: LRU thrashes completely, BIP keeps most of the cache. */
+    l = run(LRU_ONLY, MB + MB / 4, 20);
+    b = run(BIP_ONLY, MB + MB / 4, 20);
+    d = run(DIP, MB + MB / 4, 20);
+    CHECK(l == 0.0, "1.25 MB loop with LRU: hit rate %.3f, expected 0", l);
+    CHECK(b > 0.6, "1.25 MB loop with BIP: hit rate %.3f, expected above 0.6", b);
+    CHECK(d > 0.55 && d < b + 0.02, "DIP should approach BIP: %.3f vs %.3f", d, b);
+    CHECK(c.psel >= 512, "PSEL ended at %d: the duel should pick BIP", c.psel);
+    return REPORT();
+}`,
+a: `<p>Represent recency with timestamps. Inserting at the LRU position is a stamp of 0, older than anything in the set, so the next miss in that set evicts the new line again unless it gets a hit first. That is BIP’s point: on a loop larger than the cache, LRU evicts each line just before it would be reused and gets zero hits, while BIP leaves most of the old lines alone. The occasional MRU insertion lets the resident set adapt slowly when the working set changes.</p>
+<p>Set dueling lets the hardware run the experiment itself. A few leader sets (32 of each here, about 6% of the cache) always use one policy, a single counter tracks which leader group misses less, and the remaining 960 sets follow the winner. The overhead is one 10-bit counter for the whole cache.</p>
+<p>In the checks, a 512 KB loop fits, so after the first pass everything hits under any policy (90% over 10 passes). On the 1.25 MB loop LRU gets nothing. BIP keeps 15 of the 20 lines that map to each set once warm, 71% hits over 20 passes. DIP gets 69%, losing a little in the LRU leader sets and while the duel settles. This line of work led to RRIP, the re-reference interval prediction family used in recent Intel last-level caches.</p>`
+}) +
 `<h3 id="sec-process">Running an Investigation</h3>` +
 Q(`<p>You have two weeks to explain a 15% performance regression in a new CPU configuration. How would you structure the investigation?</p>`,
 `<ol>
