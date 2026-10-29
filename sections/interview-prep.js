@@ -101,6 +101,7 @@ section({
 <ol>
 <li><strong>Fundamentals:</strong> <a href="#/intv-pipeline">Pipeline Flow and Width</a>, <a href="#/intv-renaming">Renaming and Dependences</a>, <a href="#/intv-rob">The ROB and Retirement</a>, <a href="#/intv-sched">Scheduling and Execution</a>, <a href="#/intv-arith">Arithmetic and Floating Point</a>.</li>
 <li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-fe">Front End and Fetch</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-mem">Caches, TLBs and DRAM</a>, <a href="#/intv-coh">Coherence and Consistency</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>.</li>
+<li><strong>Systems programming:</strong> <a href="#/intv-conc">Concurrency and Parallelism</a>, <a href="#/intv-alloc">Memory Allocation and the C Library</a>. Expect to write code for these in an interview.</li>
 <li><strong>Your own experience:</strong> <a href="#/intv-sim">Building a Performance Model in C</a>, <a href="#/intv-design">Open-Ended Design Problems</a>. Connect every answer here to a decision or bug from your own simulator.</li>
 </ol>
 
@@ -4387,6 +4388,711 @@ Q(`<p>32 threads each increment one shared 64-bit counter with <code>lock xadd</
 <p>The trade-off is that the sum is not a single atomic snapshot: it may mix values from slightly different moments. That is fine for statistics and reference counts that are only checked against zero rarely, and not fine where every increment must be totally ordered. Linux’s per-CPU counters and many allocators use this pattern.</p>`, "medium"),
 },
 {
+  id: "intv-conc",
+  title: "Concurrency and Parallelism",
+  body: `
+<p>Background: <a href="#/r/conc">Concurrency in C</a>, <a href="#/c11-ordering">C11 Memory Ordering</a>, <a href="#/barrier">Sense-Reversing Barriers</a>, <a href="#/false-sharing">False Sharing and Cache-Line Isolation</a>, <a href="#/intv-coh">Coherence and Consistency</a>. The classic reference for the algorithms here is Mellor-Crummey and Scott, “Algorithms for Scalable Synchronization on Shared-Memory Multiprocessors” (1991).</p>
+<h3 id="sec-locks">Locks and Atomics</h3>` +
+Q(`<p>Why does a test-and-test-and-set lock beat a plain test-and-set lock when many cores contend, and what traffic does it still cause?</p>`,
+`<p>A test-and-set lock spins with an atomic exchange. Every attempt is a read-for-ownership, so the line bounces between the spinning cores on every iteration, and the holder’s release has to fight that traffic to get the line back.</p>
+<p>Test-and-test-and-set spins on a plain load first. All spinners hold the line in Shared state and hit in their own caches, so waiting costs no coherence traffic. The cost moves to the release: the holder’s store invalidates every copy, all <em>P</em> spinners miss and reload, see the lock free, and race with exchanges. One wins and the other exchanges are wasted ownership transfers. That burst is O(<em>P</em>) per handoff, which is why TTAS is paired with exponential backoff, and why queue locks exist.</p>`, "easy") +
+Q(`<p>What do compare-and-swap and load-linked/store-conditional each guarantee, and where does the difference show up?</p>`,
+`<p><strong>CAS</strong> atomically compares a word with an expected value and writes a new one only if they match. It checks the value, not the history, so it succeeds even if the word changed and changed back in between (the ABA problem).</p>
+<p><strong>LL/SC</strong> (Arm’s LDXR/STXR, RISC-V’s LR/SC) marks a reservation on the load, and the store succeeds only if nothing wrote the location since. That catches ABA, but the store can also fail spuriously (an interrupt, an eviction, another access to the same reservation granule), so every use is a retry loop, and there are limits on what may go between the pair. Arm v8.1 added single-instruction atomics (LSE: CAS, LDADD, and others), which scale much better under contention than LL/SC loops.</p>`, "easy") +
+Q(`<p>A ticket lock is fair, but under heavy contention it still scales worse than an MCS lock. Why, and what is the usual fix short of switching to MCS?</p>`,
+`<p>All waiters spin on the same <code>now_serving</code> word. Each release writes it, which invalidates every waiter’s copy, and every waiter then misses to reread it, though only one of them can proceed. That is O(<em>P</em>) misses per handoff and O(<em>P</em><sup>2</sup>) for <em>P</em> handoffs, and the next owner’s read may queue behind the others.</p>
+<p>The cheap fix is proportional backoff: a waiter knows its distance from the front (my ticket − now serving), so it can wait about that many critical-section times before checking again. MCS removes the problem instead: each waiter spins on a flag in its own node, so a release touches exactly one other cache.</p>`, "medium") +
+Q(`<p>An MCS lock is slower than a TTAS lock when there is no contention. Why, and how do production locks get the best of both?</p>`,
+`<p>An uncontended MCS acquire is an atomic swap on the tail, and the release needs a compare-and-swap to check that no successor arrived, so two atomics plus initializing a queue node, often on another cache line. A TTAS lock acquires with one exchange and releases with a plain store.</p>
+<p>Linux’s qspinlock is the standard answer. The fast path is a single compare-and-swap on a 4-byte lock word. A second contender spins on a pending bit, and only from the third does the lock queue waiters MCS-style, using per-CPU nodes whose index is packed into the lock word so the lock stays 4 bytes. Uncontended locks stay cheap, and contended ones get local spinning and FIFO order.</p>`, "hard") +
+C({
+lvl: "medium",
+threads: true,
+q: `<p>Write a test-and-test-and-set spinlock with exponential backoff, using C11 atomics with the weakest correct memory orders. Spin on a plain load while the lock is held, try an atomic exchange when it looks free, and back off for a doubling number of <code>cpu_relax()</code> calls (capped at 64) each time the exchange loses.</p>`,
+head: String.raw`#include <stdio.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <sched.h>
+
+/* On real hardware this would be a pause or yield instruction. */
+static inline void cpu_relax(void) { sched_yield(); }`,
+todo: String.raw`typedef struct { atomic_int locked; } spinlock_t;
+
+void spin_lock(spinlock_t *l) {
+    /* TODO */
+}
+
+void spin_unlock(spinlock_t *l) {
+    /* TODO */
+}`,
+impl: String.raw`typedef struct { atomic_int locked; } spinlock_t;
+
+void spin_lock(spinlock_t *l) {
+    int delay = 1;
+    for (;;) {
+        /* Wait in our own cache: a relaxed load takes no ownership. */
+        while (atomic_load_explicit(&l->locked, memory_order_relaxed))
+            cpu_relax();
+        if (!atomic_exchange_explicit(&l->locked, 1, memory_order_acquire))
+            return;
+        for (int i = 0; i < delay; i++) cpu_relax();   /* lost the race */
+        if (delay < 64) delay *= 2;
+    }
+}
+
+void spin_unlock(spinlock_t *l) {
+    atomic_store_explicit(&l->locked, 0, memory_order_release);
+}`,
+tests: String.raw`#define THREADS 4
+#define ITERS 400
+
+static spinlock_t lock;
+static long counter;          /* plain: only the lock protects it */
+static int inside, overlap;
+
+static void *worker(void *arg) {
+    (void)arg;
+    for (int i = 0; i < ITERS; i++) {
+        spin_lock(&lock);
+        if (++inside != 1) overlap++;
+        long v = counter;
+        sched_yield();          /* invite another thread in */
+        counter = v + 1;
+        inside--;
+        spin_unlock(&lock);
+    }
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t[THREADS];
+    for (int i = 0; i < THREADS; i++) pthread_create(&t[i], NULL, worker, NULL);
+    for (int i = 0; i < THREADS; i++) pthread_join(t[i], NULL);
+    CHECK(overlap == 0, "two threads were inside the critical section %d times", overlap);
+    CHECK(counter == THREADS * ITERS, "counter is %ld, expected %d", counter, THREADS * ITERS);
+    CHECK(atomic_load(&lock.locked) == 0, "the lock should end up free");
+    return REPORT();
+}`,
+a: `<p>The structure is three loops: spin on a relaxed load until the lock looks free, try one exchange with acquire order, and if another core won, back off before spinning again. Acquire on the successful exchange and release on the unlocking store are exactly what a lock needs: nothing in the critical section moves above the acquire or below the release. The waiting loads can be relaxed because they only decide when to try. They don’t protect any data.</p>
+<p>Backoff reduces the burst of exchanges after each release, when every spinner sees the lock free at once. Capping it keeps a thread from sleeping long after the lock is free. Real implementations add randomness so the backoffs of different threads don’t stay in step.</p>
+<p>On this page’s simulator, the yield inside the critical section forces other threads to run there, so a lock that doesn’t exclude shows up as overlap and lost increments. Ordering bugs (for example relaxed instead of acquire) don’t show up here, because the simulator is sequentially consistent, so check those by reasoning.</p>`
+}) +
+C({
+lvl: "medium",
+threads: true,
+q: `<p>Write a ticket lock. <code>ticket_lock()</code> takes the next ticket, waits until it is being served, and returns the ticket it held. <code>ticket_unlock()</code> serves the next ticket. The checks verify mutual exclusion and that the lock is granted in ticket order.</p>`,
+head: String.raw`#include <stdio.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <sched.h>
+
+static inline void cpu_relax(void) { sched_yield(); }
+
+typedef struct { atomic_uint next, serving; } ticket_lock_t;`,
+todo: String.raw`unsigned ticket_lock(ticket_lock_t *l) {
+    /* TODO */
+    return 0;
+}
+
+void ticket_unlock(ticket_lock_t *l) {
+    /* TODO */
+}`,
+impl: String.raw`unsigned ticket_lock(ticket_lock_t *l) {
+    unsigned me = atomic_fetch_add_explicit(&l->next, 1, memory_order_relaxed);
+    while (atomic_load_explicit(&l->serving, memory_order_acquire) != me)
+        cpu_relax();   /* could back off by (me - serving) critical sections */
+    return me;
+}
+
+void ticket_unlock(ticket_lock_t *l) {
+    /* Only the holder writes serving, so a load and a store suffice. */
+    unsigned s = atomic_load_explicit(&l->serving, memory_order_relaxed);
+    atomic_store_explicit(&l->serving, s + 1, memory_order_release);
+}`,
+tests: String.raw`#define THREADS 5
+#define ITERS 200
+
+static ticket_lock_t lock;
+static long counter;
+static int inside, overlap;
+static unsigned order[THREADS * ITERS];
+static int granted;
+
+static void *worker(void *arg) {
+    (void)arg;
+    for (int i = 0; i < ITERS; i++) {
+        unsigned t = ticket_lock(&lock);
+        if (++inside != 1) overlap++;
+        order[granted++] = t;
+        long v = counter;
+        sched_yield();
+        counter = v + 1;
+        inside--;
+        ticket_unlock(&lock);
+    }
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t[THREADS];
+    for (int i = 0; i < THREADS; i++) pthread_create(&t[i], NULL, worker, NULL);
+    for (int i = 0; i < THREADS; i++) pthread_join(t[i], NULL);
+    CHECK(overlap == 0, "two threads were inside the critical section %d times", overlap);
+    CHECK(counter == THREADS * ITERS, "counter is %ld, expected %d", counter, THREADS * ITERS);
+    int fifo = 1;
+    for (int k = 0; k < granted; k++) if (order[k] != (unsigned)k) fifo = 0;
+    CHECK(fifo && granted == THREADS * ITERS, "the lock must be granted in ticket order 0, 1, 2, ...");
+    return REPORT();
+}`,
+a: `<p>Taking a ticket is one <code>fetch_add</code>, which needs no ordering of its own because it protects nothing. Waiting is an acquire load of <code>serving</code>. Releasing doesn’t need an atomic increment: only the holder ever writes <code>serving</code>, so a relaxed load and a release store are enough.</p>
+<p>The lock is FIFO by construction, which TTAS isn’t: under TTAS a thread can lose every race indefinitely. The price is that a waiter can’t barge in when the next ticket holder is slow to notice, for example when its thread was descheduled, which makes ticket locks behave badly when there are more threads than cores. Unsigned wraparound is harmless, since only equality is compared.</p>
+<p>The scaling problem is that every waiter spins on <code>serving</code>, so each release causes a miss in every waiting core. The Math tab’s first question puts numbers on it.</p>`
+}) +
+C({
+lvl: "hard",
+threads: true,
+q: `<p>Write the MCS queue lock (Mellor-Crummey and Scott, 1991). Each thread brings its own queue node. Acquire appends the node to the tail with one atomic exchange and, if there was a predecessor, links itself in and spins on a flag in its own node. Release hands the lock to the successor by clearing the successor’s flag. Handle the race where a successor has swapped itself into the tail but hasn’t linked itself to your node yet.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stddef.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <sched.h>
+
+static inline void cpu_relax(void) { sched_yield(); }
+
+typedef struct mcs_node {
+    _Atomic(struct mcs_node *) next;
+    atomic_int wait;
+} mcs_node_t;
+
+typedef struct { _Atomic(mcs_node_t *) tail; } mcs_lock_t;`,
+todo: String.raw`void mcs_acquire(mcs_lock_t *l, mcs_node_t *me) {
+    /* TODO */
+}
+
+void mcs_release(mcs_lock_t *l, mcs_node_t *me) {
+    /* TODO */
+}`,
+impl: String.raw`void mcs_acquire(mcs_lock_t *l, mcs_node_t *me) {
+    atomic_store_explicit(&me->next, NULL, memory_order_relaxed);
+    atomic_store_explicit(&me->wait, 1, memory_order_relaxed);
+    mcs_node_t *prev = atomic_exchange_explicit(&l->tail, me, memory_order_acq_rel);
+    if (!prev) return;                                  /* the lock was free */
+    atomic_store_explicit(&prev->next, me, memory_order_release);
+    while (atomic_load_explicit(&me->wait, memory_order_acquire))
+        cpu_relax();                                    /* spin on our own node */
+}
+
+void mcs_release(mcs_lock_t *l, mcs_node_t *me) {
+    mcs_node_t *succ = atomic_load_explicit(&me->next, memory_order_acquire);
+    if (!succ) {
+        mcs_node_t *expect = me;
+        /* No successor yet: if we're still the tail, the lock becomes free. */
+        if (atomic_compare_exchange_strong_explicit(&l->tail, &expect, NULL,
+                memory_order_acq_rel, memory_order_acquire))
+            return;
+        /* Someone swapped into the tail but hasn't linked to us yet. */
+        while (!(succ = atomic_load_explicit(&me->next, memory_order_acquire)))
+            cpu_relax();
+    }
+    atomic_store_explicit(&succ->wait, 0, memory_order_release);
+}`,
+tests: String.raw`#define THREADS 6
+#define ITERS 250
+
+static mcs_lock_t lock;
+static long counter;
+static int inside, overlap;
+
+static void *worker(void *arg) {
+    (void)arg;
+    for (int i = 0; i < ITERS; i++) {
+        mcs_node_t node;              /* a fresh node per acquisition */
+        mcs_acquire(&lock, &node);
+        if (++inside != 1) overlap++;
+        long v = counter;
+        sched_yield();
+        counter = v + 1;
+        inside--;
+        mcs_release(&lock, &node);
+    }
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t[THREADS];
+    for (int i = 0; i < THREADS; i++) pthread_create(&t[i], NULL, worker, NULL);
+    for (int i = 0; i < THREADS; i++) pthread_join(t[i], NULL);
+    CHECK(overlap == 0, "two threads were inside the critical section %d times", overlap);
+    CHECK(counter == THREADS * ITERS, "counter is %ld, expected %d", counter, THREADS * ITERS);
+    CHECK(atomic_load(&lock.tail) == NULL, "the queue should be empty at the end");
+    return REPORT();
+}`,
+a: `<p>The tail pointer is the only shared word that waiters write, and each waiter writes it once, with the exchange that enqueues it. After that, a waiter spins on its own node, so a release invalidates one cache line in one other core instead of all of them. That is what makes MCS scale: O(1) coherence traffic per handoff, and FIFO order for free.</p>
+<p>The subtle part is release when <code>next</code> is still NULL. Either nobody is waiting, and a CAS of the tail from <code>me</code> back to NULL frees the lock, or a new waiter has already swapped itself into the tail but hasn’t stored the link yet. Then the CAS fails, and the releaser must wait for the link to appear before handing over. Skipping that wait, or freeing the node too early, is the classic MCS bug.</p>
+<p>Orders: the exchange is acq_rel because it both acquires (when the lock was free) and publishes the initialized node. The link store and the flag store are releases, paired with the acquire loads that read them.</p>`
+}) +
+`<h3 id="sec-barriers">Barriers</h3>` +
+Q(`<p>Why does a centralized counter barrier need sense reversal to be reused safely?</p>`,
+`<p>The naive barrier counts arrivals, and the last arriver resets the count and sets a release flag. When can the flag be cleared for the next episode? If the last arriver clears it on entry to the next barrier, a slow thread still spinning on the old episode may never see it set, and deadlocks. If threads clear it on exit, a fast thread can race into the next episode and find the flag still set.</p>
+<p>Sense reversal removes the reset. Each thread flips a private sense on every episode and waits until the shared flag equals its own sense. The last arriver resets the count and then writes its new sense into the flag. The flag’s value differs from one episode to the next, so stale readers and early arrivers can’t confuse two episodes, and the count reset happens before the release, while no one can touch it.</p>`, "medium") +
+Q(`<p>Compare a centralized barrier with a software combining tree barrier on 64 cores. Where does each spend its time, and how would you pick the tree’s fan-in?</p>`,
+`<p>The centralized barrier has 64 atomic decrements on one line. They serialize on that line, each a cache-to-cache transfer, so arrival takes about 64 transfer times, and the release invalidates 63 spinners at once.</p>
+<p>A combining tree groups threads <em>k</em> to a node. Only the last arriver at each node continues to its parent, so a node sees at most <em>k</em> contending updates, and nodes on the same level proceed in parallel. Arrival takes about <em>k</em> × log<sub><em>k</em></sub>(<em>P</em>) transfer times, which is minimized near <em>k</em> = 3, and 2 or 4 are equally good in practice (both give 12 transfer times at 64 threads). The wake-up can be a single global flag (simple, one burst of invalidations) or a tree walked back down (no hot spot, but more latency).</p>
+<p>Fan-in also follows the machine: putting the threads that share an L2 or a cluster in the same leaf keeps the first level’s traffic local. Dissemination and tournament barriers avoid the shared counter entirely, at the cost of more total messages.</p>`, "hard") +
+C({
+lvl: "hard",
+threads: true,
+q: `<p>Write a reusable centralized barrier with sense reversal. Each thread keeps its own <code>local_sense</code>, starting at 0. The checks run many back-to-back episodes, so a barrier that only works once, or that lets a fast thread run into the next episode early, fails.</p>`,
+head: String.raw`#include <stdio.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <sched.h>
+
+static inline void cpu_relax(void) { sched_yield(); }
+
+typedef struct {
+    atomic_int count, sense;
+    int n;
+} barrier_t;`,
+todo: String.raw`void barrier_init(barrier_t *b, int n) {
+    /* TODO */
+}
+
+void barrier_wait(barrier_t *b, int *local_sense) {
+    /* TODO */
+}`,
+impl: String.raw`void barrier_init(barrier_t *b, int n) {
+    b->n = n;
+    atomic_init(&b->count, n);
+    atomic_init(&b->sense, 0);
+}
+
+void barrier_wait(barrier_t *b, int *local_sense) {
+    *local_sense = !*local_sense;
+    if (atomic_fetch_sub_explicit(&b->count, 1, memory_order_acq_rel) == 1) {
+        /* Last to arrive: reset for the next episode, then release. */
+        atomic_store_explicit(&b->count, b->n, memory_order_relaxed);
+        atomic_store_explicit(&b->sense, *local_sense, memory_order_release);
+    } else {
+        while (atomic_load_explicit(&b->sense, memory_order_acquire) != *local_sense)
+            cpu_relax();
+    }
+}`,
+tests: String.raw`#define THREADS 5
+#define PHASES 60
+
+static barrier_t bar;
+static int slot[THREADS];
+static int bad;
+
+static void *worker(void *arg) {
+    int id = (int)(long)arg, sense = 0;
+    for (int p = 1; p <= PHASES; p++) {
+        slot[id] = p;
+        barrier_wait(&bar, &sense);
+        /* Everyone has reached phase p, and nobody is past p + 1. */
+        for (int u = 0; u < THREADS; u++)
+            if (slot[u] < p || slot[u] > p + 1) bad++;
+    }
+    return NULL;
+}
+
+int main(void) {
+    barrier_init(&bar, THREADS);
+    pthread_t t[THREADS];
+    for (long i = 0; i < THREADS; i++) pthread_create(&t[i], NULL, worker, (void *)i);
+    for (int i = 0; i < THREADS; i++) pthread_join(t[i], NULL);
+    CHECK(bad == 0, "%d times a thread saw another thread outside its phase", bad);
+    int done = 1;
+    for (int u = 0; u < THREADS; u++) done &= slot[u] == PHASES;
+    CHECK(done, "every thread should finish all %d phases", PHASES);
+    CHECK(atomic_load(&bar.count) == THREADS, "the count should be reset after the last episode");
+    return REPORT();
+}`,
+a: `<p>Each episode, every thread flips its private sense. The last arriver (the one whose decrement takes the count from 1 to 0) resets the count first and then publishes its new sense with a release store. Everyone else spins until the shared sense equals their own. Because the shared sense alternates, a thread still leaving episode <em>p</em> and a thread already arriving at episode <em>p</em> + 1 compare against different values, so neither can be confused. And the count is reset before the release, when no other thread can touch it.</p>
+<p>The decrement is acq_rel so that the last arriver sees all the other threads’ writes from before the barrier, and the release store hands those on to every waiter. This is the barrier from the <a href="#/barrier">Sense-Reversing Barriers</a> page, and its cost is 64 serialized updates on one line at 64 threads, which the combining tree below fixes.</p>`
+}) +
+C({
+lvl: "hard",
+threads: true,
+q: `<p>Write a software combining tree barrier. Threads are grouped <code>k</code> to a leaf node (thread <code>id</code> uses leaf <code>id / k</code>), leaves are grouped <code>k</code> to a parent, and so on up to one root. Each node counts arrivals. The last thread to arrive at a node continues to its parent, and the last to arrive at the root releases everyone through one global sense flag. Every other thread waits on that flag. Groups at the end of a level may be smaller than <code>k</code>, and the barrier must be reusable. Support up to 64 threads.</p>`,
+head: String.raw`#include <stdio.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <sched.h>
+
+static inline void cpu_relax(void) { sched_yield(); }
+#define MAXT 64`,
+todo: String.raw`typedef struct {
+    atomic_int sense;
+    /* TODO: tree nodes, and each thread's leaf */
+} tree_barrier_t;
+
+void tb_init(tree_barrier_t *b, int n, int k) {
+    /* TODO */
+}
+
+void tb_wait(tree_barrier_t *b, int id, int *local_sense) {
+    /* TODO */
+}`,
+impl: String.raw`typedef struct tnode {
+    atomic_int count;
+    int expect;               /* arrivals this node waits for */
+    struct tnode *parent;
+} tnode_t;
+
+typedef struct {
+    atomic_int sense;
+    tnode_t nodes[2 * MAXT];
+    tnode_t *leaf[MAXT];
+} tree_barrier_t;
+
+void tb_init(tree_barrier_t *b, int n, int k) {
+    atomic_init(&b->sense, 0);
+    int used = 0, below = n, prev_cnt = 0;
+    tnode_t *prev = NULL;
+    for (;;) {
+        int cnt = (below + k - 1) / k;          /* nodes on this level */
+        tnode_t *lv = &b->nodes[used];
+        used += cnt;
+        for (int i = 0; i < cnt; i++) {
+            lv[i].expect = i == cnt - 1 ? below - i * k : k;
+            atomic_init(&lv[i].count, lv[i].expect);
+            lv[i].parent = NULL;
+        }
+        if (!prev) for (int t = 0; t < n; t++) b->leaf[t] = &lv[t / k];
+        else for (int j = 0; j < prev_cnt; j++) prev[j].parent = &lv[j / k];
+        if (cnt == 1) break;
+        prev = lv; prev_cnt = cnt; below = cnt;
+    }
+}
+
+void tb_wait(tree_barrier_t *b, int id, int *local_sense) {
+    *local_sense = !*local_sense;
+    tnode_t *nd = b->leaf[id];
+    /* Climb while we're the last to arrive. Reset each node on the way:
+       nobody can arrive there again until we release. */
+    while (nd && atomic_fetch_sub_explicit(&nd->count, 1, memory_order_acq_rel) == 1) {
+        atomic_store_explicit(&nd->count, nd->expect, memory_order_relaxed);
+        nd = nd->parent;
+    }
+    if (!nd) {                                   /* last at the root */
+        atomic_store_explicit(&b->sense, *local_sense, memory_order_release);
+        return;
+    }
+    while (atomic_load_explicit(&b->sense, memory_order_acquire) != *local_sense)
+        cpu_relax();
+}`,
+tests: String.raw`#define PHASES 30
+
+static tree_barrier_t tb;
+static int nthreads, slot[MAXT], bad;
+
+static void *worker(void *arg) {
+    int id = (int)(long)arg, sense = 0;
+    for (int p = 1; p <= PHASES; p++) {
+        slot[id] = p;
+        tb_wait(&tb, id, &sense);
+        for (int u = 0; u < nthreads; u++)
+            if (slot[u] < p || slot[u] > p + 1) bad++;
+    }
+    return NULL;
+}
+
+static void run(int n, int k) {
+    nthreads = n; bad = 0;
+    for (int u = 0; u < n; u++) slot[u] = 0;
+    tb_init(&tb, n, k);
+    pthread_t t[MAXT];
+    for (long i = 0; i < n; i++) pthread_create(&t[i], NULL, worker, (void *)i);
+    for (int i = 0; i < n; i++) pthread_join(t[i], NULL);
+    int done = 1;
+    for (int u = 0; u < n; u++) done &= slot[u] == PHASES;
+    CHECK(bad == 0 && done, "%d threads, fan-in %d: %d phase violations", n, k, bad);
+}
+
+int main(void) {
+    run(9, 3);    /* two full levels */
+    run(7, 2);    /* uneven groups, three levels */
+    run(10, 4);   /* last leaf has 2 threads */
+    run(5, 8);    /* a single node */
+    run(1, 4);    /* one thread */
+    return REPORT();
+}`,
+a: `<p>Build the tree bottom-up: a level of ⌈below / <em>k</em>⌉ nodes, each expecting <em>k</em> arrivals except the last, which takes the remainder. Thread <code>id</code> starts at leaf <code>id / k</code>, and node <em>j</em> of a level reports to node <em>j</em> / <em>k</em> of the next. Stop at a level with one node, the root.</p>
+<p>The arrival climbs: a thread decrements its node, and only the thread that brings it to zero continues upward, so each node sees at most <em>k</em> contending updates and different subtrees proceed in parallel. That thread also resets the node’s count on the way, which is safe because no thread can arrive at that node again until the release. The thread that empties the root flips the global sense, and everyone else waits for it, using the same sense reversal as the centralized barrier.</p>
+<p>Arrival costs about <em>k</em> × log<sub><em>k</em></sub>(<em>P</em>) serialized updates instead of <em>P</em>. A tree wake-up (each winner releasing its own subtree on the way back down) would also remove the single hot flag, at the cost of log<sub><em>k</em></sub>(<em>P</em>) steps of latency.</p>`
+}) +
+`<h3 id="sec-lockfree">Lock-Free Structures</h3>` +
+Q(`<p>What is the ABA problem in a Treiber stack’s pop, and how do you prevent it?</p>`,
+`<p>Pop reads the top node A and its successor B, then tries CAS(top, A, B). If, between the read and the CAS, another thread pops A, pops B, and pushes A back, the top is A again and the CAS succeeds, installing B, which is no longer on the stack. The stack is now corrupted, and B may already be freed or reused.</p>
+<p>Fixes:</p>
+<ul>
+<li><strong>A version tag</strong> next to the pointer, incremented on every update, compared and swapped together (a double-width CAS such as <code>cmpxchg16b</code>, or a tag packed into unused pointer bits).</li>
+<li><strong>Safe memory reclamation</strong> (hazard pointers, epoch-based reclamation), which guarantees a node isn’t reused while any thread may still hold a pointer to it, so A can’t come back.</li>
+<li><strong>LL/SC</strong>, which fails if top was written at all.</li>
+</ul>`, "medium") +
+Q(`<p>In a single-producer, single-consumer ring buffer, which memory orderings are required, and why does code with plain loads and stores often work on x86 but fail on Arm?</p>`,
+`<p>The producer writes the slot and then publishes it by storing the new tail with release order. The consumer loads the tail with acquire order before reading the slot. In the other direction, the consumer releases the head after reading, and the producer acquires the head before reusing a slot. Each index is written by only one side, so no read-modify-write atomics are needed at all.</p>
+<p>x86 is TSO: stores become visible in order and loads aren’t reordered with older loads, so the hardware already provides acquire and release for plain moves, and only the compiler can break the code. Arm’s weaker model lets the tail store become visible before the data store, so the consumer can read a stale slot. In C, plain loads and stores of shared indices are a data race, which is undefined behavior anyway, and the compiler may hoist the tail load out of a spin loop. The fix is the same on both: C11 atomics with acquire and release, which cost nothing extra on x86 and use LDAR/STLR on Arm.</p>`, "hard") +
+C({
+lvl: "hard",
+threads: true,
+q: `<p>Write a lock-free single-producer, single-consumer ring buffer of <code>CAP</code> integers. <code>head</code> and <code>tail</code> are free-running counters (they count every push and pop and wrap only at 2<sup>32</sup>), and the slot index is the counter modulo <code>CAP</code>. <code>ring_push()</code> returns 0 when full and <code>ring_pop()</code> returns 0 when empty. Use acquire and release where they are needed and relaxed everywhere else, and no read-modify-write atomics.</p>`,
+head: String.raw`#include <stdio.h>
+#include <limits.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <sched.h>
+
+#define CAP 8   /* a power of two */
+
+typedef struct {
+    int buf[CAP];
+    atomic_uint head;   /* next slot to read, written only by the consumer */
+    atomic_uint tail;   /* next slot to write, written only by the producer */
+} ring_t;`,
+todo: String.raw`int ring_push(ring_t *r, int v) {
+    /* TODO */
+    return 0;
+}
+
+int ring_pop(ring_t *r, int *v) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`int ring_push(ring_t *r, int v) {
+    unsigned t = atomic_load_explicit(&r->tail, memory_order_relaxed);   /* our own */
+    unsigned h = atomic_load_explicit(&r->head, memory_order_acquire);
+    if (t - h == CAP) return 0;                  /* full; works across wraparound */
+    r->buf[t % CAP] = v;
+    atomic_store_explicit(&r->tail, t + 1, memory_order_release);        /* publish */
+    return 1;
+}
+
+int ring_pop(ring_t *r, int *v) {
+    unsigned h = atomic_load_explicit(&r->head, memory_order_relaxed);
+    unsigned t = atomic_load_explicit(&r->tail, memory_order_acquire);
+    if (h == t) return 0;
+    *v = r->buf[h % CAP];
+    atomic_store_explicit(&r->head, h + 1, memory_order_release);        /* free the slot */
+    return 1;
+}`,
+tests: String.raw`#define N 3000
+
+static ring_t ring;
+static int got[N], received, stuck;
+
+static void *producer(void *arg) {
+    (void)arg;
+    for (int i = 0; i < N; i++) {
+        long tries = 0;
+        while (!ring_push(&ring, i)) { sched_yield(); if (++tries > 100000) { stuck = 1; return NULL; } }
+    }
+    return NULL;
+}
+
+static void *consumer(void *arg) {
+    (void)arg;
+    while (received < N) {
+        long tries = 0;
+        int v;
+        while (!ring_pop(&ring, &v)) { sched_yield(); if (++tries > 100000) { stuck = 1; return NULL; } }
+        got[received++] = v;
+    }
+    return NULL;
+}
+
+int main(void) {
+    /* One thread: full, empty, order, and counters that wrap past 2^32. */
+    ring_t r = {0};
+    atomic_store(&r.head, UINT_MAX - 3);
+    atomic_store(&r.tail, UINT_MAX - 3);
+    int ok = 1, v;
+    for (int i = 0; i < CAP; i++) ok &= ring_push(&r, 100 + i);
+    CHECK(ok, "the first %d pushes must succeed", CAP);
+    CHECK(!ring_push(&r, 999), "a push into a full ring must fail");
+    for (int i = 0; i < CAP; i++) ok &= ring_pop(&r, &v) && v == 100 + i;
+    CHECK(ok, "pops must return the values in order across the wraparound");
+    CHECK(!ring_pop(&r, &v), "a pop from an empty ring must fail");
+
+    /* Two threads. */
+    pthread_t p, c;
+    pthread_create(&c, NULL, consumer, NULL);
+    pthread_create(&p, NULL, producer, NULL);
+    pthread_join(p, NULL);
+    pthread_join(c, NULL);
+    CHECK(!stuck, "a thread gave up waiting");
+    int inorder = received == N;
+    for (int i = 0; i < received; i++) if (got[i] != i) inorder = 0;
+    CHECK(inorder, "received %d values, expected 0..%d in order", received, N - 1);
+    return REPORT();
+}`,
+a: `<p>Each index has one writer, so plain stores of the new value are enough. The memory orders carry the data:</p>
+<ul>
+<li>The producer writes the slot, then <strong>release</strong>-stores the tail. The consumer <strong>acquire</strong>-loads the tail before reading the slot. So the consumer never reads a slot before its data is visible.</li>
+<li>The consumer reads the slot, then <strong>release</strong>-stores the head. The producer <strong>acquire</strong>-loads the head before overwriting the slot. So the producer never overwrites data the consumer hasn’t read yet.</li>
+<li>Each side reads its own index relaxed, since only it writes that index.</li>
+</ul>
+<p>Free-running unsigned counters make full and empty unambiguous: empty is <code>head == tail</code> and full is <code>tail − head == CAP</code>, both correct across wraparound because unsigned subtraction is modulo 2<sup>32</sup>. That needs <code>CAP</code> to divide 2<sup>32</sup>, hence a power of two.</p>
+<p>For performance, put <code>head</code> and <code>tail</code> on separate cache lines, and have each side keep a private copy of the other’s index, rereading it only when the ring looks full or empty. That removes most of the coherence misses per message.</p>`
+}) +
+C({
+lvl: "hard",
+threads: true,
+q: `<p>Write a lock-free Treiber stack that is safe from ABA. The top of the stack is one 64-bit atomic word holding the node pointer in its low 32 bits and a version tag in its high 32 bits (this code runs as 32-bit WebAssembly, so pointers are 32 bits). Every successful update increments the tag. Nodes are never freed. The checks have four threads repeatedly pop a node and push it back, which is the pattern that triggers ABA.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <sched.h>
+
+typedef struct node { struct node *next; int value; } node_t;
+typedef struct { _Atomic uint64_t top; } tstack_t;
+
+static inline node_t *ptr_of(uint64_t w) { return (node_t *)(uintptr_t)(uint32_t)w; }
+static inline uint32_t tag_of(uint64_t w) { return (uint32_t)(w >> 32); }
+static inline uint64_t pack(node_t *p, uint32_t tag) { return (uint64_t)tag << 32 | (uint32_t)(uintptr_t)p; }`,
+todo: String.raw`void ts_push(tstack_t *s, node_t *n) {
+    /* TODO */
+}
+
+node_t *ts_pop(tstack_t *s) {
+    /* TODO */
+    return NULL;
+}`,
+impl: String.raw`void ts_push(tstack_t *s, node_t *n) {
+    uint64_t old = atomic_load_explicit(&s->top, memory_order_relaxed);
+    do {
+        n->next = ptr_of(old);
+    } while (!atomic_compare_exchange_weak_explicit(&s->top, &old, pack(n, tag_of(old) + 1),
+                                                    memory_order_release, memory_order_relaxed));
+}
+
+node_t *ts_pop(tstack_t *s) {
+    uint64_t old = atomic_load_explicit(&s->top, memory_order_acquire);
+    node_t *p;
+    do {
+        p = ptr_of(old);
+        if (!p) return NULL;
+        /* If another thread pops p and pushes it back meanwhile, the tag
+           has changed, so this CAS fails instead of installing a stale next. */
+    } while (!atomic_compare_exchange_weak_explicit(&s->top, &old, pack(p->next, tag_of(old) + 1),
+                                                    memory_order_acquire, memory_order_acquire));
+    return p;
+}`,
+tests: String.raw`#define NODES 16
+#define THREADS 4
+#define ITERS 1500
+
+static tstack_t st;
+static node_t pool[NODES];
+static int empty_pops;
+
+static void *worker(void *arg) {
+    (void)arg;
+    for (int i = 0; i < ITERS; i++) {
+        node_t *n = ts_pop(&st);
+        if (!n) { empty_pops++; sched_yield(); continue; }
+        sched_yield();
+        ts_push(&st, n);
+    }
+    return NULL;
+}
+
+int main(void) {
+    /* One thread: LIFO order. */
+    for (int i = 0; i < 3; i++) { pool[i].value = i; ts_push(&st, &pool[i]); }
+    node_t *a = ts_pop(&st), *b = ts_pop(&st), *c = ts_pop(&st);
+    CHECK(a == &pool[2] && b == &pool[1] && c == &pool[0] && ts_pop(&st) == NULL, "pops must be LIFO, then NULL");
+
+    for (int i = 0; i < NODES; i++) { pool[i].value = i; ts_push(&st, &pool[i]); }
+    pthread_t t[THREADS];
+    for (int i = 0; i < THREADS; i++) pthread_create(&t[i], NULL, worker, NULL);
+    for (int i = 0; i < THREADS; i++) pthread_join(t[i], NULL);
+
+    /* Every node must be on the stack exactly once, with no cycle. */
+    int seen[NODES] = {0}, count = 0, dup = 0;
+    for (node_t *n = ptr_of(atomic_load(&st.top)); n && count < 100; n = n->next, count++) {
+        int k = (int)(n - pool);
+        if (k < 0 || k >= NODES || seen[k]++) dup = 1;
+    }
+    CHECK(count == NODES && !dup, "after the run the stack holds %d nodes (duplicates: %d), expected %d distinct", count, dup, NODES);
+    CHECK(empty_pops == 0, "with %d nodes and %d threads a pop should never find the stack empty", NODES, THREADS);
+    return REPORT();
+}`,
+a: `<p>Push links the new node to the current top and swings the top to it with a CAS, retrying from the value the failed CAS returns. Pop reads the top, reads its <code>next</code>, and swings the top to <code>next</code>. Both bump the tag.</p>
+<p>The tag is what makes pop safe. Without it, thread 1 can read top = A and next = B and be preempted. Thread 2 then pops A, pops B, and pushes A back. The top is A again, so thread 1’s CAS succeeds and installs B, which another thread now owns. Two threads hold B, and the stack has lost or duplicated nodes. With a tag, the top word changed from (A, <em>t</em>) to (A, <em>t</em> + 3), so the CAS fails and thread 1 retries.</p>
+<p>A 32-bit tag can in principle wrap back to the same value while a thread is preempted, but that takes 2<sup>32</sup> updates. On x86-64, pointers are 64 bits, so the same design needs <code>cmpxchg16b</code> or a tag packed into the unused upper 16 address bits. Nodes are never freed here. With real memory reclamation, reading <code>p-&gt;next</code> after <code>p</code> was freed is a second bug, which hazard pointers or epochs solve.</p>`
+}) +
+`<h3 id="sec-scale">Scaling and Contention</h3>` +
+Q(`<p>A counter protected by a spinlock gets slower in total throughput as you go from 1 to 16 threads, even though the critical section is a single increment. Explain the mechanism and two fixes.</p>`,
+`<p>With one thread, the lock and counter stay in its L1, and an acquire-increment-release takes a few nanoseconds. With 16, every acquisition moves the lock line, and usually the counter line, from the previous owner’s cache, a cache-to-cache transfer of tens of nanoseconds or more across a mesh, and over 100 ns across sockets. Throughput becomes one handoff per transfer time no matter how many threads there are. Waiting cores also add coherence traffic that delays the handoff itself, so throughput falls below the one-thread rate.</p>
+<p>Fixes:</p>
+<ul>
+<li><strong>Shard</strong> the counter into per-thread (or per-core) slots on separate cache lines and sum them when read. Increments become L1 hits.</li>
+<li><strong>Batch:</strong> accumulate locally and publish every few thousand increments.</li>
+<li>An atomic <code>fetch_add</code> removes the lock but still moves the line on every increment, so it helps by about the lock overhead, not by the core count.</li>
+</ul>`, "hard") +
+M(`<p>Sixteen threads on a 16-core part all wait for a lock that thread 0 holds, and each then takes it once. Each cache-to-cache miss costs 80 ns.</p>
+<ol>
+<li>With a ticket lock, a release invalidates every waiter’s copy of <code>now_serving</code> and each remaining waiter misses once to reread it. How many such misses happen over all 16 handoffs?</li>
+<li>With an MCS lock, only the successor’s flag is invalidated. How many misses?</li>
+<li>Suppose the rereads after a ticket-lock release are served one at a time in random order, and the next owner can proceed only when its own reread completes. What is the total handoff waiting time for the ticket lock versus MCS?</li>
+</ol>`,
+`<ol>
+<li>At the first release, 15 threads are waiting, then 14, down to 1. Misses = 15 + 14 + … + 1 = 15 × 16 / 2 = <strong>120</strong>.</li>
+<li>One miss per handoff with a waiter: <strong>15</strong>.</li>
+<li>With <em>k</em> waiters, the next owner is equally likely to be anywhere in the line of <em>k</em> rereads, so its expected position is (<em>k</em> + 1) / 2 and it waits (<em>k</em> + 1) / 2 × 80 ns. Summed over <em>k</em> = 1 to 15: 40 ns × (120 + 15) = <strong>5,400 ns</strong>. MCS waits one miss per handoff: 15 × 80 = <strong>1,200 ns</strong>, 4.5 times less, and the gap grows linearly with the thread count.</li>
+</ol>`, "medium") +
+M(`<p>Each work item takes 1.8 µs of parallel work plus 0.2 µs inside a lock. You run on 32 cores.</p>
+<ol>
+<li>What speedup does Amdahl’s law predict if you treat the critical section as serial code?</li>
+<li>With a lock, other threads keep doing parallel work while one holds it. Ignoring handoff cost, what speedup is possible on 32 cores?</li>
+<li>Under contention, each acquisition adds a 0.15 µs handoff. What is the maximum speedup now, and from about how many cores does adding cores stop helping?</li>
+</ol>`,
+`<ol>
+<li>Serial fraction = 0.2 / 2.0 = 0.1. Speedup = 1 / (0.1 + 0.9 / 32) = 1 / 0.128 = <strong>7.8</strong>.</li>
+<li>The lock is the only serial resource, and it can complete one item per 0.2 µs, 5 million per second. One thread completes one item per 2.0 µs, 0.5 million per second. Thirty-two threads could offer 32 / 2.0 µs = 16 million per second, more than the lock can take, so throughput is capped at 5 million per second: speedup <strong>10</strong>. Amdahl’s law is pessimistic here, because it assumes nothing else runs while the serial part does.</li>
+<li>The lock now takes 0.2 + 0.15 = 0.35 µs per item: 2.86 million per second, a speedup of 2.86 / 0.5 = <strong>5.7</strong>. Demand reaches that rate when <em>P</em> / 2.0 µs = 2.86 per µs, at <em>P</em> ≈ <strong>5.7</strong> cores, so beyond about 6 cores the extra ones just wait. Shrinking the critical section, sharding the lock, or batching updates moves this limit. Adding cores doesn’t.</li>
+</ol>`, "hard") +
+M(`<p>Sixty-four threads reach a barrier at the same moment. An atomic update to a contended line takes 100 ns, and updates to the same line serialize while updates to different lines proceed in parallel. After the releasing write completes, spinners see it 100 ns later. The releasing write itself takes 100 ns.</p>
+<ol>
+<li>How long does a centralized counter barrier take, from arrival to every thread seeing the release?</li>
+<li>How long does a combining tree with fan-in 4 take, with a single global release flag?</li>
+<li>Repeat 2 for fan-in 2 and fan-in 8.</li>
+</ol>`,
+`<ol>
+<li>Sixty-four serialized decrements: 6.4 µs. Then the release write (0.1 µs) and the spinners seeing it (0.1 µs): <strong>6.6 µs</strong>.</li>
+<li>log<sub>4</sub>(64) = 3 levels. At each level, the 4 arrivals at a node serialize (400 ns) while nodes at the same level run in parallel: 3 × 400 = 1.2 µs. Plus 0.2 µs for the release: <strong>1.4 µs</strong>, 4.7 times faster.</li>
+<li>Fan-in 2: 6 levels × 200 ns = 1.2 µs, again <strong>1.4 µs</strong>. Fan-in 8: 2 levels × 800 ns = 1.6 µs, <strong>1.8 µs</strong>. The arrival cost is <em>k</em> × log<sub><em>k</em></sub>(<em>P</em>), minimized near <em>k</em> = e, so 2 and 4 tie and 8 is worse.</li>
+</ol>`, "hard") +
+M(`<p>Thirty-two threads count events. A shared atomic <code>fetch_add</code> needs the line in exclusive state, and a cache-to-cache transfer takes 70 ns. A per-thread counter on its own line takes 1 ns per increment. A monitor reads the total once per millisecond, and its misses are issued one at a time.</p>
+<ol>
+<li>What total increment rate does the shared atomic allow, at any thread count?</li>
+<li>What rate do sharded counters allow, and what does each read of the total cost?</li>
+<li>How much memory do the shards use?</li>
+</ol>`,
+`<ol>
+<li>Every increment transfers the line, so the counter does one increment per 70 ns: <strong>about 14.3 million per second</strong> in total, the same for 2 threads or 32.</li>
+<li>Each thread increments its own line at 1 per ns: 32 × 10<sup>9</sup> = <strong>3.2 × 10<sup>10</sup> per second</strong>, about 2,240 times more. A read of the total misses on 32 lines: 32 × 70 ns = <strong>2.24 µs</strong> once per millisecond, about 0.2% of one core.</li>
+<li>32 lines × 64 B = <strong>2 KB</strong>. The sum isn’t an atomic snapshot, which is fine for statistics but not for anything that must be exact at one instant.</li>
+</ol>`, "hard") +
+M(`<p>Sixteen threads each request a lock after an average of 10 µs of their own work. Holding the lock, including the handoff, takes 0.5 µs. Approximate the lock as an M/M/1 queue.</p>
+<ol>
+<li>What is the lock’s utilization and the average wait before acquiring it?</li>
+<li>If the data is split across 4 locks with requests spread evenly, what is the average wait?</li>
+<li>What fraction of each thread’s time is useful work in each case?</li>
+</ol>`,
+`<ol>
+<li>Arrival rate λ = 16 / 10 µs = 1.6 per µs. Utilization ρ = λ × 0.5 µs = <strong>0.8</strong>. M/M/1 waiting time = ρ × s / (1 − ρ) = 0.8 × 0.5 / 0.2 = <strong>2.0 µs</strong>.</li>
+<li>Each lock gets 0.4 per µs, so ρ = 0.2 and the wait is 0.2 × 0.5 / 0.8 = <strong>0.125 µs</strong>.</li>
+<li>One lock: 10 / (10 + 0.5 + 2.0) = <strong>80%</strong>. Four locks: 10 / (10 + 0.5 + 0.125) ≈ <strong>94%</strong>.</li>
+</ol>
+<p>The open-queue model overstates the wait at high utilization, because in this closed system a waiting thread doesn’t generate new requests. The qualitative point holds: waiting grows as 1 / (1 − ρ), so a lock near 80% busy is near collapse, and splitting it pays off far more than its 4× share of requests would suggest.</p>`, "hard")
+},
+{
   id: "intv-diag",
   title: "Diagnosing Bottlenecks",
   body: `
@@ -5287,6 +5993,710 @@ Q(`<p>Compare mechanistic analytical models (interval analysis, first-order queu
 <li>Use either to prune the design space, then verify the best candidates with detailed simulation.</li>
 <li>Check the empirical model’s error on held-out configurations near the edge of the space, not only on random ones.</li>
 </ul>`, "hard"),
+},
+{
+  id: "intv-alloc",
+  title: "Memory Allocation and the C Library",
+  body: `
+<p>Background: <a href="#/virtual-memory">Virtual and Physical Memory</a>, <a href="#/tlb">TLBs and Page Walks</a>, <a href="#/false-sharing">False Sharing and Cache-Line Isolation</a>. The standard references are Wilson, Johnstone, Neely, and Boles, “Dynamic Storage Allocation: A Survey and Critical Review” (1995), Bryant and O’Hallaron’s <em>Computer Systems: A Programmer’s Perspective</em> (chapter 9), and the design notes for jemalloc, tcmalloc, and mimalloc.</p>
+<h3 id="sec-alloc">Allocator Design</h3>` +
+Q(`<p>What alignment does <code>malloc</code> have to return, and what do <code>malloc(0)</code> and <code>free(NULL)</code> do?</p>`,
+`<p><code>malloc</code> must return memory aligned for any object type that fits in the requested size, in practice <code>alignof(max_align_t)</code>: 16 bytes on x86-64 Linux and on AArch64. That is because the caller can store anything there, including <code>long double</code> or SSE vectors, and the allocator can’t know which.</p>
+<p><code>malloc(0)</code> returns either NULL or a unique pointer that must be passed to <code>free</code>, and which one is up to the implementation (glibc returns a unique minimum-size block). <code>free(NULL)</code> is defined to do nothing, so code never needs to check before freeing. <code>realloc(p, 0)</code> was implementation-defined and is undefined behavior as of C23, so portable code should call <code>free</code> instead.</p>`, "easy") +
+Q(`<p>Why do modern allocators (tcmalloc, jemalloc, mimalloc) use size classes and per-thread caches, and what does that cost?</p>`,
+`<p><strong>Size classes</strong> round each small request up to one of a few dozen sizes and carve each page or run into equal slots. Allocation becomes popping a free list for that class, no searching and no splitting, and a freed slot fits the next request of the same class exactly, so external fragmentation mostly disappears.</p>
+<p><strong>Per-thread (or per-CPU) caches</strong> keep a few free objects of each class locally, so the common path takes no lock and touches no shared cache line. That is what makes <code>malloc</code> plus <code>free</code> cost tens of nanoseconds instead of a contended lock.</p>
+<p>The costs:</p>
+<ul>
+<li>Internal fragmentation from rounding up (bounded by class spacing, typically under 12.5% to 25%).</li>
+<li>Memory parked in caches of threads that no longer need it.</li>
+<li>Extra work when a thread frees an object another thread allocated.</li>
+</ul>`, "medium") +
+Q(`<p>What are boundary tags, what do they buy an allocator, and how can the footer be dropped for allocated blocks?</p>`,
+`<p>A boundary tag is a copy of a block’s size and allocated bit at both ends: a header before the payload and a footer at the end. When a block is freed, the next block’s header is right after the footer, and the previous block’s footer is right before the header, so the allocator can check both neighbors and merge with free ones in O(1), with no search. Without coalescing, a heap fills with small free fragments that can’t satisfy larger requests.</p>
+<p>Footers cost a word per block. The standard trick (from Knuth, used by glibc as <code>PREV_INUSE</code>) stores in each header one bit saying whether the previous block is allocated. Only free blocks need footers, because a footer is only read when the previous block is free, so allocated blocks give that word to the payload.</p>`, "medium") +
+Q(`<p>A program grows a buffer with <code>realloc</code>, adding one element at a time. Explain the cost with a growth factor of 2, why some libraries use 1.5, and how large reallocations can avoid copying at all.</p>`,
+`<p>If capacity doubles when full, each element is copied at most a few times in total (1 + 1/2 + 1/4 + … &lt; 2 copies on average), so appends are amortized O(1) and the buffer is at most half empty. Growing by a fixed amount instead costs O(<em>n</em><sup>2</sup>) copying.</p>
+<p>The argument for 1.5 is reuse. With factor 2, each new block is larger than the sum of all previously freed blocks (1 + 2 + … + 2<sup><em>k</em>−1</sup> &lt; 2<sup><em>k</em></sup>), so an allocator placing them in sequence can never reuse the freed space for the buffer. With any factor below the golden ratio (about 1.618), the freed blocks eventually add up to more than the next request, so the space can be recycled, at the cost of more frequent copies.</p>
+<p>For large blocks, glibc allocates with <code>mmap</code>, and growing uses <code>mremap</code>, which moves the page-table entries to a new virtual range without copying any data. The allocator may also grow a block in place when the following memory is free, which is the first thing a good <code>realloc</code> tries.</p>`, "hard") +
+Q(`<p>A server has one thread that allocates request buffers and a pool of worker threads that free them. Under a per-thread-caching allocator its memory use keeps climbing. Explain, and give fixes.</p>`,
+`<p>Each freed object goes into the cache, or the heap, of the thread that freed it. The workers accumulate free buffers they never allocate from, while the producer keeps taking fresh memory because its own cache is always empty. Memory use grows with the number of threads, not with live data. This is the “blowup” the Hoard paper (Berger et al., 2000) defined, and naive per-thread heaps can make it unbounded.</p>
+<p>Remote frees also cost performance: the freeing thread writes metadata on cache lines owned by the allocating thread, which is false sharing on the allocator’s structures.</p>
+<p>Fixes in real allocators: return objects to the owning heap through a lock-free remote-free list that the owner drains (mimalloc, snmalloc), cap thread caches and flush them back to a central pool when they exceed a limit (tcmalloc, jemalloc’s tcache GC), or give each CPU, not each thread, its own cache (tcmalloc’s per-CPU mode, using restartable sequences). At the application level, recycle buffers back to the producer through a queue.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Implement <code>my_malloc</code> and <code>my_free</code> over a fixed 1 MiB arena, without calling the C library’s allocator.</p>
+<ul>
+<li>Return 16-byte aligned pointers, NULL when a request can’t be met, and NULL for size 0. <code>my_free(NULL)</code> does nothing.</li>
+<li>Use at most 16 bytes of overhead per allocated block.</li>
+<li>Coalesce freed neighbors immediately: after everything has been freed, a single request for the arena size minus 64 bytes must succeed, whatever order the blocks were freed in.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define ARENA (1 << 20)
+static _Alignas(16) uint8_t heap[ARENA];`,
+todo: String.raw`void *my_malloc(size_t n) {
+    /* TODO */
+    return NULL;
+}
+
+void my_free(void *p) {
+    /* TODO */
+}`,
+impl: String.raw`/* Blocks are multiples of 16 bytes and start 8 bytes before a 16-byte
+   boundary: an 8-byte header (size | allocated bit), the payload, and an
+   8-byte footer copying the header. Free blocks keep an explicit doubly
+   linked free list in their payload. A permanently allocated epilogue
+   header at the end stops coalescing. */
+typedef struct { uint32_t size_alloc, pad; } tag_t;
+typedef struct fblock { struct fblock *prev, *next; } fblock_t;
+#define MIN_BLOCK 32
+static fblock_t *free_list;
+static int ready;
+
+static tag_t *hdr(uint8_t *b) { return (tag_t *)b; }
+static uint32_t bsize(uint8_t *b) { return hdr(b)->size_alloc & ~1u; }
+static int is_alloc(uint8_t *b) { return hdr(b)->size_alloc & 1; }
+static void set(uint8_t *b, uint32_t size, int alloc) {
+    hdr(b)->size_alloc = size | (uint32_t)alloc;
+    ((tag_t *)(b + size - 8))->size_alloc = size | (uint32_t)alloc;   /* footer */
+}
+static fblock_t *fb(uint8_t *b) { return (fblock_t *)(b + 8); }
+static uint8_t *blk(fblock_t *f) { return (uint8_t *)f - 8; }
+
+static void list_add(uint8_t *b) {
+    fblock_t *f = fb(b);
+    f->prev = NULL; f->next = free_list;
+    if (free_list) free_list->prev = f;
+    free_list = f;
+}
+static void list_del(uint8_t *b) {
+    fblock_t *f = fb(b);
+    if (f->prev) f->prev->next = f->next; else free_list = f->next;
+    if (f->next) f->next->prev = f->prev;
+}
+
+static void init(void) {
+    uint8_t *first = heap + 8;                 /* payload lands on 16 */
+    set(first, ARENA - 16, 0);
+    hdr(heap + ARENA - 8)->size_alloc = 1;     /* epilogue: size 0, allocated */
+    free_list = NULL;
+    list_add(first);
+    ready = 1;
+}
+
+void *my_malloc(size_t n) {
+    if (!ready) init();
+    if (n == 0 || n > ARENA) return NULL;
+    uint32_t need = (uint32_t)((n + 16 + 15) & ~(size_t)15);
+    if (need < MIN_BLOCK) need = MIN_BLOCK;
+    for (fblock_t *f = free_list; f; f = f->next) {          /* first fit */
+        uint8_t *b = blk(f);
+        uint32_t size = bsize(b);
+        if (size < need) continue;
+        list_del(b);
+        if (size - need >= MIN_BLOCK) {                       /* split */
+            set(b, need, 1);
+            set(b + need, size - need, 0);
+            list_add(b + need);
+        } else {
+            set(b, size, 1);
+        }
+        return b + 8;
+    }
+    return NULL;
+}
+
+void my_free(void *p) {
+    if (!p) return;
+    uint8_t *b = (uint8_t *)p - 8;
+    uint32_t size = bsize(b);
+    uint8_t *next = b + size;
+    if (!is_alloc(next)) { list_del(next); size += bsize(next); }
+    if (b > heap + 8) {
+        tag_t *prev_ftr = (tag_t *)(b - 8);
+        if (!(prev_ftr->size_alloc & 1)) {
+            uint8_t *prev = b - (prev_ftr->size_alloc & ~1u);
+            list_del(prev);
+            size += bsize(prev);
+            b = prev;
+        }
+    }
+    set(b, size, 0);
+    list_add(b);
+}`,
+tests: String.raw`#define N 600
+
+int main(void) {
+    CHECK(my_malloc(0) == NULL, "my_malloc(0) should return NULL");
+    my_free(NULL);
+    CHECK(my_malloc(ARENA) == NULL, "a request larger than the arena must fail");
+
+    /* Random sizes, each block filled with a pattern, checked before freeing. */
+    static uint8_t *p[N];
+    static size_t sz[N];
+    srand(11);
+    int misaligned = 0, outside = 0, corrupt = 0, failed = 0;
+    for (int i = 0; i < N; i++) {
+        sz[i] = 1 + rand() % (rand() % 4 ? 200 : 3000);
+        p[i] = my_malloc(sz[i]);
+        if (!p[i]) { failed++; continue; }
+        if ((uintptr_t)p[i] % 16) misaligned++;
+        if (p[i] < heap || p[i] + sz[i] > heap + ARENA) outside++;
+        memset(p[i], i & 0xFF, sz[i]);
+    }
+    CHECK(failed == 0, "%d of %d allocations failed (about 270 KB requested)", failed, N);
+    CHECK(misaligned == 0, "%d pointers were not 16-byte aligned", misaligned);
+    CHECK(outside == 0, "%d blocks fall outside the arena", outside);
+
+    /* Free every other block, reallocate into the holes, then free all in random order. */
+    for (int i = 0; i < N; i += 2) {
+        for (size_t k = 0; k < sz[i]; k++) if (p[i][k] != (uint8_t)(i & 0xFF)) { corrupt++; break; }
+        my_free(p[i]);
+        sz[i] = 1 + rand() % 100;
+        p[i] = my_malloc(sz[i]);
+        if (p[i]) memset(p[i], i & 0xFF, sz[i]);
+    }
+    int order[N];
+    for (int i = 0; i < N; i++) order[i] = i;
+    for (int i = N - 1; i > 0; i--) { int j = rand() % (i + 1), t = order[i]; order[i] = order[j]; order[j] = t; }
+    for (int k = 0; k < N; k++) {
+        int i = order[k];
+        if (!p[i]) continue;
+        for (size_t b = 0; b < sz[i]; b++) if (p[i][b] != (uint8_t)(i & 0xFF)) { corrupt++; break; }
+        my_free(p[i]);
+    }
+    CHECK(corrupt == 0, "%d blocks were overwritten by other blocks", corrupt);
+
+    /* Everything is free: the whole arena must have coalesced back. */
+    void *big = my_malloc(ARENA - 64);
+    CHECK(big != NULL, "after freeing everything, a %d-byte request should succeed", ARENA - 64);
+    my_free(big);
+    void *again = my_malloc(ARENA - 64);
+    CHECK(again == big, "and succeed again at the same address after freeing it");
+    return REPORT();
+}`,
+a: `<p>The layout decides everything else. Keep block sizes a multiple of 16 and start each block 8 bytes before a 16-byte boundary, so an 8-byte header puts every payload on 16. An 8-byte footer copies the header, giving 16 bytes of overhead per block. A block’s size field also locates the next block’s header, and the previous block’s footer sits just before the header, so both neighbors are O(1) to find.</p>
+<p><code>my_malloc</code> rounds the request plus overhead up to 16, scans an explicit free list (threaded through the free blocks’ payloads) for the first block that fits, and splits off the remainder if it can hold a minimum block. <code>my_free</code> checks the next header and the previous footer and merges with whichever neighbors are free, removing them from the list first. A permanently allocated epilogue at the end, and the arena start check, keep coalescing inside the arena.</p>
+<p>Points an interviewer will push on:</p>
+<ul>
+<li><strong>Placement:</strong> first fit on a LIFO list is fast but fragments more than address-ordered first fit or best fit. Segregated lists per size range (what glibc’s bins and dlmalloc do) get close to best fit at near-constant cost.</li>
+<li><strong>Footers on allocated blocks</strong> can be dropped with a previous-allocated bit in the header.</li>
+<li><strong>Thread safety</strong> needs a lock, or per-thread arenas.</li>
+<li><strong>A double free or a bad pointer</strong> silently corrupts the lists. Hardened allocators check the header and keep free-list pointers protected.</li>
+</ul>`
+}) +
+C({
+lvl: "medium",
+q: `<p>Wrap the system allocator to add <code>x_realloc</code>, <code>x_calloc</code>, and <code>x_aligned_alloc</code>, keeping a small header before each block that records what you need. Use only <code>malloc</code> and <code>free</code> underneath.</p>
+<ul>
+<li><code>x_realloc(NULL, n)</code> acts like <code>x_malloc(n)</code>, and <code>x_realloc(p, 0)</code> frees <code>p</code> and returns NULL. Shrinking, or growing within the block’s recorded capacity, must not move the block. Otherwise copy the old contents, and on failure leave the old block untouched and return NULL.</li>
+<li><code>x_calloc(n, size)</code> returns zeroed memory, and NULL if <code>n × size</code> overflows.</li>
+<li><code>x_aligned_alloc(align, n)</code> returns memory aligned to <code>align</code> (a power of two up to 4,096), and <code>x_free</code> must accept it like any other block.</li>
+<li><code>x_malloc</code> returns 16-byte aligned memory with capacity rounded up to 16 bytes.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>`,
+todo: String.raw`void *x_malloc(size_t n) {
+    /* TODO */
+    return NULL;
+}
+
+void x_free(void *p) {
+    /* TODO */
+}
+
+void *x_realloc(void *p, size_t n) {
+    /* TODO */
+    return NULL;
+}
+
+void *x_calloc(size_t n, size_t size) {
+    /* TODO */
+    return NULL;
+}
+
+void *x_aligned_alloc(size_t align, size_t n) {
+    /* TODO */
+    return NULL;
+}`,
+impl: String.raw`/* A 16-byte header just before every user pointer: the pointer malloc
+   returned (needed to free an over-aligned block) and the capacity. */
+typedef struct { void *base; size_t cap; char pad[16 - sizeof(void *) - sizeof(size_t)]; } xhdr_t;
+_Static_assert(sizeof(xhdr_t) == 16, "header must keep 16-byte alignment");
+
+static xhdr_t *H(void *p) { return (xhdr_t *)p - 1; }
+
+void *x_aligned_alloc(size_t align, size_t n) {
+    if (align < 16) align = 16;
+    size_t cap = (n + 15) & ~(size_t)15;
+    if (cap < n || cap > SIZE_MAX - sizeof(xhdr_t) - align) return NULL;
+    uint8_t *base = malloc(cap + sizeof(xhdr_t) + align - 1);
+    if (!base) return NULL;
+    uintptr_t u = ((uintptr_t)base + sizeof(xhdr_t) + align - 1) & ~(uintptr_t)(align - 1);
+    void *p = (void *)u;
+    H(p)->base = base;
+    H(p)->cap = cap;
+    return p;
+}
+
+void *x_malloc(size_t n) { return x_aligned_alloc(16, n); }
+
+void x_free(void *p) { if (p) free(H(p)->base); }
+
+void *x_realloc(void *p, size_t n) {
+    if (!p) return x_malloc(n);
+    if (n == 0) { x_free(p); return NULL; }
+    if (n <= H(p)->cap) return p;                  /* fits: don't move */
+    void *q = x_malloc(n);
+    if (!q) return NULL;                           /* old block stays valid */
+    memcpy(q, p, H(p)->cap);
+    x_free(p);
+    return q;
+}
+
+void *x_calloc(size_t n, size_t size) {
+    if (size && n > SIZE_MAX / size) return NULL;  /* n * size would overflow */
+    void *p = x_malloc(n * size);
+    if (p) memset(p, 0, n * size);
+    return p;
+}`,
+tests: String.raw`int main(void) {
+    char *p = x_malloc(10);
+    CHECK(p && (uintptr_t)p % 16 == 0, "x_malloc should return 16-byte aligned memory");
+    strcpy(p, "123456789");
+    char *q = x_realloc(p, 16);
+    CHECK(q == p, "growing within the rounded capacity (16) must not move the block");
+    q = x_realloc(p, 4);
+    CHECK(q == p && strncmp(q, "1234", 4) == 0, "shrinking must not move the block");
+    char *r = x_realloc(q, 1000);
+    CHECK(r && strcmp(r, "123456789") == 0, "growing must keep the contents");
+    CHECK(x_realloc(r, 0) == NULL, "realloc to 0 frees and returns NULL");
+    char *s = x_realloc(NULL, 5);
+    CHECK(s != NULL, "realloc(NULL, n) should allocate");
+    x_free(s);
+
+    int *z = x_calloc(1000, sizeof(int));
+    int zero = z != NULL;
+    for (int i = 0; zero && i < 1000; i++) zero = z[i] == 0;
+    CHECK(zero, "calloc must return zeroed memory");
+    x_free(z);
+    CHECK(x_calloc(SIZE_MAX / 2, 3) == NULL, "calloc must detect n * size overflow");
+
+    int ok = 1;
+    for (size_t a = 16; a <= 4096; a *= 2) {
+        void *m = x_aligned_alloc(a, 100);
+        ok &= m && (uintptr_t)m % a == 0;
+        if (m) memset(m, 0xAB, 100);
+        x_free(m);
+    }
+    CHECK(ok, "aligned allocations must honor alignments from 16 to 4096");
+
+    /* A huge request fails cleanly and leaves the old block intact. */
+    char *keep = x_malloc(32);
+    strcpy(keep, "still here");
+    CHECK(x_realloc(keep, SIZE_MAX - 8) == NULL && strcmp(keep, "still here") == 0,
+          "a failed realloc must return NULL and keep the old block");
+    x_free(keep);
+    return REPORT();
+}`,
+a: `<p>One header serves all three functions: store the pointer <code>malloc</code> returned and the usable capacity just before the user pointer, sized at 16 bytes so the user pointer stays 16-aligned. For an aligned allocation, over-allocate by <code>align − 1</code> plus the header, round the address up, and write the header right below it. <code>x_free</code> then always frees the stored base, whichever function made the block.</p>
+<p>The edge cases are the interview:</p>
+<ul>
+<li><code>realloc</code> must not lose the old block if the new allocation fails, which is why <code>p = realloc(p, n)</code> is a leak in real code.</li>
+<li>Growing within the existing capacity returns the same pointer, the cheap case real allocators take whenever the block’s size class has room.</li>
+<li><code>calloc</code>’s overflow check (<code>n &gt; SIZE_MAX / size</code>) was missing from several historical C libraries, a real security bug class: a wrapped product allocates a tiny buffer and the caller then writes <code>n</code> elements.</li>
+<li>Every size computation must be checked for overflow, including <code>cap + header + align</code>.</li>
+</ul>
+<p>Real allocators know a block’s size from their own metadata (the size class of its page), which is how <code>malloc_usable_size</code> works without a per-block header.</p>`
+}) +
+C({
+lvl: "medium",
+q: `<p>Write a fixed-size object pool, the building block of slab allocators. <code>pool_init</code> carves a caller-provided buffer into objects of <code>obj_size</code> bytes (rounded up to 8). <code>pool_alloc</code> and <code>pool_free</code> must be O(1) and use no memory outside the buffer and the <code>pool_t</code> struct. <code>pool_free</code> must detect a double free or a pointer that isn’t an object in this pool and return −1 instead of corrupting the pool. Use a bitmap of up to 4,096 objects in the struct for that.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+#define MAXOBJ 4096`,
+todo: String.raw`typedef struct {
+    /* TODO */
+    int free_count;
+} pool_t;
+
+int pool_init(pool_t *p, void *buf, size_t buf_size, size_t obj_size) {
+    /* TODO: return the number of objects */
+    return 0;
+}
+
+void *pool_alloc(pool_t *p) {
+    /* TODO */
+    return NULL;
+}
+
+int pool_free(pool_t *p, void *obj) {
+    /* TODO: 0 on success, -1 on a bad or double free */
+    return -1;
+}`,
+impl: String.raw`typedef struct {
+    uint8_t *base;
+    size_t obj;
+    int count;
+    void *head;                        /* free list threaded through free objects */
+    uint64_t used[MAXOBJ / 64];        /* 1 = allocated */
+    int free_count;
+} pool_t;
+
+int pool_init(pool_t *p, void *buf, size_t buf_size, size_t obj_size) {
+    p->base = buf;
+    p->obj = (obj_size + 7) & ~(size_t)7;
+    if (p->obj < sizeof(void *)) p->obj = sizeof(void *);
+    p->count = (int)(buf_size / p->obj);
+    if (p->count > MAXOBJ) p->count = MAXOBJ;
+    p->head = NULL;
+    for (int i = p->count - 1; i >= 0; i--) {       /* lowest address first */
+        void *o = p->base + (size_t)i * p->obj;
+        *(void **)o = p->head;
+        p->head = o;
+    }
+    for (int i = 0; i < MAXOBJ / 64; i++) p->used[i] = 0;
+    p->free_count = p->count;
+    return p->count;
+}
+
+void *pool_alloc(pool_t *p) {
+    void *o = p->head;
+    if (!o) return NULL;
+    p->head = *(void **)o;
+    size_t i = (size_t)((uint8_t *)o - p->base) / p->obj;
+    p->used[i / 64] |= 1ull << (i % 64);
+    p->free_count--;
+    return o;
+}
+
+int pool_free(pool_t *p, void *obj) {
+    uint8_t *o = obj;
+    if (o < p->base) return -1;
+    size_t off = (size_t)(o - p->base), i = off / p->obj;
+    if (off % p->obj || i >= (size_t)p->count) return -1;     /* not an object start */
+    if (!(p->used[i / 64] >> (i % 64) & 1)) return -1;        /* already free */
+    p->used[i / 64] &= ~(1ull << (i % 64));
+    *(void **)o = p->head;
+    p->head = o;
+    p->free_count++;
+    return 0;
+}`,
+tests: String.raw`static _Alignas(16) uint8_t mem[64 * 1024];
+
+int main(void) {
+    pool_t p;
+    int n = pool_init(&p, mem, sizeof mem, 60);    /* rounds to 64 */
+    CHECK(n == 1024, "60-byte objects in 64 KiB: %d objects, expected 1024", n);
+
+    void *a = pool_alloc(&p), *b = pool_alloc(&p);
+    CHECK(a == mem && b == mem + 64, "first allocations should be the lowest addresses");
+    CHECK(pool_free(&p, a) == 0, "freeing a live object should succeed");
+    CHECK(pool_free(&p, a) == -1, "a double free must be detected");
+    CHECK(pool_free(&p, (uint8_t *)b + 8) == -1, "a pointer into the middle of an object must be rejected");
+    CHECK(pool_free(&p, mem + sizeof mem) == -1, "a pointer past the pool must be rejected");
+    CHECK(pool_alloc(&p) == a, "the most recently freed object should be reused first (LIFO)");
+
+    /* Exhaust, then refill. */
+    static void *all[1024];
+    int got = 2;
+    all[0] = a; all[1] = b;
+    while ((all[got] = pool_alloc(&p)) != NULL) got++;
+    CHECK(got == 1024 && p.free_count == 0, "allocated %d objects before running out, expected 1024", got);
+    int ok = 1;
+    for (int i = 0; i < got; i++) ok &= pool_free(&p, all[i]) == 0;
+    CHECK(ok && p.free_count == 1024, "every object should free once");
+
+    pool_t q;
+    CHECK(pool_init(&q, mem, 1024, 1) == 128, "1-byte objects round up to 8: 128 in 1 KiB");
+    return REPORT();
+}`,
+a: `<p>A free object’s own memory holds the free-list link, so the pool needs no per-object metadata for allocation: allocation pops the head and free pushes onto it, both O(1). Rounding the object size up to 8 keeps every link aligned and leaves room for the pointer.</p>
+<p>The bitmap is what makes <code>free</code> safe. An address is a valid object only if its offset from the base is a multiple of the object size and inside the pool. Its bit says whether it is currently allocated, so a double free is caught before it puts the same object on the list twice, which would hand it out to two callers later. That costs 1 bit per object, 512 bytes for 4,096 objects.</p>
+<p>LIFO reuse is deliberate: the most recently freed object is the most likely to still be in the cache. Slab allocators (Bonwick’s, and the Linux kernel’s SLUB) build on this with one pool per object size and per CPU, and keep partially full slabs so memory can be returned when a slab empties.</p>`
+}) +
+`<h3 id="sec-frag">Fragmentation and Footprint</h3>` +
+Q(`<p>Define internal and external fragmentation, with an example of each.</p>`,
+`<p><strong>Internal fragmentation</strong> is space wasted inside allocated blocks: a 100-byte request served from a 128-byte size class wastes 28 bytes, as do headers and alignment padding.</p>
+<p><strong>External fragmentation</strong> is free space split into pieces too small to use: if a heap has 1 MB free in 4,096 separate 256-byte holes between live objects, a 1 KB request still has to grow the heap.</p>
+<p>Size classes trade some internal fragmentation for little external fragmentation. Coalescing free neighbors and placement policies such as best fit or address-ordered first fit reduce external fragmentation in a general-purpose heap.</p>`, "easy") +
+Q(`<p>A long-running service frees almost everything after each batch of work, but its resident set size never goes down. Give the likely reasons.</p>`,
+`<ul>
+<li><strong>Fragmentation pins pages:</strong> one live object on a page keeps the whole page resident, and a heap grown with <code>brk</code> can only shrink from the top, so a single long-lived object near the top keeps everything below it.</li>
+<li><strong>The allocator keeps freed memory on purpose:</strong> per-thread caches, per-thread arenas (glibc creates up to 8 × cores of them), and trim thresholds that avoid giving memory back only to fault it in again. glibc’s <code>malloc_trim</code> or jemalloc’s decay settings control this.</li>
+<li><strong>Free pages may not have been returned:</strong> allocators release memory with <code>madvise(MADV_DONTNEED)</code> or <code>MADV_FREE</code>. With <code>MADV_FREE</code>, the kernel reclaims the pages lazily, only under memory pressure, so RSS stays high until then.</li>
+<li><strong>It isn’t heap at all:</strong> thread stacks, memory-mapped files, or a leak in a library.</li>
+</ul>
+<p>To diagnose, compare the allocator’s own statistics (<code>malloc_info</code>, jemalloc’s <code>stats.print</code>) for allocated, active, and resident bytes with <code>/proc/self/smaps</code>.</p>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Write a binary buddy allocator for a 1 MiB arena with 64-byte minimum blocks. A request gets the smallest power-of-two block of at least that size. Keep a free list per block size, take a block from the smallest nonempty size that fits, and when splitting always choose the lowest-addressed free block of that size and keep its lower half. <code>buddy_free</code> takes only the pointer, so record each allocated block’s size in a side table indexed by its address. On free, merge with the buddy (the address XOR the block size) while it is free and the same size.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <stddef.h>
+
+#define ARENA (1u << 20)
+#define MIN_ORDER 6                /* 64 bytes */
+#define MAX_ORDER 20               /* the whole arena */
+static _Alignas(64) uint8_t arena[ARENA];`,
+todo: String.raw`void buddy_init(void) {
+    /* TODO */
+}
+
+void *buddy_alloc(size_t n) {
+    /* TODO */
+    return NULL;
+}
+
+void buddy_free(void *p) {
+    /* TODO */
+}`,
+impl: String.raw`#define NBLK (ARENA >> MIN_ORDER)
+/* Free blocks of each order as a bitmap over 64-byte granules (bit set at
+   the block's first granule), so the lowest-addressed block of an order is
+   a find-first-set. alloc_order[g] records the order of an allocated block. */
+static uint64_t free_map[MAX_ORDER + 1][NBLK / 64];
+static uint8_t alloc_order[NBLK];
+
+static void mark(int order, uint32_t off, int on) {
+    uint32_t g = off >> MIN_ORDER;
+    if (on) free_map[order][g / 64] |= 1ull << (g % 64);
+    else free_map[order][g / 64] &= ~(1ull << (g % 64));
+}
+static int is_free(int order, uint32_t off) {
+    uint32_t g = off >> MIN_ORDER;
+    return free_map[order][g / 64] >> (g % 64) & 1;
+}
+static int64_t lowest(int order) {
+    for (uint32_t w = 0; w < NBLK / 64; w++)
+        if (free_map[order][w]) return ((int64_t)w * 64 + __builtin_ctzll(free_map[order][w])) << MIN_ORDER;
+    return -1;
+}
+
+void buddy_init(void) {
+    for (int o = 0; o <= MAX_ORDER; o++)
+        for (uint32_t w = 0; w < NBLK / 64; w++) free_map[o][w] = 0;
+    mark(MAX_ORDER, 0, 1);
+}
+
+void *buddy_alloc(size_t n) {
+    if (n == 0 || n > ARENA) return NULL;
+    int want = MIN_ORDER;
+    while (((size_t)1 << want) < n) want++;
+    int o = want;
+    while (o <= MAX_ORDER && lowest(o) < 0) o++;
+    if (o > MAX_ORDER) return NULL;
+    uint32_t off = (uint32_t)lowest(o);
+    mark(o, off, 0);
+    while (o > want) {                   /* split, keeping the lower half */
+        o--;
+        mark(o, off + (1u << o), 1);
+    }
+    alloc_order[off >> MIN_ORDER] = (uint8_t)want;
+    return arena + off;
+}
+
+void buddy_free(void *p) {
+    if (!p) return;
+    uint32_t off = (uint32_t)((uint8_t *)p - arena);
+    int o = alloc_order[off >> MIN_ORDER];
+    while (o < MAX_ORDER) {
+        uint32_t buddy = off ^ (1u << o);
+        if (!is_free(o, buddy)) break;
+        mark(o, buddy, 0);               /* merge */
+        off &= ~(1u << o);
+        o++;
+    }
+    mark(o, off, 1);
+}`,
+tests: String.raw`static long at(void *p) { return p ? (long)((uint8_t *)p - arena) : -1; }
+
+int main(void) {
+    buddy_init();
+    void *a = buddy_alloc(3000);           /* 4 KiB block */
+    void *b = buddy_alloc(9000);           /* 16 KiB block */
+    void *c = buddy_alloc(64);             /* 64-byte block */
+    CHECK(at(a) == 0, "3000 B: offset %ld, expected 0", at(a));
+    CHECK(at(b) == 16384, "9000 B: offset %ld, expected 16384 (the free 16 KiB buddy)", at(b));
+    CHECK(at(c) == 4096, "64 B: offset %ld, expected 4096 (splitting a's 4 KiB buddy)", at(c));
+    void *d = buddy_alloc(65);
+    CHECK(at(d) == 4224, "65 B: offset %ld, expected 4224 (a 128-byte block)", at(d));
+
+    buddy_free(a);
+    void *e = buddy_alloc(4096);
+    CHECK(at(e) == 0, "a's block should be reused: %ld", at(e));
+    buddy_free(e);
+    buddy_free(c);
+    buddy_free(d);
+    void *f = buddy_alloc(8192);
+    CHECK(at(f) == 0, "after freeing a, c, and d, 0 to 8 KiB merged back: %ld", at(f));
+    buddy_free(f);
+    CHECK(buddy_alloc(ARENA) == NULL, "b still holds 16 KiB, so the whole arena isn't free");
+    buddy_free(b);
+    void *g = buddy_alloc(ARENA);
+    CHECK(at(g) == 0, "after freeing everything, the whole arena merges back: %ld", at(g));
+    CHECK(buddy_alloc(1) == NULL, "a full arena refuses even 1 byte");
+    buddy_free(g);
+
+    /* Fill with 64-byte blocks, free every other one: nothing merges, so a
+       128-byte request fails even though half the arena is free. */
+    static void *blk[ARENA / 64];
+    int n = 0;
+    while ((blk[n] = buddy_alloc(64)) != NULL) n++;
+    CHECK(n == ARENA / 64, "the arena holds %d 64-byte blocks, expected %d", n, ARENA / 64);
+    for (int i = 0; i < n; i += 2) buddy_free(blk[i]);
+    CHECK(buddy_alloc(128) == NULL, "fragmented: a 128-byte request must fail with only 64-byte holes");
+    for (int i = 1; i < n; i += 2) buddy_free(blk[i]);
+    CHECK(at(buddy_alloc(ARENA)) == 0, "after freeing the rest, everything merges again");
+    return REPORT();
+}`,
+a: `<p>The buddy of a block at offset <em>x</em> with size 2<sup><em>k</em></sup> is at <em>x</em> XOR 2<sup><em>k</em></sup>, because a block of size 2<sup><em>k</em></sup> always sits at a multiple of 2<sup><em>k</em></sup>, and its pair in the larger parent differs only in bit <em>k</em>. Allocation splits a larger free block in halves until it reaches the wanted order, freeing each upper half. Free merges with the buddy while the buddy is free at the same order, clearing bit <em>k</em> each time to get the parent’s offset.</p>
+<p>Two pieces of bookkeeping: whether a block is free at a given order (a bitmap per order here, which also makes “lowest address” a find-first-set), and each allocated block’s order (a byte per minimum block), because <code>free</code> receives only a pointer.</p>
+<p>The checks trace the Math tab’s buddy question: 3,000 bytes splits 1 MiB down to 4 KiB at offset 0, 9,000 bytes takes the free 16 KiB buddy at 16,384, and a 64-byte request splits the 4 KiB buddy at 4,096. The last check shows the weakness: freeing every other 64-byte block leaves half the arena free, but no two free blocks are buddies, so nothing merges and even 128 bytes can’t be served. Linux’s page allocator uses this scheme with page-sized minimum blocks and adds per-CPU lists and migration types to reduce exactly that fragmentation.</p>`
+}) +
+`<h3 id="sec-libc">C Library Routines</h3>` +
+Q(`<p>Why does <code>memmove</code> exist separately from <code>memcpy</code>, and how does it choose a copy direction?</p>`,
+`<p><code>memcpy</code> assumes the source and destination don’t overlap, which lets it copy in any order, in the widest chunks, even from both ends at once. Calling it on overlapping buffers is undefined behavior, and real implementations do produce wrong results.</p>
+<p><code>memmove</code> handles overlap. If the destination starts before the source, copying forward is safe, because each byte is read before anything writes over it. If the destination starts inside the source, it must copy backward, from the end. If the regions don’t overlap, either direction works, and implementations simply use the forward path. The check is a single unsigned comparison, <code>dst − src &lt; n</code>, meaning the destination begins inside the source.</p>`, "medium") +
+Q(`<p>A loop copying between two 4 KB-aligned buffers runs much slower when the destination is exactly 4 KB (or a multiple of 4 KB) after the source. What is happening on an Intel core?</p>`,
+`<p>This is 4K aliasing. To decide quickly whether a load depends on an older store still in the store buffer, the core first compares only the low 12 address bits, the page offset, which are known before translation. When a load from the source has the same low 12 bits as a recent store to the destination, the core treats it as a possible forward, then finds the full addresses differ and has to reissue the load, costing a few cycles every time.</p>
+<p>In a copy loop with source and destination 4 KB apart, every load matches the store from a few iterations earlier, so the loop runs at a fraction of its normal speed. Intel’s optimization manual documents it, and the event <code>LD_BLOCKS_PARTIAL.ADDRESS_ALIAS</code> counts it. The fix is to offset one buffer by a cache line or so, which is why tuned <code>memcpy</code> implementations and allocators avoid placing large buffers at the same page offset.</p>`, "hard") +
+M(`<p>An allocator has size classes 16, 32, 48, 64, 80, 96, 112, 128, 160, 192, 224, and 256 bytes. A workload requests 24-byte objects 40% of the time, 72-byte objects 30%, 130-byte objects 20%, and 250-byte objects 10%.</p>
+<ol>
+<li>What fraction of allocated bytes is internal fragmentation?</li>
+<li>Compare a general allocator that adds an 8-byte header and rounds each block up to a multiple of 16 bytes.</li>
+</ol>`,
+`<ol>
+<li>The requests round to 32, 80, 160, and 256. Average requested = 0.4 × 24 + 0.3 × 72 + 0.2 × 130 + 0.1 × 250 = 9.6 + 21.6 + 26 + 25 = 82.2 B. Average allocated = 0.4 × 32 + 0.3 × 80 + 0.2 × 160 + 0.1 × 256 = 12.8 + 24 + 32 + 25.6 = 94.4 B. Waste = 12.2 / 94.4 = <strong>12.9%</strong>.</li>
+<li>Blocks are 24 + 8 → 32, 72 + 8 → 80, 130 + 8 = 138 → 144, and 250 + 8 = 258 → 272. Average = 12.8 + 24 + 28.8 + 27.2 = 92.8 B, so waste = 10.6 / 92.8 = <strong>11.4%</strong>. Here the size classes waste slightly more, because 130 falls just above a class. Allocators win back far more than this through less external fragmentation and faster allocation, but class spacing is worth tuning to the real size histogram.</li>
+</ol>`, "medium") +
+M(`<p>A buddy allocator manages 1 MiB with a minimum block of 64 bytes. It rounds each request up to a power of two and always splits the lowest-addressed free block that is large enough.</p>
+<ol>
+<li>The heap is empty, and the first request is for 3,000 bytes. What block size does it get, how many splits happen, and how much of the block is wasted?</li>
+<li>Next, a 9,000-byte request arrives. What happens?</li>
+<li>What is the worst-case internal fragmentation for a request above 64 bytes?</li>
+</ol>`,
+`<ol>
+<li>3,000 rounds up to 4,096. Splitting 1 MiB down to 4 KiB takes log<sub>2</sub>(2<sup>20</sup> / 2<sup>12</sup>) = <strong>8 splits</strong>, leaving one free buddy at each size from 4 KiB to 512 KiB. Waste = 1,096 B, <strong>26.8%</strong> of the block.</li>
+<li>9,000 rounds up to 16,384, and the free 16 KiB buddy from step 1 fits exactly, so <strong>no split</strong>. Waste = 7,384 B, 45%.</li>
+<li>A request just above a power of two, such as 2<sup><em>k</em></sup> + 1, gets a 2<sup><em>k</em>+1</sup> block, wasting <strong>just under 50%</strong>. That is why buddy allocators manage pages (the Linux page allocator) and leave small objects to slab or size-class allocators on top.</li>
+</ol>`, "hard") +
+M(`<p>You copy 1 GB with ordinary stores on a system whose DRAM sustains 50 GB/s of combined read and write traffic, and the buffers are far larger than the caches.</p>
+<ol>
+<li>How many bytes of DRAM traffic does each copied byte cause, and how long does the copy take?</li>
+<li>Repeat with non-temporal (streaming) stores.</li>
+<li>Where does the time go if both buffers fit in L2 instead?</li>
+</ol>`,
+`<ol>
+<li>Each byte is read from the source (1), and each destination line is first read for ownership (1) and later written back (1): <strong>3 bytes</strong>. Effective copy rate = 50 / 3 = 16.7 GB/s, so 1 GB takes <strong>60 ms</strong>.</li>
+<li>Streaming stores write full lines without reading them first: 2 bytes per byte, 25 GB/s, <strong>40 ms</strong>, a third faster. Library <code>memcpy</code> implementations switch to streaming stores above a size threshold for this reason (and avoid them for smaller copies, since the destination then isn’t left in the cache).</li>
+<li>DRAM drops out. The limit becomes the core’s load and store bandwidth to L2 (on the order of 32 to 64 bytes per cycle), so the same copy runs several times faster per byte, and the RFO costs nothing extra, because the lines are already in the cache.</li>
+</ol>`, "hard") +
+M(`<p>A program allocates 1 GiB and touches every byte once. A minor page fault costs 0.5 µs of kernel overhead, plus zeroing the page at 10 GB/s.</p>
+<ol>
+<li>How long do the page faults take with 4 KiB pages?</li>
+<li>With 2 MiB transparent huge pages?</li>
+<li>What else changes for the program after the faults?</li>
+</ol>`,
+`<ol>
+<li>2<sup>30</sup> / 2<sup>12</sup> = 262,144 faults. Each costs 0.5 µs + 4,096 B / 10 GB/s = 0.5 + 0.41 = 0.91 µs. Total ≈ <strong>0.24 s</strong>, of which 0.13 s is fault overhead and 0.11 s zeroing.</li>
+<li>512 faults, each 0.5 µs + 2,097,152 B / 10 GB/s = 0.5 + 209.7 µs = 210.2 µs. Total ≈ <strong>0.11 s</strong>, almost all of it zeroing, which can’t be avoided. The fault overhead drops from 0.13 s to 0.26 ms.</li>
+<li>TLB reach. 1 GiB needs 262,144 4 KiB translations, far beyond any TLB, but only 512 huge-page translations, which fit in the second-level TLB of recent cores. Random accesses over the buffer then mostly avoid page walks. The cost is coarser memory accounting and occasional latency spikes when the kernel compacts memory to build huge pages.</li>
+</ol>`, "hard") +
+M(`<p>A program keeps 10 million live 24-byte objects.</p>
+<ol>
+<li>A general allocator adds an 8-byte header and rounds blocks to 16 bytes. How much memory do the objects take, and what is the overhead?</li>
+<li>A slab allocator packs 24-byte slots into 4 KiB pages with metadata kept elsewhere. Repeat.</li>
+<li>A pass reads one field from every object, in allocation order. How many 64-byte cache lines does it touch in each case?</li>
+</ol>`,
+`<ol>
+<li>Each block is 24 + 8 = 32 bytes: 10<sup>7</sup> × 32 = <strong>320 MB</strong> for 240 MB of data, <strong>33%</strong> overhead.</li>
+<li>⌊4,096 / 24⌋ = 170 slots per page (16 bytes left over). 10<sup>7</sup> / 170 = 58,824 pages × 4,096 B = <strong>241 MB</strong>, an overhead of about <strong>0.4%</strong>.</li>
+<li>General: 2 objects per line, <strong>5 million</strong> lines. Slab: 64 / 24 ≈ 2.67 objects per line, about <strong>3.75 million</strong> lines, 25% fewer misses for the same work. For small objects, the allocator’s layout is a cache-efficiency decision as much as a memory one.</li>
+</ol>`, "hard") +
+C({
+lvl: "hard",
+q: `<p>Write <code>my_memmove</code> without calling any library copy function. It must be correct for every overlap, alignment, and length, and it must copy the bulk of the data 8 bytes at a time: copy single bytes until the destination is 8-byte aligned, then 8-byte words, then the tail. Choose the direction from the overlap, as the real function does.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h>
+
+/* An 8-byte type that may be unaligned and may alias anything. */
+typedef uint64_t __attribute__((may_alias, aligned(1))) u64u;`,
+todo: String.raw`void *my_memmove(void *dst, const void *src, size_t n) {
+    /* TODO */
+    return dst;
+}`,
+impl: String.raw`void *my_memmove(void *dst, const void *src, size_t n) {
+    uint8_t *d = dst;
+    const uint8_t *s = src;
+    if (d == s || n == 0) return dst;
+    if ((uintptr_t)d - (uintptr_t)s >= n) {
+        /* dst is before src, or past its end: forward is safe. */
+        while (n && ((uintptr_t)d & 7)) { *d++ = *s++; n--; }
+        for (; n >= 8; n -= 8, d += 8, s += 8) *(u64u *)d = *(const u64u *)s;
+        while (n--) *d++ = *s++;
+    } else {
+        /* dst starts inside src: copy from the end backwards. */
+        d += n; s += n;
+        while (n && ((uintptr_t)d & 7)) { *--d = *--s; n--; }
+        for (; n >= 8; n -= 8) { d -= 8; s -= 8; *(u64u *)d = *(const u64u *)s; }
+        while (n--) *--d = *--s;
+    }
+    return dst;
+}`,
+tests: String.raw`static uint8_t buf[256], ref[256];
+
+static void ref_move(uint8_t *b, size_t d, size_t s, size_t n) {
+    uint8_t tmp[256];
+    for (size_t i = 0; i < n; i++) tmp[i] = b[s + i];
+    for (size_t i = 0; i < n; i++) b[d + i] = tmp[i];
+}
+
+int main(void) {
+    /* Every length up to 80 and every source and destination offset up to 23. */
+    long cases = 0, bad = 0;
+    for (size_t n = 0; n <= 80; n++)
+        for (size_t s = 0; s < 24; s++)
+            for (size_t d = 0; d < 24; d++) {
+                for (int i = 0; i < 256; i++) buf[i] = ref[i] = (uint8_t)(i * 7 + 1);
+                ref_move(ref, 64 + d, 64 + s, n);
+                void *r = my_memmove(buf + 64 + d, buf + 64 + s, n);
+                cases++;
+                int same = r == buf + 64 + d;
+                for (int i = 0; i < 256 && same; i++) same = buf[i] == ref[i];
+                if (!same) bad++;
+            }
+    CHECK(bad == 0, "%ld of %ld cases were wrong (wrong bytes, or writes outside the destination)", bad, cases);
+
+    /* A large overlapping move in each direction. */
+    size_t big = 1 << 20;
+    uint8_t *m = malloc(big + 4096);
+    for (size_t i = 0; i < big + 4096; i++) m[i] = (uint8_t)(i % 251);
+    my_memmove(m + 3, m, big);
+    int ok = 1;
+    for (size_t i = 0; i < big && ok; i++) ok = m[3 + i] == (uint8_t)(i % 251);
+    CHECK(ok, "moving 1 MiB up by 3 bytes went wrong");
+    for (size_t i = 0; i < big + 4096; i++) m[i] = (uint8_t)(i % 251);
+    my_memmove(m, m + 1001, big);
+    for (size_t i = 0; i < big && ok; i++) ok = m[i] == (uint8_t)((i + 1001) % 251);
+    CHECK(ok, "moving 1 MiB down by 1001 bytes went wrong");
+    free(m);
+    return REPORT();
+}`,
+a: `<p>The direction test is one unsigned comparison: <code>d − s &lt; n</code> (as unsigned integers) is true exactly when the destination starts inside the source, which requires a backward copy. In every other case, including no overlap at all, forward is safe.</p>
+<p>Then the three phases, mirrored for the backward copy: single bytes until the destination is 8-aligned, 8-byte words, and the leftover bytes. Aligning the destination rather than the source matters because misaligned stores that split a cache line are more expensive than misaligned loads on most cores. The source may still be misaligned, which is why the word type is declared <code>aligned(1)</code>: that tells the compiler not to assume alignment. <code>may_alias</code> keeps the word accesses legal under strict aliasing. Reading 8 bytes at a time is safe in the backward direction only because each word is read before any write overlaps it, which holds since the destination is above the source.</p>
+<p>Production versions go much further: 32- or 64-byte vector loops, overlapping loads and stores for short copies (load the first and last 16 bytes and store both, which handles 16 to 32 bytes with no branches), <code>rep movsb</code> on cores with fast string support, and streaming stores for large copies. The exhaustive offset and length check is what catches the off-by-one bugs these optimizations invite.</p>`
+})
 },
 {
   id: "intv-design",

@@ -551,7 +551,7 @@ function runCode(card) {
   status.className = "code-status";
   out.hidden = false; out.textContent = ""; out.append(status, body);
   let text = "";
-  const show = s => { text += s; body.textContent = text; };
+  const show = s => { text += s; body.textContent = text; out.scrollTop = out.scrollHeight; };
   btn.disabled = true; btn.textContent = "Running…";
   const done = () => {
     CODE_OUT[card.dataset.snip] = text;

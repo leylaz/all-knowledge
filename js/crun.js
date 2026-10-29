@@ -259,7 +259,7 @@ function cEngine(cfg, post) {
     if (threads && !binP) binP = import(cfg.binaryen);
     post("status", "Compiling...");
     const files = { "main.c": src };
-    const args = ["clang", "-O2", "-std=gnu17", "-Wall", "-Wextra", "-Wno-missing-field-initializers", "-fno-color-diagnostics",
+    const args = ["clang", "-O2", "-std=gnu17", "-Wall", "-Wextra", "-Wno-missing-field-initializers", "-Wno-unused-parameter", "-Wno-unused-function", "-fno-color-diagnostics",
       "-D_WASI_EMULATED_PROCESS_CLOCKS", "-D_WASI_EMULATED_SIGNAL", "-D_WASI_EMULATED_MMAN",
       "-Wl,-z,stack-size=1048576", "-o", "main.wasm"];
     if (threads) { Object.assign(files, { "sim.h": cfg.simH, "sim_rt.c": cfg.simRt }); args.push("-include", "sim.h", "main.c", "sim_rt.c"); }
