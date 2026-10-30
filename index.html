@@ -73,8 +73,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "comp comp comp conc conc conc"
     "perf perf perf stall stall stall"
     "eda eda eda verif verif verif"
-    "nn nn nn gen gen gen"
-    "llm llm llm llm llm llm"
+    "gen gen gen llm llm llm"
     "intv intv intv intv intv intv"
     "p1 p1 p1 p1 p1 p1"
     "p2 p2 p2 p2 p2 p2"; }
@@ -503,7 +502,7 @@ a.lyr-name::after { content: ""; position: absolute; inset: 0; border-radius: 4p
 }
 
 @media (max-width: 860px) {
-  .floor { grid-template-columns: 1fr; grid-template-areas: "fab" "circ" "isa" "pipe" "fe" "core" "arith" "mem" "ctr" "os" "coh" "icx" "proc" "comp" "conc" "perf" "stall" "eda" "verif" "nn" "gen" "llm" "intv" "p1" "p2"; }
+  .floor { grid-template-columns: 1fr; grid-template-areas: "fab" "circ" "isa" "pipe" "fe" "core" "arith" "mem" "ctr" "os" "coh" "icx" "proc" "comp" "conc" "perf" "stall" "eda" "verif" "gen" "llm" "intv" "p1" "p2"; }
   .intro { padding-top: 32px; }
   .page { grid-template-columns: 1fr; gap: 0; padding-top: 16px; }
   .menu-btn.show { display: inline-block; }
@@ -576,8 +575,7 @@ window.MathJax = {
 <script src="sections/stalls-bottlenecks.js"></script>
 <script src="sections/eda-stack.js"></script>
 <script src="sections/verification.js"></script>
-<script src="sections/neural-networks.js"></script>
-<script src="sections/generative-models.js"></script>
+<script src="sections/neural-generative-models.js"></script>
 <script src="sections/language-models.js"></script>
 <script src="coding/interview.js"></script>
 <script src="sections/interview-prep.js"></script>
