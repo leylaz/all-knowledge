@@ -230,6 +230,54 @@ section({
 },
 
 {
+  id: "latency-tolerance",
+  region: "mem",
+  title: "Memory Latency Tolerance",
+  sections: [{ id: "mlp", label: "What Memory-Level Parallelism Means" }],
+  body: `
+<p>If misses can't be avoided, overlap them with each other and with useful work.</p>
+<h3>Techniques</h3>
+<ul>
+<li><strong>Non-blocking caches:</strong> MSHRs allow many outstanding misses.</li>
+<li><strong>Large instruction windows:</strong> a bigger ROB, IQ, and LSQ reach more independent misses.</li>
+<li><strong>Prefetching:</strong> start misses before demand.</li>
+<li><strong>Runahead execution:</strong> pre-execute past a blocking miss to generate prefetches.</li>
+<li><strong>Critical-word-first and early restart:</strong> return the needed word before the full line.</li>
+<li><strong>SMT:</strong> another thread uses the core while one waits.</li>
+<li><strong>Value prediction:</strong> speculate on the loaded value so dependents can proceed.</li>
+</ul>
+<h3 id="sec-mlp">What Memory-Level Parallelism Means</h3>
+<p><strong>Memory-level parallelism (MLP)</strong> is having several cache misses in flight at the same time, so their latencies overlap instead of adding up. If four independent loads each miss to DRAM at 200 cycles, handling them one at a time takes 4 × 200 = 800 cycles; overlapping all four takes about 200.</p>
+<p>MLP needs several things working together:</p>
+<ul>
+<li><strong>MSHRs</strong> (miss status holding registers, also called line fill buffers): each tracks one outstanding miss, so their count caps how many misses can be in flight.</li>
+<li><strong>A large instruction window</strong> (ROB, load queue) to reach independent misses far enough ahead.</li>
+<li><strong>Non-blocking caches</strong> that keep serving hits while misses are pending.</li>
+<li><strong>Prefetchers</strong> that start misses early.</li>
+<li><strong>Enough DRAM channels and banks</strong> to serve many requests at once.</li>
+</ul>
+<p>Data cache <em>ports</em> are a different thing: they set how many hits can be served per cycle (bandwidth), not how many misses can overlap.</p>
+<p><strong>Why the window matters even without dependents:</strong> instructions retire in order, so the ROB fills up behind a stuck load. A 4-wide core with a 128-entry ROB fills it in about 32 cycles and then stalls, so a 200-cycle DRAM miss is mostly exposed unless the work behind it contains other misses that overlap with it.</p>
+<div class="calc" data-calc="little"></div>
+<h3>The Limit</h3>
+<p>Dependent misses (pointer chasing) serialize regardless of window size. Only prediction, prefetching that understands the data structure, or software changes help there.</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Four independent loads each miss to DRAM (200 cycles). Ignoring issue time, how long do they take with 1, 2, and 4 MSHRs?</p>`,
+        a: `<ol><li>1 MSHR: fully serial, 4 × 200 = <strong>800 cycles</strong>.</li><li>2 MSHRs: two waves, <strong>about 400</strong>.</li><li>4 MSHRs: all overlap, <strong>about 200</strong>.</li><li>Memory-level parallelism, not raw latency, sets the cost, as long as the misses are independent and the window can reach them.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Explain runahead execution. When does it help, and when doesn't it?</p>`,
+        a: `<p>When a long-latency miss blocks the ROB head, the core checkpoints state and keeps executing past it in a speculative "runahead" mode, marking results dependent on the miss as invalid. Loads it encounters with valid addresses become prefetches. When the miss returns, it discards runahead results and resumes from the checkpoint.</p><p>Helps: independent misses beyond the ROB window, without paying for a bigger ROB. Doesn't help: dependent pointer chains (addresses depend on the blocked load), and it wastes energy re-executing instructions.</p>`
+      }
+    ]
+  }
+},
+
+{
   id: "l2-banks",
   region: "mem",
   title: "L2 and Banking",
@@ -308,54 +356,6 @@ section({
       {
         q: `<p>DRAM is much denser. Why aren’t on-chip caches built from it?</p>`,
         a: `<p>DRAM needs special process steps for the capacitor that don’t mix cheaply with a fast logic process, its reads are destructive (restore + precharge before reuse), it needs refresh, and its tiny charge makes sensing slow. SRAM sits in the same logic process and is fast and simple. Some designs did use embedded DRAM for large last-level caches (IBM POWER7–POWER9 L3, Intel’s Crystal Well eDRAM L4), trading latency for capacity where density mattered most.</p>`
-      }
-    ]
-  }
-},
-
-{
-  id: "latency-tolerance",
-  region: "mem",
-  title: "Memory Latency Tolerance",
-  sections: [{ id: "mlp", label: "What Memory-Level Parallelism Means" }],
-  body: `
-<p>If misses can't be avoided, overlap them with each other and with useful work.</p>
-<h3>Techniques</h3>
-<ul>
-<li><strong>Non-blocking caches:</strong> MSHRs allow many outstanding misses.</li>
-<li><strong>Large instruction windows:</strong> a bigger ROB, IQ, and LSQ reach more independent misses.</li>
-<li><strong>Prefetching:</strong> start misses before demand.</li>
-<li><strong>Runahead execution:</strong> pre-execute past a blocking miss to generate prefetches.</li>
-<li><strong>Critical-word-first and early restart:</strong> return the needed word before the full line.</li>
-<li><strong>SMT:</strong> another thread uses the core while one waits.</li>
-<li><strong>Value prediction:</strong> speculate on the loaded value so dependents can proceed.</li>
-</ul>
-<h3 id="sec-mlp">What Memory-Level Parallelism Means</h3>
-<p><strong>Memory-level parallelism (MLP)</strong> is having several cache misses in flight at the same time, so their latencies overlap instead of adding up. If four independent loads each miss to DRAM at 200 cycles, handling them one at a time takes 4 × 200 = 800 cycles; overlapping all four takes about 200.</p>
-<p>MLP needs several things working together:</p>
-<ul>
-<li><strong>MSHRs</strong> (miss status holding registers, also called line fill buffers): each tracks one outstanding miss, so their count caps how many misses can be in flight.</li>
-<li><strong>A large instruction window</strong> (ROB, load queue) to reach independent misses far enough ahead.</li>
-<li><strong>Non-blocking caches</strong> that keep serving hits while misses are pending.</li>
-<li><strong>Prefetchers</strong> that start misses early.</li>
-<li><strong>Enough DRAM channels and banks</strong> to serve many requests at once.</li>
-</ul>
-<p>Data cache <em>ports</em> are a different thing: they set how many hits can be served per cycle (bandwidth), not how many misses can overlap.</p>
-<p><strong>Why the window matters even without dependents:</strong> instructions retire in order, so the ROB fills up behind a stuck load. A 4-wide core with a 128-entry ROB fills it in about 32 cycles and then stalls, so a 200-cycle DRAM miss is mostly exposed unless the work behind it contains other misses that overlap with it.</p>
-<div class="calc" data-calc="little"></div>
-<h3>The Limit</h3>
-<p>Dependent misses (pointer chasing) serialize regardless of window size. Only prediction, prefetching that understands the data structure, or software changes help there.</p>`,
-  practice: {
-    guided: [
-      {
-        q: `<p>Four independent loads each miss to DRAM (200 cycles). Ignoring issue time, how long do they take with 1, 2, and 4 MSHRs?</p>`,
-        a: `<ol><li>1 MSHR: fully serial, 4 × 200 = <strong>800 cycles</strong>.</li><li>2 MSHRs: two waves, <strong>about 400</strong>.</li><li>4 MSHRs: all overlap, <strong>about 200</strong>.</li><li>Memory-level parallelism, not raw latency, sets the cost, as long as the misses are independent and the window can reach them.</li></ol>`
-      }
-    ],
-    interview: [
-      {
-        q: `<p>Explain runahead execution. When does it help, and when doesn't it?</p>`,
-        a: `<p>When a long-latency miss blocks the ROB head, the core checkpoints state and keeps executing past it in a speculative "runahead" mode, marking results dependent on the miss as invalid. Loads it encounters with valid addresses become prefetches. When the miss returns, it discards runahead results and resumes from the checkpoint.</p><p>Helps: independent misses beyond the ROB window, without paying for a bigger ROB. Doesn't help: dependent pointer chains (addresses depend on the blocked load), and it wastes energy re-executing instructions.</p>`
       }
     ]
   }

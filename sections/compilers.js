@@ -328,6 +328,113 @@ f:
 },
 
 {
+  id: "comp-opt",
+  region: "comp",
+  title: "Compiler Optimizations",
+  sections: [
+    { id: "classic", label: "Classic Optimizations" },
+    { id: "loops", label: "Loop Optimizations" },
+    { id: "branches", label: "Branches and Calls" },
+    { id: "back-end-opts", label: "Back-End Optimizations" },
+    { id: "static-sched", label: "Static Scheduling and Compute Kernels" },
+    { id: "limits", label: "What Limits the Optimizer" },
+    { id: "perf-angle", label: "The Performance Angle" }
+  ],
+  body: `
+<p>The optimizer rewrites the IR into an equivalent program that runs faster or is smaller. "Equivalent" is the key constraint: the program's observable behavior (its output, its writes to memory other code can see, its calls to other functions) must not change. Optimization levels such as <code>-O1</code>, <code>-O2</code>, and <code>-O3</code> select more aggressive sets of passes; <code>-Os</code> optimizes for size.</p>
+<h3 id="sec-classic">Classic Optimizations</h3>
+<div class="tbl"><table>
+<tr><th>Optimization</th><th>Before</th><th>After</th><th>Why it helps</th></tr>
+<tr><td>Constant folding</td><td><code>a = 4 * 8;</code></td><td><code>a = 32;</code></td><td>Computed once at compile time instead of every run</td></tr>
+<tr><td>Constant propagation</td><td><code>a = 32; b = a + 1;</code></td><td><code>b = 33;</code></td><td>Known values flow forward, enabling more folding</td></tr>
+<tr><td>Dead code elimination</td><td><code>t = x * 3;</code> (t never used)</td><td>(removed)</td><td>Fewer instructions</td></tr>
+<tr><td>Common subexpression elimination</td><td><code>a = b*c + d; e = b*c - d;</code></td><td><code>t = b*c; a = t + d; e = t - d;</code></td><td>Compute once, reuse</td></tr>
+<tr><td>Strength reduction</td><td><code>x * 2</code>, <code>x / 8</code> (unsigned)</td><td><code>x &lt;&lt; 1</code>, <code>x &gt;&gt; 3</code></td><td>Cheaper operations; in <code>f</code>, the multiply became a shift</td></tr>
+<tr><td>Copy propagation</td><td><code>b = a; c = b + 1;</code></td><td><code>c = a + 1;</code></td><td>Removes moves, frees registers</td></tr>
+</table></div>
+<h3 id="sec-loops">Loop Optimizations</h3>
+<ul>
+<li><strong>Loop-invariant code motion:</strong> a computation whose inputs don't change inside the loop is moved before it, so it runs once instead of every iteration.</li>
+<li><strong>Induction variable optimization:</strong> replaces expensive index math such as <code>a[i]</code> recomputing <code>base + i * 4</code> with a pointer that simply advances by 4 each iteration.</li>
+<li><strong>Loop unrolling:</strong> repeats the loop body several times per iteration, cutting branch and counter overhead and exposing more independent work to an out-of-order core.</li>
+<li><strong>Vectorization:</strong> turns a loop over array elements into SIMD instructions that process 4, 8, or more elements at once.</li>
+<li><strong>Breaking dependency chains:</strong> with permission to reorder floating-point math (for example <code>-ffast-math</code>), a sum into one accumulator can be split into several independent accumulators, turning a latency-bound loop into a throughput-bound one (see <a href="#/perf-bottlenecks/latency-throughput">Bottleneck types</a>).</li>
+</ul>
+<h3 id="sec-branches">Branches and Calls</h3>
+<ul>
+<li><strong>If-conversion (branchless code):</strong> a short if can become a <em>select</em> with no branch at all, using a conditional move (x86 <code>cmov</code>, Arm <code>csel</code>). For <code>f</code>, <code>y = (x &gt; 10) ? x * 2 : 0</code> could be computed without branching. That removes any chance of a mispredict, at the cost of always computing both sides, so it pays off when the branch is unpredictable and both sides are cheap.</li>
+<li><strong>Inlining:</strong> replaces a call with the callee's body, removing call overhead and, more importantly, letting the optimizer see both sides together. Too much inlining bloats code and hurts the instruction cache.</li>
+<li><strong>Tail-call optimization:</strong> a call that's the very last thing a function does becomes a jump, reusing the stack frame.</li>
+<li><strong>Library-call simplification:</strong> compilers know the standard library's meaning. <code>printf("hello\\n")</code>, with no format arguments, is commonly turned into the cheaper <code>puts("hello")</code>. Our <code>printf("x = %d\\n", x)</code> must stay a printf, because it formats a value; and it can never be removed, since printing is observable behavior.</li>
+<li><strong>Code layout:</strong> hot code is placed together and likely branch paths are made fall-through, improving instruction cache, TLB, and fetch behavior.</li>
+</ul>
+<h3 id="sec-back-end-opts">Back-End Optimizations</h3>
+<ul>
+<li><strong>Register allocation:</strong> keeping values in registers instead of memory is one of the biggest wins. At <code>-O0</code>, by contrast, every variable lives on the stack: each statement loads its inputs and stores its results, so even <code>y = x * 2</code> becomes a load, a multiply, and a store.</li>
+<li><strong>Instruction scheduling:</strong> reorders instructions to hide latency and avoid stalls. Essential for in-order cores; less critical, but still useful, for out-of-order cores.</li>
+<li><strong>Software pipelining:</strong> overlaps iterations in the static schedule. Iteration <em>i</em> issues the loads for iteration <em>i</em> + 2 while it computes on data loaded earlier, so no instruction waits on a result produced just before it. A prologue fills the pipeline and an epilogue drains it.</li>
+<li><strong>Peephole optimizations:</strong> small local rewrites of instruction sequences, such as <code>xor eax, eax</code> instead of <code>mov eax, 0</code> on x86.</li>
+</ul>
+<h3 id="sec-static-sched">Static Scheduling and Compute Kernels</h3>
+<p>A <strong>compute kernel</strong> is a small, hot loop that does dense arithmetic over arrays, with few branches and regular memory access. Examples are a dot product, the inner loop of a matrix multiply, an FIR filter, a stencil update, and an AES round. Programs often spend most of their time in a few of these, so compilers and hand-tuned libraries (BLAS, FFTW, oneDNN) schedule them carefully.</p>
+<p>When a kernel's data sits in L1, every latency is fixed and known at compile time. That's the case where static scheduling does as well as an out-of-order core. Take a dot product on a core with a 4-cycle FMA and 2 FMA pipes (Golden Cove, Zen 4):</p>
+<pre><code>// 8 independent accumulators: 2 pipes × 4 cycles of latency
+for (i = 0; i &lt; n; i += 8) {
+    acc[0] += a[i+0] * b[i+0];
+    acc[1] += a[i+1] * b[i+1];
+    ...
+    acc[7] += a[i+7] * b[i+7];
+}</code></pre>
+<p>Each <code>acc[k]</code> depends only on its own value from the previous iteration. With 8 chains, 2 FMAs issue per cycle, and <code>acc[0]</code>'s previous result is ready just as the core comes back around to it, 4 cycles later. An in-order core runs this without a single stall, at the port limit of 2 FMAs per cycle. An out-of-order core would find exactly the same schedule, so both hit the same ceiling: execution-port throughput. (In practice each <code>acc[k]</code> is a SIMD register holding 8 or 16 lanes, but the scheduling argument is the same.)</p>
+<p>The static schedule stops being enough when any of its assumptions break:</p>
+<ul>
+<li><strong>Unknown latency:</strong> a load that misses L1 takes 15 to 400+ cycles instead of 5. The compiler can't know which, so an in-order core stalls at the first use while an out-of-order core keeps going (see <a href="#/ooo-tradeoffs">When Out-of-Order Execution Pays Off</a>).</li>
+<li><strong>Register count:</strong> the number of accumulators the compiler can unroll to is capped by the architectural registers (16 YMM with AVX2, 32 ZMM with AVX-512). Register renaming lets hardware overlap iterations past that cap.</li>
+<li><strong>Tuned for one core:</strong> the schedule bakes in one microarchitecture's latencies and port counts. Run the binary on a core with a longer FMA latency and the in-order core starts stalling.</li>
+<li><strong>Aliasing and branches:</strong> if the compiler can't prove that stores don't overlap later loads, or the loop has data-dependent branches, it can't move work freely. Hardware checks these at run time.</li>
+</ul>
+<h3 id="sec-limits">What Limits the Optimizer</h3>
+<ul>
+<li><strong>Aliasing:</strong> if two pointers might point to the same memory, the compiler can't reorder or cache accesses through them. C's <code>restrict</code> keyword promises they don't overlap.</li>
+<li><strong>Observable behavior:</strong> output, <code>volatile</code> accesses, and synchronization can't be removed or reordered freely (see <a href="#/c11-ordering">C11 memory ordering</a>).</li>
+<li><strong>Floating-point rules:</strong> reassociating <code>(a + b) + c</code> changes rounding, so compilers only do it when allowed.</li>
+<li><strong>Visibility:</strong> a function in another file is a black box, unless <strong>link-time optimization (LTO)</strong> lets the optimizer see the whole program at link time.</li>
+<li><strong>Missing runtime knowledge:</strong> <strong>profile-guided optimization (PGO)</strong> runs the program on sample inputs, records which branches and functions are hot, then recompiles using that profile for better layout, inlining, and branch decisions.</li>
+</ul>
+<h3 id="sec-perf-angle">The Performance Engineer's Angle</h3>
+<ul>
+<li><strong>The compiler changes both terms of the iron law you'd like to hold constant:</strong> instruction count and, through scheduling and layout, CPI. When comparing hardware designs, use identical binaries.</li>
+<li><strong>Target flags matter:</strong> <code>-march</code> lets the compiler use optional ISA extensions (such as AVX-512 or Arm SVE), changing the instruction mix entirely.</li>
+<li><strong>Read the assembly:</strong> when a benchmark behaves strangely, the generated code (via <code>-S</code> or a disassembler) often explains it: a loop that didn't vectorize, a spill inside a hot loop, or a branch that became a conditional move.</li>
+</ul>
+`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Which optimizations apply to this function, and what might the compiler reduce it to?</p><pre><code>int g(int n) {
+    int a = 4 * 8;
+    int s = 0;
+    for (int i = 0; i &lt; n; i++)
+        s += a * n;
+    return s;
+}</code></pre>`,
+        a: `<ol><li>Constant folding: <code>a = 32</code>.</li><li>Constant propagation: the loop body becomes <code>s += 32 * n</code>.</li><li>Loop-invariant code motion: <code>32 * n</code> doesn't change inside the loop, so it's computed once; strength reduction makes it <code>n &lt;&lt; 5</code>.</li><li>The loop just adds the same value <code>n</code> times, so a compiler can replace it entirely with a closed form: <code>s = (n &gt; 0) ? 32 * n * n : 0</code>, with no loop at all.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Why can a change in compiler version or flags make a microarchitecture comparison misleading?</p>`,
+        a: `<p>The compiler determines the instruction count and strongly affects CPI: instruction selection, vectorization, unrolling, inlining, if-conversion, and code layout all change the instruction mix, branch behavior, and cache footprint. If two hardware designs are measured with different binaries, the difference mixes compiler effects with hardware effects. Fair comparisons use identical binaries, and when the compiler itself is being evaluated, the hardware is held fixed instead.</p>`
+      },
+      {
+        q: `<p>A BLAS kernel was tuned for Haswell (FMA latency 5 cycles, 2 FMA ports) with 10 independent accumulators. A new core raises the FMA latency to 6 cycles to reach a higher clock, still with 2 ports. The code uses AVX2, which has 16 YMM registers. What FMA throughput does the unchanged binary get on an in-order version of the new core, and on an out-of-order version? What's the fix?</p>`,
+        a: `<p>Each accumulator is a loop-carried chain, so the kernel can't do better than chains / latency = 10 / 6 ≈ <strong>1.67 FMAs per cycle</strong>, against a peak of 2 (about 83%). That bound holds for <em>both</em> cores. The out-of-order core can overlap independent work, but every FMA here sits on one of the 10 chains, and no window size shortens a chain. The in-order core settles into the same steady state: it issues the 10 FMAs, then waits for the oldest chain.</p><p>The fix is in software: recompile with at least 2 × 6 = 12 accumulators, if the register file allows it. On AVX2's 16 YMM registers that leaves 4 for operands, which is tight but workable. This is a case where out-of-order hardware doesn't save a stale static schedule, because the limit is a true dependence, not a scheduling order.</p>`
+      }
+    ]
+  }
+},
+
+{
   id: "comp-regalloc",
   region: "comp",
   title: "Register Allocation, Spills, and Stack Frames",
@@ -475,113 +582,6 @@ f:
       {
         q: `<p>Most x86-64 code is compiled without a frame pointer, yet Fedora and Ubuntu recently rebuilt their packages with one. What does keeping rbp as a frame pointer cost, what does it buy, and why did the trade-off change?</p>`,
         a: `<p><strong>Cost:</strong></p><ul><li>One fewer allocatable register: 14 instead of 15 general-purpose registers, so register-hungry functions spill a little more.</li><li>Two or three extra instructions per non-leaf call (<code>push rbp</code>, <code>mov rbp, rsp</code>, and a <code>pop rbp</code> or <code>leave</code>).</li><li>The measured overall slowdown is usually around 1% or less, with a few register-starved hot loops losing more.</li></ul><p><strong>Benefit:</strong> every frame starts with the caller's rbp next to the return address, so a profiler or debugger can walk the whole call stack by following a linked list. Without it, stack walking needs DWARF unwind tables, which a sampling profiler such as <code>perf</code> can't evaluate cheaply in the kernel. It falls back to copying a chunk of the user stack per sample and unwinding later, which is slow, large, and often truncated.</p><p><strong>Why it changed:</strong> continuous, fleet-wide profiling became standard practice, and the speedups it finds are worth far more than about 1%. With 16 general-purpose registers, giving up one costs much less than it did on 32-bit x86, which had only 8.</p>`
-      }
-    ]
-  }
-},
-
-{
-  id: "comp-opt",
-  region: "comp",
-  title: "Compiler Optimizations",
-  sections: [
-    { id: "classic", label: "Classic Optimizations" },
-    { id: "loops", label: "Loop Optimizations" },
-    { id: "branches", label: "Branches and Calls" },
-    { id: "back-end-opts", label: "Back-End Optimizations" },
-    { id: "static-sched", label: "Static Scheduling and Compute Kernels" },
-    { id: "limits", label: "What Limits the Optimizer" },
-    { id: "perf-angle", label: "The Performance Angle" }
-  ],
-  body: `
-<p>The optimizer rewrites the IR into an equivalent program that runs faster or is smaller. "Equivalent" is the key constraint: the program's observable behavior (its output, its writes to memory other code can see, its calls to other functions) must not change. Optimization levels such as <code>-O1</code>, <code>-O2</code>, and <code>-O3</code> select more aggressive sets of passes; <code>-Os</code> optimizes for size.</p>
-<h3 id="sec-classic">Classic Optimizations</h3>
-<div class="tbl"><table>
-<tr><th>Optimization</th><th>Before</th><th>After</th><th>Why it helps</th></tr>
-<tr><td>Constant folding</td><td><code>a = 4 * 8;</code></td><td><code>a = 32;</code></td><td>Computed once at compile time instead of every run</td></tr>
-<tr><td>Constant propagation</td><td><code>a = 32; b = a + 1;</code></td><td><code>b = 33;</code></td><td>Known values flow forward, enabling more folding</td></tr>
-<tr><td>Dead code elimination</td><td><code>t = x * 3;</code> (t never used)</td><td>(removed)</td><td>Fewer instructions</td></tr>
-<tr><td>Common subexpression elimination</td><td><code>a = b*c + d; e = b*c - d;</code></td><td><code>t = b*c; a = t + d; e = t - d;</code></td><td>Compute once, reuse</td></tr>
-<tr><td>Strength reduction</td><td><code>x * 2</code>, <code>x / 8</code> (unsigned)</td><td><code>x &lt;&lt; 1</code>, <code>x &gt;&gt; 3</code></td><td>Cheaper operations; in <code>f</code>, the multiply became a shift</td></tr>
-<tr><td>Copy propagation</td><td><code>b = a; c = b + 1;</code></td><td><code>c = a + 1;</code></td><td>Removes moves, frees registers</td></tr>
-</table></div>
-<h3 id="sec-loops">Loop Optimizations</h3>
-<ul>
-<li><strong>Loop-invariant code motion:</strong> a computation whose inputs don't change inside the loop is moved before it, so it runs once instead of every iteration.</li>
-<li><strong>Induction variable optimization:</strong> replaces expensive index math such as <code>a[i]</code> recomputing <code>base + i * 4</code> with a pointer that simply advances by 4 each iteration.</li>
-<li><strong>Loop unrolling:</strong> repeats the loop body several times per iteration, cutting branch and counter overhead and exposing more independent work to an out-of-order core.</li>
-<li><strong>Vectorization:</strong> turns a loop over array elements into SIMD instructions that process 4, 8, or more elements at once.</li>
-<li><strong>Breaking dependency chains:</strong> with permission to reorder floating-point math (for example <code>-ffast-math</code>), a sum into one accumulator can be split into several independent accumulators, turning a latency-bound loop into a throughput-bound one (see <a href="#/perf-bottlenecks/latency-throughput">Bottleneck types</a>).</li>
-</ul>
-<h3 id="sec-branches">Branches and Calls</h3>
-<ul>
-<li><strong>If-conversion (branchless code):</strong> a short if can become a <em>select</em> with no branch at all, using a conditional move (x86 <code>cmov</code>, Arm <code>csel</code>). For <code>f</code>, <code>y = (x &gt; 10) ? x * 2 : 0</code> could be computed without branching. That removes any chance of a mispredict, at the cost of always computing both sides, so it pays off when the branch is unpredictable and both sides are cheap.</li>
-<li><strong>Inlining:</strong> replaces a call with the callee's body, removing call overhead and, more importantly, letting the optimizer see both sides together. Too much inlining bloats code and hurts the instruction cache.</li>
-<li><strong>Tail-call optimization:</strong> a call that's the very last thing a function does becomes a jump, reusing the stack frame.</li>
-<li><strong>Library-call simplification:</strong> compilers know the standard library's meaning. <code>printf("hello\\n")</code>, with no format arguments, is commonly turned into the cheaper <code>puts("hello")</code>. Our <code>printf("x = %d\\n", x)</code> must stay a printf, because it formats a value; and it can never be removed, since printing is observable behavior.</li>
-<li><strong>Code layout:</strong> hot code is placed together and likely branch paths are made fall-through, improving instruction cache, TLB, and fetch behavior.</li>
-</ul>
-<h3 id="sec-back-end-opts">Back-End Optimizations</h3>
-<ul>
-<li><strong>Register allocation:</strong> keeping values in registers instead of memory is one of the biggest wins. At <code>-O0</code>, by contrast, every variable lives on the stack: each statement loads its inputs and stores its results, so even <code>y = x * 2</code> becomes a load, a multiply, and a store.</li>
-<li><strong>Instruction scheduling:</strong> reorders instructions to hide latency and avoid stalls. Essential for in-order cores; less critical, but still useful, for out-of-order cores.</li>
-<li><strong>Software pipelining:</strong> overlaps iterations in the static schedule. Iteration <em>i</em> issues the loads for iteration <em>i</em> + 2 while it computes on data loaded earlier, so no instruction waits on a result produced just before it. A prologue fills the pipeline and an epilogue drains it.</li>
-<li><strong>Peephole optimizations:</strong> small local rewrites of instruction sequences, such as <code>xor eax, eax</code> instead of <code>mov eax, 0</code> on x86.</li>
-</ul>
-<h3 id="sec-static-sched">Static Scheduling and Compute Kernels</h3>
-<p>A <strong>compute kernel</strong> is a small, hot loop that does dense arithmetic over arrays, with few branches and regular memory access. Examples are a dot product, the inner loop of a matrix multiply, an FIR filter, a stencil update, and an AES round. Programs often spend most of their time in a few of these, so compilers and hand-tuned libraries (BLAS, FFTW, oneDNN) schedule them carefully.</p>
-<p>When a kernel's data sits in L1, every latency is fixed and known at compile time. That's the case where static scheduling does as well as an out-of-order core. Take a dot product on a core with a 4-cycle FMA and 2 FMA pipes (Golden Cove, Zen 4):</p>
-<pre><code>// 8 independent accumulators: 2 pipes × 4 cycles of latency
-for (i = 0; i &lt; n; i += 8) {
-    acc[0] += a[i+0] * b[i+0];
-    acc[1] += a[i+1] * b[i+1];
-    ...
-    acc[7] += a[i+7] * b[i+7];
-}</code></pre>
-<p>Each <code>acc[k]</code> depends only on its own value from the previous iteration. With 8 chains, 2 FMAs issue per cycle, and <code>acc[0]</code>'s previous result is ready just as the core comes back around to it, 4 cycles later. An in-order core runs this without a single stall, at the port limit of 2 FMAs per cycle. An out-of-order core would find exactly the same schedule, so both hit the same ceiling: execution-port throughput. (In practice each <code>acc[k]</code> is a SIMD register holding 8 or 16 lanes, but the scheduling argument is the same.)</p>
-<p>The static schedule stops being enough when any of its assumptions break:</p>
-<ul>
-<li><strong>Unknown latency:</strong> a load that misses L1 takes 15 to 400+ cycles instead of 5. The compiler can't know which, so an in-order core stalls at the first use while an out-of-order core keeps going (see <a href="#/ooo-tradeoffs">When Out-of-Order Execution Pays Off</a>).</li>
-<li><strong>Register count:</strong> the number of accumulators the compiler can unroll to is capped by the architectural registers (16 YMM with AVX2, 32 ZMM with AVX-512). Register renaming lets hardware overlap iterations past that cap.</li>
-<li><strong>Tuned for one core:</strong> the schedule bakes in one microarchitecture's latencies and port counts. Run the binary on a core with a longer FMA latency and the in-order core starts stalling.</li>
-<li><strong>Aliasing and branches:</strong> if the compiler can't prove that stores don't overlap later loads, or the loop has data-dependent branches, it can't move work freely. Hardware checks these at run time.</li>
-</ul>
-<h3 id="sec-limits">What Limits the Optimizer</h3>
-<ul>
-<li><strong>Aliasing:</strong> if two pointers might point to the same memory, the compiler can't reorder or cache accesses through them. C's <code>restrict</code> keyword promises they don't overlap.</li>
-<li><strong>Observable behavior:</strong> output, <code>volatile</code> accesses, and synchronization can't be removed or reordered freely (see <a href="#/c11-ordering">C11 memory ordering</a>).</li>
-<li><strong>Floating-point rules:</strong> reassociating <code>(a + b) + c</code> changes rounding, so compilers only do it when allowed.</li>
-<li><strong>Visibility:</strong> a function in another file is a black box, unless <strong>link-time optimization (LTO)</strong> lets the optimizer see the whole program at link time.</li>
-<li><strong>Missing runtime knowledge:</strong> <strong>profile-guided optimization (PGO)</strong> runs the program on sample inputs, records which branches and functions are hot, then recompiles using that profile for better layout, inlining, and branch decisions.</li>
-</ul>
-<h3 id="sec-perf-angle">The Performance Engineer's Angle</h3>
-<ul>
-<li><strong>The compiler changes both terms of the iron law you'd like to hold constant:</strong> instruction count and, through scheduling and layout, CPI. When comparing hardware designs, use identical binaries.</li>
-<li><strong>Target flags matter:</strong> <code>-march</code> lets the compiler use optional ISA extensions (such as AVX-512 or Arm SVE), changing the instruction mix entirely.</li>
-<li><strong>Read the assembly:</strong> when a benchmark behaves strangely, the generated code (via <code>-S</code> or a disassembler) often explains it: a loop that didn't vectorize, a spill inside a hot loop, or a branch that became a conditional move.</li>
-</ul>
-`,
-  practice: {
-    guided: [
-      {
-        q: `<p>Which optimizations apply to this function, and what might the compiler reduce it to?</p><pre><code>int g(int n) {
-    int a = 4 * 8;
-    int s = 0;
-    for (int i = 0; i &lt; n; i++)
-        s += a * n;
-    return s;
-}</code></pre>`,
-        a: `<ol><li>Constant folding: <code>a = 32</code>.</li><li>Constant propagation: the loop body becomes <code>s += 32 * n</code>.</li><li>Loop-invariant code motion: <code>32 * n</code> doesn't change inside the loop, so it's computed once; strength reduction makes it <code>n &lt;&lt; 5</code>.</li><li>The loop just adds the same value <code>n</code> times, so a compiler can replace it entirely with a closed form: <code>s = (n &gt; 0) ? 32 * n * n : 0</code>, with no loop at all.</li></ol>`
-      }
-    ],
-    interview: [
-      {
-        q: `<p>Why can a change in compiler version or flags make a microarchitecture comparison misleading?</p>`,
-        a: `<p>The compiler determines the instruction count and strongly affects CPI: instruction selection, vectorization, unrolling, inlining, if-conversion, and code layout all change the instruction mix, branch behavior, and cache footprint. If two hardware designs are measured with different binaries, the difference mixes compiler effects with hardware effects. Fair comparisons use identical binaries, and when the compiler itself is being evaluated, the hardware is held fixed instead.</p>`
-      },
-      {
-        q: `<p>A BLAS kernel was tuned for Haswell (FMA latency 5 cycles, 2 FMA ports) with 10 independent accumulators. A new core raises the FMA latency to 6 cycles to reach a higher clock, still with 2 ports. The code uses AVX2, which has 16 YMM registers. What FMA throughput does the unchanged binary get on an in-order version of the new core, and on an out-of-order version? What's the fix?</p>`,
-        a: `<p>Each accumulator is a loop-carried chain, so the kernel can't do better than chains / latency = 10 / 6 ≈ <strong>1.67 FMAs per cycle</strong>, against a peak of 2 (about 83%). That bound holds for <em>both</em> cores. The out-of-order core can overlap independent work, but every FMA here sits on one of the 10 chains, and no window size shortens a chain. The in-order core settles into the same steady state: it issues the 10 FMAs, then waits for the oldest chain.</p><p>The fix is in software: recompile with at least 2 × 6 = 12 accumulators, if the register file allows it. On AVX2's 16 YMM registers that leaves 4 for operands, which is tight but workable. This is a case where out-of-order hardware doesn't save a stale static schedule, because the limit is a true dependence, not a scheduling order.</p>`
       }
     ]
   }

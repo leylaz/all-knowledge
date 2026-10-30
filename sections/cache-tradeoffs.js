@@ -2452,104 +2452,6 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 },
 
 {
-  id: "cache-banking",
-  region: "ctr",
-  title: "Banking and Bank Size",
-  sections: [
-    { id: "few", label: "Few, Large Banks" },
-    { id: "many", label: "Many, Small Banks" },
-    { id: "slices", label: "Distributed LLC Slices" },
-    { id: "ports", label: "Multiporting and Replication" }
-  ],
-  body: `
-<h3>What It Changes</h3>
-<p>A banked cache splits its array into independent pieces, letting several accesses proceed at once. Bank size trades access speed against overhead.</p>
-
-<h3 id="sec-few">Few, Large Banks</h3>
-<p><strong>Motivation.</strong> The densest, cheapest array. Every bank needs its own decoders, sense amplifiers, and drivers, so fewer banks put more of the area into storage.</p>
-<p><strong>How it works.</strong> One or two address bits pick the bank. Accesses to different banks in the same cycle proceed together, and two to the same bank serialize.</p>
-<p><strong>Example.</strong> With 2 banks and 2 random accesses per cycle, the chance of a conflict is 1/2: half the cycles lose one access. With 1 access per cycle there is never a conflict, which is why caches serving one request per cycle, like most L1Is and L2s, can use few banks.</p>
-<p><strong>Implementation.</strong> Long wordlines and bitlines in each bank, so access time and energy per access are higher than for small banks. The crossbar between banks and ports is small.</p>
-<h4>Where Few Large Banks Help</h4>
-<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Code issuing at most one access per cycle to the cache</li><li><a href="#/cache-patterns/pointer">Pointer chasing</a>, whose dependent loads rarely issue together</li><li><a href="#/cache-patterns/ifetch">Instruction fetch</a> through a single fetch port</li></ul></td><td><ul><li>505.mcf_r</li><li>B-tree index lookups in databases</li><li>L1I traffic of any program</li></ul></td></tr></table></div>
-<h4>Where Few Large Banks Hurt</h4>
-<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Loops issuing 2 or more loads per cycle</li><li>Vector code with gathers</li></ul></td><td><ul><li>STREAM triad at 2 loads per cycle</li><li>508.namd_r and 538.imagick_r vectorized kernels</li></ul></td></tr></table></div>
-
-<h3 id="sec-many">Many, Small Banks</h3>
-<p><strong>Motivation.</strong> Wide out-of-order cores issue 2 or 3 loads per cycle. Many banks make conflicts rare without the area of true multiporting, and small banks are faster and use less energy per access.</p>
-<p><strong>How it works.</strong> Low-order address bits (within or just above the line offset) pick the bank, so consecutive words or lines spread across banks. A conflict delays one access by a cycle, or replays it.</p>
-<p><strong>Example.</strong> Sandy Bridge's L1D was split into banks by address bits within the line, and two loads to the same bank in different lines conflicted (Agner Fog's microarchitecture guide). Haswell removed these conflicts. With 16 random banks, 2 accesses conflict 1/16 = 6.25% of the time, and 3 accesses 1 − (16 × 15 × 14) / 16<sup>3</sup> ≈ 18%.</p>
-<p><strong>Implementation.</strong> A bank-select decoder per port, conflict detection that compares the bank bits of all accesses issued in a cycle, and a crossbar from banks to load ports. The scheduler must replay or delay the losing access, which complicates load-latency speculation.</p>
-<h4>Where Many Small Banks Help</h4>
-<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>High load bandwidth: 2 to 3 loads per cycle</li><li><a href="#/cache-patterns/stream">Streams</a> whose consecutive accesses fall in different banks</li><li><a href="#/cache-patterns/tiled">Tiled numerics</a> with padded leading dimensions</li></ul></td><td><ul><li>DGEMM and convolution kernels</li><li>STREAM</li><li>525.x264_r's SIMD loops</li></ul></td></tr></table></div>
-<h4>Where Many Small Banks Hurt</h4>
-<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Several arrays with the same alignment, so every access in a cycle picks the same bank</li><li><a href="#/cache-patterns/strided">Strides</a> that are multiples of the bank interleave</li></ul></td><td><ul><li>Unpadded DGEMM with a 1024-element leading dimension</li><li>Unpadded matrix transpose</li></ul></td></tr></table></div>
-
-<h3 id="sec-slices">Distributed LLC Slices</h3>
-<p><strong>Motivation.</strong> One central LLC can't supply bandwidth to dozens of cores. Splitting it into slices, one near each core, scales bandwidth with the core count and spreads the traffic over the on-chip network.</p>
-<p><strong>How it works.</strong> A hash of many physical address bits picks the slice, so consecutive lines and common strides spread evenly. Each slice has its own tags, data, and controller, which also acts as the coherence home for its lines. Latency depends on the distance from the core to the slice.</p>
-<p><strong>Example.</strong> Skylake-SP has a 1.375 MB L3 slice next to each core on a mesh, and Sapphire Rapids 1.875 MB. A lock word lives on exactly one slice, so every core contending for it sends its requests to that one slice.</p>
-<p><strong>Implementation.</strong> A slice hash in each core's request path (undocumented by Intel, reverse-engineered by Maurice and colleagues, RAID 2015), mesh or ring stops at each slice, and a per-slice snoop filter or directory.</p>
-<h4>Where Sliced LLCs Help</h4>
-<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Many cores each streaming or missing independently</li><li>Data spread over many lines, which the hash spreads over slices</li></ul></td><td><ul><li>SPECrate runs of 519.lbm_r on every core</li><li>Multi-tenant cloud servers</li><li>Parallel graph analytics</li></ul></td></tr></table></div>
-<h4>Where Sliced LLCs Hurt</h4>
-<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>A few <a href="#/cache-patterns/shared">hot shared lines</a> (locks, counters), which all land on one slice</li><li>Dependent misses from one thread to lines that hash to far slices</li></ul></td><td><ul><li>A global spinlock in a database or the kernel</li><li>Shared reference counts in multithreaded allocators</li></ul></td></tr></table></div>
-
-<h3 id="sec-ports">Multiporting and Replication</h3>
-<p><strong>Motivation.</strong> The alternatives to banking when conflicts are unacceptable: give every cell more ports, run the array twice per cycle, or keep two copies.</p>
-<p><strong>How it works.</strong></p>
-<ul>
-<li><strong>Multiported cells:</strong> each SRAM cell gets extra wordlines and bitlines (an 8-transistor cell adds a separate read port), so any two addresses can be read at once.</li>
-<li><strong>Double pumping:</strong> the array runs at twice the core clock and serves one access per half cycle.</li>
-<li><strong>Replication:</strong> two identical copies each serve one read. A store writes both.</li>
-</ul>
-<p><strong>Example.</strong> The Alpha 21264 double-pumped its 64 KB L1D to serve two loads per cycle. A true dual-ported array costs roughly 1.5 to 2 times the area of a single-ported one, and replication costs 2 times.</p>
-<p><strong>Implementation.</strong> Multiporting grows each cell and slows every access. Double pumping needs an array fast enough for half a cycle, which limits it as clocks rise. Replication needs every store to update both copies in the same cycle.</p>
-<h4>Where Multiporting and Replication Help</h4>
-<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Read-heavy code that issues 2 or more loads per cycle with unpredictable addresses</li><li>Small hot working sets, which fit in a structure small enough to replicate</li></ul></td><td><ul><li>Gathers in vectorized 508.namd_r</li><li>AES and CRC table lookups</li></ul></td></tr></table></div>
-<h4>Where Multiporting and Replication Hurt</h4>
-<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Store-heavy access, which must write every copy</li><li>Large working sets, which need a structure too big to multiport or replicate</li></ul></td><td><ul><li><code>memset</code> and other bulk stores</li><li>Server workloads with multi-MB working sets</li></ul></td></tr></table></div>
-
-<h3>The Math</h3>
-<ul>
-<li><strong>Conflict probability</strong> with k random accesses over B banks: 1 − B! / ((B − k)! × B<sup>k</sup>).</li>
-<li><strong>Bank selection:</strong> bank = some address bits (low line bits for spreading sequential accesses), often XOR-hashed with higher bits.</li>
-<li><strong>Bank size</strong> = cache size / banks. Smaller banks have shorter wordlines and bitlines, so they are faster and use less energy per access.</li>
-</ul>
-<h3>Power, Performance, Area</h3>
-<ul>
-<li><strong>More, smaller banks:</strong> more parallelism, faster and lower-energy access per bank, but each bank needs its own decoders, sense amplifiers, and drivers, and a wider crossbar connects banks to ports. Overhead area and routing rise.</li>
-<li><strong>Fewer, larger banks:</strong><ul><li>Denser, with less overhead</li><li>Slower, with more conflicts</li></ul></li>
-<li><strong>Versus multiporting:</strong> banking gives most of the bandwidth at far lower area than adding ports to every cell.</li>
-</ul>
-<h3>By Workload</h3>
-<div class="tbl"><table><tr><th>Workload</th><th>Effect</th></tr>
-<tr><td>Compute-bound</td><td>Little effect: few memory ops per cycle.</td></tr>
-<tr><td>Pointer chasing</td><td>Little effect: dependent loads rarely issue in the same cycle.</td></tr>
-<tr><td>Streaming</td><td>Sequential lines spread across banks well, but several arrays with identically aligned bases can hit the same bank every cycle.</td></tr>
-<tr><td>Large code footprint</td><td>I-caches usually serve one fetch per cycle, so banking matters less.</td></tr>
-<tr><td>Branch-heavy integer</td><td>Little effect.</td></tr>
-<tr><td>Blocked numerics</td><td>Power-of-two leading dimensions cause repeated conflicts. Padding fixes it.</td></tr>
-<tr><td>ML inference</td><td>High load bandwidth per cycle makes bank conflicts visible, so layout matters.</td></tr>
-<tr><td>Multithreaded shared data</td><td>At the LLC, "banks" are slices across the chip. Hashing spreads load, but a single hot line (a lock) still serializes on one slice.</td></tr>
-</table></div>`,
-  practice: {
-    guided: [
-      {
-        q: `<p>An L1 has 8 banks. Assuming random bank selection, what is the chance that 2 accesses in the same cycle conflict? 4 accesses?</p>`,
-        a: `<ol><li>P(no conflict) = B! / ((B − k)! × B<sup>k</sup>).</li><li>k = 2: 1 − (8 × 7) / 64 = <strong>12.5%</strong> conflict.</li><li>k = 4: 1 − (8 × 7 × 6 × 5) / 4096 ≈ <strong>59%</strong> conflict.</li><li>Random banking works for 2 accesses per cycle, but supporting 3–4 loads per cycle needs more banks, smarter mapping, or replication.</li></ol>`
-      }
-    ],
-    interview: [
-      {
-        q: `<p>To support two loads per cycle, compare a true dual-ported L1, a banked L1, and a replicated L1.</p>`,
-        a: `<p><strong>Dual-ported:</strong> no conflicts, but each SRAM cell needs extra ports, raising area roughly 1.5–2× and slowing access. <strong>Banked:</strong> nearly single-port area and energy, but same-bank pairs conflict and one load waits. It works well when address bits spread accesses. <strong>Replicated:</strong> two copies serve reads with no conflicts, but stores must write both and area doubles. Banking is the common choice for L1D, and replication suits read-heavy, small structures.</p>`
-      }
-    ]
-  }
-},
-
-{
   id: "cache-write",
   region: "ctr",
   title: "Write Policies",
@@ -2643,6 +2545,104 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
       {
         q: `<p>Why are L1 data caches almost always write-back, while some designs make L1 write-through to an L2?</p>`,
         a: `<p>Write-back absorbs repeated stores to the same line, saving bandwidth and energy. Write-through to L2 simplifies coherence and error handling: L1 lines are never dirty, so the L2 always has current data and L1 can use simple parity. It works only if the L2 can absorb the store bandwidth, usually with a store-merging buffer between them.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "cache-banking",
+  region: "ctr",
+  title: "Banking and Bank Size",
+  sections: [
+    { id: "few", label: "Few, Large Banks" },
+    { id: "many", label: "Many, Small Banks" },
+    { id: "slices", label: "Distributed LLC Slices" },
+    { id: "ports", label: "Multiporting and Replication" }
+  ],
+  body: `
+<h3>What It Changes</h3>
+<p>A banked cache splits its array into independent pieces, letting several accesses proceed at once. Bank size trades access speed against overhead.</p>
+
+<h3 id="sec-few">Few, Large Banks</h3>
+<p><strong>Motivation.</strong> The densest, cheapest array. Every bank needs its own decoders, sense amplifiers, and drivers, so fewer banks put more of the area into storage.</p>
+<p><strong>How it works.</strong> One or two address bits pick the bank. Accesses to different banks in the same cycle proceed together, and two to the same bank serialize.</p>
+<p><strong>Example.</strong> With 2 banks and 2 random accesses per cycle, the chance of a conflict is 1/2: half the cycles lose one access. With 1 access per cycle there is never a conflict, which is why caches serving one request per cycle, like most L1Is and L2s, can use few banks.</p>
+<p><strong>Implementation.</strong> Long wordlines and bitlines in each bank, so access time and energy per access are higher than for small banks. The crossbar between banks and ports is small.</p>
+<h4>Where Few Large Banks Help</h4>
+<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Code issuing at most one access per cycle to the cache</li><li><a href="#/cache-patterns/pointer">Pointer chasing</a>, whose dependent loads rarely issue together</li><li><a href="#/cache-patterns/ifetch">Instruction fetch</a> through a single fetch port</li></ul></td><td><ul><li>505.mcf_r</li><li>B-tree index lookups in databases</li><li>L1I traffic of any program</li></ul></td></tr></table></div>
+<h4>Where Few Large Banks Hurt</h4>
+<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Loops issuing 2 or more loads per cycle</li><li>Vector code with gathers</li></ul></td><td><ul><li>STREAM triad at 2 loads per cycle</li><li>508.namd_r and 538.imagick_r vectorized kernels</li></ul></td></tr></table></div>
+
+<h3 id="sec-many">Many, Small Banks</h3>
+<p><strong>Motivation.</strong> Wide out-of-order cores issue 2 or 3 loads per cycle. Many banks make conflicts rare without the area of true multiporting, and small banks are faster and use less energy per access.</p>
+<p><strong>How it works.</strong> Low-order address bits (within or just above the line offset) pick the bank, so consecutive words or lines spread across banks. A conflict delays one access by a cycle, or replays it.</p>
+<p><strong>Example.</strong> Sandy Bridge's L1D was split into banks by address bits within the line, and two loads to the same bank in different lines conflicted (Agner Fog's microarchitecture guide). Haswell removed these conflicts. With 16 random banks, 2 accesses conflict 1/16 = 6.25% of the time, and 3 accesses 1 − (16 × 15 × 14) / 16<sup>3</sup> ≈ 18%.</p>
+<p><strong>Implementation.</strong> A bank-select decoder per port, conflict detection that compares the bank bits of all accesses issued in a cycle, and a crossbar from banks to load ports. The scheduler must replay or delay the losing access, which complicates load-latency speculation.</p>
+<h4>Where Many Small Banks Help</h4>
+<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>High load bandwidth: 2 to 3 loads per cycle</li><li><a href="#/cache-patterns/stream">Streams</a> whose consecutive accesses fall in different banks</li><li><a href="#/cache-patterns/tiled">Tiled numerics</a> with padded leading dimensions</li></ul></td><td><ul><li>DGEMM and convolution kernels</li><li>STREAM</li><li>525.x264_r's SIMD loops</li></ul></td></tr></table></div>
+<h4>Where Many Small Banks Hurt</h4>
+<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Several arrays with the same alignment, so every access in a cycle picks the same bank</li><li><a href="#/cache-patterns/strided">Strides</a> that are multiples of the bank interleave</li></ul></td><td><ul><li>Unpadded DGEMM with a 1024-element leading dimension</li><li>Unpadded matrix transpose</li></ul></td></tr></table></div>
+
+<h3 id="sec-slices">Distributed LLC Slices</h3>
+<p><strong>Motivation.</strong> One central LLC can't supply bandwidth to dozens of cores. Splitting it into slices, one near each core, scales bandwidth with the core count and spreads the traffic over the on-chip network.</p>
+<p><strong>How it works.</strong> A hash of many physical address bits picks the slice, so consecutive lines and common strides spread evenly. Each slice has its own tags, data, and controller, which also acts as the coherence home for its lines. Latency depends on the distance from the core to the slice.</p>
+<p><strong>Example.</strong> Skylake-SP has a 1.375 MB L3 slice next to each core on a mesh, and Sapphire Rapids 1.875 MB. A lock word lives on exactly one slice, so every core contending for it sends its requests to that one slice.</p>
+<p><strong>Implementation.</strong> A slice hash in each core's request path (undocumented by Intel, reverse-engineered by Maurice and colleagues, RAID 2015), mesh or ring stops at each slice, and a per-slice snoop filter or directory.</p>
+<h4>Where Sliced LLCs Help</h4>
+<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Many cores each streaming or missing independently</li><li>Data spread over many lines, which the hash spreads over slices</li></ul></td><td><ul><li>SPECrate runs of 519.lbm_r on every core</li><li>Multi-tenant cloud servers</li><li>Parallel graph analytics</li></ul></td></tr></table></div>
+<h4>Where Sliced LLCs Hurt</h4>
+<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>A few <a href="#/cache-patterns/shared">hot shared lines</a> (locks, counters), which all land on one slice</li><li>Dependent misses from one thread to lines that hash to far slices</li></ul></td><td><ul><li>A global spinlock in a database or the kernel</li><li>Shared reference counts in multithreaded allocators</li></ul></td></tr></table></div>
+
+<h3 id="sec-ports">Multiporting and Replication</h3>
+<p><strong>Motivation.</strong> The alternatives to banking when conflicts are unacceptable: give every cell more ports, run the array twice per cycle, or keep two copies.</p>
+<p><strong>How it works.</strong></p>
+<ul>
+<li><strong>Multiported cells:</strong> each SRAM cell gets extra wordlines and bitlines (an 8-transistor cell adds a separate read port), so any two addresses can be read at once.</li>
+<li><strong>Double pumping:</strong> the array runs at twice the core clock and serves one access per half cycle.</li>
+<li><strong>Replication:</strong> two identical copies each serve one read. A store writes both.</li>
+</ul>
+<p><strong>Example.</strong> The Alpha 21264 double-pumped its 64 KB L1D to serve two loads per cycle. A true dual-ported array costs roughly 1.5 to 2 times the area of a single-ported one, and replication costs 2 times.</p>
+<p><strong>Implementation.</strong> Multiporting grows each cell and slows every access. Double pumping needs an array fast enough for half a cycle, which limits it as clocks rise. Replication needs every store to update both copies in the same cycle.</p>
+<h4>Where Multiporting and Replication Help</h4>
+<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Read-heavy code that issues 2 or more loads per cycle with unpredictable addresses</li><li>Small hot working sets, which fit in a structure small enough to replicate</li></ul></td><td><ul><li>Gathers in vectorized 508.namd_r</li><li>AES and CRC table lookups</li></ul></td></tr></table></div>
+<h4>Where Multiporting and Replication Hurt</h4>
+<div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Store-heavy access, which must write every copy</li><li>Large working sets, which need a structure too big to multiport or replicate</li></ul></td><td><ul><li><code>memset</code> and other bulk stores</li><li>Server workloads with multi-MB working sets</li></ul></td></tr></table></div>
+
+<h3>The Math</h3>
+<ul>
+<li><strong>Conflict probability</strong> with k random accesses over B banks: 1 − B! / ((B − k)! × B<sup>k</sup>).</li>
+<li><strong>Bank selection:</strong> bank = some address bits (low line bits for spreading sequential accesses), often XOR-hashed with higher bits.</li>
+<li><strong>Bank size</strong> = cache size / banks. Smaller banks have shorter wordlines and bitlines, so they are faster and use less energy per access.</li>
+</ul>
+<h3>Power, Performance, Area</h3>
+<ul>
+<li><strong>More, smaller banks:</strong> more parallelism, faster and lower-energy access per bank, but each bank needs its own decoders, sense amplifiers, and drivers, and a wider crossbar connects banks to ports. Overhead area and routing rise.</li>
+<li><strong>Fewer, larger banks:</strong><ul><li>Denser, with less overhead</li><li>Slower, with more conflicts</li></ul></li>
+<li><strong>Versus multiporting:</strong> banking gives most of the bandwidth at far lower area than adding ports to every cell.</li>
+</ul>
+<h3>By Workload</h3>
+<div class="tbl"><table><tr><th>Workload</th><th>Effect</th></tr>
+<tr><td>Compute-bound</td><td>Little effect: few memory ops per cycle.</td></tr>
+<tr><td>Pointer chasing</td><td>Little effect: dependent loads rarely issue in the same cycle.</td></tr>
+<tr><td>Streaming</td><td>Sequential lines spread across banks well, but several arrays with identically aligned bases can hit the same bank every cycle.</td></tr>
+<tr><td>Large code footprint</td><td>I-caches usually serve one fetch per cycle, so banking matters less.</td></tr>
+<tr><td>Branch-heavy integer</td><td>Little effect.</td></tr>
+<tr><td>Blocked numerics</td><td>Power-of-two leading dimensions cause repeated conflicts. Padding fixes it.</td></tr>
+<tr><td>ML inference</td><td>High load bandwidth per cycle makes bank conflicts visible, so layout matters.</td></tr>
+<tr><td>Multithreaded shared data</td><td>At the LLC, "banks" are slices across the chip. Hashing spreads load, but a single hot line (a lock) still serializes on one slice.</td></tr>
+</table></div>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>An L1 has 8 banks. Assuming random bank selection, what is the chance that 2 accesses in the same cycle conflict? 4 accesses?</p>`,
+        a: `<ol><li>P(no conflict) = B! / ((B − k)! × B<sup>k</sup>).</li><li>k = 2: 1 − (8 × 7) / 64 = <strong>12.5%</strong> conflict.</li><li>k = 4: 1 − (8 × 7 × 6 × 5) / 4096 ≈ <strong>59%</strong> conflict.</li><li>Random banking works for 2 accesses per cycle, but supporting 3–4 loads per cycle needs more banks, smarter mapping, or replication.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>To support two loads per cycle, compare a true dual-ported L1, a banked L1, and a replicated L1.</p>`,
+        a: `<p><strong>Dual-ported:</strong> no conflicts, but each SRAM cell needs extra ports, raising area roughly 1.5–2× and slowing access. <strong>Banked:</strong> nearly single-port area and energy, but same-bank pairs conflict and one load waits. It works well when address bits spread accesses. <strong>Replicated:</strong> two copies serve reads with no conflicts, but stores must write both and area doubles. Banking is the common choice for L1D, and replication suits read-heavy, small structures.</p>`
       }
     ]
   }

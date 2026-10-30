@@ -477,6 +477,51 @@ section({
 },
 
 {
+  id: "llm-phases",
+  region: "llm",
+  title: "Prefill and Decode",
+  sections: [{ id: "prefill", label: "Prefill" }, { id: "decode", label: "Decode" }, { id: "metrics", label: "Latency Metrics" }, { id: "serving", label: "Serving Many Users" }],
+  body: `
+<p>Every request runs in two phases with opposite hardware behavior. This is the single most important idea for reasoning about LLM inference performance.</p>
+<h3 id="sec-prefill">Prefill</h3>
+<p>All prompt tokens go through the model <strong>at the same time</strong>: an N-token prompt turns every weight multiply into a matrix-matrix multiply with N rows. Each weight is read once and used N times, so prefill is <strong>compute-bound</strong> for prompts beyond a few hundred tokens. It also writes every layer’s keys and values into the KV cache, and it ends by producing the first output token.</p>
+<p class="eq">Prefill time ≈ <span class="frac"><span>2 × P × N (+ attention at long N)</span><span>achieved FLOP/s</span></span></p>
+<h3 id="sec-decode">Decode</h3>
+<p>After that, tokens come out <strong>one at a time</strong>. Token t + 1 can’t start until token t is chosen, a loop-carried dependency like the ones that limit instruction-level parallelism. Each step processes one token per sequence, so each weight is used only B times (the batch size), and the whole KV cache of every sequence is read. Decode is <strong>memory-bandwidth-bound</strong>:</p>
+<p class="eq">Decode step time ≈ <span class="frac"><span>weight bytes + KV bytes for the batch</span><span>memory bandwidth</span></span></p>
+<p>CPU analogy: prefill behaves like a dense GEMM, keeping the vector units busy; decode behaves like a STREAM loop with a dependency between iterations.</p>
+<h3 id="sec-metrics">Latency Metrics</h3>
+<ul>
+<li><strong>Time to first token (TTFT):</strong> queueing + prefill. Grows with prompt length.</li>
+<li><strong>Time per output token (TPOT), or inter-token latency:</strong> one decode step. Sets how fast text streams.</li>
+<li><strong>End-to-end latency</strong> = TTFT + (output tokens − 1) × TPOT.</li>
+<li><strong>Throughput:</strong> total tokens per second across all users. <strong>Goodput</strong> counts only requests that met their latency targets.</li>
+</ul>
+<p>The central trade-off: bigger batches raise throughput (weights are shared across more sequences) but slow each step, raising TPOT for everyone.</p>
+<h3 id="sec-serving">Serving Many Users</h3>
+<ul>
+<li><strong>Continuous batching:</strong> instead of waiting for a whole batch to finish, the scheduler adds and removes requests at every decode step, so finished sequences don’t leave empty slots.</li>
+<li><strong>Chunked prefill:</strong> long prompts are split into chunks that run alongside ongoing decode steps, so one big prompt doesn’t freeze everyone else’s stream.</li>
+<li><strong>Disaggregated serving:</strong> prefill and decode run on separate GPU pools, with KV caches transferred between them.</li>
+</ul>
+<p class="refs">Further reading:</p><ul class="refs"><li>Yu et al., “Orca: A Distributed Serving System for Transformer-Based Generative Models” (OSDI 2022), which introduced continuous batching</li><li>Agrawal et al., “Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve” (OSDI 2024), for chunked prefill</li><li>Zhong et al., “DistServe” (OSDI 2024) and Patel et al., “Splitwise” (ISCA 2024), for disaggregated prefill and decode</li></ul>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>The running example has 70.6B parameters (141 GB in BF16) and runs on an 8-GPU server where each GPU has 990 TFLOP/s of dense BF16 compute and 3.35 TB/s of HBM bandwidth. Estimate (a) the prefill time for a 4,000-token prompt at 50% of peak compute, (b) the decode step time at batch size 1 with a short context, and (c) the total time for a 500-token answer.</p>`,
+        a: `<ol><li>Prefill FLOPs ≈ 2 × 70.6B × 4,000 ≈ 5.6 × 10<sup>14</sup>. Achieved compute: 8 × 990 TFLOP/s × 0.5 ≈ 4.0 × 10<sup>15</sup> FLOP/s. Time ≈ <strong>0.14 s</strong>. (Attention adds little at 4K tokens.)</li><li>Decode: read 141 GB of weights at 8 × 3.35 = 26.8 TB/s ≈ <strong>5.3 ms</strong> per token, so at most about 190 tokens/s.</li><li>Answer: 0.14 s + 500 × 5.3 ms ≈ <strong>2.8 s</strong>. Decode dominates, even though prefill processed 8× more tokens. Real systems land below these bounds because of communication and overheads.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Why would you run prefill and decode on different groups of GPUs?</p>`,
+        a: `<p>They have opposite bottlenecks. Prefill is compute-bound and bursty; decode is memory-bandwidth-bound and steady. When they share GPUs, a long prefill stalls every running decode for its duration, causing visible pauses in other users’ streams, and the hardware can’t be tuned for either. Separating them lets each pool use its own batch sizes, parallelism, and even GPU types, and lets you scale each to meet its own latency target (time to first token for prefill, time per output token for decode). The cost: each request’s KV cache must be transferred from the prefill pool to the decode pool over the network, which needs fast interconnects. Chunked prefill is the lighter-weight alternative on shared GPUs.</p>`
+      }
+    ]
+  }
+},
+
+{
   id: "llm-kvcache",
   region: "llm",
   title: "The KV Cache",
@@ -541,51 +586,6 @@ section({
       {
         q: `<p>PagedAttention borrows an idea from operating systems. Which one, and what problem does it solve?</p>`,
         a: `<p>Virtual memory paging. Early servers reserved a contiguous KV region for each request’s maximum possible length, wasting most of it (internal fragmentation) and fragmenting the free space between requests. PagedAttention stores the cache in small fixed-size blocks (for example 16 tokens each) and keeps a per-request block table mapping logical token positions to physical blocks, like a page table. Memory is allocated on demand, waste is limited to the last partial block, and blocks can be shared copy-on-write between requests with a common prefix. The attention kernel follows the block table, an extra indirection that costs little.</p>`
-      }
-    ]
-  }
-},
-
-{
-  id: "llm-phases",
-  region: "llm",
-  title: "Prefill and Decode",
-  sections: [{ id: "prefill", label: "Prefill" }, { id: "decode", label: "Decode" }, { id: "metrics", label: "Latency Metrics" }, { id: "serving", label: "Serving Many Users" }],
-  body: `
-<p>Every request runs in two phases with opposite hardware behavior. This is the single most important idea for reasoning about LLM inference performance.</p>
-<h3 id="sec-prefill">Prefill</h3>
-<p>All prompt tokens go through the model <strong>at the same time</strong>: an N-token prompt turns every weight multiply into a matrix-matrix multiply with N rows. Each weight is read once and used N times, so prefill is <strong>compute-bound</strong> for prompts beyond a few hundred tokens. It also writes every layer’s keys and values into the KV cache, and it ends by producing the first output token.</p>
-<p class="eq">Prefill time ≈ <span class="frac"><span>2 × P × N (+ attention at long N)</span><span>achieved FLOP/s</span></span></p>
-<h3 id="sec-decode">Decode</h3>
-<p>After that, tokens come out <strong>one at a time</strong>. Token t + 1 can’t start until token t is chosen, a loop-carried dependency like the ones that limit instruction-level parallelism. Each step processes one token per sequence, so each weight is used only B times (the batch size), and the whole KV cache of every sequence is read. Decode is <strong>memory-bandwidth-bound</strong>:</p>
-<p class="eq">Decode step time ≈ <span class="frac"><span>weight bytes + KV bytes for the batch</span><span>memory bandwidth</span></span></p>
-<p>CPU analogy: prefill behaves like a dense GEMM, keeping the vector units busy; decode behaves like a STREAM loop with a dependency between iterations.</p>
-<h3 id="sec-metrics">Latency Metrics</h3>
-<ul>
-<li><strong>Time to first token (TTFT):</strong> queueing + prefill. Grows with prompt length.</li>
-<li><strong>Time per output token (TPOT), or inter-token latency:</strong> one decode step. Sets how fast text streams.</li>
-<li><strong>End-to-end latency</strong> = TTFT + (output tokens − 1) × TPOT.</li>
-<li><strong>Throughput:</strong> total tokens per second across all users. <strong>Goodput</strong> counts only requests that met their latency targets.</li>
-</ul>
-<p>The central trade-off: bigger batches raise throughput (weights are shared across more sequences) but slow each step, raising TPOT for everyone.</p>
-<h3 id="sec-serving">Serving Many Users</h3>
-<ul>
-<li><strong>Continuous batching:</strong> instead of waiting for a whole batch to finish, the scheduler adds and removes requests at every decode step, so finished sequences don’t leave empty slots.</li>
-<li><strong>Chunked prefill:</strong> long prompts are split into chunks that run alongside ongoing decode steps, so one big prompt doesn’t freeze everyone else’s stream.</li>
-<li><strong>Disaggregated serving:</strong> prefill and decode run on separate GPU pools, with KV caches transferred between them.</li>
-</ul>
-<p class="refs">Further reading:</p><ul class="refs"><li>Yu et al., “Orca: A Distributed Serving System for Transformer-Based Generative Models” (OSDI 2022), which introduced continuous batching</li><li>Agrawal et al., “Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve” (OSDI 2024), for chunked prefill</li><li>Zhong et al., “DistServe” (OSDI 2024) and Patel et al., “Splitwise” (ISCA 2024), for disaggregated prefill and decode</li></ul>`,
-  practice: {
-    guided: [
-      {
-        q: `<p>The running example has 70.6B parameters (141 GB in BF16) and runs on an 8-GPU server where each GPU has 990 TFLOP/s of dense BF16 compute and 3.35 TB/s of HBM bandwidth. Estimate (a) the prefill time for a 4,000-token prompt at 50% of peak compute, (b) the decode step time at batch size 1 with a short context, and (c) the total time for a 500-token answer.</p>`,
-        a: `<ol><li>Prefill FLOPs ≈ 2 × 70.6B × 4,000 ≈ 5.6 × 10<sup>14</sup>. Achieved compute: 8 × 990 TFLOP/s × 0.5 ≈ 4.0 × 10<sup>15</sup> FLOP/s. Time ≈ <strong>0.14 s</strong>. (Attention adds little at 4K tokens.)</li><li>Decode: read 141 GB of weights at 8 × 3.35 = 26.8 TB/s ≈ <strong>5.3 ms</strong> per token, so at most about 190 tokens/s.</li><li>Answer: 0.14 s + 500 × 5.3 ms ≈ <strong>2.8 s</strong>. Decode dominates, even though prefill processed 8× more tokens. Real systems land below these bounds because of communication and overheads.</li></ol>`
-      }
-    ],
-    interview: [
-      {
-        q: `<p>Why would you run prefill and decode on different groups of GPUs?</p>`,
-        a: `<p>They have opposite bottlenecks. Prefill is compute-bound and bursty; decode is memory-bandwidth-bound and steady. When they share GPUs, a long prefill stalls every running decode for its duration, causing visible pauses in other users’ streams, and the hardware can’t be tuned for either. Separating them lets each pool use its own batch sizes, parallelism, and even GPU types, and lets you scale each to meet its own latency target (time to first token for prefill, time per output token for decode). The cost: each request’s KV cache must be transferred from the prefill pool to the decode pool over the network, which needs fast interconnects. Chunked prefill is the lighter-weight alternative on shared GPUs.</p>`
       }
     ]
   }

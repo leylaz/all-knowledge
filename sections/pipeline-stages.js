@@ -202,6 +202,110 @@ section({
 },
 
 {
+  id: "pipe-problems",
+  region: "pipe",
+  title: "Pipeline Problems and Solutions",
+  book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.1 Introduction: “The Classic Five-Stage Pipeline for a RISC Processor”.`,
+  sections: [{ id: "resources", label: "Resource Conflicts" }, { id: "observations", label: "Three Design Choices" }, { id: "pipe-regs", label: "Pipeline Registers" }],
+  body: `
+<p>Splitting an instruction into five stages (IF, ID, EX, MEM, WB, each covered on its own page after this one) is only the start. Once several instructions overlap, they can get in each other's way. The first job is to check, for every clock cycle, that no two instructions try to use the same piece of hardware for different things at the same time. Later pages handle the other problems overlap creates: data and control hazards.</p>
+<h3 id="sec-resources">Resource Conflicts</h3>
+<p>A datapath resource can do only one thing per cycle. For example, a single ALU can't compute one instruction's effective address while also doing another instruction's subtraction. So the pipeline must be designed so that overlapping instructions never need the same resource in the same cycle.</p>
+<p>A RISC instruction set makes this check fairly easy: every instruction follows the same path, and each major unit is used in exactly one stage. Read down any column of the table below and each resource appears once, because each instruction is in a different stage.</p>
+<div class="tbl"><table>
+<tr><th>Instruction</th><th>Cycle 0</th><th>1</th><th>2</th><th>3</th><th style="background:var(--pad-soft)">4</th><th>5</th><th>6</th><th>7</th><th>8</th></tr>
+<tr><td>i</td><td>Instr mem</td><td>Reg read</td><td>ALU</td><td>Data mem</td><td style="background:var(--pad-soft)">Reg write</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>i+1</td><td></td><td>Instr mem</td><td>Reg read</td><td>ALU</td><td style="background:var(--pad-soft)">Data mem</td><td>Reg write</td><td></td><td></td><td></td></tr>
+<tr><td>i+2</td><td></td><td></td><td>Instr mem</td><td>Reg read</td><td style="background:var(--pad-soft)">ALU</td><td>Data mem</td><td>Reg write</td><td></td><td></td></tr>
+<tr><td>i+3</td><td></td><td></td><td></td><td>Instr mem</td><td style="background:var(--pad-soft)">Reg read</td><td>ALU</td><td>Data mem</td><td>Reg write</td><td></td></tr>
+<tr><td>i+4</td><td></td><td></td><td></td><td></td><td style="background:var(--pad-soft)">Instr mem</td><td>Reg read</td><td>ALU</td><td>Data mem</td><td>Reg write</td></tr>
+</table></div>
+<p>In cycle 4 (highlighted), all five instructions are in flight and every resource is busy with exactly one of them. The only resource that appears twice is the register file, which is handled by the second design choice below.</p>
+<h3 id="sec-observations">Three Design Choices That Avoid Conflicts</h3>
+<p><strong>1. Separate instruction and data memories.</strong> IF reads an instruction every cycle, and MEM may read or write data in the same cycle. With one shared memory, those would collide whenever a load or store reaches MEM. Separate instruction and data caches remove the conflict.</p>
+<p>This has a cost: if the pipelined processor runs at the same clock as the unpipelined one, it finishes five times as many instructions per unit time, so the memory system has to supply about five times the bandwidth. Higher performance moves pressure onto memory.</p>
+<p><strong>2. The register file is used in two stages.</strong> It is read in ID and written in WB, which are different uses by different instructions, so the diagram below draws it in two places. Every cycle, it must handle two reads (the two source registers of the instruction in ID) and one write (the result of the instruction in WB). When the same register is written and read in one cycle, the write happens in the first half of the cycle and the reads in the second half, so the reader gets the new value. This split also removes one of the data hazards covered later.</p>
+<p><strong>3. The PC needs its own hardware.</strong> To start a new instruction every cycle, IF must increment the PC and store it every cycle, so it needs its own adder for PC + 4 rather than borrowing the ALU. ID needs another adder for the branch target. There is still a problem: a branch doesn't update the PC until the end of ID, after the next instruction has already been fetched. That is a control hazard; see <a href="#/branch-hazards">Branch hazards</a>.</p>
+<div class="tbl"><svg viewBox="0 0 700 270" role="img" aria-label="Pipelined datapath. IF has the PC, a PC plus 4 adder, and instruction memory. ID has the register file read ports, a sign extender, and a branch target adder. EX has the ALU. MEM has data memory. WB writes back to the register file. Pipeline registers IF/ID, ID/EX, EX/MEM, and MEM/WB sit between the stages." style="width:100%;min-width:600px;max-width:700px;display:block;font-family:var(--sans)">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<g style="fill:var(--ink);font-size:13px;font-weight:600" text-anchor="middle"><text x="75" y="16">IF</text><text x="220" y="16">ID</text><text x="365" y="16">EX</text><text x="510" y="16">MEM</text><text x="645" y="16">WB</text></g>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"><rect x="140" y="26" width="14" height="214"/><rect x="285" y="26" width="14" height="214"/><rect x="430" y="26" width="14" height="214"/><rect x="575" y="26" width="14" height="214"/></g>
+<g style="fill:var(--muted);font-size:10px" text-anchor="middle"><text x="147" y="256">IF/ID</text><text x="292" y="256">ID/EX</text><text x="437" y="256">EX/MEM</text><text x="582" y="256">MEM/WB</text></g>
+<g style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5">
+<rect x="20" y="115" width="36" height="40" rx="3"/><rect x="72" y="95" width="56" height="80" rx="3"/><rect x="72" y="36" width="56" height="32" rx="3"/>
+<rect x="172" y="95" width="96" height="80" rx="3"/><rect x="172" y="190" width="96" height="30" rx="3"/><rect x="172" y="36" width="96" height="32" rx="3"/>
+<path d="M330,95 L390,115 L390,155 L330,175 L330,145 L342,135 L330,125 Z"/>
+<rect x="462" y="95" width="96" height="80" rx="3"/>
+<rect x="606" y="95" width="80" height="80" rx="3" style="stroke-dasharray:4 3"/>
+</g>
+<g style="fill:var(--ink);font-size:11px" text-anchor="middle">
+<text x="38" y="139">PC</text><text x="100" y="132">Instr</text><text x="100" y="146">memory</text><text x="100" y="56">+4</text>
+<text x="220" y="125">Register file</text><text x="220" y="140">2 reads</text><text x="220" y="154" style="fill:var(--muted)">(2nd half of cycle)</text>
+<text x="220" y="209">Sign extend</text><text x="220" y="56">Branch target adder</text>
+<text x="362" y="139">ALU</text>
+<text x="510" y="132">Data</text><text x="510" y="146">memory</text>
+<text x="646" y="125">Register file</text><text x="646" y="140">1 write</text><text x="646" y="154" style="fill:var(--muted)">(1st half)</text>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M56,135 H70" marker-end="url(#arr5)"/>
+<path d="M38,115 V52 H70" marker-end="url(#arr5)"/>
+<path d="M100,36 V28 H10 V135 H18" marker-end="url(#arr5)"/>
+<path d="M128,135 H170" marker-end="url(#arr5)"/>
+<path d="M268,135 H328" marker-end="url(#arr5)"/>
+<path d="M268,205 H310 V160 H328" marker-end="url(#arr5)"/>
+<path d="M390,135 H460" marker-end="url(#arr5)"/>
+<path d="M558,135 H604" marker-end="url(#arr5)"/>
+</g>
+<text x="350" y="232" text-anchor="middle" style="fill:var(--muted);font-size:10px">The dashed register file in WB is the same register file as in ID, drawn twice because it's used in two stages.</text>
+</svg></div>
+<h3 id="sec-pipe-regs">Pipeline Registers</h3>
+<p>Avoiding resource conflicts isn't enough: instructions in different stages must also not interfere with each other's values. If stages were wired directly together, a stage's inputs would change partway through a cycle as the stage before it moved on to the next instruction.</p>
+<p>The fix is a <strong>pipeline register</strong> between each pair of stages, named for the stages it connects: IF/ID, ID/EX, EX/MEM, and MEM/WB (the gold bars in the diagram). At the end of every clock cycle, each stage's results are captured in the pipeline register after it, and that register is the next stage's input for the whole following cycle. Each stage therefore works on one instruction's values at a time.</p>
+<ul>
+<li><strong>They carry everything a later stage needs.</strong> For example, a store's data is read in ID but not used until MEM, so it rides through ID/EX and EX/MEM. The destination register number and the control signals decoded in ID travel the same way.</li>
+<li><strong>They cost time.</strong> Their clock-to-Q and setup times are the latch overhead t<sub>o</sub> in the cycle-time formula; see <a href="#/pipelining/depth">Depth: the math</a> and <a href="#/timing">Critical path and flip-flop timing</a>.</li>
+<li><strong>They cost power and area.</strong> Every pipeline register is clocked every cycle, so more stages means more flip-flops and more clock power.</li>
+</ul>`,
+  practice: {
+    guided: [
+      {
+        q: `<p><strong>Setup.</strong> A classic 5-stage pipeline (IF, ID, EX, MEM, WB) runs at 1 GHz with full forwarding. With no stalls, it finishes one instruction per cycle, so the <strong>base CPI is 1 for every instruction type</strong>: each instruction still takes 5 cycles from fetch to write-back, but a new one completes every cycle.</p>
+<p>This version has a <strong>single memory with one port</strong> for both instructions and data, so it can do only one access per cycle. The instruction mix:</p>
+<ul><li>25% loads; 40% of loads are immediately followed by an instruction that uses the loaded value.</li><li>10% stores.</li><li>15% branches, resolved in ID with predict not-taken; 60% of branches are taken.</li><li>50% ALU instructions.</li></ul>
+<p>Assume each stall comes from exactly one cause and stalls don't overlap.</p>
+<ol type="a"><li>How many structural stall cycles per instruction does the single memory cause?</li><li>How many load-use stall cycles per instruction?</li><li>How many branch stall cycles per instruction?</li><li>What is the overall CPI, the time per instruction, and the throughput in instructions per second?</li><li>What fraction of all stall cycles comes from the single memory?</li><li>A redesign with separate instruction and data caches removes the structural hazard, but extra wiring makes the clock 5% slower. Which design is faster, and by how much?</li></ol>`,
+        a: `<ol type="a">
+<li><strong>Structural stalls.</strong> Every load or store uses the memory in MEM during the same cycle that a later instruction needs it for IF, so the fetch waits 1 cycle. Loads + stores = 25% + 10% = 35%, so 0.35 × 1 = <strong>0.35</strong> stall cycles per instruction.</li>
+<li><strong>Load-use stalls.</strong> With forwarding, a load followed by a dependent instruction costs 1 cycle: 0.25 × 0.4 × 1 = <strong>0.10</strong>.</li>
+<li><strong>Branch stalls.</strong> With predict not-taken and resolution in ID, only taken branches cost 1 cycle: 0.15 × 0.6 × 1 = <strong>0.09</strong>.</li>
+<li><strong>Overall.</strong> CPI = base + stalls = 1 + 0.35 + 0.10 + 0.09 = <strong>1.54</strong>. At 1 GHz (1 ns cycle), time per instruction = 1.54 × 1 ns = <strong>1.54 ns</strong>, so throughput = 1 / 1.54 ns ≈ <strong>649 million instructions per second</strong> (versus 1 billion with no stalls).</li>
+<li><strong>Share of stalls.</strong> Total stalls = 0.54 cycles per instruction, so the single memory causes 0.35 / 0.54 ≈ <strong>65%</strong> of them.</li>
+<li><strong>Split caches.</strong> CPI drops to 1 + 0.10 + 0.09 = 1.19, but the cycle becomes 1.05 ns. Time per instruction = 1.19 × 1.05 ≈ 1.25 ns, versus 1.54 ns. The split-cache design is 1.54 / 1.25 ≈ <strong>1.23× faster</strong>, despite its slower clock. This is why every real pipeline separates instruction and data caches at L1.</li>
+</ol>`
+      },
+      {
+        q: `<p>In the resource table on this page, instruction i is fetched in cycle 0 and a new instruction is fetched every cycle. Which instruction uses each resource in cycle 5?</p>`,
+        a: `<ul><li>Instruction memory (IF): instruction i+5, the next one to enter.</li><li>Register file read (ID): i+4.</li><li>ALU (EX): i+3.</li><li>Data memory (MEM): i+2.</li><li>Register file write (WB): i+1.</li></ul><p>Each resource still has exactly one user (the register file has one reader and one writer, in different halves of the cycle).</p>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Why does the pipelined processor need about five times the memory bandwidth of the unpipelined one, if both run at the same clock?</p>`,
+        a: `<p>An unpipelined (multi-cycle) design at the same clock spends 5 cycles per instruction, so it fetches one instruction, and makes at most one data access, every 5 cycles. The pipeline finishes an instruction every cycle, so it must fetch an instruction every cycle and may also make a data access in the same cycle. Delivering 5× the instructions per unit time requires roughly 5× the bandwidth, plus enough ports or separate caches to serve fetch and data access at once. Higher performance shifts the burden onto the memory system.</p>`
+      },
+      {
+        q: `<p>What does the ID/EX pipeline register need to hold for a <code>sw $t3, 12($a0)</code>?</p>`,
+        a: `<ul><li>The value of <code>$a0</code> (the base, for the ALU).</li><li>The sign-extended offset 12 (the ALU's second input).</li><li>The value of <code>$t3</code>: the store data isn't used until MEM, but it must travel with the instruction through ID/EX and EX/MEM.</li><li>Control signals decoded in ID: ALU operation = add, memory write = yes, register write = no.</li></ul><p>The general rule: anything a later stage needs must be carried forward in every pipeline register in between, because the register file and the instruction itself have moved on to other instructions.</p>`
+      },
+      {
+        q: `<p>What would go wrong if the pipeline had no registers between stages?</p>`,
+        a: `<p>Each stage's inputs would change mid-cycle as the previous stage started working on the next instruction, so a stage could compute with a mix of values from two different instructions. Pipeline registers capture each stage's results at the clock edge and hold them steady for the whole next cycle, so each stage sees one instruction's values at a time. They are also where the latch overhead in the cycle-time formula comes from.</p>`
+      }
+    ]
+  }
+},
+
+{
   id: "stage-if",
   region: "pipe",
   title: "Instruction Fetch (IF)",
@@ -858,190 +962,6 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
 },
 
 {
-  id: "pipe-problems",
-  region: "pipe",
-  title: "Pipeline Problems and Solutions",
-  book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.1 Introduction: “The Classic Five-Stage Pipeline for a RISC Processor”.`,
-  sections: [{ id: "resources", label: "Resource Conflicts" }, { id: "observations", label: "Three Design Choices" }, { id: "pipe-regs", label: "Pipeline Registers" }],
-  body: `
-<p>Splitting an instruction into five stages is only the start. Once several instructions overlap, they can get in each other's way. The first job is to check, for every clock cycle, that no two instructions try to use the same piece of hardware for different things at the same time. Later pages handle the other problems overlap creates: data and control hazards.</p>
-<h3 id="sec-resources">Resource Conflicts</h3>
-<p>A datapath resource can do only one thing per cycle. For example, a single ALU can't compute one instruction's effective address while also doing another instruction's subtraction. So the pipeline must be designed so that overlapping instructions never need the same resource in the same cycle.</p>
-<p>A RISC instruction set makes this check fairly easy: every instruction follows the same path, and each major unit is used in exactly one stage. Read down any column of the table below and each resource appears once, because each instruction is in a different stage.</p>
-<div class="tbl"><table>
-<tr><th>Instruction</th><th>Cycle 0</th><th>1</th><th>2</th><th>3</th><th style="background:var(--pad-soft)">4</th><th>5</th><th>6</th><th>7</th><th>8</th></tr>
-<tr><td>i</td><td>Instr mem</td><td>Reg read</td><td>ALU</td><td>Data mem</td><td style="background:var(--pad-soft)">Reg write</td><td></td><td></td><td></td><td></td></tr>
-<tr><td>i+1</td><td></td><td>Instr mem</td><td>Reg read</td><td>ALU</td><td style="background:var(--pad-soft)">Data mem</td><td>Reg write</td><td></td><td></td><td></td></tr>
-<tr><td>i+2</td><td></td><td></td><td>Instr mem</td><td>Reg read</td><td style="background:var(--pad-soft)">ALU</td><td>Data mem</td><td>Reg write</td><td></td><td></td></tr>
-<tr><td>i+3</td><td></td><td></td><td></td><td>Instr mem</td><td style="background:var(--pad-soft)">Reg read</td><td>ALU</td><td>Data mem</td><td>Reg write</td><td></td></tr>
-<tr><td>i+4</td><td></td><td></td><td></td><td></td><td style="background:var(--pad-soft)">Instr mem</td><td>Reg read</td><td>ALU</td><td>Data mem</td><td>Reg write</td></tr>
-</table></div>
-<p>In cycle 4 (highlighted), all five instructions are in flight and every resource is busy with exactly one of them. The only resource that appears twice is the register file, which is handled by the second design choice below.</p>
-<h3 id="sec-observations">Three Design Choices That Avoid Conflicts</h3>
-<p><strong>1. Separate instruction and data memories.</strong> IF reads an instruction every cycle, and MEM may read or write data in the same cycle. With one shared memory, those would collide whenever a load or store reaches MEM. Separate instruction and data caches remove the conflict.</p>
-<p>This has a cost: if the pipelined processor runs at the same clock as the unpipelined one, it finishes five times as many instructions per unit time, so the memory system has to supply about five times the bandwidth. Higher performance moves pressure onto memory.</p>
-<p><strong>2. The register file is used in two stages.</strong> It is read in ID and written in WB, which are different uses by different instructions, so the diagram below draws it in two places. Every cycle, it must handle two reads (the two source registers of the instruction in ID) and one write (the result of the instruction in WB). When the same register is written and read in one cycle, the write happens in the first half of the cycle and the reads in the second half, so the reader gets the new value. This split also removes one of the data hazards covered later.</p>
-<p><strong>3. The PC needs its own hardware.</strong> To start a new instruction every cycle, IF must increment the PC and store it every cycle, so it needs its own adder for PC + 4 rather than borrowing the ALU. ID needs another adder for the branch target. There is still a problem: a branch doesn't update the PC until the end of ID, after the next instruction has already been fetched. That is a control hazard; see <a href="#/branch-hazards">Branch hazards</a>.</p>
-<div class="tbl"><svg viewBox="0 0 700 270" role="img" aria-label="Pipelined datapath. IF has the PC, a PC plus 4 adder, and instruction memory. ID has the register file read ports, a sign extender, and a branch target adder. EX has the ALU. MEM has data memory. WB writes back to the register file. Pipeline registers IF/ID, ID/EX, EX/MEM, and MEM/WB sit between the stages." style="width:100%;min-width:600px;max-width:700px;display:block;font-family:var(--sans)">
-<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
-<g style="fill:var(--ink);font-size:13px;font-weight:600" text-anchor="middle"><text x="75" y="16">IF</text><text x="220" y="16">ID</text><text x="365" y="16">EX</text><text x="510" y="16">MEM</text><text x="645" y="16">WB</text></g>
-<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"><rect x="140" y="26" width="14" height="214"/><rect x="285" y="26" width="14" height="214"/><rect x="430" y="26" width="14" height="214"/><rect x="575" y="26" width="14" height="214"/></g>
-<g style="fill:var(--muted);font-size:10px" text-anchor="middle"><text x="147" y="256">IF/ID</text><text x="292" y="256">ID/EX</text><text x="437" y="256">EX/MEM</text><text x="582" y="256">MEM/WB</text></g>
-<g style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5">
-<rect x="20" y="115" width="36" height="40" rx="3"/><rect x="72" y="95" width="56" height="80" rx="3"/><rect x="72" y="36" width="56" height="32" rx="3"/>
-<rect x="172" y="95" width="96" height="80" rx="3"/><rect x="172" y="190" width="96" height="30" rx="3"/><rect x="172" y="36" width="96" height="32" rx="3"/>
-<path d="M330,95 L390,115 L390,155 L330,175 L330,145 L342,135 L330,125 Z"/>
-<rect x="462" y="95" width="96" height="80" rx="3"/>
-<rect x="606" y="95" width="80" height="80" rx="3" style="stroke-dasharray:4 3"/>
-</g>
-<g style="fill:var(--ink);font-size:11px" text-anchor="middle">
-<text x="38" y="139">PC</text><text x="100" y="132">Instr</text><text x="100" y="146">memory</text><text x="100" y="56">+4</text>
-<text x="220" y="125">Register file</text><text x="220" y="140">2 reads</text><text x="220" y="154" style="fill:var(--muted)">(2nd half of cycle)</text>
-<text x="220" y="209">Sign extend</text><text x="220" y="56">Branch target adder</text>
-<text x="362" y="139">ALU</text>
-<text x="510" y="132">Data</text><text x="510" y="146">memory</text>
-<text x="646" y="125">Register file</text><text x="646" y="140">1 write</text><text x="646" y="154" style="fill:var(--muted)">(1st half)</text>
-</g>
-<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
-<path d="M56,135 H70" marker-end="url(#arr5)"/>
-<path d="M38,115 V52 H70" marker-end="url(#arr5)"/>
-<path d="M100,36 V28 H10 V135 H18" marker-end="url(#arr5)"/>
-<path d="M128,135 H170" marker-end="url(#arr5)"/>
-<path d="M268,135 H328" marker-end="url(#arr5)"/>
-<path d="M268,205 H310 V160 H328" marker-end="url(#arr5)"/>
-<path d="M390,135 H460" marker-end="url(#arr5)"/>
-<path d="M558,135 H604" marker-end="url(#arr5)"/>
-</g>
-<text x="350" y="232" text-anchor="middle" style="fill:var(--muted);font-size:10px">The dashed register file in WB is the same register file as in ID, drawn twice because it's used in two stages.</text>
-</svg></div>
-<h3 id="sec-pipe-regs">Pipeline Registers</h3>
-<p>Avoiding resource conflicts isn't enough: instructions in different stages must also not interfere with each other's values. If stages were wired directly together, a stage's inputs would change partway through a cycle as the stage before it moved on to the next instruction.</p>
-<p>The fix is a <strong>pipeline register</strong> between each pair of stages, named for the stages it connects: IF/ID, ID/EX, EX/MEM, and MEM/WB (the gold bars in the diagram). At the end of every clock cycle, each stage's results are captured in the pipeline register after it, and that register is the next stage's input for the whole following cycle. Each stage therefore works on one instruction's values at a time.</p>
-<ul>
-<li><strong>They carry everything a later stage needs.</strong> For example, a store's data is read in ID but not used until MEM, so it rides through ID/EX and EX/MEM. The destination register number and the control signals decoded in ID travel the same way.</li>
-<li><strong>They cost time.</strong> Their clock-to-Q and setup times are the latch overhead t<sub>o</sub> in the cycle-time formula; see <a href="#/pipelining/depth">Depth: the math</a> and <a href="#/timing">Critical path and flip-flop timing</a>.</li>
-<li><strong>They cost power and area.</strong> Every pipeline register is clocked every cycle, so more stages means more flip-flops and more clock power.</li>
-</ul>`,
-  practice: {
-    guided: [
-      {
-        q: `<p><strong>Setup.</strong> A classic 5-stage pipeline (IF, ID, EX, MEM, WB) runs at 1 GHz with full forwarding. With no stalls, it finishes one instruction per cycle, so the <strong>base CPI is 1 for every instruction type</strong>: each instruction still takes 5 cycles from fetch to write-back, but a new one completes every cycle.</p>
-<p>This version has a <strong>single memory with one port</strong> for both instructions and data, so it can do only one access per cycle. The instruction mix:</p>
-<ul><li>25% loads; 40% of loads are immediately followed by an instruction that uses the loaded value.</li><li>10% stores.</li><li>15% branches, resolved in ID with predict not-taken; 60% of branches are taken.</li><li>50% ALU instructions.</li></ul>
-<p>Assume each stall comes from exactly one cause and stalls don't overlap.</p>
-<ol type="a"><li>How many structural stall cycles per instruction does the single memory cause?</li><li>How many load-use stall cycles per instruction?</li><li>How many branch stall cycles per instruction?</li><li>What is the overall CPI, the time per instruction, and the throughput in instructions per second?</li><li>What fraction of all stall cycles comes from the single memory?</li><li>A redesign with separate instruction and data caches removes the structural hazard, but extra wiring makes the clock 5% slower. Which design is faster, and by how much?</li></ol>`,
-        a: `<ol type="a">
-<li><strong>Structural stalls.</strong> Every load or store uses the memory in MEM during the same cycle that a later instruction needs it for IF, so the fetch waits 1 cycle. Loads + stores = 25% + 10% = 35%, so 0.35 × 1 = <strong>0.35</strong> stall cycles per instruction.</li>
-<li><strong>Load-use stalls.</strong> With forwarding, a load followed by a dependent instruction costs 1 cycle: 0.25 × 0.4 × 1 = <strong>0.10</strong>.</li>
-<li><strong>Branch stalls.</strong> With predict not-taken and resolution in ID, only taken branches cost 1 cycle: 0.15 × 0.6 × 1 = <strong>0.09</strong>.</li>
-<li><strong>Overall.</strong> CPI = base + stalls = 1 + 0.35 + 0.10 + 0.09 = <strong>1.54</strong>. At 1 GHz (1 ns cycle), time per instruction = 1.54 × 1 ns = <strong>1.54 ns</strong>, so throughput = 1 / 1.54 ns ≈ <strong>649 million instructions per second</strong> (versus 1 billion with no stalls).</li>
-<li><strong>Share of stalls.</strong> Total stalls = 0.54 cycles per instruction, so the single memory causes 0.35 / 0.54 ≈ <strong>65%</strong> of them.</li>
-<li><strong>Split caches.</strong> CPI drops to 1 + 0.10 + 0.09 = 1.19, but the cycle becomes 1.05 ns. Time per instruction = 1.19 × 1.05 ≈ 1.25 ns, versus 1.54 ns. The split-cache design is 1.54 / 1.25 ≈ <strong>1.23× faster</strong>, despite its slower clock. This is why every real pipeline separates instruction and data caches at L1.</li>
-</ol>`
-      },
-      {
-        q: `<p>In the resource table on this page, instruction i is fetched in cycle 0 and a new instruction is fetched every cycle. Which instruction uses each resource in cycle 5?</p>`,
-        a: `<ul><li>Instruction memory (IF): instruction i+5, the next one to enter.</li><li>Register file read (ID): i+4.</li><li>ALU (EX): i+3.</li><li>Data memory (MEM): i+2.</li><li>Register file write (WB): i+1.</li></ul><p>Each resource still has exactly one user (the register file has one reader and one writer, in different halves of the cycle).</p>`
-      }
-    ],
-    interview: [
-      {
-        q: `<p>Why does the pipelined processor need about five times the memory bandwidth of the unpipelined one, if both run at the same clock?</p>`,
-        a: `<p>An unpipelined (multi-cycle) design at the same clock spends 5 cycles per instruction, so it fetches one instruction, and makes at most one data access, every 5 cycles. The pipeline finishes an instruction every cycle, so it must fetch an instruction every cycle and may also make a data access in the same cycle. Delivering 5× the instructions per unit time requires roughly 5× the bandwidth, plus enough ports or separate caches to serve fetch and data access at once. Higher performance shifts the burden onto the memory system.</p>`
-      },
-      {
-        q: `<p>What does the ID/EX pipeline register need to hold for a <code>sw $t3, 12($a0)</code>?</p>`,
-        a: `<ul><li>The value of <code>$a0</code> (the base, for the ALU).</li><li>The sign-extended offset 12 (the ALU's second input).</li><li>The value of <code>$t3</code>: the store data isn't used until MEM, but it must travel with the instruction through ID/EX and EX/MEM.</li><li>Control signals decoded in ID: ALU operation = add, memory write = yes, register write = no.</li></ul><p>The general rule: anything a later stage needs must be carried forward in every pipeline register in between, because the register file and the instruction itself have moved on to other instructions.</p>`
-      },
-      {
-        q: `<p>What would go wrong if the pipeline had no registers between stages?</p>`,
-        a: `<p>Each stage's inputs would change mid-cycle as the previous stage started working on the next instruction, so a stage could compute with a mix of values from two different instructions. Pipeline registers capture each stage's results at the clock edge and hold them steady for the whole next cycle, so each stage sees one instruction's values at a time. They are also where the latch overhead in the cycle-time formula comes from.</p>`
-      }
-    ]
-  }
-},
-
-{
-  id: "stall-perf",
-  region: "pipe",
-  title: "Performance of Pipelines with Stalls",
-  book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.2 The Major Hurdle of Pipelining—Pipeline Hazards: “Performance of Pipelines With Stalls”.`,
-  sections: [
-    { id: "hazard-basics", label: "Hazards and Their Penalties" },
-    { id: "memory-stalls", label: "Memory-System Stalls" },
-    { id: "flushes", label: "Flushes and Other Penalties" },
-    { id: "adding-stages", label: "How Adding Stages Changes Penalties" }
-  ],
-  body: `
-<p>Stalls are the price of hazards: cycles in which some instructions in the pipeline can't move forward. While an instruction is stalled, every instruction <em>behind</em> it in a simple in-order pipeline stalls too, but instructions ahead of it keep going so the pipeline can drain the problem. No new instructions are fetched during the stall, so it shows up directly as lost throughput.</p>
-<h3>Speedup with Stalls</h3>
-<p>Start from time per instruction (CPI × clock cycle):</p>
-<p class="eq">Speedup = <span class="frac"><span>CPI<sub>unpipelined</sub> × Clock<sub>unpipelined</sub></span><span>CPI<sub>pipelined</sub> × Clock<sub>pipelined</sub></span></span></p>
-<p>The ideal pipelined CPI is 1, so stalls simply add to it:</p>
-<p class="eq">CPI<sub>pipelined</sub> = 1 + stall cycles per instruction</p>
-<p><strong>Case 1: the unpipelined machine is multi-cycle</strong> (same clock, one stage per cycle, so its CPI equals the pipeline depth):</p>
-<p class="eq">Speedup = <span class="frac"><span>Pipeline depth</span><span>1 + stall cycles per instruction</span></span></p>
-<p><strong>Case 2: the unpipelined machine is single-cycle</strong> (CPI = 1, longer clock). With perfectly balanced stages and no overhead, Clock<sub>unpipelined</sub> / Clock<sub>pipelined</sub> = depth, which gives the same result:</p>
-<p class="eq">Speedup = <span class="frac"><span>1</span><span>1 + stall cycles per instruction</span></span> × <span class="frac"><span>Clock<sub>unpipelined</sub></span><span>Clock<sub>pipelined</sub></span></span> ≈ <span class="frac"><span>Pipeline depth</span><span>1 + stall cycles per instruction</span></span></p>
-<p>Either way, <strong>with no stalls, speedup equals the depth</strong>, and every average stall cycle per instruction cuts into it. With latch overhead or unbalanced stages, the clock ratio is smaller than the depth, so real speedup is lower still.</p>
-<h3>Example</h3>
-<p>A 5-stage pipeline averages 0.2 stall cycles per instruction from load-use hazards and 0.1 from branches:</p>
-<p class="eq">Speedup = <span class="frac"><span>5</span><span>1 + 0.2 + 0.1</span></span> = <span class="frac"><span>5</span><span>1.3</span></span> ≈ 3.85</p>
-<h3 id="sec-hazard-basics">Hazards and Their Penalties</h3>
-<p>A hazard is anything that stops the next instruction from proceeding in its planned cycle. Each one adds (frequency per instruction × penalty) to CPI.</p>
-<p><strong>Where the penalty comes from.</strong> A stall is set by distance, not by total pipeline depth:</p>
-<p class="eq">Stall cycles = (stage where the result becomes available) − (stage where it's needed)</p>
-<p>Forwarding shrinks that distance by delivering a result as soon as it's computed instead of after it's written back. For flush-type hazards (mispredicts, ordering violations), the penalty is the number of stages between where the wrong work entered (usually fetch) and where the problem is detected, because all of that work is thrown away.</p>
-<p><strong>In-order vs. out-of-order.</strong> In a classic 5-stage in-order pipeline, a stall stops everything behind the stalled instruction, so the full distance is paid. An out-of-order core lets independent instructions run around a stalled one, so latency-type penalties (load-use, FP latency, cache misses) are partly or fully hidden when there is independent work. Flush-type penalties can't be hidden: the wrong-path work is discarded. Out-of-order numbers in the tables on this page and on the <a href="#/structural-hazards/struct-table">structural</a>, <a href="#/data-hazards/reg-table">data</a>, and <a href="#/branch-hazards/control-table">branch</a> hazard pages are typical for modern high-performance cores and vary by design.</p>
-<h3 id="sec-memory-stalls">Memory-System Stalls</h3>
-<div class="tbl"><table>
-<tr><th>Event</th><th>Typical latency</th><th>Classic 5-stage (blocking caches)</th><th>Out-of-order core</th></tr>
-<tr><td>L1 miss, L2 hit</td><td>~10–15 cycles</td><td>The whole pipeline stalls for the full latency</td><td>Mostly hidden by independent work</td></tr>
-<tr><td>L2 miss, last-level cache hit</td><td>~30–60 cycles</td><td>Full stall</td><td>Partly hidden</td></tr>
-<tr><td>Last-level miss to DRAM</td><td>~80–120 ns: hundreds of cycles</td><td>Full stall</td><td>Overlapped with other misses; exposed once the ROB fills</td></tr>
-<tr><td>Instruction cache miss</td><td>Like data misses</td><td>Full stall</td><td>Fetch stalls; the back end drains already-fetched work</td></tr>
-<tr><td>TLB miss (page walk)</td><td>~20–100+ cycles</td><td>Full stall</td><td>Partly hidden; several walks can overlap</td></tr>
-<tr><td>Page fault</td><td>Microseconds (minor) to milliseconds (major)</td><td colspan="2">Not hidden in either: the OS handles it</td></tr>
-</table></div>
-<h3 id="sec-flushes">Pipeline Flushes and Other Penalties</h3>
-<div class="tbl"><table>
-<tr><th>Event</th><th>What happens</th><th>Classic 5-stage (in-order)</th><th>Out-of-order core</th></tr>
-<tr><td>Exception or interrupt</td><td>Flush, switch to the kernel handler, return</td><td>Flush the few stages behind (up to ~4), plus handler time</td><td>Flush the whole window: dozens to hundreds of cycles, plus handler time</td></tr>
-<tr><td>Memory-ordering clear</td><td>Another core wrote a line a speculative load already read</td><td>Doesn't apply: loads aren't speculative</td><td>A full flush</td></tr>
-<tr><td>Self-modifying code</td><td>A store hits code that's already in the pipeline</td><td>Flush the few younger stages</td><td>A full flush</td></tr>
-<tr><td>Serializing instructions and fences</td><td>The pipeline or store buffer must drain</td><td>Little cost: execution is already in order</td><td>Tens of cycles or more</td></tr>
-<tr><td>Microcode assists</td><td>Rare cases (such as denormal FP values on some x86 cores) run microcode</td><td>A multi-cycle stall</td><td>~100+ cycles</td></tr>
-</table></div>
-<h3 id="sec-adding-stages">How Adding Stages Changes Penalties</h3>
-<p>Because a penalty is a distance, adding stages raises it only when the new stages land between the two points involved:</p>
-<ul>
-<li>A new stage in decode or rename sits between fetch and branch resolution, so it adds 1 cycle to every mispredict, but leaves load-use latency unchanged.</li>
-<li>A new stage in the L1 data cache access adds 1 cycle to load-to-use latency, and lengthens mispredicts only for branches that depend on a load.</li>
-<li>A new stage after branches resolve, such as an extra writeback or commit stage, changes neither.</li>
-</ul>
-<p>In time rather than cycles, a hazard costs the logic delay between its two points plus the latch overhead of the stages in between. Splitting that same logic into more stages raises the penalty in cycles, but in nanoseconds it adds only the extra latch overhead.</p>
-<p>The next three pages cover where those stall cycles come from: structural hazards, data hazards, and branch hazards.</p>`,
-  practice: {
-    guided: [
-      {
-        q: `<p>An unpipelined single-cycle processor has a 10 ns clock. The 5-stage pipelined version has balanced stages plus 0.2 ns of latch overhead per stage. Stalls average 0.25 cycles per instruction. What is the speedup?</p>`,
-        a: `<ol><li>Pipelined clock = 10 / 5 + 0.2 = 2.2 ns.</li><li>Pipelined CPI = 1 + 0.25 = 1.25.</li><li>Unpipelined time per instruction = 1 × 10 = 10 ns. Pipelined = 1.25 × 2.2 = 2.75 ns.</li><li>Speedup = 10 / 2.75 ≈ <strong>3.6×</strong>, versus 5× ideal.</li></ol>`
-      }
-    ],
-    interview: [
-      {
-        q: `<p>A 5-stage pipeline has 20% loads, half of which are followed immediately by a dependent instruction (1 stall each), and 15% branches, of which 60% are taken (1 stall each, predict not-taken). What's the speedup over an unpipelined multi-cycle version at the same clock?</p>`,
-        a: `<ol><li>Load-use stalls per instruction: 0.2 × 0.5 × 1 = 0.10.</li><li>Branch stalls per instruction: 0.15 × 0.6 × 1 = 0.09.</li><li>CPI = 1 + 0.10 + 0.09 = 1.19.</li><li>The multi-cycle version takes 5 cycles per instruction at the same clock, so speedup = 5 / 1.19 ≈ <strong>4.2×</strong>.</li></ol>`
-      },
-      {
-        q: `<p>Even with zero stalls, why is real pipeline speedup below the pipeline depth?</p>`,
-        a: `<p>Two reasons from the clock side: stages are never perfectly balanced, so the slowest stage sets the clock, and every stage pays latch overhead (clock-to-Q, setup, skew, jitter). Both make the pipelined clock longer than unpipelined clock ÷ depth. Stalls then reduce speedup further on the CPI side.</p>`
-      }
-    ]
-  }
-},
-
-{
   id: "structural-hazards",
   region: "pipe",
   title: "Structural Hazards",
@@ -1646,6 +1566,86 @@ sub r5, r3, r6</code></pre>`,
       {
         q: `<p>Two cores have the same 5 mispredicts per 1000 instructions and a 15-cycle penalty. One is 4-wide with a base CPI of 0.5, and the other is 8-wide with a base CPI of 0.25. How much does branch misprediction slow each one down?</p>`,
         a: `<ol><li>Mispredict CPI = 5 / 1000 × 15 = 0.075 for both.</li><li>4-wide: 0.5 → 0.575, a <strong>15%</strong> slowdown.</li><li>8-wide: 0.25 → 0.325, a <strong>30%</strong> slowdown.</li></ol><p>The same mispredict rate hurts a faster core twice as much in relative terms, because each mispredict throws away more issue slots (width × penalty). That's why wider and deeper cores need much better branch predictors.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "stall-perf",
+  region: "pipe",
+  title: "Performance of Pipelines with Stalls",
+  book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.2 The Major Hurdle of Pipelining—Pipeline Hazards: “Performance of Pipelines With Stalls”.`,
+  sections: [
+    { id: "hazard-basics", label: "Hazards and Their Penalties" },
+    { id: "memory-stalls", label: "Memory-System Stalls" },
+    { id: "flushes", label: "Flushes and Other Penalties" },
+    { id: "adding-stages", label: "How Adding Stages Changes Penalties" }
+  ],
+  body: `
+<p>Stalls are the price of hazards: cycles in which some instructions in the pipeline can't move forward. While an instruction is stalled, every instruction <em>behind</em> it in a simple in-order pipeline stalls too, but instructions ahead of it keep going so the pipeline can drain the problem. No new instructions are fetched during the stall, so it shows up directly as lost throughput.</p>
+<h3>Speedup with Stalls</h3>
+<p>Start from time per instruction (CPI × clock cycle):</p>
+<p class="eq">Speedup = <span class="frac"><span>CPI<sub>unpipelined</sub> × Clock<sub>unpipelined</sub></span><span>CPI<sub>pipelined</sub> × Clock<sub>pipelined</sub></span></span></p>
+<p>The ideal pipelined CPI is 1, so stalls simply add to it:</p>
+<p class="eq">CPI<sub>pipelined</sub> = 1 + stall cycles per instruction</p>
+<p><strong>Case 1: the unpipelined machine is multi-cycle</strong> (same clock, one stage per cycle, so its CPI equals the pipeline depth):</p>
+<p class="eq">Speedup = <span class="frac"><span>Pipeline depth</span><span>1 + stall cycles per instruction</span></span></p>
+<p><strong>Case 2: the unpipelined machine is single-cycle</strong> (CPI = 1, longer clock). With perfectly balanced stages and no overhead, Clock<sub>unpipelined</sub> / Clock<sub>pipelined</sub> = depth, which gives the same result:</p>
+<p class="eq">Speedup = <span class="frac"><span>1</span><span>1 + stall cycles per instruction</span></span> × <span class="frac"><span>Clock<sub>unpipelined</sub></span><span>Clock<sub>pipelined</sub></span></span> ≈ <span class="frac"><span>Pipeline depth</span><span>1 + stall cycles per instruction</span></span></p>
+<p>Either way, <strong>with no stalls, speedup equals the depth</strong>, and every average stall cycle per instruction cuts into it. With latch overhead or unbalanced stages, the clock ratio is smaller than the depth, so real speedup is lower still.</p>
+<h3>Example</h3>
+<p>A 5-stage pipeline averages 0.2 stall cycles per instruction from load-use hazards and 0.1 from branches:</p>
+<p class="eq">Speedup = <span class="frac"><span>5</span><span>1 + 0.2 + 0.1</span></span> = <span class="frac"><span>5</span><span>1.3</span></span> ≈ 3.85</p>
+<h3 id="sec-hazard-basics">Hazards and Their Penalties</h3>
+<p>A hazard is anything that stops the next instruction from proceeding in its planned cycle. Each one adds (frequency per instruction × penalty) to CPI.</p>
+<p><strong>Where the penalty comes from.</strong> A stall is set by distance, not by total pipeline depth:</p>
+<p class="eq">Stall cycles = (stage where the result becomes available) − (stage where it's needed)</p>
+<p>Forwarding shrinks that distance by delivering a result as soon as it's computed instead of after it's written back. For flush-type hazards (mispredicts, ordering violations), the penalty is the number of stages between where the wrong work entered (usually fetch) and where the problem is detected, because all of that work is thrown away.</p>
+<p><strong>In-order vs. out-of-order.</strong> In a classic 5-stage in-order pipeline, a stall stops everything behind the stalled instruction, so the full distance is paid. An out-of-order core lets independent instructions run around a stalled one, so latency-type penalties (load-use, FP latency, cache misses) are partly or fully hidden when there is independent work. Flush-type penalties can't be hidden: the wrong-path work is discarded. Out-of-order numbers in the tables on this page and on the <a href="#/structural-hazards/struct-table">structural</a>, <a href="#/data-hazards/reg-table">data</a>, and <a href="#/branch-hazards/control-table">branch</a> hazard pages are typical for modern high-performance cores and vary by design.</p>
+<h3 id="sec-memory-stalls">Memory-System Stalls</h3>
+<div class="tbl"><table>
+<tr><th>Event</th><th>Typical latency</th><th>Classic 5-stage (blocking caches)</th><th>Out-of-order core</th></tr>
+<tr><td>L1 miss, L2 hit</td><td>~10–15 cycles</td><td>The whole pipeline stalls for the full latency</td><td>Mostly hidden by independent work</td></tr>
+<tr><td>L2 miss, last-level cache hit</td><td>~30–60 cycles</td><td>Full stall</td><td>Partly hidden</td></tr>
+<tr><td>Last-level miss to DRAM</td><td>~80–120 ns: hundreds of cycles</td><td>Full stall</td><td>Overlapped with other misses; exposed once the ROB fills</td></tr>
+<tr><td>Instruction cache miss</td><td>Like data misses</td><td>Full stall</td><td>Fetch stalls; the back end drains already-fetched work</td></tr>
+<tr><td>TLB miss (page walk)</td><td>~20–100+ cycles</td><td>Full stall</td><td>Partly hidden; several walks can overlap</td></tr>
+<tr><td>Page fault</td><td>Microseconds (minor) to milliseconds (major)</td><td colspan="2">Not hidden in either: the OS handles it</td></tr>
+</table></div>
+<h3 id="sec-flushes">Pipeline Flushes and Other Penalties</h3>
+<div class="tbl"><table>
+<tr><th>Event</th><th>What happens</th><th>Classic 5-stage (in-order)</th><th>Out-of-order core</th></tr>
+<tr><td>Exception or interrupt</td><td>Flush, switch to the kernel handler, return</td><td>Flush the few stages behind (up to ~4), plus handler time</td><td>Flush the whole window: dozens to hundreds of cycles, plus handler time</td></tr>
+<tr><td>Memory-ordering clear</td><td>Another core wrote a line a speculative load already read</td><td>Doesn't apply: loads aren't speculative</td><td>A full flush</td></tr>
+<tr><td>Self-modifying code</td><td>A store hits code that's already in the pipeline</td><td>Flush the few younger stages</td><td>A full flush</td></tr>
+<tr><td>Serializing instructions and fences</td><td>The pipeline or store buffer must drain</td><td>Little cost: execution is already in order</td><td>Tens of cycles or more</td></tr>
+<tr><td>Microcode assists</td><td>Rare cases (such as denormal FP values on some x86 cores) run microcode</td><td>A multi-cycle stall</td><td>~100+ cycles</td></tr>
+</table></div>
+<h3 id="sec-adding-stages">How Adding Stages Changes Penalties</h3>
+<p>Because a penalty is a distance, adding stages raises it only when the new stages land between the two points involved:</p>
+<ul>
+<li>A new stage in decode or rename sits between fetch and branch resolution, so it adds 1 cycle to every mispredict, but leaves load-use latency unchanged.</li>
+<li>A new stage in the L1 data cache access adds 1 cycle to load-to-use latency, and lengthens mispredicts only for branches that depend on a load.</li>
+<li>A new stage after branches resolve, such as an extra writeback or commit stage, changes neither.</li>
+</ul>
+<p>In time rather than cycles, a hazard costs the logic delay between its two points plus the latch overhead of the stages in between. Splitting that same logic into more stages raises the penalty in cycles, but in nanoseconds it adds only the extra latch overhead.</p>
+<p>The next three pages cover where those stall cycles come from: structural hazards, data hazards, and branch hazards.</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>An unpipelined single-cycle processor has a 10 ns clock. The 5-stage pipelined version has balanced stages plus 0.2 ns of latch overhead per stage. Stalls average 0.25 cycles per instruction. What is the speedup?</p>`,
+        a: `<ol><li>Pipelined clock = 10 / 5 + 0.2 = 2.2 ns.</li><li>Pipelined CPI = 1 + 0.25 = 1.25.</li><li>Unpipelined time per instruction = 1 × 10 = 10 ns. Pipelined = 1.25 × 2.2 = 2.75 ns.</li><li>Speedup = 10 / 2.75 ≈ <strong>3.6×</strong>, versus 5× ideal.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A 5-stage pipeline has 20% loads, half of which are followed immediately by a dependent instruction (1 stall each), and 15% branches, of which 60% are taken (1 stall each, predict not-taken). What's the speedup over an unpipelined multi-cycle version at the same clock?</p>`,
+        a: `<ol><li>Load-use stalls per instruction: 0.2 × 0.5 × 1 = 0.10.</li><li>Branch stalls per instruction: 0.15 × 0.6 × 1 = 0.09.</li><li>CPI = 1 + 0.10 + 0.09 = 1.19.</li><li>The multi-cycle version takes 5 cycles per instruction at the same clock, so speedup = 5 / 1.19 ≈ <strong>4.2×</strong>.</li></ol>`
+      },
+      {
+        q: `<p>Even with zero stalls, why is real pipeline speedup below the pipeline depth?</p>`,
+        a: `<p>Two reasons from the clock side: stages are never perfectly balanced, so the slowest stage sets the clock, and every stage pays latch overhead (clock-to-Q, setup, skew, jitter). Both make the pipelined clock longer than unpipelined clock ÷ depth. Stalls then reduce speedup further on the CPI side.</p>`
       }
     ]
   }
