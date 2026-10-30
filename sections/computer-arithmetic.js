@@ -23,9 +23,13 @@ section({
   id: "arith",
   name: "Computer Arithmetic",
   cap: "Floating-point and fixed-point formats, rounding, ML types, and the integer and FMA datapaths",
+  sections: [
+    { id: "pages", label: "The Pages" },
+    { id: "where-connects", label: "Where It Connects" }
+  ],
   body: `
 <p>How hardware represents numbers and computes with them. Integers and fixed point space their values evenly, so the absolute error is constant and the range is small. A floating-point number trades that for range: it stores a sign, an exponent, and a fixed number of significand bits, so the gap between neighbors grows with the magnitude. The format decides the hardware (adder and multiplier width, lanes per vector register, bytes per operand) and the numerics (what overflows, what rounds away, what accumulates error).</p>
-<h3>The Pages</h3>
+<h3 id="sec-pages">The Pages</h3>
 <p><strong>Representations:</strong></p>
 <ol>
 <li><a href="#/fp-encoding">Encoding a Float</a>: the sign, exponent, and fraction fields, the hidden bit, special values, and ULP, with an encoder you can try.</li>
@@ -40,7 +44,7 @@ section({
 <li><a href="#/fp-units">Floating-Point Units and the FMA Pipeline</a>: the FMA datapath stage by stage, latency and throughput, area by format, and ISA support.</li>
 </ol>
 <p>Interview questions on this material: <a href="#/intv-arith">Arithmetic and Floating Point</a>.</p>
-<h3>Where It Connects</h3>
+<h3 id="sec-where-connects">Where It Connects</h3>
 <ul>
 <li><a href="#/exec-units">Execution Units</a>: where the FPU sits among the core’s other functional units.</li>
 <li><a href="#/simd">SIMD and Vector Execution</a>: how the same FMA hardware is replicated across vector lanes.</li>

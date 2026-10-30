@@ -6,9 +6,12 @@ section({
   id: "coh",
   name: "Coherence",
   cap: "Keeping copies of a line consistent",
+  sections: [
+    { id: "snooping-directory", label: "Snooping vs. Directory" }
+  ],
   body: `
 <p>With private caches, several copies of a line can exist. Coherence protocols keep them consistent so software sees one value per location.</p>
-<h3>Snooping vs. Directory</h3>
+<h3 id="sec-snooping-directory">Snooping vs. Directory</h3>
 <p>Snooping broadcasts every miss to all caches: simple and fast at small core counts, but bandwidth grows with cores. Directories send point-to-point messages to only the caches involved, which scales but adds indirection through the home node.</p>`,
   practice: {
     guided: [
@@ -29,13 +32,18 @@ section({
   id: "mesi",
   region: "coh",
   title: "Cache Coherence and MESI",
+  sections: [
+    { id: "mesi-states", label: "MESI States" },
+    { id: "snooping", label: "Snooping" },
+    { id: "coherence-consistency", label: "Coherence vs. Consistency" }
+  ],
   body: `
 <p>Coherence keeps every copy of a single location consistent: single writer or multiple readers, and reads return the last write.</p>
-<h3>MESI States</h3>
+<h3 id="sec-mesi-states">MESI States</h3>
 <ul><li><strong>Modified:</strong> only copy, dirty.</li><li><strong>Exclusive:</strong> only copy, clean; can become M silently.</li><li><strong>Shared:</strong> possibly other copies, read only.</li><li><strong>Invalid.</strong></li></ul>
-<h3>Snooping</h3>
+<h3 id="sec-snooping">Snooping</h3>
 <p>A read miss broadcasts a read; an owner in M supplies data and drops to S. A write broadcasts ownership requests that invalidate other copies. MOESI adds Owned, letting dirty lines be shared without writeback.</p>
-<h3>Coherence vs. Consistency</h3>
+<h3 id="sec-coherence-consistency">Coherence vs. Consistency</h3>
 <p>Coherence covers one address; consistency covers the order across addresses.</p>`,
   practice: {
     guided: [
@@ -129,13 +137,18 @@ section({
   id: "directory",
   region: "coh",
   title: "Directory-Based Coherence",
+  sections: [
+    { id: "flows", label: "Flows" },
+    { id: "sharer-tracking", label: "Sharer Tracking" },
+    { id: "hard-part", label: "The Hard Part" }
+  ],
   body: `
 <p>A directory at each line's home node tracks state and sharers so requests go point to point.</p>
-<h3>Flows</h3>
+<h3 id="sec-flows">Flows</h3>
 <p><strong>Read miss:</strong> the home forwards to an owner in M, which sends data and downgrades. <strong>Write miss:</strong> the home invalidates sharers and tells the requester how many acks to expect.</p>
-<h3>Sharer Tracking</h3>
+<h3 id="sec-sharer-tracking">Sharer Tracking</h3>
 <ul><li>Full bit vectors cost a bit per core per line</li><li>Limited pointers and coarse vectors trade precision for space</li><li>Sparse directories evict entries and force invalidations</li></ul>
-<h3>The Hard Part</h3>
+<h3 id="sec-hard-part">The Hard Part</h3>
 <p>Transient states: messages race, so real protocols need many intermediate states.</p>`,
   practice: {
     guided: [

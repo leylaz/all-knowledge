@@ -533,7 +533,15 @@ ${procSvg(760, 330, 620, "A Grace die drawn as a mesh of cache switch nodes, eac
   id: "gen-gpus",
   region: "proc",
   title: "GPUs for Generative AI",
-  sections: [{ id: "gpu-arch", label: "GPU Architecture" }, { id: "roofline", label: "Roofline" }, { id: "llm-bound", label: "LLM Inference" }, { id: "diff-gpu", label: "Diffusion on GPUs" }],
+  sections: [
+    { id: "gpu-arch", label: "GPU Architecture" },
+    { id: "roofline", label: "Roofline" },
+    { id: "llm-bound", label: "LLM Inference" },
+    { id: "diff-gpu", label: "Diffusion on GPUs" },
+    { id: "scaling-past-gpu", label: "Scaling Past One GPU" },
+    { id: "energy-question", label: "The Energy Question" },
+    { id: "perf-modeling", label: "Connecting to Performance Modeling" }
+  ],
   body: `
 <p>Generative models are huge piles of matrix math repeated many times. GPUs became the standard platform because they deliver enormous parallel arithmetic and memory bandwidth, and their software stack makes that usable.</p>
 <h3 id="sec-gpu-arch">GPU Architecture in Brief</h3>
@@ -556,11 +564,11 @@ ${procSvg(760, 330, 620, "A Grace die drawn as a mesh of cache switch nodes, eac
 <p>Batching, the KV cache, and quantization all move this bound. They're covered in <a href="#/llm-phases">Prefill and Decode</a>, <a href="#/llm-kvcache">The KV Cache</a>, and <a href="#/llm-faster">Making Inference Faster</a>.</p>
 <h3 id="sec-diff-gpu">Diffusion on GPUs</h3>
 <p>Each denoising step runs a convolution- or attention-heavy network over the entire latent at once: large, regular, parallel work that keeps Tensor Cores busy (compute-bound). The cost is the sequential chain of steps, so latency = steps × time per step. Random noise for each step comes from fast parallel generators, a small cost next to the network itself.</p>
-<h3>Scaling Past One GPU</h3>
+<h3 id="sec-scaling-past-gpu">Scaling Past One GPU</h3>
 <p>Big models are split across GPUs with tensor parallelism (each layer's matrices divided among GPUs) and pipeline parallelism (different layers on different GPUs), connected by high-bandwidth links. Communication between GPUs then becomes another bottleneck to model.</p>
-<h3>The Energy Question</h3>
+<h3 id="sec-energy-question">The Energy Question</h3>
 <p>Moving data costs far more energy than computing on it, and GPUs spend energy enforcing exact, deterministic arithmetic even for workloads like sampling that are inherently random. That's the motivation for alternative hardware: more on-chip memory, lower precision, specialized accelerators, and probabilistic or thermodynamic designs that compute with physical noise.</p>
-<h3>Connecting to Performance Modeling</h3>
+<h3 id="sec-perf-modeling">Connecting to Performance Modeling</h3>
 <p>The same questions from CPU work apply: what's the bottleneck (compute, memory bandwidth, latency, communication), what's the arithmetic intensity, how well are the units utilized (occupancy, warp divergence, memory coalescing), and how does a design change move the workload on the roofline?</p>`,
   practice: {
     guided: [

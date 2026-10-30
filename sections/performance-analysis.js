@@ -44,9 +44,14 @@ section({
   id: "workloads",
   region: "perf",
   title: "Types of Workloads",
+  sections: [
+    { id: "bottleneck", label: "By Bottleneck" },
+    { id: "domain", label: "By Domain" },
+    { id: "top-down-analysis", label: "Top-Down Analysis" }
+  ],
   body: `
 <p>Workloads differ in which part of the machine limits them. Name the bottleneck first, then pick the feature to study.</p>
-<h3>By Bottleneck</h3>
+<h3 id="sec-bottleneck">By Bottleneck</h3>
 <ul>
 <li><strong>Compute-bound:</strong> high IPC, limited by execution width and ports (namd, exchange2).</li>
 <li><strong>Memory latency-bound:</strong> dependent misses, low MLP (mcf, linked data structures).</li>
@@ -55,7 +60,7 @@ section({
 <li><strong>Branch-bound:</strong> data-dependent, hard-to-predict branches (game search, compression).</li>
 <li><strong>Synchronization-bound:</strong> locks, barriers, and sharing limit multithreaded scaling.</li>
 </ul>
-<h3>By Domain</h3>
+<h3 id="sec-domain">By Domain</h3>
 <ul>
 <li><strong>Client:</strong> browsers, JavaScript, app launch, UI; latency and energy matter.</li>
 <li><strong>Server and cloud:</strong> databases, web services, JVMs; throughput and tail latency.</li>
@@ -63,7 +68,7 @@ section({
 <li><strong>ML:</strong> matrix multiplies are compute-bound; inference with large models is often bandwidth-bound.</li>
 <li><strong>Media and games:</strong> SIMD-heavy, real-time deadlines.</li>
 </ul>
-<h3>Top-Down Analysis</h3>
+<h3 id="sec-top-down-analysis">Top-Down Analysis</h3>
 <p>Intel's top-down method splits pipeline slots into retiring, front-end bound, bad speculation, and back-end bound (memory or core), then drills into the largest category. See <a href="#/perf-bottlenecks">Bottleneck types</a> for the full method and how to tell the bottlenecks apart.</p>`,
   practice: {
     guided: [
@@ -85,13 +90,24 @@ section({
   id: "spec-cpu",
   region: "perf",
   title: "SPEC CPU Benchmarks",
+  sections: [
+    { id: "four-suites", label: "Four Suites" },
+    { id: "scoring", label: "Scoring" },
+    { id: "specspeed-specrate", label: "SPECspeed vs. SPECrate" },
+    { id: "input-sets", label: "Input Sets: Test, Train, and Ref" },
+    { id: "other-inputs", label: "Other Inputs" },
+    { id: "int-benchmarks", label: "Integer Benchmarks and Their Character" },
+    { id: "floating-point-highlights", label: "Floating-Point Highlights" },
+    { id: "lbm", label: "A Closer Look at 519.lbm" },
+    { id: "limits", label: "Limits" }
+  ],
   body: `
 <p>SPEC CPU 2017 is the standard suite for comparing CPU performance and the usual workload set in microarchitecture papers and simulator studies. (A successor suite has been in development; check SPEC's site for the current release.)</p>
-<h3>Four Suites</h3>
+<h3 id="sec-four-suites">Four Suites</h3>
 <ul><li><strong>SPECrate Integer / Floating Point:</strong> throughput, many copies run at once. Benchmarks end in <code>_r</code>.</li><li><strong>SPECspeed Integer / Floating Point:</strong> time for one task, optionally multithreaded. Benchmarks end in <code>_s</code>.</li></ul>
-<h3>Scoring</h3>
+<h3 id="sec-scoring">Scoring</h3>
 <p>Each benchmark's score is the reference machine's time divided by your time; the suite score is the geometric mean. "Base" uses consistent compiler flags across benchmarks; "peak" allows per-benchmark tuning.</p>
-<h3>SPECspeed vs. SPECrate</h3>
+<h3 id="sec-specspeed-specrate">SPECspeed vs. SPECrate</h3>
 <p>SPECspeed is a latency metric: how long does one task take? SPECrate is a throughput metric: how much work gets done when many independent tasks run at once? (Hennessy &amp; Patterson, ch. 1, makes the same split between execution time and throughput.)</p>
 <div class="tbl"><table>
 <tr><th></th><th>SPECspeed</th><th>SPECrate</th></tr>
@@ -105,7 +121,7 @@ section({
 <p>So the two suites aren’t the same programs run two ways. SPEC builds separate versions with different workload sizes, compile flags, and run rules. Both report the geometric mean of per-benchmark ratios against a reference machine, not literal jobs per minute.</p>
 <p><strong>Example (illustrative, not real scores).</strong> Two 8-core CPUs. Alone, a job takes 10 s on A and 8 s on B, so B is 25% faster on SPECspeed. With 8 copies, contention slows A’s jobs to 20 s each (0.40 jobs/s) but B’s only to 12.5 s (0.64 jobs/s), so B is 60% faster on throughput. The rate gap is bigger than the speed gap because B handles shared-resource contention better. The reverse can happen too: a chip with a high single-core boost clock and little memory bandwidth can win SPECspeed and lose SPECrate.</p>
 <p>Sources: <a href="https://www.spec.org/cpu2017/Docs/" target="_blank" rel="noopener">SPEC CPU 2017 documentation index</a>, <a href="https://www.spec.org/cpu2017/Docs/system-requirements.html" target="_blank" rel="noopener">system requirements</a>.</p>
-<h3>Input Sets: Test, Train, and Ref</h3>
+<h3 id="sec-input-sets">Input Sets: Test, Train, and Ref</h3>
 <p>Every benchmark ships with several workloads (input files plus the expected outputs), selected with <code>runcpu --size</code>. Only ref produces a score.</p>
 <div class="tbl"><table>
 <tr><th>Input</th><th>Purpose</th><th>Timed?</th><th>In a simulator</th></tr>
@@ -115,10 +131,10 @@ section({
 </table></div>
 <p>A reportable run also runs test and train first, to verify the binaries, then times ref several times. Some ref workloads are several inputs run back to back; perlbench, for example, runs more than one Perl script, and the benchmark’s time covers all of them.</p>
 <p><strong>Why train and ref are separate:</strong> with PGO, the compiler tunes code layout, inlining, and branch hints to the profiled input. Training on train and scoring on ref keeps a compiler from being tuned to the exact input it’s scored on.</p>
-<h3>Other Inputs</h3>
+<h3 id="sec-other-inputs">Other Inputs</h3>
 <ul><li><strong>Alberta Workloads:</strong> extra inputs from the University of Alberta for many CPU 2017 benchmarks, some with scripts that generate unlimited new inputs. They’re for research such as PGO and studying how sensitive a program is to its input, not for official results or vendor comparisons.</li><li><strong>SimPoints and pinballs:</strong> not new inputs, but representative regions cut from ref runs.</li><li><strong>Your own inputs:</strong> fine for studying a design, but you can’t call the result a SPEC score, not even an estimated one.</li></ul>
 <p>Sources: <a href="https://www.spec.org/cpu2017/Docs/runcpu.html" target="_blank" rel="noopener">runcpu documentation</a>, <a href="https://research.spec.org/tools/overview/alberta-workloads" target="_blank" rel="noopener">Alberta Workloads</a>.</p>
-<h3>Integer Benchmarks and Their Character</h3>
+<h3 id="sec-int-benchmarks">Integer Benchmarks and Their Character</h3>
 <div class="tbl"><table>
 <tr><th>Benchmark</th><th>What it is</th><th>What it stresses</th></tr>
 <tr><td>500.perlbench</td><td>Perl interpreter</td><td>Indirect branches, frontend</td></tr>
@@ -132,7 +148,7 @@ section({
 <tr><td>548.exchange2</td><td>Puzzle solver</td><td>Compute-bound, small footprint</td></tr>
 <tr><td>557.xz</td><td>Compression</td><td>Data-dependent branches, memory</td></tr>
 </table></div>
-<h3>Floating-Point Highlights</h3>
+<h3 id="sec-floating-point-highlights">Floating-Point Highlights</h3>
 <ul><li><strong>Bandwidth-bound streaming:</strong> 519.lbm, 503.bwaves, 549.fotonik3d, 554.roms.</li><li><strong>Compute-heavy:</strong> 508.namd, 544.nab, 511.povray, 538.imagick.</li><li><strong>Large, mixed applications:</strong> 521.wrf, 527.cam4, 526.blender, 510.parest, 507.cactuBSSN.</li></ul>
 <h3 id="sec-lbm">A Closer Look at 519.lbm</h3>
 <p><strong>What it computes.</strong> 519.lbm_r (and 619.lbm_s) simulates an incompressible fluid in 3D with the lattice Boltzmann method. Thomas Pohl wrote it as the core of a larger code that models gas bubbles forming in metal foams. Instead of solving the Navier–Stokes equations directly, it tracks, for every cell of a regular grid, how much fluid is moving in each of 19 fixed directions (the D3Q19 lattice: at rest, the 6 face neighbors, and the 12 edge neighbors). Each time step does two things:</p>
@@ -242,7 +258,7 @@ for (int z = 0; z &lt; NZ; z++)
 <p><strong>What lbm stresses in a model.</strong></p>
 <ul><li><strong>DRAM bandwidth:</strong> the bound on any multicore run, especially SPECrate with one copy per core.</li><li><strong>Memory-level parallelism:</strong> on one core, L2 miss tracking and prefetch depth limit it before bandwidth does (see the lbm worked example on <a href="#/perf-find-cause">Finding a Stall's Cause</a>).</li><li><strong>Write handling:</strong> RFO versus full-line writes, write-combining buffer count, and writeback buffering.</li><li><strong>LLC policy:</strong> each line is reused only after about 430 MB, a <a href="#/cache-patterns/stream">cyclic stream</a> no LLC can hold, so the policy's job is to keep lbm from evicting other programs' data.</li></ul>
 <p>Sources: <a href="https://www.spec.org/cpu2017/Docs/benchmarks/519.lbm_r.html" target="_blank" rel="noopener">SPEC's 519.lbm_r description</a>, Wittmann et al., “Comparison of different propagation steps for the lattice Boltzmann method,” <em>Computers &amp; Mathematics with Applications</em> 65(6), 2013, and Wellein et al., “On the single processor performance of simple lattice Boltzmann kernels,” <em>Computers &amp; Fluids</em> 35(8–9), 2006.</p>
-<h3>Limits</h3>
+<h3 id="sec-limits">Limits</h3>
 <p>SPEC is mostly single-application and has smaller code footprints than servers, browsers, or JIT-compiled code, so frontend features look less important than they are in practice. Supplement it with real workloads.</p>`,
   practice: {
     guided: [
@@ -280,15 +296,25 @@ for (int z = 0; z &lt; NZ; z++)
   id: "ipc-spec",
   region: "perf",
   title: "IPC and Simulation Methodology",
+  sections: [
+    { id: "breaking-cycles-down", label: "Breaking Cycles Down" },
+    { id: "summarizing-suite", label: "Summarizing a Suite" },
+    { id: "simulation-hygiene", label: "Simulation Hygiene" },
+    { id: "sim-vs-hw", label: "SPEC on a Simulator vs. on Real Hardware" },
+    { id: "whole-spec-run", label: "Why You Can’t Simulate a Whole SPEC Run" },
+    { id: "two-separate-sources", label: "Two Separate Sources of Error" },
+    { id: "measured-estimated-results", label: "Measured vs. Estimated Results" },
+    { id: "model-correlation", label: "Model Correlation" }
+  ],
   body: `
 <p>IPC is instructions retired per cycle. Compare it only on identical binaries.</p>
-<h3>Breaking Cycles Down</h3>
+<h3 id="sec-breaking-cycles-down">Breaking Cycles Down</h3>
 <p>A CPI stack splits cycles into base work and stall causes, showing where a gain actually came from.</p>
-<h3>Summarizing a Suite</h3>
+<h3 id="sec-summarizing-suite">Summarizing a Suite</h3>
 <p>Use the geometric mean of speedups, and report per-benchmark results too.</p>
-<h3>Simulation Hygiene</h3>
+<h3 id="sec-simulation-hygiene">Simulation Hygiene</h3>
 <ul><li>Simulate representative regions (SimPoints).</li><li>Warm up caches and predictors before measuring.</li><li>Pair IPC with MPKI for caches and branches.</li><li>Sweep one parameter at a time to find where returns flatten.</li></ul>
-<h3>SPEC on a Simulator vs. on Real Hardware</h3>
+<h3 id="sec-sim-vs-hw">SPEC on a Simulator vs. on Real Hardware</h3>
 <p>These are two different experiments. On hardware, you time the run and get a SPEC score. On a C model, the simulator is just a program running on a host CPU, so you get two separate clocks:</p>
 <div class="tbl"><table>
 <tr><th></th><th>Host wall-clock time</th><th>Simulated target cycles</th></tr>
@@ -297,14 +323,14 @@ for (int z = 0; z &lt; NZ; z++)
 <tr><td>Use it for</td><td>Planning simulation budgets</td><td>IPC, CPI stacks, design comparisons</td></tr>
 </table></div>
 <p>Never report host time as target performance; there’s nothing to “subtract.” Estimated target time = cycles / frequency, e.g. 5 × 10<sup>9</sup> cycles at 3 GHz ≈ 1.67 s. That only holds if the clock is fixed and memory latency is modeled sensibly: if DRAM latency is a fixed cycle count, raising the clock in the model wrongly makes memory faster too. Model it in nanoseconds if you plan to sweep frequency.</p>
-<h3>Why You Can’t Simulate a Whole SPEC Run</h3>
+<h3 id="sec-whole-spec-run">Why You Can’t Simulate a Whole SPEC Run</h3>
 <p>Reference inputs run hundreds of billions to trillions of instructions, and detailed cycle-level models are often 10,000× or more slower than native, so a full run would take weeks to months. Instead, simulate representative regions (SimPoint) or sampled intervals (SMARTS) and weight the results. SPEC itself points to SimPoint-based checkpoints (“pinballs”) for CPU 2017 from UT Austin. Don’t substitute the <code>test</code> or <code>train</code> inputs for <code>ref</code>: they behave differently, often with much smaller memory footprints.</p>
-<h3>Two Separate Sources of Error</h3>
+<h3 id="sec-two-separate-sources">Two Separate Sources of Error</h3>
 <ul><li><strong>Overhead:</strong> affects only how long you wait, not the answer.</li><li><strong>Abstraction:</strong> simplified bank conflicts, fixed memory latency, idealized arbitration, or predictor update timing all change the cycle count. This is the error that matters; reduce it by correlating against RTL, emulation, or silicon.</li><li><strong>Sampling:</strong> regions that miss a phase, or insufficient warmup, bias the result.</li></ul>
-<h3>Measured vs. Estimated Results</h3>
+<h3 id="sec-measured-estimated-results">Measured vs. Estimated Results</h3>
 <p>Published SPEC results are measured on real systems with outputs validated and the full configuration disclosed. SPEC allows performance metrics (not energy metrics) to be estimated, from simulation or models for example, but any public estimate must be clearly labeled as one.</p>
 <p>Sources: <a href="https://www.spec.org/cpu2017/Docs/runrules.html" target="_blank" rel="noopener">SPEC CPU 2017 run rules</a>, <a href="https://open.spec.org/cpu2017/research/simpoint.html" target="_blank" rel="noopener">SPEC CPU 2017 and simulation</a>.</p>
-<h3>Model Correlation</h3>
+<h3 id="sec-model-correlation">Model Correlation</h3>
 <p>A model is only useful if it tracks the real design. Correlate against RTL simulation, emulation, or silicon with the same workloads, and compare per-structure events, not just total IPC.</p>`,
   practice: {
     guided: [

@@ -6,9 +6,13 @@ section({
   id: "core",
   name: "Out-of-Order Core",
   cap: "Renaming, the window, scheduling, memory ordering",
+  sections: [
+    { id: "pipeline-pass", label: "The Pipeline in One Pass" },
+    { id: "questions-that-matter", label: "The Questions That Matter" }
+  ],
   body: `
 <p>An out-of-order core fetches and decodes in order, executes in dataflow order, and commits in order. The middle of the pipeline is where the performance lives.</p>
-<h3>The Pipeline in One Pass</h3>
+<h3 id="sec-pipeline-pass">The Pipeline in One Pass</h3>
 <ol>
 <li><strong>Fetch and decode:</strong> branch prediction steers fetch; instructions are decoded (and on some ISAs cracked into micro-ops).</li>
 <li><strong>Rename:</strong> architectural registers map to physical registers, removing false dependences.</li>
@@ -17,7 +21,7 @@ section({
 <li><strong>Writeback:</strong> results are written and dependents woken.</li>
 <li><strong>Commit:</strong> instructions retire in order from the ROB head; stores drain to the cache after this.</li>
 </ol>
-<h3>The Questions That Matter</h3>
+<h3 id="sec-questions-that-matter">The Questions That Matter</h3>
 <p>How big is the window, which resource fills first, and how much memory-level parallelism can the window expose? Most core studies reduce to a stall breakdown by resource.</p>`,
   practice: {
     guided: [
@@ -106,15 +110,21 @@ section({
   id: "renaming",
   region: "core",
   title: "Register Renaming",
+  sections: [
+    { id: "pieces", label: "Pieces" },
+    { id: "lifecycle-mapping", label: "Lifecycle of a Mapping" },
+    { id: "recovery", label: "Recovery" },
+    { id: "limits", label: "What Limits It" }
+  ],
   body: `
 <p>Programs reuse a small set of architectural registers, which creates false dependences: write-after-read (WAR) and write-after-write (WAW). Renaming gives every destination a fresh physical register, so only true read-after-write (RAW) dependences remain.</p>
-<h3>Pieces</h3>
+<h3 id="sec-pieces">Pieces</h3>
 <ul><li><strong>Register alias table (RAT):</strong> maps each architectural register to its current physical register.</li><li><strong>Free list:</strong> physical registers available for new destinations.</li><li><strong>Retirement RAT:</strong> the committed, non-speculative mapping.</li></ul>
-<h3>Lifecycle of a Mapping</h3>
+<h3 id="sec-lifecycle-mapping">Lifecycle of a Mapping</h3>
 <p>At rename, sources read the RAT, the destination takes a register from the free list, and the <em>previous</em> mapping is saved in the ROB entry. At commit, that previous register is freed, because no instruction younger than this one can still name it.</p>
-<h3>Recovery</h3>
+<h3 id="sec-recovery">Recovery</h3>
 <p>On a misprediction, restore the RAT from a branch checkpoint, walk the ROB backward undoing mappings, or copy the retirement RAT.</p>
-<h3>What Limits It</h3>
+<h3 id="sec-limits">What Limits It</h3>
 <ul><li>Free-list size bounds instructions in flight</li><li>Rename width bounds throughput</li><li>Checkpoints bound branch depth</li></ul>`,
   practice: {
     guided: [
@@ -142,19 +152,25 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
   id: "prf-sizing",
   region: "core",
   title: "Sizing the Physical Register File",
+  sections: [
+    { id: "math", label: "The Math" },
+    { id: "benefit", label: "Benefit" },
+    { id: "cost-power-performance", label: "Cost: Power, Performance, Area" },
+    { id: "typical-workload-effects", label: "Typical Workload Effects" }
+  ],
   body: `
 <p>The physical register file (PRF) holds every renamed value. Its size limits how many instructions with destinations can be in flight.</p>
-<h3>The Math</h3>
+<h3 id="sec-math">The Math</h3>
 <p>Registers needed ≈ architectural registers + in-flight destinations. By Little's law, in-flight destinations = rename rate × average lifetime (from rename until the next writer of the same architectural register commits). A practical target: PRF ≥ arch regs + (ROB size × fraction of instructions with a destination of that class).</p>
-<h3>Benefit</h3>
+<h3 id="sec-benefit">Benefit</h3>
 <p>More registers let the window grow before rename stalls, exposing more memory-level parallelism. Once the PRF stops being the first resource to fill, extra registers buy nothing. IPC versus PRF size is a saturating curve, and the knee depends on the workload.</p>
-<h3>Cost: Power, Performance, Area</h3>
+<h3 id="sec-cost-power-performance">Cost: Power, Performance, Area</h3>
 <ul>
 <li><strong>Area:</strong> grows with entries × width × (ports)². A wide core needs many ports, so the PRF is one of the densest and largest structures in the core.</li>
 <li><strong>Latency:</strong> more entries means longer wordlines and bitlines. Past a point, register read takes an extra pipeline stage, which lengthens the mispredict penalty and needs more bypassing.</li>
 <li><strong>Power:</strong> every read and write charges long bitlines; energy per access rises with entries and ports. Leakage rises with area.</li>
 </ul>
-<h3>Typical Workload Effects</h3>
+<h3 id="sec-typical-workload-effects">Typical Workload Effects</h3>
 <ul><li><strong>Pointer chasing:</strong> little gain; dependent misses don't overlap.</li><li><strong>Independent misses (streaming without good prefetch, irregular but independent loads):</strong> large gain until another structure fills.</li><li><strong>Compute-bound:</strong> modest gain; short-lived values recycle registers quickly.</li><li><strong>FP and vector code:</strong> wide vector registers make each entry costly, so the vector PRF is often the tighter limit.</li></ul>`,
   practice: {
     guided: [
@@ -176,13 +192,18 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
   id: "scheduler",
   region: "core",
   title: "Scheduler Queues",
+  sections: [
+    { id: "wakeup-select", label: "Wakeup and Select" },
+    { id: "speculative-wakeup", label: "Speculative Wakeup" },
+    { id: "unified-distributed", label: "Unified vs. Distributed" }
+  ],
   body: `
 <p>Renamed instructions wait in issue queues until their operands are ready.</p>
-<h3>Wakeup and Select</h3>
+<h3 id="sec-wakeup-select">Wakeup and Select</h3>
 <p><strong>Wakeup:</strong> a producer's destination tag is broadcast and waiting entries set ready bits. <strong>Select:</strong> pick ready entries up to the issue width per port, often oldest first. For back-to-back dependent issue, wakeup plus select must fit in one cycle.</p>
-<h3>Speculative Wakeup</h3>
+<h3 id="sec-speculative-wakeup">Speculative Wakeup</h3>
 <p>Dependents of a load are woken assuming an L1 hit; on a miss they're replayed.</p>
-<h3>Unified vs. Distributed</h3>
+<h3 id="sec-unified-distributed">Unified vs. Distributed</h3>
 <p>A unified queue uses entries better; per-port queues are smaller and faster. Cost grows with entries times broadcast tags.</p>`,
   practice: {
     guided: [
@@ -204,9 +225,14 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
   id: "exec-units",
   region: "core",
   title: "Execution Units",
+  sections: [
+    { id: "units", label: "The Units" },
+    { id: "math", label: "The Math" },
+    { id: "power-performance-area", label: "Power, Performance, Area" }
+  ],
   body: `
 <p>Execution units do the actual work. The scheduler sends ready instructions to ports, and each port feeds one or more units.</p>
-<h3>The Units</h3>
+<h3 id="sec-units">The Units</h3>
 <div class="tbl"><table>
 <tr><th>Unit</th><th>Does</th><th>Typical latency</th><th>Notes</th></tr>
 <tr><td>ALU</td><td>Add, subtract, logic, shifts, compares</td><td>1 cycle</td><td>Several per core; small and cheap</td></tr>
@@ -220,13 +246,13 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
 <tr><td>Store unit (STU)</td><td>Store address and store data</td><td>Writes the SQ</td><td>Address and data often split into separate ports</td></tr>
 </table></div>
 <p>Number formats, rounding, BF16 and the other ML types, and the inside of the FMA pipeline have their own section: <a href="#/r/arith">Computer Arithmetic</a>.</p>
-<h3>The Math</h3>
+<h3 id="sec-math">The Math</h3>
 <ul>
 <li><strong>Port demand:</strong> ops per cycle of a type = IPC × fraction of that type. Keep utilization well below 100% to avoid queueing.</li>
 <li><strong>Throughput vs. latency:</strong> a pipelined unit with latency L can accept a new op each cycle; to keep it busy, you need L independent operations in flight (e.g., 4-cycle FMA × 2 units = 8 independent accumulations).</li>
 <li><strong>Bypass network:</strong> with P producers and C consumer operands, there are about P × C forwarding paths, so it grows roughly with the square of the unit count.</li>
 </ul>
-<h3>Power, Performance, Area</h3>
+<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
 <ul>
 <li><strong>More units:</strong> more peak throughput, but each adds a scheduler select port, PRF read and write ports, and bypass paths. Those structures, not the units themselves, are often the limit.</li>
 <li><strong>Wider SIMD:</strong> large throughput gains for vectorizable code, but area and power scale with width, and some designs lower frequency when wide vector units are active. Power-gate them when idle.</li>
@@ -257,15 +283,21 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
   id: "lsq",
   region: "core",
   title: "Load and Store Queues",
+  sections: [
+    { id: "stores", label: "Stores" },
+    { id: "loads", label: "Loads" },
+    { id: "catching-violations", label: "Catching Violations" },
+    { id: "store-coalescing", label: "Store Coalescing" }
+  ],
   body: `
 <p>The LQ and SQ track memory operations in program order so they can execute out of order without breaking memory semantics.</p>
-<h3>Stores</h3>
+<h3 id="sec-stores">Stores</h3>
 <p>Stores don't write the cache until they commit; after retirement they drain from the store buffer into L1.</p>
-<h3>Loads</h3>
+<h3 id="sec-loads">Loads</h3>
 <p>A load searches the SQ for older stores to the same address and forwards data when one fully covers it. If an older store's address is unknown, the load waits or speculates.</p>
-<h3>Catching Violations</h3>
+<h3 id="sec-catching-violations">Catching Violations</h3>
 <p>When a store's address resolves, it searches the LQ for younger loads to the same address that already executed; a hit means flush and re-execute.</p>
-<h3>Store Coalescing</h3>
+<h3 id="sec-store-coalescing">Store Coalescing</h3>
 <p>Merging retired stores to the same line saves L1 write bandwidth, but must not make stores visible in an order the memory model forbids.</p>`,
   practice: {
     guided: [
@@ -291,13 +323,18 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
   id: "mdp",
   region: "core",
   title: "Memory Dependence Prediction",
+  sections: [
+    { id: "simple-wait-bits", label: "Simple: Wait Bits" },
+    { id: "store-sets", label: "Store Sets" },
+    { id: "metrics", label: "Metrics" }
+  ],
   body: `
 <p>Should a load issue before older stores whose addresses are unknown? Always waiting loses parallelism; always speculating triggers costly flushes. A predictor learns which loads tend to conflict.</p>
-<h3>Simple: Wait Bits</h3>
+<h3 id="sec-simple-wait-bits">Simple: Wait Bits</h3>
 <p>A table indexed by load PC; a load that caused a violation waits next time. Bits are cleared periodically.</p>
-<h3>Store Sets</h3>
+<h3 id="sec-store-sets">Store Sets</h3>
 <p>Chrysos and Emer's scheme: a store set ID table groups a load with the stores it conflicted with, and a last-fetched-store table makes the load wait only for the most recent in-flight store of its set.</p>
-<h3>Metrics</h3>
+<h3 id="sec-metrics">Metrics</h3>
 <ul><li>Ordering violations per thousand instructions</li><li>False dependences: loads made to wait for nothing</li></ul>`,
   practice: {
     guided: [
@@ -319,13 +356,18 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
   id: "rob",
   region: "core",
   title: "Reorder Buffer",
+  sections: [
+    { id: "order-retirement", label: "Why In-Order Retirement" },
+    { id: "size-window", label: "Size and the Window" },
+    { id: "worth-measuring", label: "Worth Measuring" }
+  ],
   body: `
 <p>The ROB is a circular buffer holding in-flight instructions in program order. Entries are allocated at dispatch, marked done at writeback, and retired from the head in order once complete.</p>
-<h3>Why In-Order Retirement</h3>
+<h3 id="sec-order-retirement">Why In-Order Retirement</h3>
 <p>It makes exceptions precise. A faulting instruction just flags its entry; the fault is taken at the head, and everything younger is flushed.</p>
-<h3>Size and the Window</h3>
+<h3 id="sec-size-window">Size and the Window</h3>
 <p>ROB size sets the instruction window, and so how much memory-level parallelism the core can find. A long-latency load at the head blocks retirement until the ROB fills and dispatch stalls.</p>
-<h3>Worth Measuring</h3>
+<h3 id="sec-worth-measuring">Worth Measuring</h3>
 <ul><li>Average occupancy</li><li>Cycles stalled on a full ROB</li><li>What instruction sits at the head during those stalls</li></ul>`,
   practice: {
     guided: [
@@ -351,24 +393,30 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
   id: "rob-sizing",
   region: "core",
   title: "Sizing the Reorder Buffer",
+  sections: [
+    { id: "math", label: "The Math" },
+    { id: "benefit", label: "Benefit" },
+    { id: "cost-power-performance", label: "Cost: Power, Performance, Area" },
+    { id: "typical-workload-effects", label: "Typical Workload Effects" }
+  ],
   body: `
 <p>The ROB size sets the maximum instruction window: how far past a stalled instruction the core can look for independent work.</p>
-<h3>The Math</h3>
+<h3 id="sec-math">The Math</h3>
 <ul>
 <li><strong>Window to hide latency L at throughput IPC:</strong> W ≈ IPC × L (Little's law).</li>
 <li><strong>Mispredict horizon:</strong> average instructions between mispredicts = 1 / (branch fraction × mispredict rate).</li>
 <li><strong>Memory-level parallelism:</strong> independent misses that fit in the window can overlap, so effective cost per miss ≈ latency / MLP.</li>
 </ul>
-<h3>Benefit</h3>
+<h3 id="sec-benefit">Benefit</h3>
 <p>Larger ROBs find more independent misses and more instruction-level parallelism around long-latency operations. The gain is largest for workloads with independent misses and predictable control flow.</p>
-<h3>Cost: Power, Performance, Area</h3>
+<h3 id="sec-cost-power-performance">Cost: Power, Performance, Area</h3>
 <ul>
 <li><strong>The ROB itself is cheap:</strong> it's a RAM-like FIFO indexed by position.</li>
 <li><strong>Everything around it must grow:</strong> PRF, LQ and SQ (CAM searches), issue queue, checkpoints, and free lists. If they don't, the ROB never fills and the extra entries are wasted.</li>
 <li><strong>Power:</strong> more in-flight instructions means more wrong-path work thrown away on a mispredict, plus larger structures searched each cycle.</li>
 <li><strong>Performance side effects:</strong> larger LSQ and IQ CAMs can lengthen critical paths. Recovery by ROB walk takes longer with more entries.</li>
 </ul>
-<h3>Typical Workload Effects</h3>
+<h3 id="sec-typical-workload-effects">Typical Workload Effects</h3>
 <ul><li><strong>Pointer chasing:</strong> little gain (dependent misses).</li><li><strong>Streaming and independent misses:</strong> large gain, until MSHRs or bandwidth saturate.</li><li><strong>Branch-heavy code:</strong> little gain; the window is mostly wrong path.</li><li><strong>Compute-bound:</strong> small gain beyond what covers FP latencies.</li></ul>`,
   practice: {
     guided: [

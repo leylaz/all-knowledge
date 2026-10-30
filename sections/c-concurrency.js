@@ -37,10 +37,14 @@ section({
   id: "c11-ordering",
   region: "conc",
   title: "C11 Memory Ordering",
+  sections: [
+    { id: "synchronizes", label: "Synchronizes-with" },
+    { id: "program-order-visibility", label: "Program Order vs. Visibility" }
+  ],
   body: `
 <p>Each atomic access takes an ordering that says what can move around it.</p>
 <ul><li><code>relaxed</code>: atomic, no ordering.</li><li><code>acquire</code> (loads): later accesses can't move before it.</li><li><code>release</code> (stores): earlier accesses can't move after it.</li><li><code>acq_rel</code> (read-modify-write): both.</li><li><code>seq_cst</code>: plus one total order over all seq_cst operations.</li></ul>
-<h3>Synchronizes-with</h3>
+<h3 id="sec-synchronizes">Synchronizes-with</h3>
 <p>When an acquire load reads from a release store, everything before the store happens-before everything after the load.</p>
 <pre><code>// producer
 data = 42;
@@ -49,7 +53,7 @@ atomic_store_explicit(&amp;ready, 1, memory_order_release);
 // consumer
 while (!atomic_load_explicit(&amp;ready, memory_order_acquire)) ;
 assert(data == 42);  // guaranteed</code></pre>
-<h3>Program Order vs. Visibility</h3>
+<h3 id="sec-program-order-visibility">Program Order vs. Visibility</h3>
 <p>On ARM and POWER, a core's stores can reach other cores out of order. x86 (TSO) only lets a load pass an earlier store to a different address.</p>`,
   practice: {
     guided: [
@@ -77,9 +81,13 @@ T2: y = 1; r2 = x;</code></pre><p>Can r1 = r2 = 0 with release stores and acquir
   id: "barrier",
   region: "conc",
   title: "Sense-Reversing Barriers",
+  sections: [
+    { id: "sense-flips", label: "Why the Sense Flips" },
+    { id: "ordering-pieces", label: "Ordering, Piece by Piece" }
+  ],
   body: `
 <p>A centralized barrier with a counter and a shared sense flag:</p><ul><li>Each thread flips a private sense every episode</li><li>The last arriver resets the counter and flips the shared sense</li><li>Others spin until it matches theirs</li></ul>
-<h3>Why the Sense Flips</h3>
+<h3 id="sec-sense-flips">Why the Sense Flips</h3>
 <p>It makes the barrier reusable without reinitialization: a fast thread racing into the next episode waits on the opposite value.</p>
 <pre><code>typedef struct { atomic_int count; atomic_int sense; int n; } barrier_t;
 
@@ -95,7 +103,7 @@ void barrier_wait(barrier_t *b, int *local_sense) {
              memory_order_acquire) != s) ;
   }
 }</code></pre>
-<h3>Ordering, Piece by Piece</h3>
+<h3 id="sec-ordering-pieces">Ordering, Piece by Piece</h3>
 <ul><li>The fetch_sub is <code>acq_rel</code>: release publishes this thread's writes; acquire lets the last arriver see everyone's.</li><li>The sense store is <code>release</code> and spinners <code>acquire</code> it, so everyone leaves having seen all pre-barrier writes.</li><li>The counter reset can be <code>relaxed</code>: it precedes the release store, and threads only touch the counter again after acquiring the new sense.</li></ul>`,
   practice: {
     guided: [
@@ -121,9 +129,14 @@ void barrier_wait(barrier_t *b, int *local_sense) {
   id: "false-sharing",
   region: "conc",
   title: "False Sharing and Cache-Line Isolation",
+  sections: [
+    { id: "fixing-it", label: "Fixing It" },
+    { id: "choosing-size", label: "Choosing the Size" },
+    { id: "finding-it", label: "Finding It" }
+  ],
   body: `
 <p>Coherence works on whole lines. Two threads writing different variables in one line make it bounce between caches.</p>
-<h3>Fixing It</h3>
+<h3 id="sec-fixing-it">Fixing It</h3>
 <pre><code>#define LINE 64
 typedef struct {
   _Alignas(LINE) long counter;
@@ -132,9 +145,9 @@ typedef struct {
 
 _Static_assert(sizeof(per_thread_t) % LINE == 0, "not line-sized");
 _Static_assert(_Alignof(per_thread_t) == LINE, "not line-aligned");</code></pre>
-<h3>Choosing the Size</h3>
+<h3 id="sec-choosing-size">Choosing the Size</h3>
 <p>64 bytes is common, but some cores use 128-byte lines, and adjacent-line prefetching can pair 64-byte lines. Padding hot structures to 128 is a cheap hedge.</p>
-<h3>Finding It</h3>
+<h3 id="sec-finding-it">Finding It</h3>
 <p><code>perf c2c</code> reports lines with heavy cross-core modified-hit traffic.</p>`,
   practice: {
     guided: [

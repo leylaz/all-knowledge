@@ -27,26 +27,35 @@ section({
   id: "transistors",
   region: "circ",
   title: "Transistor Physics and Energy",
-  sections: [{ id: "vt-flavors", label: "Threshold-Voltage Flavors" }],
+  sections: [
+    { id: "mosfet", label: "The MOSFET" },
+    { id: "dynamic-energy", label: "Dynamic Energy" },
+    { id: "leakage-static-power", label: "Leakage (Static) Power" },
+    { id: "speed-voltage", label: "Speed and Voltage" },
+    { id: "end-dennard-scaling", label: "The End of Dennard Scaling" },
+    { id: "vt-flavors", label: "Threshold-Voltage Flavors" },
+    { id: "power-saving-techniques", label: "Power-Saving Techniques" },
+    { id: "architects-care", label: "Why Architects Care" }
+  ],
   body: `
-<h3>The MOSFET</h3>
+<h3 id="sec-mosfet">The MOSFET</h3>
 <p>A MOSFET is a voltage-controlled switch with a gate, source, and drain. In an nMOS transistor, raising the gate-to-source voltage above the threshold voltage V<sub>th</sub> forms a conducting channel; a pMOS transistor conducts when its gate is low. CMOS logic pairs them so that, ideally, there's never a direct path from supply to ground in steady state.</p>
 <p>Modern transistors wrap the gate around the channel for better control: FinFETs (gate on three sides of a fin) and gate-all-around nanosheets (gate on all sides), which reduce leakage at small sizes.</p>
-<h3>Dynamic Energy</h3>
+<h3 id="sec-dynamic-energy">Dynamic Energy</h3>
 <ul>
 <li>Charging a node of capacitance C to V<sub>dd</sub> draws C V<sup>2</sup> from the supply: half is stored, half is lost in the pull-up; the stored half is lost on discharge. So each 0→1→0 cycle costs C V<sup>2</sup>, or ½ C V<sup>2</sup> per transition.</li>
 <li><strong>Dynamic power:</strong> P<sub>dyn</sub> = α C V<sup>2</sup> f, where α is the activity factor (fraction of capacitance switching per cycle).</li>
 <li><strong>Short-circuit power:</strong> both transistors briefly conduct during a transition; usually a small share.</li>
 </ul>
-<h3>Leakage (Static) Power</h3>
+<h3 id="sec-leakage-static-power">Leakage (Static) Power</h3>
 <ul>
 <li><strong>Subthreshold leakage:</strong> current flows even when "off," growing exponentially as V<sub>th</sub> falls: I ∝ e<sup>(V<sub>gs</sub> − V<sub>th</sub>) / (n kT/q)</sup>. At room temperature the best possible slope is about 60 mV per 10× change in current.</li>
 <li>Leakage also rises steeply with temperature, which can feed back into more heat.</li>
 <li><strong>Gate leakage:</strong> tunneling through the thin gate dielectric, reduced by high-k materials.</li>
 </ul>
-<h3>Speed and Voltage</h3>
+<h3 id="sec-speed-voltage">Speed and Voltage</h3>
 <p>Gate delay ∝ C V / I<sub>on</sub>, and I<sub>on</sub> ∝ (V − V<sub>th</sub>)<sup>a</sup> with a ≈ 1.2–1.5 for modern devices. Higher voltage means faster switching, so frequency rises roughly linearly with voltage over the normal range. Combined with P ∝ V<sup>2</sup> f, power grows roughly as V<sup>3</sup> at the top of the frequency curve.</p>
-<h3>The End of Dennard Scaling</h3>
+<h3 id="sec-end-dennard-scaling">The End of Dennard Scaling</h3>
 <p>Until the mid-2000s, each process node shrank voltage with size, keeping power density constant. Leakage stopped voltage scaling, so power density started rising with transistor count and frequency, leading to the multicore era and "dark silicon": not everything can switch at once within the power budget.</p>
 <h3 id="sec-vt-flavors">Threshold-Voltage Flavors: Fast but Leaky vs. Slow but Frugal</h3>
 <p><strong>What leaking means.</strong> A transistor is a switch, but "off" is never perfectly off: a small current still trickles through it. That's leakage. It burns power all the time, even when the circuit is idle (static power), unlike switching power, which is spent only when signals change.</p>
@@ -68,9 +77,9 @@ section({
 <li><strong>Less budget for real work:</strong> chips run under fixed power and thermal limits, so every watt spent leaking is a watt that can't go to switching. Too much leakage can cost more performance than the fast cells gained.</li>
 </ul>
 <p><strong>A rough example:</strong> if 5% of cells switch to a low-V<sub>th</sub> flavor that leaks 5–10× more, total leakage becomes 0.95 + 0.05 × (5 to 10) = 1.20 to 1.45 times the original: a 20–45% increase. That's why leaky cells are used sparingly, and why idle blocks are power-gated to cut their leakage entirely. For where these choices are made in the design flow, see <a href="#/eda-ppa/vt-decisions">Leaky vs. low-leakage cells</a>.</p>
-<h3>Power-Saving Techniques</h3>
+<h3 id="sec-power-saving-techniques">Power-Saving Techniques</h3>
 <ul><li><strong>Clock gating:</strong> stop the clock to idle blocks; cuts dynamic power.</li><li><strong>Power gating:</strong> cut supply to idle blocks; cuts leakage, but wake-up takes time and energy.</li><li><strong>DVFS:</strong> lower voltage and frequency when full speed isn't needed.</li><li><strong>Multi-V<sub>th</sub> cells:</strong> fast, leaky cells on critical paths; slow, low-leakage cells elsewhere.</li></ul>
-<h3>Why Architects Care</h3>
+<h3 id="sec-architects-care">Why Architects Care</h3>
 <p>Energy per operation is dominated by moving data, not computing on it: fetching operands from DRAM costs orders of magnitude more energy than an add. That is the physical reason caches, locality, and specialization matter for power.</p>`,
   practice: {
     guided: [
@@ -96,16 +105,23 @@ section({
   id: "gates-clocking",
   region: "circ",
   title: "Logic Gates and Clock Distribution",
+  sections: [
+    { id: "cmos-gates", label: "CMOS Gates" },
+    { id: "sequential-elements", label: "Sequential Elements" },
+    { id: "timing", label: "Timing" },
+    { id: "clock-distribution", label: "Clock Distribution" },
+    { id: "power-performance-area", label: "Power, Performance, Area" }
+  ],
   body: `
-<h3>CMOS Gates</h3>
+<h3 id="sec-cmos-gates">CMOS Gates</h3>
 <p>Gates are built from complementary pull-up (pMOS) and pull-down (nMOS) networks. NAND and NOR are the natural primitives; an inverter is the simplest gate. NAND is generally preferred because its series transistors are nMOS, which conduct better than pMOS. A gate's delay depends on its load capacitance and drive strength; designers express delay in <strong>FO4</strong> (the delay of an inverter driving four copies of itself) to compare across processes. A high-performance cycle is typically a few tens of FO4.</p>
-<h3>Sequential Elements</h3>
+<h3 id="sec-sequential-elements">Sequential Elements</h3>
 <ul><li><strong>Latch:</strong> transparent while the clock is high (or low).</li><li><strong>Flip-flop:</strong> captures input on a clock edge.</li><li><strong>Setup time:</strong> data must be stable this long before the edge.</li><li><strong>Hold time:</strong> data must stay stable this long after the edge.</li><li><strong>Clock-to-Q:</strong> delay from the edge to a valid output.</li></ul>
-<h3>Timing</h3>
+<h3 id="sec-timing">Timing</h3>
 <p>Each pipeline stage is a path from one flip-flop to the next, and the slowest one, the <strong>critical path</strong>, sets the clock frequency. The cycle has to fit clock-to-Q, the logic, setup time, and margins for clock skew (the edge reaching different flip-flops at different times) and jitter (the edge moving from cycle to cycle). <a href="#/timing">Critical Path and Flip-Flop Timing</a> covers each term, the setup and hold equations, and a worked example.</p>
-<h3>Clock Distribution</h3>
+<h3 id="sec-clock-distribution">Clock Distribution</h3>
 <p>A PLL generates the clock, and an H-tree, grid, or mesh distributes it to minimize skew. The clock network switches every cycle with activity factor 1, so it is often a large share of dynamic power (commonly 20–40%). Clock gating is the main defense.</p>
-<h3>Power, Performance, Area</h3>
+<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
 <ul><li><strong>Higher frequency:</strong> shorter cycles leave less time for logic after fixed overhead; requires more pipelining or more voltage.</li><li><strong>Tighter skew:</strong> stronger, more power-hungry clock networks (grids) cost power and routing area.</li><li><strong>Faster gates:</strong> larger or low-V<sub>th</sub> transistors on critical paths cost area and leakage.</li></ul>`,
   practice: {
     guided: [
@@ -131,8 +147,17 @@ section({
   id: "timing",
   region: "circ",
   title: "Critical Path and Flip-Flop Timing",
+  sections: [
+    { id: "critical-path", label: "The Critical Path" },
+    { id: "clock-q", label: "Clock-to-Q" },
+    { id: "setup-time", label: "Setup Time" },
+    { id: "skew", label: "Skew" },
+    { id: "jitter", label: "Jitter" },
+    { id: "putting-together", label: "Putting It Together" },
+    { id: "power-performance-area", label: "Power, Performance, Area" }
+  ],
   body: `
-<h3>The Critical Path</h3>
+<h3 id="sec-critical-path">The Critical Path</h3>
 <p>A pipeline stage is a block of combinational logic between two sets of flip-flops. Data leaves the first flip-flop on one clock edge and must be captured by the second on the next edge. The <strong>critical path</strong> is the slowest path through any stage on the chip: the one with the most gate and wire delay. Because the whole chip shares one clock, that single path sets the minimum clock period for everything.</p>
 <p>Designers find it with static timing analysis, which computes the worst-case delay of every path without simulating inputs. In CPUs, typical critical paths include the issue queue's wakeup-select loop, the L1 data cache hit path (index, tag compare, way select), the bypass network, and branch predictor lookups.</p>
 <div class="tbl"><svg viewBox="0 0 660 175" role="img" aria-label="Diagram of a pipeline stage: flip-flop 1 feeds combinational logic, which feeds flip-flop 2. The clock reaches flip-flop 2 through a longer wire with an extra buffer, so it arrives later, which is skew." style="width:100%;min-width:520px;max-width:660px;display:block;font-family:var(--sans)">
@@ -158,7 +183,7 @@ section({
 <text x="20" y="138" style="fill:var(--ink);font-size:12px;font-weight:600">Clock</text>
 <text x="440" y="165" text-anchor="middle" style="fill:var(--muted);font-size:11px">longer wire + extra buffer: the edge reaches FF2 later (skew)</text>
 </svg></div>
-<h3>Clock-to-Q</h3>
+<h3 id="sec-clock-q">Clock-to-Q</h3>
 <p>When the clock edge arrives, a flip-flop doesn't update its output instantly. Its internal latches take a short time to pass the captured value through to the output pin, Q. That delay is <strong>clock-to-Q</strong>, typically a few tens of picoseconds. Nothing downstream can start computing until Q is valid, so this time is lost at the start of every cycle.</p>
 <div class="tbl"><svg viewBox="0 0 660 270" role="img" aria-label="Timing diagram over one clock period. After the first rising clock edge, FF1's output changes after the clock-to-Q delay. The new value then travels through the logic and arrives at FF2's input just before the setup window, which must end before the earliest possible next clock edge allowing for skew and jitter." style="width:100%;min-width:560px;max-width:660px;display:block;font-family:var(--sans)">
 <rect x="515" y="128" width="25" height="32" style="fill:var(--pad-soft);stroke:none"/>
@@ -190,19 +215,19 @@ section({
 <text x="370" y="268" text-anchor="middle" style="fill:var(--muted);font-size:11px">one clock period: every segment above must fit inside it</text>
 </svg></div>
 <p>Reading the diagram left to right:</p><ol><li>The launch edge arrives</li><li>After clock-to-Q, FF1's output changes</li><li>The new value ripples through the logic</li><li>It must reach FF2's input a setup time before the capture edge</li><li>That edge itself might arrive early by the skew and jitter margin (the grey band)</li></ol>
-<h3>Setup Time</h3>
+<h3 id="sec-setup-time">Setup Time</h3>
 <p>Inside the capturing flip-flop, the input must be stable for a short window <em>before</em> the clock edge so its internal latch can settle on a clean 0 or 1. That window is the <strong>setup time</strong>. If data changes inside it, the flip-flop may capture the wrong value or go metastable (hover between 0 and 1 for an unpredictable time). So the logic must finish early by at least the setup time.</p>
 <p>Its counterpart, <strong>hold time</strong>, is how long the input must stay stable <em>after</em> the edge. Hold failures happen on very short paths, where new data arrives too soon.</p>
-<h3>Skew</h3>
+<h3 id="sec-skew">Skew</h3>
 <p>The clock is distributed to millions of flip-flops through wires and buffers of slightly different lengths and loads, so the same edge reaches different flip-flops at slightly different times. That difference is <strong>skew</strong>. It's spatial and mostly constant: the same pair of flip-flops sees about the same skew every cycle.</p>
 <ul><li>If the capture clock arrives <em>earlier</em> than the launch clock, the stage loses time (hurts setup).</li><li>If it arrives <em>later</em>, the stage gains time (helps setup) but hold gets harder.</li><li>Designers sometimes add skew on purpose (<strong>useful skew</strong>) to lend time from a short stage to a long one.</li></ul>
-<h3>Jitter</h3>
+<h3 id="sec-jitter">Jitter</h3>
 <p>Even at one flip-flop, the clock edge wobbles slightly from cycle to cycle because of power supply noise, temperature, and variation in the clock generator (PLL). That's <strong>jitter</strong>. It's temporal and unpredictable in any given cycle, so timing must budget for the worst case.</p>
-<h3>Putting It Together</h3>
+<h3 id="sec-putting-together">Putting It Together</h3>
 <p><strong>Setup constraint:</strong> T<sub>clk</sub> ≥ t<sub>clk-Q</sub> + t<sub>logic,max</sub> + t<sub>setup</sub> + t<sub>skew</sub> + t<sub>jitter</sub></p>
 <p><strong>Hold constraint:</strong> t<sub>clk-Q</sub> + t<sub>logic,min</sub> ≥ t<sub>hold</sub> + t<sub>skew</sub></p>
 <p><strong>Slack</strong> = available time − required time. Negative slack means a violation. Example: 30 + 250 + 20 + 15 + 10 = 325 ps, so f<sub>max</sub> ≈ 3.08 GHz, and 75 ps of every cycle is overhead rather than useful logic. That fixed overhead is why each added pipeline stage buys less frequency. See <a href="#/pipelining">Pipelining and the iron law</a>.</p>
-<h3>Power, Performance, Area</h3>
+<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
 <ul>
 <li><strong>Bigger transistors on the critical path:</strong> faster, but more area and more capacitance to switch (dynamic power).</li>
 <li><strong>Low-threshold cells:</strong> faster, but leakage rises exponentially; use them only where needed.</li>

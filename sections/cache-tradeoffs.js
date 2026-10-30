@@ -6,9 +6,12 @@ section({
   id: "ctr",
   name: "Cache Trade-Offs",
   cap: "Size, associativity, line size, replacement, banking, write policy, by workload",
+  sections: [
+    { id: "workload-types", label: "The Workload Types Used Throughout" }
+  ],
   body: `
 <p>The first two pages set up the vocabulary: <a href="#/cache-misses">Classifying Cache Misses</a> sorts misses into compulsory, capacity, conflict, and coherence, and <a href="#/cache-patterns">Workload Access Patterns</a> describes the access patterns programs are built from. Each later page takes one cache parameter and splits it into options. Every option covers its motivation, how it works, an example, its implementation, and the access patterns and workloads it helps and hurts. The page then ends with the math, its power, performance, and area (PPA) cost, and how it plays out for every workload type below.</p>
-<h3>The Workload Types Used Throughout</h3>
+<h3 id="sec-workload-types">The Workload Types Used Throughout</h3>
 <div class="tbl"><table>
 <tr><th>Workload</th><th>Examples</th><th>Memory signature</th></tr>
 <tr><td>Compute-bound</td><td>548.exchange2, 508.namd, crypto</td><td>Small working set, few misses</td></tr>
@@ -399,13 +402,17 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
   region: "ctr",
   title: "Cache Size",
   sections: [
+    { id: "changes", label: "What It Changes" },
     { id: "small", label: "Small, Fast L1 Caches" },
     { id: "mid", label: "Private Mid-Level Caches" },
     { id: "llc", label: "Large Shared Last-Level Caches" },
-    { id: "stacked", label: "Stacked Last-Level Caches" }
+    { id: "stacked", label: "Stacked Last-Level Caches" },
+    { id: "math", label: "The Math" },
+    { id: "power-performance-area", label: "Power, Performance, Area" },
+    { id: "workload", label: "By Workload" }
   ],
   body: `
-<h3>What It Changes</h3>
+<h3 id="sec-changes">What It Changes</h3>
 <p>Capacity sets which working sets fit. Below the working set, misses are capacity misses. Once the working set fits, the miss rate drops sharply (a "cliff"). Each level of the hierarchy picks a different point on the size-versus-latency curve, so the options below are organized by level.</p>
 
 <h3 id="sec-small">Small, Fast L1 Caches</h3>
@@ -448,15 +455,15 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <h4>Where Stacked LLCs Hurt</h4>
 <div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Compute-bound code with <a href="#/cache-patterns/hot">small working sets</a>, which only feels the lower clock</li><li><a href="#/cache-patterns/stream">Streams</a> far larger than even the stacked cache</li></ul></td><td><ul><li>548.exchange2_r</li><li>Cinebench-style rendering</li><li>519.lbm_r and STREAM</li></ul></td></tr></table></div>
 
-<h3>The Math</h3>
+<h3 id="sec-math">The Math</h3>
 <ul>
 <li><strong>√2 rule of thumb:</strong> miss rate ∝ size<sup>−0.5</sup>, so doubling size divides miss rate by about 1.41. It is an empirical average, and real curves have cliffs.</li>
 <li><strong>AMAT</strong> = hit time + miss rate × miss penalty. A bigger cache lowers miss rate but often raises hit time.</li>
 <li><strong>Access time</strong> grows with size because wires get longer, roughly with the square root of capacity when wire-dominated.</li>
 </ul>
-<h3>Power, Performance, Area</h3>
+<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
 <ul><li><strong>Performance:</strong> fewer capacity misses, but possibly a slower hit.</li><li><strong>Power:</strong> leakage ∝ capacity, and dynamic energy per access rises with array size.</li><li><strong>Area:</strong> roughly linear in capacity plus tags. SRAM is often the largest share of core-plus-cache area.</li></ul>
-<h3>By Workload</h3>
+<h3 id="sec-workload">By Workload</h3>
 <div class="tbl"><table><tr><th>Workload</th><th>Effect</th></tr>
 <tr><td>Compute-bound</td><td>No gain once the small working set fits, and a slower hit can hurt.</td></tr>
 <tr><td>Pointer chasing</td><td>Big gain if the structure crosses into "fits," none if it's far larger (huge graphs). Since misses are dependent, each avoided miss saves its full latency.</td></tr>
@@ -488,14 +495,18 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
   region: "ctr",
   title: "Associativity",
   sections: [
+    { id: "changes", label: "What It Changes" },
     { id: "dm", label: "Direct-Mapped" },
     { id: "low", label: "2 to 4 Ways" },
     { id: "high", label: "8 to 16 Ways" },
     { id: "fa", label: "Fully Associative" },
-    { id: "hash", label: "Hashed Indexing and Skewed Associativity" }
+    { id: "hash", label: "Hashed Indexing and Skewed Associativity" },
+    { id: "math", label: "The Math" },
+    { id: "power-performance-area", label: "Power, Performance, Area" },
+    { id: "workload", label: "By Workload" }
   ],
   body: `
-<h3>What It Changes</h3>
+<h3 id="sec-changes">What It Changes</h3>
 <p>Associativity is how many places a line can live within its set. Higher associativity reduces conflict misses: lines that would fit by capacity but collide on the same index.</p>
 
 <h3 id="sec-dm">Direct-Mapped</h3>
@@ -548,20 +559,20 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <h4>Where Hashed Indexing Hurts</h4>
 <div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Addresses already spread uniformly over the sets, which gain nothing and pay the extra index latency</li><li>Accesses that software places for a known set mapping, such as page coloring or cache-aware tile placement</li></ul></td><td><ul><li><a href="#/cache-patterns/random">Random hash lookups</a> such as GUPS</li><li>Real-time systems that partition the cache by page color</li></ul></td></tr></table></div>
 
-<h3>The Math</h3>
+<h3 id="sec-math">The Math</h3>
 <ul>
 <li><strong>Sets</strong> = size / (line size × ways). Index bits = log<sub>2</sub>(sets).</li>
 <li><strong>2:1 rule of thumb:</strong> a direct-mapped cache of size N misses about as often as a 2-way cache of size N/2.</li>
 <li><strong>Diminishing returns:</strong> most conflict misses are gone by 8 ways, and fully associative removes them entirely.</li>
 <li><strong>Power-of-two strides</strong> map to few sets: if the stride is S bytes and S / line size divides the set count, the access pattern touches only sets ÷ (S / line size) distinct sets.</li>
 </ul>
-<h3>Power, Performance, Area</h3>
+<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
 <ul>
 <li><strong>Performance:</strong> fewer conflict misses, but a wider tag compare and output mux can lengthen hit time.</li>
 <li><strong>Power:</strong> a parallel-lookup cache reads every way's tag and data each access, so energy ∝ ways. Way prediction or serial tag-then-data lookup trades latency for energy.</li>
 <li><strong>Area:</strong> more comparators and wider replacement state. Tags grow by log<sub>2</sub>(ways) bits each since index bits shrink.</li>
 </ul>
-<h3>By Workload</h3>
+<h3 id="sec-workload">By Workload</h3>
 <div class="tbl"><table><tr><th>Workload</th><th>Effect</th></tr>
 <tr><td>Compute-bound</td><td>No effect.</td></tr>
 <tr><td>Pointer chasing</td><td>Modest gain. Heap addresses are fairly random, so conflicts are average rather than pathological.</td></tr>
@@ -593,13 +604,17 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
   region: "ctr",
   title: "Cache-Line Size",
   sections: [
+    { id: "changes", label: "What It Changes" },
     { id: "b32", label: "32-Byte Lines" },
     { id: "b64", label: "64-Byte Lines" },
     { id: "b128", label: "128-Byte Lines" },
-    { id: "sector", label: "Sectored Lines" }
+    { id: "sector", label: "Sectored Lines" },
+    { id: "math", label: "The Math" },
+    { id: "power-performance-area", label: "Power, Performance, Area" },
+    { id: "workload", label: "By Workload" }
   ],
   body: `
-<h3>What It Changes</h3>
+<h3 id="sec-changes">What It Changes</h3>
 <p>Line size is the unit of allocation and transfer. Larger lines exploit spatial locality and cut tag overhead. Smaller lines waste less bandwidth and capacity on unused bytes.</p>
 
 <h3 id="sec-b32">32-Byte Lines</h3>
@@ -642,16 +657,16 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <h4>Where Sectored Lines Hurt</h4>
 <div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li><a href="#/cache-patterns/random">Sparse access</a> where each block holds one used sector, wasting the rest of the frame</li><li><a href="#/cache-patterns/stream">Pure streams</a>, which pay per-sector fill overhead with no savings</li></ul></td><td><ul><li>GUPS</li><li>Hash-table probes in Redis</li><li>STREAM</li></ul></td></tr></table></div>
 
-<h3>The Math</h3>
+<h3 id="sec-math">The Math</h3>
 <ul>
 <li><strong>Miss penalty</strong> = latency + line size / bandwidth (critical-word-first hides most of the second term).</li>
 <li><strong>Lines in cache</strong> = size / line size. Doubling line size halves the line count, which can raise conflict and capacity misses for sparse data.</li>
 <li><strong>Tag overhead:</strong> one tag per line, so tag storage roughly halves when line size doubles.</li>
 <li><strong>Useful fraction</strong> = bytes used before eviction / line size.</li>
 </ul>
-<h3>Power, Performance, Area</h3>
+<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
 <ul><li><strong>Performance:</strong> fewer compulsory misses with spatial locality, but longer fills and more false sharing.</li><li><strong>Power:</strong> moving unused bytes costs DRAM and interconnect energy, which is often larger than the SRAM energy.</li><li><strong>Area:</strong> less tag area with larger lines.</li></ul>
-<h3>By Workload</h3>
+<h3 id="sec-workload">By Workload</h3>
 <div class="tbl"><table><tr><th>Workload</th><th>Effect</th></tr>
 <tr><td>Compute-bound</td><td>Neutral.</td></tr>
 <tr><td>Pointer chasing</td><td>Larger lines hurt: nodes are often smaller than a line, so bandwidth and capacity go to unused neighbors.</td></tr>
@@ -683,24 +698,36 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
   region: "ctr",
   title: "Replacement Policies",
   sections: [
+    { id: "changes", label: "What It Changes" },
+    { group: "Baseline" },
     { id: "opt", label: "Belady's Optimal Policy (OPT)" },
+    { group: "Recency" },
     { id: "lru", label: "Least Recently Used (LRU)" },
     { id: "plru", label: "Tree Pseudo-LRU (PLRU)" },
     { id: "nru", label: "Not Recently Used (NRU)" },
+    { group: "Other Classic Policies" },
     { id: "fifo", label: "First In, First Out (FIFO)" },
     { id: "random", label: "Random" },
     { id: "lfu", label: "Least Frequently Used (LFU)" },
+    { group: "Insertion Policies" },
     { id: "lip", label: "LRU Insertion Policy (LIP)" },
     { id: "bip", label: "Bimodal Insertion Policy (BIP)" },
     { id: "dip", label: "Dynamic Insertion Policy (DIP)" },
+    { group: "Re-Reference Prediction" },
     { id: "srrip", label: "Static Re-Reference Interval Prediction (SRRIP)" },
     { id: "brrip", label: "Bimodal RRIP (BRRIP)" },
     { id: "drrip", label: "Dynamic RRIP (DRRIP)" },
+    { group: "Learned Predictors" },
     { id: "ship", label: "Signature-Based Hit Prediction (SHiP)" },
-    { id: "hawkeye", label: "Hawkeye" }
+    { id: "hawkeye", label: "Hawkeye" },
+    { group: "Trade-Offs" },
+    { id: "math", label: "The Math" },
+    { id: "power-performance-area", label: "Power, Performance, Area" },
+    { id: "access-pattern", label: "By Access Pattern" },
+    { id: "workload", label: "By Workload" }
   ],
   body: `
-<h3>What It Changes</h3>
+<h3 id="sec-changes">What It Changes</h3>
 <p>The replacement policy picks a victim in a full set. It decides whether a working set slightly larger than the cache gets partial hits or none, and whether a scan wipes out useful data.</p>
 <p>Every policy answers three questions:</p>
 <ul>
@@ -2401,7 +2428,7 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <h4>Where Hawkeye Hurts</h4>
 <div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Heavy prefetching: OPT ignores prefetch timeliness (Harmony, ISCA 2018, fixes this)</li><li>PCs that load both reused and single-use data</li><li>Phases shorter than the sampler's training time</li></ul></td><td><ul><li>519.lbm_r with aggressive stream prefetching</li><li>500.perlbench_r's interpreter loads</li></ul></td></tr></table></div>
 
-<h3>The Math</h3>
+<h3 id="sec-math">The Math</h3>
 <ul>
 <li><strong>True LRU state:</strong> log<sub>2</sub>(N!) bits per set at minimum: 8 ways → 16 bits, 16 ways → 45 bits. Practical implementations use more.</li>
 <li><strong>Tree PLRU:</strong> N − 1 bits: 7 bits for 8 ways.</li>
@@ -2410,9 +2437,9 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <li><strong>FIFO:</strong> a log<sub>2</sub>(N)-bit pointer per set: 3 bits for 8 ways.</li>
 <li><strong>SHiP:</strong> RRIP's 2 bits plus a 14-bit signature and an outcome bit per line, and a 16K × 3-bit SHCT (6 KB).</li>
 </ul>
-<h3>Power, Performance, Area</h3>
+<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
 <ul><li><strong>Performance:</strong> can be worth as much as a sizeable capacity increase for thrashing or scanning workloads, and zero for workloads that fit.</li><li><strong>Power:</strong> state updates on every hit, small next to data access.</li><li><strong>Area:</strong> a few bits per line or set, plus predictor tables for learned policies. Usually off the hit critical path.</li></ul>
-<h3>By Access Pattern</h3>
+<h3 id="sec-access-pattern">By Access Pattern</h3>
 <p>The patterns are the ones on <a href="#/cache-patterns">Workload Access Patterns</a>. Each entry agrees with the "Where It Helps" and "Where It Hurts" tables above.</p>
 <div class="tbl"><table><tr><th>Access Pattern</th><th>Best Policies</th><th>Worst Policies</th></tr>
 <tr><td><a href="#/cache-patterns/stream">Sequential streaming</a></td><td>The stream gets no hits under any policy, so choose one that keeps it from flushing other data: BRRIP, SHiP, or non-temporal hints that insert at the LRU position.</td><td>LRU, tree PLRU, and NRU: every stream line enters fully protected and pushes useful lines out.</td></tr>
@@ -2426,7 +2453,7 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <tr><td><a href="#/cache-patterns/scan">Hot data plus scans</a></td><td>SRRIP (a new line must be reused before it outranks the hot set), BRRIP, SHiP, Hawkeye, and LFU.</td><td>LRU, tree PLRU, and NRU, which give scans no protection, and FIFO, which evicts the hottest line every N fills.</td></tr>
 <tr><td><a href="#/cache-patterns/shared">Shared and producer-consumer data</a></td><td>No policy decides the shared lines' misses. The coherence protocol does, through cache-to-cache forwarding and directory latency.</td><td>In an inclusive LLC, policies that age unused lines fast (BRRIP) can evict the cores' private hot data, which never hits in the LLC, and back-invalidate it.</td></tr>
 </table></div>
-<h3>By Workload</h3>
+<h3 id="sec-workload">By Workload</h3>
 <div class="tbl"><table><tr><th>Workload</th><th>Effect</th></tr>
 <tr><td>Compute-bound</td><td>No effect, since everything fits.</td></tr>
 <tr><td>Large code footprint</td><td>Matters in L2/LLC. Code competes with data, and protecting hot code helps the frontend.</td></tr>
@@ -2456,14 +2483,18 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
   region: "ctr",
   title: "Write Policies",
   sections: [
+    { id: "changes", label: "What It Changes" },
     { id: "wb", label: "Write-Back" },
     { id: "wt", label: "Write-Through" },
     { id: "wa", label: "Write-Allocate" },
     { id: "nwa", label: "No-Write-Allocate and Non-Temporal Stores" },
-    { id: "wc", label: "Write-Combining Buffers" }
+    { id: "wc", label: "Write-Combining Buffers" },
+    { id: "math", label: "The Math" },
+    { id: "power-performance-area", label: "Power, Performance, Area" },
+    { id: "workload", label: "By Workload" }
   ],
   body: `
-<h3>What It Changes</h3>
+<h3 id="sec-changes">What It Changes</h3>
 <ul>
 <li><strong>Write-back vs. write-through:</strong> whether a store updates only the cache (written back on eviction) or also the next level immediately.</li>
 <li><strong>Write-allocate vs. no-write-allocate:</strong> whether a store miss brings the line into the cache.</li>
@@ -2519,11 +2550,11 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Sequential stores that fill whole lines</li><li>Writes to device memory mapped as write-combining</li><li>A few output streams at a time</li></ul></td><td><ul><li>Non-temporal <code>memcpy</code></li><li>Graphics drivers filling GPU command and vertex buffers</li><li>STREAM with non-temporal stores</li></ul></td></tr></table></div>
 <h4>Where Write-Combining Hurts</h4>
 <div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>More concurrent output streams than buffers</li><li>Scattered stores to many different lines</li><li>Stores interleaved with frequent fences, which flush buffers before they fill</li></ul></td><td><ul><li>Stencil codes writing 12 or more output arrays with non-temporal stores</li><li>Scatter phases of radix sort</li><li>Lock-heavy server code that fences on every release</li></ul></td></tr></table></div>
-<h3>The Math</h3>
+<h3 id="sec-math">The Math</h3>
 <p>For write-through, traffic ∝ number of stores. For write-back, traffic ∝ dirty evictions. With write-allocate, a store miss to a line that is fully overwritten still costs a read: a full-line write is 2× the traffic unless the hardware detects it.</p>
-<h3>Power, Performance, Area</h3>
+<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
 <ul><li><strong>Write-back:</strong> least traffic and energy, but needs dirty bits and more careful coherence and error correction.</li><li><strong>Write-through:</strong> simpler, but bandwidth and energy grow with store count.</li><li><strong>Write-combining:</strong> a small buffer area that saves a lot of bandwidth.</li></ul>
-<h3>By Workload</h3>
+<h3 id="sec-workload">By Workload</h3>
 <div class="tbl"><table><tr><th>Workload</th><th>Effect</th></tr>
 <tr><td>Compute-bound</td><td>Little effect.</td></tr>
 <tr><td>Pointer chasing</td><td>Mostly reads, so little effect.</td></tr>
@@ -2555,13 +2586,17 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
   region: "ctr",
   title: "Banking and Bank Size",
   sections: [
+    { id: "changes", label: "What It Changes" },
     { id: "few", label: "Few, Large Banks" },
     { id: "many", label: "Many, Small Banks" },
     { id: "slices", label: "Distributed LLC Slices" },
-    { id: "ports", label: "Multiporting and Replication" }
+    { id: "ports", label: "Multiporting and Replication" },
+    { id: "math", label: "The Math" },
+    { id: "power-performance-area", label: "Power, Performance, Area" },
+    { id: "workload", label: "By Workload" }
   ],
   body: `
-<h3>What It Changes</h3>
+<h3 id="sec-changes">What It Changes</h3>
 <p>A banked cache splits its array into independent pieces, letting several accesses proceed at once. Bank size trades access speed against overhead.</p>
 
 <h3 id="sec-few">Few, Large Banks</h3>
@@ -2609,19 +2644,19 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <h4>Where Multiporting and Replication Hurt</h4>
 <div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Store-heavy access, which must write every copy</li><li>Large working sets, which need a structure too big to multiport or replicate</li></ul></td><td><ul><li><code>memset</code> and other bulk stores</li><li>Server workloads with multi-MB working sets</li></ul></td></tr></table></div>
 
-<h3>The Math</h3>
+<h3 id="sec-math">The Math</h3>
 <ul>
 <li><strong>Conflict probability</strong> with k random accesses over B banks: 1 − B! / ((B − k)! × B<sup>k</sup>).</li>
 <li><strong>Bank selection:</strong> bank = some address bits (low line bits for spreading sequential accesses), often XOR-hashed with higher bits.</li>
 <li><strong>Bank size</strong> = cache size / banks. Smaller banks have shorter wordlines and bitlines, so they are faster and use less energy per access.</li>
 </ul>
-<h3>Power, Performance, Area</h3>
+<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
 <ul>
 <li><strong>More, smaller banks:</strong> more parallelism, faster and lower-energy access per bank, but each bank needs its own decoders, sense amplifiers, and drivers, and a wider crossbar connects banks to ports. Overhead area and routing rise.</li>
 <li><strong>Fewer, larger banks:</strong><ul><li>Denser, with less overhead</li><li>Slower, with more conflicts</li></ul></li>
 <li><strong>Versus multiporting:</strong> banking gives most of the bandwidth at far lower area than adding ports to every cell.</li>
 </ul>
-<h3>By Workload</h3>
+<h3 id="sec-workload">By Workload</h3>
 <div class="tbl"><table><tr><th>Workload</th><th>Effect</th></tr>
 <tr><td>Compute-bound</td><td>Little effect: few memory ops per cycle.</td></tr>
 <tr><td>Pointer chasing</td><td>Little effect: dependent loads rarely issue in the same cycle.</td></tr>

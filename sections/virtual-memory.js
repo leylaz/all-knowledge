@@ -27,21 +27,30 @@ section({
   id: "virtual-memory",
   region: "os",
   title: "Virtual and Physical Memory",
+  sections: [
+    { id: "address-spaces", label: "Address Spaces" },
+    { id: "pages-page-tables", label: "Pages and Page Tables" },
+    { id: "multilevel", label: "Why Multilevel" },
+    { id: "tlbs", label: "TLBs" },
+    { id: "demand-paging-cow", label: "Demand Paging and Copy-on-Write" },
+    { id: "interaction-caches", label: "Interaction with Caches" },
+    { id: "power-performance-area", label: "Power, Performance, Area" }
+  ],
   body: `
-<h3>Address Spaces</h3>
+<h3 id="sec-address-spaces">Address Spaces</h3>
 <p>Each process sees its own virtual address space. The hardware translates every virtual address (VA) to a physical address (PA) using page tables managed by the OS. This gives isolation, lets physical memory be fragmented while virtual memory looks contiguous, and allows sharing and lazy allocation.</p>
-<h3>Pages and Page Tables</h3>
+<h3 id="sec-pages-page-tables">Pages and Page Tables</h3>
 <p>Memory is divided into pages (commonly 4 KB; 16 KB on Apple's ARM systems). A VA splits into a virtual page number and an offset; translation maps the page number to a physical frame and keeps the offset.</p>
 <p>A page table entry holds the frame number plus permission and status bits: present, read/write, execute-disable, user/supervisor, accessed, and dirty.</p>
-<h3>Why Multilevel</h3>
+<h3 id="sec-multilevel">Why Multilevel</h3>
 <p>A flat table for a 48-bit address space with 4 KB pages needs 2<sup>36</sup> entries × 8 bytes = 512 GB per process. A multilevel (radix) table only allocates the parts actually used. On x86-64, each level indexes 9 bits into a 4 KB table of 512 entries: 9 + 9 + 9 + 9 + 12 = 48 bits. A fifth level extends this to 57 bits.</p>
-<h3>TLBs</h3>
+<h3 id="sec-tlbs">TLBs</h3>
 <p>Walking four levels of table on every access would be far too slow, so the core caches recent translations in TLBs, tagged by address space so a context switch doesn't flush them. Reach, page walks, page-walk caches, and nested walks under virtualization are in <a href="#/tlb">TLBs and Page Walks</a>.</p>
-<h3>Demand Paging and Copy-on-Write</h3>
+<h3 id="sec-demand-paging-cow">Demand Paging and Copy-on-Write</h3>
 <p>The OS maps pages lazily: the first touch of a page faults, and the kernel fills in the entry then. After <code>fork</code>, parent and child share pages read-only until one of them writes. Both are covered in <a href="#/mmap">Memory Mapping, Demand Paging, and Copy-on-Write</a>.</p>
-<h3>Interaction with Caches</h3>
+<h3 id="sec-interaction-caches">Interaction with Caches</h3>
 <p>A VIPT L1 indexes with untranslated offset bits while the TLB translates the tag in parallel, which bounds L1 size to page size × ways. See <a href="#/dcache">Data cache</a>.</p>
-<h3>Power, Performance, Area</h3>
+<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
 <ul><li><strong>Bigger TLBs:</strong> more reach, but TLB lookup is in parallel with the L1 access, so L1 TLB size is latency-limited, like L1 cache size.</li><li><strong>Larger pages:</strong> more reach and shorter walks; more internal fragmentation and costlier copy-on-write and zeroing.</li><li><strong>Hardware walkers:</strong> faster than software-managed TLBs; walker area is small, and multiple concurrent walkers help irregular workloads.</li></ul>`,
   practice: {
     guided: [
@@ -347,6 +356,13 @@ munmap((void *)p, st.st_size);</code></pre>
   id: "exceptions",
   region: "os",
   title: "Faults, Traps, Interrupts, and System Calls",
+  sections: [
+    { id: "privilege-levels", label: "Privilege Levels" },
+    { id: "hardware-sequence", label: "The Hardware Sequence" },
+    { id: "system-calls", label: "System Calls" },
+    { id: "out-order-core", label: "In an Out-of-Order Core" },
+    { id: "performance-trade-offs", label: "Performance Trade-Offs" }
+  ],
   body: `
 <p>All of these transfer control to a privileged handler. They differ in what causes them and where execution resumes.</p>
 <div class="tbl"><table>
@@ -356,15 +372,15 @@ munmap((void *)p, st.st_size);</code></pre>
 <tr><td>Abort</td><td>Unrecoverable error</td><td>Synchronous or not</td><td>Usually doesn't resume</td><td>Machine check, double fault</td></tr>
 <tr><td>Interrupt</td><td>External device or timer</td><td>Asynchronous</td><td>Between instructions</td><td>Timer, I/O completion, inter-processor interrupt</td></tr>
 </table></div>
-<h3>Privilege Levels</h3>
+<h3 id="sec-privilege-levels">Privilege Levels</h3>
 <p>x86 has rings 0–3 (kernel in 0, user in 3). ARM has exception levels EL0 (user), EL1 (kernel), EL2 (hypervisor), and EL3 (secure monitor). RISC-V has user, supervisor, and machine modes.</p>
-<h3>The Hardware Sequence</h3>
+<h3 id="sec-hardware-sequence">The Hardware Sequence</h3>
 <ol><li>Record the cause and the PC to resume at (and the faulting address, if any).</li><li>Raise privilege and switch to the kernel stack.</li><li>Jump to the handler through a vector table (x86 IDT, ARM VBAR, RISC-V stvec/mtvec).</li><li>The handler runs, then a return instruction (<code>iret</code>/<code>sysret</code>, <code>eret</code>, <code>sret</code>/<code>mret</code>) restores state.</li></ol>
-<h3>System Calls</h3>
+<h3 id="sec-system-calls">System Calls</h3>
 <p>User code puts a call number and arguments in registers and executes <code>syscall</code> (x86-64), <code>svc</code> (ARM), or <code>ecall</code> (RISC-V). The kernel dispatches through a table, does the work, and returns. A bare call costs on the order of 100 ns; the real cost includes cache and TLB pollution from kernel code.</p>
-<h3>In an Out-of-Order Core</h3>
+<h3 id="sec-out-order-core">In an Out-of-Order Core</h3>
 <p>Exceptions are precise: they are recorded in the ROB and taken only at commit. Interrupts are taken between committed instructions, typically by flushing the pipeline. See <a href="#/rob">Reorder buffer</a>.</p>
-<h3>Performance Trade-Offs</h3>
+<h3 id="sec-performance-trade-offs">Performance Trade-Offs</h3>
 <ul><li>Each kernel crossing flushes the pipeline and pollutes caches, branch predictors, and TLBs; frequent crossings hurt user-code IPC afterward.</li><li>Interrupt coalescing and polling trade latency for throughput in I/O-heavy servers.</li><li>Security mitigations (page-table isolation, predictor flushes) add cost at every crossing.</li></ul>`,
   practice: {
     guided: [

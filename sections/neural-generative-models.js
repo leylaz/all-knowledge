@@ -6,9 +6,12 @@ section({
   id: "gen",
   name: "Neural Networks and Generative Models",
   cap: "Neurons and layers, discriminative vs. generative, stochastic processes, diffusion",
+  sections: [
+    { id: "big-picture", label: "The Big Picture" }
+  ],
   body: `
 <p>This section builds up generative AI from the ground: how a neural network turns an input into an output, what separates models that <em>classify</em> from models that <em>create</em>, the randomness underneath both graphics and LLMs, how diffusion models turn noise into images, and why GPUs are the hardware that made all of it practical.</p>
-<h3>The Big Picture</h3>
+<h3 id="sec-big-picture">The Big Picture</h3>
 <ul>
 <li><strong>Discriminative models</strong> learn p(y | x): given an input, what's the label?</li>
 <li><strong>Generative models</strong> learn p(x): what does real data look like, so you can sample new examples?</li>
@@ -289,23 +292,29 @@ acc = fma(w2, a2, acc)      <span class="cm">// acc = b + w0·a0 + w1·a1 + w2·
   id: "gen-discriminative",
   region: "gen",
   title: "Discriminative Models",
+  sections: [
+    { id: "examples", label: "Examples" },
+    { id: "math", label: "The Math" },
+    { id: "strengths-limits", label: "Strengths and Limits" },
+    { id: "hardware-view", label: "The Hardware View" }
+  ],
   body: `
 <p>A <strong>discriminative model</strong> learns to predict a label y from an input x. It models the conditional probability p(y | x), or simply a function that maps x to y, and focuses only on the boundary between classes.</p>
-<h3>Examples</h3>
+<h3 id="sec-examples">Examples</h3>
 <ul><li>Logistic regression and support vector machines.</li><li>Neural-network image classifiers.</li><li>Text classifiers (sentiment, spam, intent).</li></ul>
-<h3>The Math</h3>
+<h3 id="sec-math">The Math</h3>
 <p><strong>Logistic regression</strong> (two classes) passes a weighted sum through the sigmoid:</p>
 <p class="eq">p(y = 1 | x) = σ(w · x + b), where σ(z) = <span class="frac"><span>1</span><span>1 + e<sup>−z</sup></span></span></p>
 <p>With K classes, a network produces one score (logit) z<sub>k</sub> per class, and <strong>softmax</strong> turns them into probabilities:</p>
 <p class="eq">p(y = k | x) = <span class="frac"><span>e<sup>z<sub>k</sub></sup></span><span>Σ<sub>j</sub> e<sup>z<sub>j</sub></sup></span></span></p>
 <p><strong>Training</strong> minimizes cross-entropy, the negative log probability of the correct labels, by gradient descent:</p>
 <p class="eq">L = −Σ<sub>i</sub> log p(y<sub>i</sub> | x<sub>i</sub>)</p>
-<h3>Strengths and Limits</h3>
+<h3 id="sec-strengths-limits">Strengths and Limits</h3>
 <ul>
 <li><strong>Strengths:</strong> directly optimized for the prediction task; usually the most accurate choice for classification with enough data.</li>
 <li><strong>Limits:</strong> can't create new data, and can't say how likely an input is. A classifier confidently labels inputs unlike anything in its training set.</li>
 </ul>
-<h3>The Hardware View</h3>
+<h3 id="sec-hardware-view">The Hardware View</h3>
 <p>Inference is one forward pass per input: mostly matrix multiplies that batch well, so it is usually compute-bound on GPUs. That's the baseline generative models are compared against.</p>`,
   practice: {
     guided: [
@@ -331,13 +340,19 @@ acc = fma(w2, a2, acc)      <span class="cm">// acc = b + w0·a0 + w1·a1 + w2·
   id: "gen-generative",
   region: "gen",
   title: "Generative Models",
+  sections: [
+    { id: "connection-classification", label: "Connection to Classification" },
+    { id: "families", label: "Families of Generative Models" },
+    { id: "training", label: "Training" },
+    { id: "hardware-view", label: "The Hardware View" }
+  ],
   body: `
 <p>A <strong>generative model</strong> learns the distribution of the data itself, p(x), or the joint distribution p(x, y). Because it knows what realistic data looks like, it can <strong>sample</strong> new examples and <strong>score</strong> how likely an input is.</p>
-<h3>Connection to Classification</h3>
+<h3 id="sec-connection-classification">Connection to Classification</h3>
 <p>Bayes' rule turns a generative model into a classifier:</p>
 <p class="eq">p(y | x) = <span class="frac"><span>p(x | y) p(y)</span><span>p(x)</span></span></p>
 <p>Naive Bayes works this way. The reverse isn't true: a discriminative model can't generate data.</p>
-<h3>Families of Generative Models</h3>
+<h3 id="sec-families">Families of Generative Models</h3>
 <div class="tbl"><table>
 <tr><th>Family</th><th>Idea</th><th>Strengths</th><th>Weaknesses</th></tr>
 <tr><td>Autoregressive (LLMs)</td><td>p(x) = Π<sub>t</sub> p(x<sub>t</sub> | x<sub>&lt;t</sub>): predict the next token from all previous ones</td><td>Exact likelihood; scales extremely well</td><td>Sequential generation, one token per pass</td></tr>
@@ -347,11 +362,11 @@ acc = fma(w2, a2, acc)      <span class="cm">// acc = b + w0·a0 + w1·a1 + w2·
 <tr><td>Energy-based models</td><td>p(x) ∝ e<sup>−E(x)</sup>: low energy means likely</td><td>Very flexible</td><td>Sampling needs slow iterative methods (MCMC)</td></tr>
 <tr><td>Diffusion models</td><td>Learn to reverse gradual noising, step by step</td><td>Top image/video quality; stable training</td><td>Many network passes per sample</td></tr>
 </table></div>
-<h3>Training</h3>
+<h3 id="sec-training">Training</h3>
 <p>Most generative models are trained by <strong>maximum likelihood</strong>: make the real data as probable as possible under the model. That's equivalent to minimizing the cross-entropy (or KL divergence) between the data distribution and the model:</p>
 <p class="eq">max<sub>θ</sub> Σ<sub>i</sub> log p<sub>θ</sub>(x<sub>i</sub>)</p>
 <p>For an LLM, that is exactly next-token prediction with a cross-entropy loss at every position.</p>
-<h3>The Hardware View</h3>
+<h3 id="sec-hardware-view">The Hardware View</h3>
 <p>Generating is expensive because the network runs many times per output: once per token for an LLM, once per denoising step for diffusion. See <a href="#/gen-gpus">GPUs for generative AI</a>.</p>`,
   practice: {
     guided: [
@@ -378,14 +393,16 @@ acc = fma(w2, a2, acc)      <span class="cm">// acc = b + w0·a0 + w1·a1 + w2·
   region: "gen",
   title: "Stochastic Processes for Graphics and LLMs",
   sections: [
+    { id: "key-ideas", label: "Key Ideas" },
     { id: "monte-carlo", label: "Monte Carlo" },
     { id: "graphics", label: "Graphics: Path Tracing" },
     { id: "llm-sampling", label: "LLMs: Token Sampling" },
-    { id: "langevin", label: "Random Walks to Diffusion" }
+    { id: "langevin", label: "Random Walks to Diffusion" },
+    { id: "randomness-hardware", label: "Randomness in Hardware" }
   ],
   body: `
 <p>A <strong>stochastic process</strong> is a sequence of random variables evolving over time: X<sub>0</sub>, X<sub>1</sub>, X<sub>2</sub>, …. Generative AI and modern graphics both rely on them, because "generate a realistic sample" usually means "run a random process that ends in the right distribution."</p>
-<h3>Key Ideas</h3>
+<h3 id="sec-key-ideas">Key Ideas</h3>
 <ul>
 <li><strong>Markov property:</strong> the next state depends only on the current one, not the full history.</li>
 <li><strong>Random walk:</strong> each step adds an independent random move: X<sub>t+1</sub> = X<sub>t</sub> + noise.</li>
@@ -415,7 +432,7 @@ acc = fma(w2, a2, acc)      <span class="cm">// acc = b + w0·a0 + w1·a1 + w2·
 <p><strong>Langevin dynamics</strong> is a random walk that drifts toward likely regions. With step size ε and fresh Gaussian noise z at each step:</p>
 <p class="eq">x<sub>t+1</sub> = x<sub>t</sub> + ε ∇<sub>x</sub> log p(x<sub>t</sub>) + √(2ε) z</p>
 <p>The gradient term (the <strong>score</strong>) pulls samples toward high probability; the noise keeps them exploring. Run long enough, the samples follow p(x). Diffusion models learn this score with a neural network; see <a href="#/gen-diffusion">Diffusion models</a>.</p>
-<h3>Randomness in Hardware</h3>
+<h3 id="sec-randomness-hardware">Randomness in Hardware</h3>
 <p>GPUs generate random numbers with counter-based pseudo-random generators (such as Philox), so every thread gets an independent stream without shared state. Each random number still costs instructions and energy. Probabilistic and thermodynamic computing hardware explores using physical circuit noise directly as the source of randomness.</p>`,
   practice: {
     guided: [
@@ -441,7 +458,13 @@ acc = fma(w2, a2, acc)      <span class="cm">// acc = b + w0·a0 + w1·a1 + w2·
   id: "gen-diffusion",
   region: "gen",
   title: "Diffusion Models",
-  sections: [{ id: "forward", label: "Forward Process" }, { id: "training", label: "Training" }, { id: "sampling", label: "Sampling" }, { id: "practice-diff", label: "In Practice" }],
+  sections: [
+    { id: "forward", label: "Forward Process" },
+    { id: "training", label: "Training" },
+    { id: "sampling", label: "Sampling" },
+    { id: "practice-diff", label: "In Practice" },
+    { id: "cost", label: "Cost" }
+  ],
   body: `
 <p>A <strong>diffusion model</strong> generates data by learning to undo noise. During training, real data is gradually corrupted with Gaussian noise until it's pure static; a neural network learns to reverse one small step of that corruption. To generate, start from pure noise and apply the learned reverse step many times.</p>
 <h3 id="sec-forward">The Forward (Noising) Process</h3>
@@ -466,7 +489,7 @@ acc = fma(w2, a2, acc)      <span class="cm">// acc = b + w0·a0 + w1·a1 + w2·
 <li><strong>Conditioning:</strong> a text encoder's output steers the network through cross-attention.</li>
 <li><strong>Classifier-free guidance:</strong> run the network with and without the prompt and push away from the unconditional prediction, with guidance scale w: ε = ε<sub>uncond</sub> + w (ε<sub>cond</sub> − ε<sub>uncond</sub>). It doubles the evaluations per step.</li>
 </ul>
-<h3>Cost</h3>
+<h3 id="sec-cost">Cost</h3>
 <p class="eq">Compute per sample = steps × network FLOPs × (2 with guidance)</p>
 <p>Each step processes the whole latent at once, so steps are large parallel workloads that GPUs handle well, but steps are sequential. Latency scales directly with the step count, which is why reducing steps matters so much.</p>`,
   practice: {

@@ -27,10 +27,17 @@ section({
   region: "pipe",
   title: "Pipelining and the Iron Law",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.1 Introduction: “What Is Pipelining?” and “Basic Performance Issues in Pipelining”; Chapter 1, Section 1.9 Quantitative Principles of Computer Design: “The Processor Performance Equation”.`,
-  sections: [{ id: "depth", label: "Pipeline Depth" }, { id: "best-depth", label: "Finding the Best Depth" }],
+  sections: [
+    { id: "iron-law", label: "The Iron Law" },
+    { id: "cpi-sum", label: "CPI as a Sum" },
+    { id: "depth", label: "Pipeline Depth" },
+    { id: "hazards", label: "Hazards" },
+    { id: "best-depth", label: "Finding the Best Depth" },
+    { id: "deep-shallow-ppa", label: "Deep vs. Shallow: PPA" }
+  ],
   body: `
 <p>Pipelining splits instruction processing into stages so multiple instructions are in flight at once. It raises throughput, not the latency of any single instruction.</p>
-<h3>The Iron Law</h3>
+<h3 id="sec-iron-law">The Iron Law</h3>
 <p><strong>Execution time = instruction count (IC) × cycles per instruction (CPI) × cycle time.</strong></p>
 <ul>
 <li><strong>IC</strong> is influenced by the ISA, compiler, and algorithm.
@@ -67,7 +74,7 @@ section({
 </ul></li>
 </ul>
 <p>Any change must be judged on the product. A compiler change that cuts IC 10% but raises CPI 15% is a loss.</p>
-<h3>CPI as a Sum</h3>
+<h3 id="sec-cpi-sum">CPI as a Sum</h3>
 <p>CPI = CPI<sub>base</sub> + Σ (event frequency per instruction × penalty). For example, with 20% branches, a 5% mispredict rate, and a 15-cycle penalty, branches add 0.2 × 0.05 × 15 = 0.15 CPI. The same structure gives a CPI stack.</p>
 <h3 id="sec-depth">Depth: The Math</h3>
 <p>Three variables: t<sub>p</sub> is the total logic delay for one instruction's work, t<sub>o</sub> is the latch overhead each stage adds (clock-to-Q, setup, skew, jitter), and N is the number of stages.</p>
@@ -111,7 +118,7 @@ section({
 <li><strong>Real speedup:</strong> time per instruction = 2.08 × 0.667 ≈ 1.39 ns, so real speedup = 9.6 / 1.39 ≈ <strong>6.9×</strong>, far below the 16× ceiling.</li>
 <li><strong>Best depth:</strong> γ = 0.02 × 0.4 = 0.008, so N<sub>opt</sub> = √(9 / (0.008 × 0.6)) = √1875 ≈ <strong>43</strong>. At N = 43: cycle ≈ 0.809 ns, the span is 0.4 × 43 ≈ 17 stages, CPI ≈ 1 + 0.02 × 17.2 ≈ <strong>1.34</strong>, time ≈ 1.09 ns, so real speedup ≈ <strong>8.8×</strong>.</li>
 </ol><p>Takeaway: the ceiling is the most pipelining could ever give, but past about 43 stages here, every extra stage inside the fetch-to-resolve span costs more in mispredicts than it saves in cycle time.</p></div></details></div>
-<h3>Hazards</h3>
+<h3 id="sec-hazards">Hazards</h3>
 <p>Hazard penalties for the classic 5-stage pipeline and out-of-order cores are covered under Pipeline stages: <a href="#/stall-perf/hazard-basics">where penalties come from</a>, <a href="#/structural-hazards/struct-table">structural hazards</a>, <a href="#/data-hazards/reg-table">data hazards</a>, <a href="#/branch-hazards/control-table">branch hazards</a>, and <a href="#/stall-perf/memory-stalls">memory stalls and flushes</a>.</p>
 <h3 id="sec-best-depth">Finding the Best Depth</h3>
 <p>Adding stages shortens the cycle, but stages that land inside a hazard's span also lengthen its penalty. The best depth is where those effects balance.</p>
@@ -152,7 +159,7 @@ section({
 <li><strong>Out-of-order execution:</strong> hides much of the latency-type hazards (load-use, FP latency), shrinking their effective share of γ. Flush-type hazards remain, which is why out-of-order cores can be deeper than in-order ones but still invest heavily in branch prediction.</li>
 </ul>
 <p>The curve is flat near its minimum (20 to 40 stages are within about 4% here), so designers can choose a shallower pipeline with little performance loss. They usually do, because this model ignores power: every extra stage adds flip-flops, clock load, and wasted wrong-path work.</p>
-<h3>Deep vs. Shallow: PPA</h3>
+<h3 id="sec-deep-shallow-ppa">Deep vs. Shallow: PPA</h3>
 <div class="tbl"><table>
 <tr><th></th><th>Deeper pipeline</th><th>Shallower pipeline</th></tr>
 <tr><td>Performance</td><td><ul><li>Higher frequency</li><li>Bigger mispredict and load-use penalties</li><li>Needs better prediction</li></ul></td><td><ul><li>Lower frequency</li><li>Cheaper mispredicts</li><li>Higher IPC per cycle</li></ul></td></tr>
@@ -666,8 +673,11 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
   region: "pipe",
   title: "Instruction Decode / Register Fetch (ID)",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.1 Introduction: “A Simple Implementation of a RISC Instruction Set”.`,
+  sections: [
+    { id: "classic-5-stage", label: "In the Classic 5-Stage Pipeline" }
+  ],
   body: `
-<h3>In the Classic 5-Stage Pipeline</h3>
+<h3 id="sec-classic-5-stage">In the Classic 5-Stage Pipeline</h3>
 <ul>
 <li><strong>Decode and read registers together.</strong> The instruction is decoded while the register file reads the source registers it names.</li>
 <li><strong>Branch comparison.</strong> As the registers come out of the register file, they are compared for equality, in case the instruction is a branch.</li>
@@ -799,8 +809,12 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
   region: "pipe",
   title: "Execution / Effective Address (EX)",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.1 Introduction: “A Simple Implementation of a RISC Instruction Set”.`,
+  sections: [
+    { id: "classic-5-stage", label: "In the Classic 5-Stage Pipeline" },
+    { id: "inside-alu-add", label: "Inside the ALU: An Add, Gate by Gate" }
+  ],
   body: `
-<h3>In the Classic 5-Stage Pipeline</h3>
+<h3 id="sec-classic-5-stage">In the Classic 5-Stage Pipeline</h3>
 <p>The ALU works on the operands prepared in ID and does one of three things, depending on the instruction type:</p>
 <ul>
 <li><strong>Memory reference (load or store):</strong> adds the base register and the offset to form the effective address.</li>
@@ -808,7 +822,7 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
 <li><strong>Register-immediate ALU instruction:</strong> performs the operation on the first register value and the sign-extended immediate.</li>
 </ul>
 <p>In a load-store architecture, address calculation and execution share one stage, because no instruction ever needs to compute a data address and operate on data at the same time.</p>
-<h3>Inside the ALU: An Add, Gate by Gate</h3>
+<h3 id="sec-inside-alu-add">Inside the ALU: An Add, Gate by Gate</h3>
 <p>An ALU add is built from <strong>full adders</strong>, one per bit. Each full adder takes one bit from each operand (A and B) plus a carry-in from the bit to its right, and produces a sum bit and a carry-out:</p>
 <p class="eq">Sum = A ⊕ B ⊕ C<sub>in</sub></p>
 <p class="eq">C<sub>out</sub> = (A · B) + (C<sub>in</sub> · (A ⊕ B))</p>
@@ -910,8 +924,11 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
   region: "pipe",
   title: "Memory Access (MEM)",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.1 Introduction: “A Simple Implementation of a RISC Instruction Set”.`,
+  sections: [
+    { id: "classic-5-stage", label: "In the Classic 5-Stage Pipeline" }
+  ],
   body: `
-<h3>In the Classic 5-Stage Pipeline</h3>
+<h3 id="sec-classic-5-stage">In the Classic 5-Stage Pipeline</h3>
 <ul>
 <li><strong>Load:</strong> memory is read at the effective address computed in EX.</li>
 <li><strong>Store:</strong> the data from the second source register (read in ID) is written to memory at the effective address.</li>
@@ -939,8 +956,11 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
   region: "pipe",
   title: "Write-Back (WB)",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.1 Introduction: “A Simple Implementation of a RISC Instruction Set”.`,
+  sections: [
+    { id: "classic-5-stage", label: "In the Classic 5-Stage Pipeline" }
+  ],
   body: `
-<h3>In the Classic 5-Stage Pipeline</h3>
+<h3 id="sec-classic-5-stage">In the Classic 5-Stage Pipeline</h3>
 <ul>
 <li><strong>Register-register ALU instruction or load:</strong> the result is written into the register file. For a load it comes from the memory system; for an ALU instruction it comes from the ALU.</li>
 <li>Stores and branches write no register, so they have nothing to do here.</li>
@@ -966,16 +986,22 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
   region: "pipe",
   title: "Structural Hazards",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.2 The Major Hurdle of Pipelining—Pipeline Hazards: “Structural Hazards”.`,
-  sections: [{ id: "struct-table", label: "Penalty Table" }],
+  sections: [
+    { id: "common-causes", label: "Common Causes" },
+    { id: "stall-looks", label: "What a Stall Looks Like" },
+    { id: "accepting", label: "Why Designers Sometimes Accept Them" },
+    { id: "struct-table", label: "Penalty Table" },
+    { id: "in-ooo", label: "In Out-of-Order Cores" }
+  ],
   body: `
 <p>A <strong>structural hazard</strong> occurs when the hardware can't support every combination of instructions that overlap in the pipeline: two instructions need the same resource in the same cycle.</p>
-<h3>Common Causes</h3>
+<h3 id="sec-common-causes">Common Causes</h3>
 <ul>
 <li><strong>A shared resource:</strong> a single memory for both instructions and data, so a load or store in MEM collides with IF.</li>
 <li><strong>A unit that isn't fully pipelined:</strong> an instruction that occupies a unit for several cycles (such as a divider) blocks the next instruction that needs it.</li>
 <li><strong>Too few ports:</strong> more register file reads or writes in a cycle than the file supports.</li>
 </ul>
-<h3>What a Stall Looks Like</h3>
+<h3 id="sec-stall-looks">What a Stall Looks Like</h3>
 <p>With a single memory port, the load's data access in cycle 4 collides with instruction i+3's fetch. The fetch waits one cycle, leaving a bubble (a cycle where no new instruction enters):</p>
 <div class="tbl"><table>
 <tr><th>Instruction</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9</th></tr>
@@ -985,7 +1011,7 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
 <tr><td>i+3</td><td></td><td></td><td></td><td style="background:var(--pad-soft)"><strong>stall</strong></td><td>IF</td><td>ID</td><td>EX</td><td>MEM</td><td>WB</td></tr>
 </table></div>
 <p>Every later instruction is also pushed back one cycle, so the stall costs a full cycle of throughput.</p>
-<h3>Why Designers Sometimes Accept Them</h3>
+<h3 id="sec-accepting">Why Designers Sometimes Accept Them</h3>
 <p>Eliminating a structural hazard means duplicating or pipelining hardware, which costs area and power and may lengthen the clock. If the conflict is rare, the stalls cost less than the fix. See the guided problem for how to weigh a faster clock against added stalls.</p>
 <h3 id="sec-struct-table">Structural Hazards: Not Enough Hardware</h3>
 <div class="tbl"><table>
@@ -998,7 +1024,7 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
 <tr><td>Writeback conflict</td><td>Units with different latencies finish in the same cycle</td><td>1 cycle, only with multi-cycle units</td><td>1 cycle</td><td>More writeback ports, scheduling around it</td></tr>
 <tr><td>Window resource full</td><td>ROB, issue queue, LQ, SQ, physical registers, or MSHRs run out, so dispatch stops</td><td>Doesn't apply: no window</td><td>Until an entry frees: often tens to hundreds of cycles behind a miss</td><td>Larger structures, fewer long-latency stalls</td></tr>
 </table></div>
-<h3>In Out-of-Order Cores</h3>
+<h3 id="sec-in-ooo">In Out-of-Order Cores</h3>
 <p>Structural conflicts still happen (busy ports, bank conflicts, a full ROB or load queue), but only the instructions that need the busy resource wait; independent instructions issue elsewhere. See <a href="#/structural-hazards/struct-table">the table above</a>.</p>`,
   practice: {
     guided: [
@@ -1026,22 +1052,25 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
   title: "Data Hazards",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.2 The Major Hurdle of Pipelining—Pipeline Hazards: “Data Hazards,” “Minimizing Data Hazard Stalls by Forwarding,” and “Data Hazards Requiring Stalls”.`,
   sections: [
+    { id: "three-kinds", label: "Three Kinds" },
+    { id: "problem", label: "The Problem" },
     { id: "forwarding", label: "Forwarding" },
     { id: "load-use", label: "Stalls: Load-Use" },
     { id: "scheduling", label: "Compiler Scheduling" },
     { id: "reg-table", label: "Register Hazard Table" },
-    { id: "mem-table", label: "Memory Hazard Table" }
+    { id: "mem-table", label: "Memory Hazard Table" },
+    { id: "in-ooo", label: "In Out-of-Order Cores" }
   ],
   body: `
 <p>A <strong>data hazard</strong> occurs when overlapping changes the order of reading and writing operands, so an instruction could see a value different from what sequential execution would give.</p>
-<h3>Three Kinds</h3>
+<h3 id="sec-three-kinds">Three Kinds</h3>
 <ul>
 <li><strong>RAW (read after write):</strong> an instruction reads a register before an earlier instruction has written it. This is the common case: a true dependence.</li>
 <li><strong>WAW (write after write):</strong> two writes to the same register complete in the wrong order.</li>
 <li><strong>WAR (write after read):</strong> a later instruction writes a register before an earlier one has read it.</li>
 </ul>
 <p>In the classic 5-stage pipeline, only RAW can happen: all reads are in ID and all writes in WB, in order. WAW and WAR appear with multi-cycle units or out-of-order execution.</p>
-<h3>The Problem</h3>
+<h3 id="sec-problem">The Problem</h3>
 <pre><code>add $t0, $s1, $s2   # writes $t0 in WB (cycle 5)
 sub $t1, $t0, $s3   # reads $t0 in ID (cycle 3): too early
 and $t2, $t0, $s4   # reads in cycle 4: too early
@@ -1297,7 +1326,7 @@ sw  $t6, w</code></pre></td></tr>
 <tr><td>Memory ordering violation</td><td>A load ran early and an older store turns out to write the same address</td><td>Doesn't apply</td><td>Full flush, like a mispredict: ~15–20+ cycles plus re-execution</td><td>Memory dependence prediction</td></tr>
 <tr><td>Cache-line or page split</td><td>A misaligned access spans two lines or two pages</td><td>An extra access: a cycle or more</td><td>An extra access: a few cycles; more for page splits</td><td>Aligned data</td></tr>
 </table></div>
-<h3>In Out-of-Order Cores</h3>
+<h3 id="sec-in-ooo">In Out-of-Order Cores</h3>
 <p>Renaming removes WAR and WAW; RAW dependences remain, but independent instructions run while a dependent one waits, and load-to-use latency (4–5 cycles) is often hidden. See <a href="#/data-hazards/reg-table">the tables above</a> and <a href="#/renaming">Register renaming</a>.</p>`,
   practice: {
     guided: [
@@ -1354,7 +1383,8 @@ sub r5, r3, r6</code></pre>`,
     { id: "dynamic", label: "Dynamic Prediction" },
     { id: "btb", label: "The BTB and Decode Redirects" },
     { id: "btb-hit", label: "What Happens on a BTB Hit" },
-    { id: "control-table", label: "Control Hazard Table" }
+    { id: "control-table", label: "Control Hazard Table" },
+    { id: "in-ooo", label: "In Out-of-Order Cores" }
   ],
   body: `
 <p>A <strong>branch hazard</strong> (control hazard) occurs because the pipeline fetches the next instruction before it knows whether a branch is taken or where it goes. In the classic 5-stage pipeline with branches resolved in ID, a taken branch costs one cycle: the instruction fetched right after it has to be redone at the target.</p>
@@ -1533,7 +1563,7 @@ sub r5, r3, r6</code></pre>`,
 <tr><td>BTB miss on a taken branch</td><td>Fetch didn't know a branch was there and kept going sequentially</td><td>Covered by the branch rows (usually no BTB)</td><td>A few cycles: decode catches it and redirects</td><td>Larger BTBs</td></tr>
 <tr><td>Taken-branch bubble</td><td>Even a correct prediction takes time to redirect fetch</td><td>1 cycle if the target is computed in ID</td><td>0–2 cycles per taken branch</td><td>Faster first-level predictors, loop buffers</td></tr>
 </table></div>
-<h3>In Out-of-Order Cores</h3>
+<h3 id="sec-in-ooo">In Out-of-Order Cores</h3>
 <p>Branches resolve 10–20 cycles after fetch, and a wide core loses width × penalty instruction slots per mispredict, so accurate dynamic prediction is essential. Delay slots don't help at those depths. See <a href="#/branch-hazards/control-table">the table above</a>.</p>`,
   practice: {
     guided: [
@@ -1577,6 +1607,8 @@ sub r5, r3, r6</code></pre>`,
   title: "Performance of Pipelines with Stalls",
   book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.2 The Major Hurdle of Pipelining—Pipeline Hazards: “Performance of Pipelines With Stalls”.`,
   sections: [
+    { id: "speedup-stalls", label: "Speedup with Stalls" },
+    { id: "example", label: "Example" },
     { id: "hazard-basics", label: "Hazards and Their Penalties" },
     { id: "memory-stalls", label: "Memory-System Stalls" },
     { id: "flushes", label: "Flushes and Other Penalties" },
@@ -1584,7 +1616,7 @@ sub r5, r3, r6</code></pre>`,
   ],
   body: `
 <p>Stalls are the price of hazards: cycles in which some instructions in the pipeline can't move forward. While an instruction is stalled, every instruction <em>behind</em> it in a simple in-order pipeline stalls too, but instructions ahead of it keep going so the pipeline can drain the problem. No new instructions are fetched during the stall, so it shows up directly as lost throughput.</p>
-<h3>Speedup with Stalls</h3>
+<h3 id="sec-speedup-stalls">Speedup with Stalls</h3>
 <p>Start from time per instruction (CPI × clock cycle):</p>
 <p class="eq">Speedup = <span class="frac"><span>CPI<sub>unpipelined</sub> × Clock<sub>unpipelined</sub></span><span>CPI<sub>pipelined</sub> × Clock<sub>pipelined</sub></span></span></p>
 <p>The ideal pipelined CPI is 1, so stalls simply add to it:</p>
@@ -1594,7 +1626,7 @@ sub r5, r3, r6</code></pre>`,
 <p><strong>Case 2: the unpipelined machine is single-cycle</strong> (CPI = 1, longer clock). With perfectly balanced stages and no overhead, Clock<sub>unpipelined</sub> / Clock<sub>pipelined</sub> = depth, which gives the same result:</p>
 <p class="eq">Speedup = <span class="frac"><span>1</span><span>1 + stall cycles per instruction</span></span> × <span class="frac"><span>Clock<sub>unpipelined</sub></span><span>Clock<sub>pipelined</sub></span></span> ≈ <span class="frac"><span>Pipeline depth</span><span>1 + stall cycles per instruction</span></span></p>
 <p>Either way, <strong>with no stalls, speedup equals the depth</strong>, and every average stall cycle per instruction cuts into it. With latch overhead or unbalanced stages, the clock ratio is smaller than the depth, so real speedup is lower still.</p>
-<h3>Example</h3>
+<h3 id="sec-example">Example</h3>
 <p>A 5-stage pipeline averages 0.2 stall cycles per instruction from load-use hazards and 0.1 from branches:</p>
 <p class="eq">Speedup = <span class="frac"><span>5</span><span>1 + 0.2 + 0.1</span></span> = <span class="frac"><span>5</span><span>1.3</span></span> ≈ 3.85</p>
 <h3 id="sec-hazard-basics">Hazards and Their Penalties</h3>

@@ -6,9 +6,12 @@ section({
   id: "stall",
   name: "Stalls and Bottlenecks",
   cap: "Statistics, stall causes, bottleneck types, tracing and bounding stalls",
+  sections: [
+    { id: "pages-fit-together", label: "How the Pages Fit Together" }
+  ],
   body: `
 <p>This region is about where the cycles go: what a model counts, every reason a cycle can be lost, how to trace a stall from the stage that shows it to the stage that causes it, how to sort those losses into a few bottleneck types, how to bound each stage's cost before running anything, and how to put it all together to find a stall's cause. For methodology, workloads, benchmarks, and models, see <a href="#/r/perf">Performance Analysis</a>.</p>
-<h3>How the Pages Fit Together</h3>
+<h3 id="sec-pages-fit-together">How the Pages Fit Together</h3>
 <ul>
 <li><a href="#/perf-stats">Performance statistics</a>: what a model counts, and how.</li>
 <li><a href="#/perf-stalls">Stall causes</a>: every reason a cycle can be lost, by pipeline area.</li>

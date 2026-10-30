@@ -6,12 +6,16 @@ section({
   id: "mem",
   name: "Memory Hierarchy",
   cap: "Caches, prefetching, banking, SRAM vs. DRAM, latency tolerance",
+  sections: [
+    { id: "average-memory-access", label: "Average Memory Access Time" },
+    { id: "two-ways-win", label: "Two Ways to Win" }
+  ],
   body: `
 <p>The memory hierarchy exists because DRAM is hundreds of cycles away. Each level trades capacity for latency, and the core's job is to either avoid misses or overlap them.</p>
-<h3>Average Memory Access Time</h3>
+<h3 id="sec-average-memory-access">Average Memory Access Time</h3>
 <p>AMAT = hit time + miss rate × miss penalty, applied recursively per level. It's a useful first-order tool, but in an out-of-order core what matters is the latency that isn't hidden, which depends on memory-level parallelism.</p>
 <div class="calc" data-calc="amat"></div>
-<h3>Two Ways to Win</h3>
+<h3 id="sec-two-ways-win">Two Ways to Win</h3>
 <ul><li><strong>Avoid misses:</strong> capacity, associativity, replacement, prefetching.</li><li><strong>Tolerate misses:</strong> non-blocking caches, large windows, prefetching, runahead.</li></ul>`,
   practice: {
     guided: [
@@ -206,11 +210,15 @@ section({
   id: "prefetch",
   region: "mem",
   title: "Prefetching",
+  sections: [
+    { id: "common-designs", label: "Common Designs" },
+    { id: "three-metrics", label: "Three Metrics" }
+  ],
   body: `
 <p>Fetch lines before the demand access asks for them.</p>
-<h3>Common Designs</h3>
+<h3 id="sec-common-designs">Common Designs</h3>
 <ul><li><strong>Next-line:</strong> on a miss to line X, fetch X+1.</li><li><strong>Stride:</strong> a PC-indexed table holds last address, stride, and confidence.</li><li><strong>Stream:</strong> detect sequential miss streams and run ahead.</li></ul>
-<h3>Three Metrics</h3>
+<h3 id="sec-three-metrics">Three Metrics</h3>
 <ul><li><strong>Accuracy:</strong> useful over issued.</li><li><strong>Coverage:</strong> baseline misses eliminated.</li><li><strong>Timeliness:</strong> whether data arrives before demand.</li></ul>
 <p>Inaccurate prefetches pollute the cache and waste bandwidth, so good prefetchers throttle.</p>`,
   practice: {
@@ -233,10 +241,14 @@ section({
   id: "latency-tolerance",
   region: "mem",
   title: "Memory Latency Tolerance",
-  sections: [{ id: "mlp", label: "What Memory-Level Parallelism Means" }],
+  sections: [
+    { id: "techniques", label: "Techniques" },
+    { id: "mlp", label: "What Memory-Level Parallelism Means" },
+    { id: "limit", label: "The Limit" }
+  ],
   body: `
 <p>If misses can't be avoided, overlap them with each other and with useful work.</p>
-<h3>Techniques</h3>
+<h3 id="sec-techniques">Techniques</h3>
 <ul>
 <li><strong>Non-blocking caches:</strong> MSHRs allow many outstanding misses.</li>
 <li><strong>Large instruction windows:</strong> a bigger ROB, IQ, and LSQ reach more independent misses.</li>
@@ -259,7 +271,7 @@ section({
 <p>Data cache <em>ports</em> are a different thing: they set how many hits can be served per cycle (bandwidth), not how many misses can overlap.</p>
 <p><strong>Why the window matters even without dependents:</strong> instructions retire in order, so the ROB fills up behind a stuck load. A 4-wide core with a 128-entry ROB fills it in about 32 cycles and then stalls, so a 200-cycle DRAM miss is mostly exposed unless the work behind it contains other misses that overlap with it.</p>
 <div class="calc" data-calc="little"></div>
-<h3>The Limit</h3>
+<h3 id="sec-limit">The Limit</h3>
 <p>Dependent misses (pointer chasing) serialize regardless of window size. Only prediction, prefetching that understands the data structure, or software changes help there.</p>`,
   practice: {
     guided: [
@@ -281,26 +293,34 @@ section({
   id: "l2-banks",
   region: "mem",
   title: "L2 and Banking",
+  sections: [
+    { id: "banks", label: "Banks" },
+    { id: "access-per-cycle", label: "Why One Access per Cycle" },
+    { id: "address-path", label: "The Address Path" },
+    { id: "banks-busy", label: "Banks Busy for Two Cycles" },
+    { id: "choosing-bank-bits", label: "Choosing Bank Bits" },
+    { id: "dram-banks", label: "DRAM Banks" }
+  ],
   body: `
 <p>The L2 is larger and slower, usually unified, and inclusive, exclusive, or neither with respect to L1.</p>
-<h3>Banks</h3>
+<h3 id="sec-banks">Banks</h3>
 <p>Banks selected by address bits allow parallel accesses; two same-cycle accesses to one bank conflict and one waits.</p>
 <p>A <strong>single-ported bank</strong> is an independent slice of the data array: its own SRAM subarray with its own row decoder, wordlines, bitlines, and sense amps. It serves exactly one read or one write per cycle. H&amp;P (Ch. 2) list this as an advanced cache optimization, <em>multibanked caches to increase bandwidth</em>, usually with <strong>sequential interleaving</strong> (line or word address mod N picks the bank). Banking is the cheap approximation of multi-porting: simple single-ported cells, near-N-way bandwidth when accesses spread evenly. Strided patterns that keep hitting one bank lose the benefit, the same problem as GPU shared-memory bank conflicts.</p>
-<h3>Why One Access per Cycle</h3>
+<h3 id="sec-access-per-cycle">Why One Access per Cycle</h3>
 <p>The limit is physical. Each port has:</p>
 <ul><li><strong>One address path:</strong> one decoder that raises exactly one wordline per cycle.</li><li><strong>Shared bitlines:</strong> every cell in a column hangs off the same bitline pair. Two wordlines firing in one column would have two cells driving the same bitlines, corrupting the read (and possibly clobbering a cell on a write).</li><li><strong>Precharge/evaluate timing:</strong> bitlines are precharged, discharged by the selected cell, then sensed. That sequence is the access; the next one waits for the next precharge.</li><li><strong>One set of sense amps and column muxes</strong>, which resolve one access’s data per cycle.</li></ul>
 <p>A second port means a second wordline per row, a second bitline pair per column, and extra access transistors per cell. Cell area grows roughly quadratically with port count (more wires <em>and</em> transistors), and longer wires make the array slower and hungrier.</p>
-<h3>The Address Path</h3>
+<h3 id="sec-address-path">The Address Path</h3>
 <p>The circuitry that turns an address into “activate this row (and column) of cells.” For one port:</p>
 <ol><li><strong>Address input/latch:</strong> the index bits (after the bank-select bits pick the bank) are captured at the start of the cycle.</li><li><strong>Row decoder:</strong> k index bits become a one-hot signal across 2<sup>k</sup> rows, usually a predecoder plus a final AND stage.</li><li><strong>Wordline driver:</strong> a strong buffer drives the selected wordline across the row, turning on every cell’s access transistors and connecting them to their bitlines.</li><li><strong>Column decoder/mux select:</strong> when a row holds more bits than needed, the remaining address bits route the right columns to the sense amps.</li></ol>
 <p>A second port needs a whole second copy of this, which is where multi-porting’s area cost comes from.</p>
-<h3>Banks Busy for Two Cycles</h3>
+<h3 id="sec-banks-busy">Banks Busy for Two Cycles</h3>
 <p>A bank is busy for multiple cycles when its <strong>cycle time</strong> (how often it can start a new access) exceeds one processor clock:</p>
 <ul><li><strong>Access + recovery doesn’t fit in one clock.</strong> After a read the bitlines must be precharged again. H&amp;P’s <em>access time vs. cycle time</em>: data can come out after the access time, but the bank isn’t free until the full cycle time.</li><li><strong>Fast clocks, big arrays.</strong> Long wordlines and bitlines (more RC delay) can’t finish in one cycle, so designers accept a 2-cycle busy time and add banks. Same idea as interleaved main memory: you need at least as many banks as the bank cycle time in clocks to sustain one access per clock.</li><li><strong>Read-modify-write.</strong> A partial store under ECC (e.g., 1 byte when ECC covers 8) must read, merge, recompute ECC, and write back.</li><li><strong>Wide transfers.</strong> A fill or eviction wider than the bank port takes multiple beats.</li></ul>
 <p>Effect: with 2-cycle banks, consecutive-cycle accesses to one bank conflict too, so you need more banks or better hashing for the same bandwidth.</p>
-<h3>Choosing Bank Bits</h3>
+<h3 id="sec-choosing-bank-bits">Choosing Bank Bits</h3>
 <p>Low line-address bits spread sequential accesses, but power-of-two strides can hammer one bank. XOR-hashing higher bits spreads them.</p>
-<h3>DRAM Banks</h3>
+<h3 id="sec-dram-banks">DRAM Banks</h3>
 <p>DRAM is banked for the same reason, with one difference: a DRAM bank keeps a row open, so the cost of an access depends on which row the bank last opened. See <a href="#/dram-ctrl/timing">Row Hits, Misses, and Conflicts</a>.</p>`,
   practice: {
     guided: [
@@ -326,6 +346,11 @@ section({
   id: "sram-dram",
   region: "mem",
   title: "SRAM vs. DRAM",
+  sections: [
+    { id: "dram-slower", label: "Why DRAM Is Slower" },
+    { id: "sram-faster", label: "Why SRAM Is Faster" },
+    { id: "hierarchy-trade-off", label: "The Hierarchy Trade-Off" }
+  ],
   body: `
 <p>The difference is how a bit is physically stored.</p>
 <ul><li><strong>SRAM:</strong> a pair of cross-coupled inverters (a latch) plus two access transistors, <strong>6T per bit</strong>. The latch actively holds its value while powered.</li><li><strong>DRAM:</strong> charge on a <strong>capacitor</strong> with one access transistor (<strong>1T1C</strong>). The charge leaks, so it must be refreshed.</li></ul>
@@ -339,11 +364,11 @@ section({
 <tr><td>Process</td><td>Same logic process as the CPU</td><td>Specialized process, usually a separate chip</td></tr>
 <tr><td>Use</td><td>Caches, register files, TLBs</td><td>Main memory</td></tr>
 </table></div>
-<h3>Why DRAM Is Slower</h3>
+<h3 id="sec-dram-slower">Why DRAM Is Slower</h3>
 <p>The capacitor is tiny, so opening a row only nudges the bitline voltage, and sense amps must amplify that small signal. Then the row is restored and the bank precharged before reuse. Hence <strong>row buffers</strong> (open a row, read many columns) and timing parameters like tRCD, tCAS, and tRP. See <a href="#/l2-banks">L2 and banking</a> for row-buffer hits vs. conflicts.</p>
-<h3>Why SRAM Is Faster</h3>
+<h3 id="sec-sram-faster">Why SRAM Is Faster</h3>
 <p>The latch actively drives the bitline, so the signal develops quickly, reads leave the cell intact, and nothing needs refreshing.</p>
-<h3>The Hierarchy Trade-Off</h3>
+<h3 id="sec-hierarchy-trade-off">The Hierarchy Trade-Off</h3>
 <p>H&amp;P Ch. 2: SRAM is fast but expensive per bit; DRAM is dense and cheap but slow. So small SRAM caches sit in front of large DRAM main memory.</p>`,
   practice: {
     guided: [
