@@ -325,13 +325,7 @@ READY  __________________|‾‾‾‾‾|____
 <li><strong>Ranks and banks:</strong> each channel has groups of chips (ranks), and each chip has many banks that can work in parallel.</li>
 <li><strong>Rows and columns:</strong> a bank is a grid of cells. To read, the controller first <strong>activates</strong> a row (copying it into the bank's row buffer), then reads columns from that open row.</li>
 </ul>
-<p><strong>Three access cases:</strong></p>
-<div class="tbl"><table>
-<tr><th>Case</th><th>What has to happen</th><th>Latency</th></tr>
-<tr><td>Row hit</td><td>The needed row is already open</td><td>t<sub>CL</sub></td></tr>
-<tr><td>Closed row</td><td>Activate the row, then read</td><td>t<sub>RCD</sub> + t<sub>CL</sub></td></tr>
-<tr><td>Row conflict</td><td>Close (precharge) the open row, activate the new one, then read</td><td>t<sub>RP</sub> + t<sub>RCD</sub> + t<sub>CL</sub></td></tr>
-</table></div>
+<p>An access to the open row is fast. Any other row first has to be activated, and a different open row has to be closed (precharged) before that, so the latency depends on the bank's state. The timings are in <a href="#/dram-ctrl/timing">Row Hits, Misses, and Conflicts</a>.</p>
 <p>DRAM also has to <strong>refresh</strong> every row periodically, briefly blocking access, because its cells slowly leak their charge.</p>
 <h3 id="sec-ddr">DDR5 and LPDDR5</h3>
 <ul>
@@ -343,14 +337,7 @@ READY  __________________|‾‾‾‾‾|____
 <p class="eq">HBM3: 1,024 bits × 6.4 Gb/s per pin ÷ 8 ≈ 819 GB/s per stack</p>
 <p>HBM3E pushes per-pin rates higher (over 1 TB/s per stack), and a GPU with eight stacks reaches several TB/s. That bandwidth is what keeps GPU and AI accelerator compute units fed (see <a href="#/gen-gpus">GPUs for generative AI</a>), at the cost of high price, limited capacity, and an advanced package.</p>
 <h3 id="sec-controller">The Memory Controller</h3>
-<ul>
-<li><strong>Address mapping:</strong> spreads consecutive cache lines across channels and banks so accesses run in parallel.</li>
-<li><strong>Scheduling:</strong> reorders requests to maximize row hits, typically with FR-FCFS (open-row hits first, then oldest first), with limits so no request waits forever.</li>
-<li><strong>Read/write turnaround:</strong> switching the bus between reading and writing costs idle cycles, so writes are buffered and drained in batches.</li>
-<li><strong>Refresh and power management:</strong> schedules refresh and puts idle ranks into low-power states.</li>
-<li><strong>Reliability:</strong> error-correcting codes (ECC) detect and fix bit errors.</li>
-</ul>
-<p><strong>Performance angle:</strong> loaded memory latency is much higher than the idle latency, because requests queue behind each other as bandwidth use rises. Performance models track row-hit rate, queueing delay, and bandwidth utilization for exactly this reason.</p>`,
+<p>The controller sits between the cache hierarchy and these interfaces. It maps addresses onto channels and banks, reorders requests to favor open rows, batches writes, schedules refresh and low-power states, and checks ECC. Loaded latency rises well above idle latency as bandwidth use grows, because requests queue. All of it is covered in <a href="#/dram-ctrl">DRAM Controllers and Scheduling</a>.</p>`,
   practice: {
     guided: [
       {

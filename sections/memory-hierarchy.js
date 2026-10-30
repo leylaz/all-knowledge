@@ -301,7 +301,7 @@ section({
 <h3>Choosing Bank Bits</h3>
 <p>Low line-address bits spread sequential accesses, but power-of-two strides can hammer one bank. XOR-hashing higher bits spreads them.</p>
 <h3>DRAM Banks</h3>
-<p>Row-buffer hits are cheap; row conflicts pay precharge and activate.</p>`,
+<p>DRAM is banked for the same reason, with one difference: a DRAM bank keeps a row open, so the cost of an access depends on which row the bank last opened. See <a href="#/dram-ctrl/timing">Row Hits, Misses, and Conflicts</a>.</p>`,
   practice: {
     guided: [
       {

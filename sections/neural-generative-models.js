@@ -410,6 +410,7 @@ acc = fma(w2, a2, acc)      <span class="cm">// acc = b + w0·a0 + w1·a1 + w2·
 <li><strong>Top-k:</strong> sample only from the k most likely tokens.</li>
 <li><strong>Top-p (nucleus):</strong> sample from the smallest set of tokens whose probabilities add up to p.</li>
 </ul>
+<p>How a real model turns its final vector into these logits, and the full set of decoding strategies, are in <a href="#/llm-output/strategies">Choosing a Token</a>.</p>
 <h3 id="sec-langevin">From Random Walks to Diffusion</h3>
 <p><strong>Langevin dynamics</strong> is a random walk that drifts toward likely regions. With step size ε and fresh Gaussian noise z at each step:</p>
 <p class="eq">x<sub>t+1</sub> = x<sub>t</sub> + ε ∇<sub>x</sub> log p(x<sub>t</sub>) + √(2ε) z</p>

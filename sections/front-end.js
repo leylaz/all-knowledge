@@ -459,7 +459,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <p>Like caches, BTBs come in levels. A small, fast level gives zero-bubble taken branches; a larger level behind it covers more code at a cycle or more of bubble per taken branch. AMD's Zen 4, for example, has a 1.5K-entry first-level BTB and a 7K-entry second level; Intel's Golden Cove has 12K entries in total. Entries store compressed targets (only the low bits that differ from the branch address for short branches) to fit more of them.</p>
 
 <h3 id="sec-misses">BTB Misses and Decode Redirects</h3>
-<p>What happens when a branch isn't in the BTB depends on its kind:</p>
+<p>What happens when a branch isn't in the BTB depends on its kind (for a cycle-by-cycle walk through one decode redirect, see <a href="#/branch-hazards/btb">The BTB and Decode Redirects</a>):</p>
 <div class="tbl"><table>
 <tr><th>Branch</th><th>On a BTB miss</th><th>Cost</th></tr>
 <tr><td>Conditional, actually not taken</td><td>Fall-through was right by luck</td><td>None (but nothing trains until it's inserted)</td></tr>

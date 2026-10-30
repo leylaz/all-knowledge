@@ -1523,7 +1523,7 @@ sub r5, r3, r6</code></pre>`,
 <tr><td>BTB hit, wrong direction or wrong indirect target</td><td>Full mispredict penalty</td></tr>
 <tr><td>Target not in the instruction cache</td><td>Instruction cache miss stall</td></tr>
 </table></div>
-<p><strong>Decoupled front ends.</strong> Many high-performance cores run the branch predictor and BTB <em>ahead</em> of instruction cache fetch, producing a queue of predicted fetch addresses that the instruction cache works through, and that can also drive instruction prefetching. The classic 5-stage pipeline has no BTB at all, which is why it computes branch targets in ID.</p>
+<p><strong>Decoupled front ends.</strong> Many high-performance cores run the branch predictor and BTB <em>ahead</em> of instruction cache fetch, producing a queue of predicted fetch addresses that the instruction cache works through, and that can also drive instruction prefetching (see <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>, and <a href="#/fe-targets">Branch Targets</a> for multi-level BTBs, indirect branches, and the return stack). The classic 5-stage pipeline has no BTB at all, which is why it computes branch targets in ID.</p>
 <h3 id="sec-control-table">Control Hazards</h3>
 <div class="tbl"><table>
 <tr><th>Hazard</th><th>What happens</th><th>Classic 5-stage (in-order)</th><th>Out-of-order core</th><th>Reduced by</th></tr>
