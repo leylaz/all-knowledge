@@ -81,7 +81,7 @@ section({
     { id: "fp", label: "FP and AVX-512 Engine" },
     { id: "ls", label: "Load/Store Unit and L1D" },
     { id: "tlb", label: "TLBs and Page Walks" },
-    { id: "l2", label: "L2 and SMT" },
+    { id: "l2", label: "Private L2" }, { id: "smt", label: "Two Threads with SMT" },
     { id: "impl", label: "Performance Implications" }
   ],
   body: `
@@ -176,8 +176,9 @@ ${procSvg(760, 650, 620, "Zen 5 core block diagram: branch predictor feeds the L
 </table></div>
 <p>With 4 KB pages the L2 DTLB reaches 4,096 × 4 KB = 16 MB, half of one CCX's L3; with 2 MB pages it reaches 8 GB. Four contiguous, aligned 4 KB pages with identical attributes can share one entry (16 KB coalescing). Six hardware page walkers handle misses, backed by a page-walk cache for PDPEs and PDEs and a 64-entry cache for PML4/PML5 entries. See <a href="#/tlb">TLBs and Page Walks</a>.</p>
 
-<h3 id="sec-l2">L2 and SMT</h3>
+<h3 id="sec-l2">Private L2</h3>
 <p>Each core's L2 is 1 MB, 16-way (associativity doubled from Zen 4), inclusive of its L1s, at no less than 14 cycles. The L1–L2 interface doubled to 64 bytes per cycle each way. L2 victims fill the CCX's shared L3, covered in <a href="#/zen5-soc">AMD Zen 5 Chiplets and SoCs</a>.</p>
+<h3 id="sec-smt">Two Threads with SMT</h3>
 <p>With two threads (see <a href="#/smt">Simultaneous Multithreading</a>), AMD's guide classifies each structure as competitively shared, watermarked, or statically partitioned. The retire queue and fetch-window tracker split in half, and each thread gets its own decode pipe; caches, branch predictors, and execution units are shared on demand. Two threads running the same code should run at the same linear and physical addresses so they share BTB and op cache entries.</p>
 
 <h3 id="sec-impl">Performance Implications</h3>
