@@ -95,22 +95,14 @@ section({
 {
   id: "gates-clocking",
   region: "circ",
-  title: "Logic Gates, Clocks, and Skew",
+  title: "Logic Gates and Clock Distribution",
   body: `
 <h3>CMOS Gates</h3>
 <p>Gates are built from complementary pull-up (pMOS) and pull-down (nMOS) networks. NAND and NOR are the natural primitives; an inverter is the simplest gate. NAND is generally preferred because its series transistors are nMOS, which conduct better than pMOS. A gate's delay depends on its load capacitance and drive strength; designers express delay in <strong>FO4</strong> (the delay of an inverter driving four copies of itself) to compare across processes. A high-performance cycle is typically a few tens of FO4.</p>
 <h3>Sequential Elements</h3>
 <ul><li><strong>Latch:</strong> transparent while the clock is high (or low).</li><li><strong>Flip-flop:</strong> captures input on a clock edge.</li><li><strong>Setup time:</strong> data must be stable this long before the edge.</li><li><strong>Hold time:</strong> data must stay stable this long after the edge.</li><li><strong>Clock-to-Q:</strong> delay from the edge to a valid output.</li></ul>
-<h3>Timing Equations</h3>
-<p><strong>Setup (max delay):</strong> T<sub>clk</sub> ≥ t<sub>clk-q</sub> + t<sub>logic,max</sub> + t<sub>setup</sub> + t<sub>skew</sub> + t<sub>jitter</sub></p>
-<p><strong>Hold (min delay):</strong> t<sub>clk-q</sub> + t<sub>logic,min</sub> ≥ t<sub>hold</sub> + t<sub>skew</sub></p>
-<p>The longest path through a stage is the <strong>critical path</strong>; it sets the frequency. See <a href="#/timing">Critical path and flip-flop timing</a> for diagrams and a full walkthrough.</p>
-<h3>Skew and Jitter</h3>
-<ul>
-<li><strong>Skew:</strong> the clock edge reaches different flip-flops at different times because of wire length and buffer differences. It's a spatial, mostly static difference.</li>
-<li><strong>Jitter:</strong> the edge varies cycle to cycle at the same flip-flop because of supply noise and PLL variation. It's a temporal difference.</li>
-<li>Skew that delays the capturing clock relaxes setup but tightens hold. "Useful skew" exploits this deliberately.</li>
-</ul>
+<h3>Timing</h3>
+<p>Each pipeline stage is a path from one flip-flop to the next, and the slowest one, the <strong>critical path</strong>, sets the clock frequency. The cycle has to fit clock-to-Q, the logic, setup time, and margins for clock skew (the edge reaching different flip-flops at different times) and jitter (the edge moving from cycle to cycle). <a href="#/timing">Critical Path and Flip-Flop Timing</a> covers each term, the setup and hold equations, and a worked example.</p>
 <h3>Clock Distribution</h3>
 <p>A PLL generates the clock, and an H-tree, grid, or mesh distributes it to minimize skew. The clock network switches every cycle with activity factor 1, so it is often a large share of dynamic power (commonly 20–40%). Clock gating is the main defense.</p>
 <h3>Power, Performance, Area</h3>
@@ -203,7 +195,7 @@ section({
 <p>Its counterpart, <strong>hold time</strong>, is how long the input must stay stable <em>after</em> the edge. Hold failures happen on very short paths, where new data arrives too soon.</p>
 <h3>Skew</h3>
 <p>The clock is distributed to millions of flip-flops through wires and buffers of slightly different lengths and loads, so the same edge reaches different flip-flops at slightly different times. That difference is <strong>skew</strong>. It's spatial and mostly constant: the same pair of flip-flops sees about the same skew every cycle.</p>
-<ul><li>If the capture clock arrives <em>earlier</em> than the launch clock, the stage loses time (hurts setup).</li><li>If it arrives <em>later</em>, the stage gains time (helps setup) but hold gets harder.</li></ul>
+<ul><li>If the capture clock arrives <em>earlier</em> than the launch clock, the stage loses time (hurts setup).</li><li>If it arrives <em>later</em>, the stage gains time (helps setup) but hold gets harder.</li><li>Designers sometimes add skew on purpose (<strong>useful skew</strong>) to lend time from a short stage to a long one.</li></ul>
 <h3>Jitter</h3>
 <p>Even at one flip-flop, the clock edge wobbles slightly from cycle to cycle because of power supply noise, temperature, and variation in the clock generator (PLL). That's <strong>jitter</strong>. It's temporal and unpredictable in any given cycle, so timing must budget for the worst case.</p>
 <h3>Putting It Together</h3>
