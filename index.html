@@ -65,13 +65,12 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "circ circ circ isa isa isa"
     "pipe pipe pipe pipe pipe pipe"
     "fe fe fe fe fe fe"
+    "core core core arith arith arith"
     "core core core mem mem mem"
-    "core core core ctr ctr ctr"
-    "arith arith arith arith arith arith"
+    "ctr ctr ctr os os os"
     "coh coh coh icx icx icx"
     "proc proc proc proc proc proc"
-    "os os os comp comp comp"
-    "conc conc conc conc conc conc"
+    "comp comp comp conc conc conc"
     "perf perf perf stall stall stall"
     "eda eda eda verif verif verif"
     "nn nn nn gen gen gen"
@@ -504,7 +503,7 @@ a.lyr-name::after { content: ""; position: absolute; inset: 0; border-radius: 4p
 }
 
 @media (max-width: 860px) {
-  .floor { grid-template-columns: 1fr; grid-template-areas: "fab" "circ" "isa" "pipe" "fe" "core" "mem" "ctr" "arith" "coh" "icx" "proc" "os" "comp" "conc" "perf" "stall" "eda" "verif" "nn" "gen" "llm" "intv" "p1" "p2"; }
+  .floor { grid-template-columns: 1fr; grid-template-areas: "fab" "circ" "isa" "pipe" "fe" "core" "arith" "mem" "ctr" "os" "coh" "icx" "proc" "comp" "conc" "perf" "stall" "eda" "verif" "nn" "gen" "llm" "intv" "p1" "p2"; }
   .intro { padding-top: 32px; }
   .page { grid-template-columns: 1fr; gap: 0; padding-top: 16px; }
   .menu-btn.show { display: inline-block; }
@@ -564,13 +563,13 @@ window.MathJax = {
 <script src="sections/pipeline-stages.js"></script>
 <script src="sections/front-end.js"></script>
 <script src="sections/out-of-order-core.js"></script>
+<script src="sections/computer-arithmetic.js"></script>
 <script src="sections/memory-hierarchy.js"></script>
 <script src="sections/cache-tradeoffs.js"></script>
-<script src="sections/computer-arithmetic.js"></script>
+<script src="sections/virtual-memory.js"></script>
 <script src="sections/cache-coherence.js"></script>
 <script src="sections/interconnects.js"></script>
 <script src="sections/real-processors.js"></script>
-<script src="sections/virtual-memory.js"></script>
 <script src="sections/compilers.js"></script>
 <script src="sections/c-concurrency.js"></script>
 <script src="sections/performance-analysis.js"></script>
