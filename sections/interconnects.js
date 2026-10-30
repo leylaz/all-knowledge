@@ -341,7 +341,7 @@ READY  __________________|‾‾‾‾‾|____
 <h3 id="sec-hbm">HBM (High Bandwidth Memory)</h3>
 <p>HBM stacks several DRAM dies on top of a base die, connected vertically by through-silicon vias, and places the stack right next to the processor on a silicon interposer. Instead of a 64-bit bus, each stack has a <strong>1,024-bit</strong> interface split into many independent channels.</p>
 <p class="eq">HBM3: 1,024 bits × 6.4 Gb/s per pin ÷ 8 ≈ 819 GB/s per stack</p>
-<p>HBM3E pushes per-pin rates higher (over 1 TB/s per stack), and a GPU with eight stacks reaches several TB/s. That bandwidth is what keeps GPU and AI accelerator compute units fed (see <a href="#/gen-gpus">How GPUs make this possible</a>), at the cost of high price, limited capacity, and an advanced package.</p>
+<p>HBM3E pushes per-pin rates higher (over 1 TB/s per stack), and a GPU with eight stacks reaches several TB/s. That bandwidth is what keeps GPU and AI accelerator compute units fed (see <a href="#/gen-gpus">GPUs for generative AI</a>), at the cost of high price, limited capacity, and an advanced package.</p>
 <h3 id="sec-controller">The Memory Controller</h3>
 <ul>
 <li><strong>Address mapping:</strong> spreads consecutive cache lines across channels and banks so accesses run in parallel.</li>

@@ -337,7 +337,7 @@ section({
 <p>Across 80 layers that’s about 2.6 million × N FLOPs per token, compared with about 141 billion FLOPs for all the matrix multiplies. The two are equal at N ≈ 54,000 tokens: below that, attention’s math is a minor cost; above it, attention dominates. For prefill of N tokens with the causal mask, score-and-mix costs about 2 × N<sup>2</sup> × d per layer, quadratic in prompt length.</p>
 <h3 id="sec-attn-hw">The Hardware View</h3>
 <ul>
-<li><strong>Prefill:</strong> QK<sup>T</sup> is a large matrix multiply (N queries × N keys), so it’s compute-bound and runs on Tensor Cores. The danger is memory: naively, the N × N score matrix is enormous. FlashAttention tiles the computation through on-chip shared memory so it never lands in HBM (see <a href="#/gen-gpus">How GPUs make this possible</a>).</li>
+<li><strong>Prefill:</strong> QK<sup>T</sup> is a large matrix multiply (N queries × N keys), so it’s compute-bound and runs on Tensor Cores. The danger is memory: naively, the N × N score matrix is enormous. FlashAttention tiles the computation through on-chip shared memory so it never lands in HBM (see <a href="#/gen-gpus">GPUs for generative AI</a>).</li>
 <li><strong>Decode:</strong> one new query per sequence against N cached keys is a matrix-vector product. Each layer must read its entire K and V cache, at about 8 FLOPs per byte with our GQA setup, so it’s firmly memory-bound. Batching doesn’t help, because every sequence has its own cache.</li>
 <li><strong>Softmax</strong> needs exponentials, which run on special function units rather than Tensor Cores, and a reduction across each row. Fused kernels hide this inside the attention kernel.</li>
 </ul>
@@ -650,7 +650,7 @@ section({
 <li><strong>Fewer bytes per weight:</strong> FP8 and FP4 formats with hardware support.</li>
 <li><strong>Compute near or in memory:</strong> perform attention where the KV cache lives, so only small query and output vectors move.</li>
 <li><strong>Specialization by phase:</strong> different hardware for compute-bound prefill and bandwidth-bound decode.</li>
-<li><strong>Different math:</strong> probabilistic and physics-based designs that treat sampling and noise as primitives (see <a href="#/gen-gpus">How GPUs make this possible</a>).</li>
+<li><strong>Different math:</strong> probabilistic and physics-based designs that treat sampling and noise as primitives (see <a href="#/gen-gpus">GPUs for generative AI</a>).</li>
 </ul>
 <p class="refs">Further reading:</p><ul class="refs"><li>Horowitz, “Computing’s Energy Problem (and What We Can Do About It)” (ISSCC 2014), the classic energy-per-operation figures</li><li>Pope et al., “Efficiently Scaling Transformer Inference” (MLSys 2023)</li><li>Shoeybi et al., “Megatron-LM” (2019)</li><li>NVIDIA H100 Tensor Core GPU architecture whitepaper (2022)</li></ul>`,
   practice: {
