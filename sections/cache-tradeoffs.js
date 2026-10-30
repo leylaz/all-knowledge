@@ -2412,11 +2412,23 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 </ul>
 <h3>Power, Performance, Area</h3>
 <ul><li><strong>Performance:</strong> can be worth as much as a sizeable capacity increase for thrashing or scanning workloads, and zero for workloads that fit.</li><li><strong>Power:</strong> state updates on every hit, small next to data access.</li><li><strong>Area:</strong> a few bits per line or set, plus predictor tables for learned policies. Usually off the hit critical path.</li></ul>
+<h3>By Access Pattern</h3>
+<p>The patterns are the ones on <a href="#/cache-patterns">Workload Access Patterns</a>. Each entry agrees with the "Where It Helps" and "Where It Hurts" tables above.</p>
+<div class="tbl"><table><tr><th>Access Pattern</th><th>Best Policies</th><th>Worst Policies</th></tr>
+<tr><td><a href="#/cache-patterns/stream">Sequential streaming</a></td><td>The stream gets no hits under any policy, so choose one that keeps it from flushing other data: BRRIP, SHiP, or non-temporal hints that insert at the LRU position.</td><td>LRU, tree PLRU, and NRU: every stream line enters fully protected and pushes useful lines out.</td></tr>
+<tr><td><a href="#/cache-patterns/strided">Strided access</a></td><td>LRU or tree PLRU, once padding or hashed indexing has removed the conflicts.</td><td>None stands out: when far more lines map to a set than it has ways, no policy helps. Fix the mapping instead.</td></tr>
+<tr><td><a href="#/cache-patterns/hot">Small hot working sets</a></td><td>LRU or tree PLRU. Nothing needs evicting, so the cheapest policy wins.</td><td><ul><li>Random and FIFO in low-associativity caches, which can evict the hottest line</li><li>BIP, which only adds risk when everything fits</li></ul></td></tr>
+<tr><td><a href="#/cache-patterns/tiled">Blocked and tiled loops</a></td><td>LRU or tree PLRU. Reuse within a tile is short-range recency.</td><td>LIP, BIP, and BRRIP: new lines start unprotected, so some are evicted before their reuse in the tile.</td></tr>
+<tr><td><a href="#/cache-patterns/pointer">Pointer chasing</a></td><td><ul><li>SHiP and Hawkeye, which learn which load PCs fetch reused nodes</li><li>BRRIP or Random for repeated traversals of a structure larger than the cache</li></ul></td><td>LRU and tree PLRU on repeated traversals larger than the cache, which behave as cyclic loops.</td></tr>
+<tr><td><a href="#/cache-patterns/random">Random hash lookups</a></td><td><ul><li>Uniform keys: all policies get about the same hit rate, so choose the cheapest</li><li>Skewed keys: LFU-style counters, or SRRIP with frequency priority</li></ul></td><td>PC-based predictors (SHiP, Hawkeye) gain nothing: every probe comes from the same few lookup PCs, so the reuse depends on the key, not the instruction.</td></tr>
+<tr><td><a href="#/cache-patterns/ifetch">Instruction fetch</a></td><td><ul><li>L1I: LRU or tree PLRU</li><li>L2 and LLC: policies that protect code from data scans, such as EMISSARY</li></ul></td><td>LRU-like policies in a shared L2 or LLC, where data scans flush hot code.</td></tr>
+<tr><td><a href="#/cache-patterns/thrash">Cyclic loops larger than the cache</a></td><td>LIP, BIP, and BRRIP, which keep a fixed part of the loop, or DIP and DRRIP, which choose them automatically. Random also beats LRU.</td><td>LRU, tree PLRU, FIFO, and SRRIP: each line is evicted just before its reuse, so they get no hits.</td></tr>
+<tr><td><a href="#/cache-patterns/scan">Hot data plus scans</a></td><td>SRRIP (a new line must be reused before it outranks the hot set), BRRIP, SHiP, Hawkeye, and LFU.</td><td>LRU, tree PLRU, and NRU, which give scans no protection, and FIFO, which evicts the hottest line every N fills.</td></tr>
+<tr><td><a href="#/cache-patterns/shared">Shared and producer-consumer data</a></td><td>No policy decides the shared lines' misses. The coherence protocol does, through cache-to-cache forwarding and directory latency.</td><td>In an inclusive LLC, policies that age unused lines fast (BRRIP) can evict the cores' private hot data, which never hits in the LLC, and back-invalidate it.</td></tr>
+</table></div>
 <h3>By Workload</h3>
 <div class="tbl"><table><tr><th>Workload</th><th>Effect</th></tr>
 <tr><td>Compute-bound</td><td>No effect, since everything fits.</td></tr>
-<tr><td>Pointer chasing</td><td>Helps when the hot part of a large structure can be kept. Random or RRIP beat LRU on cyclic traversals.</td></tr>
-<tr><td>Streaming</td><td>Scans evict useful data under LRU. Scan-resistant policies (BIP, RRIP) protect other data. The stream itself gets no hits either way.</td></tr>
 <tr><td>Large code footprint</td><td>Matters in L2/LLC. Code competes with data, and protecting hot code helps the frontend.</td></tr>
 <tr><td>Branch-heavy integer</td><td>Small to moderate gains.</td></tr>
 <tr><td>Blocked numerics</td><td>LRU works well when tiles fit, so there is little to gain.</td></tr>
