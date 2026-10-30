@@ -6,10 +6,18 @@ section({
   id: "conc",
   name: "Concurrency in C",
   cap: "Atomics, barriers, and cache-line layout",
+  sections: [
+    { id: "pages", label: "How the Pages Fit Together" }
+  ],
   body: `
 <p>Multithreaded performance depends on how threads communicate: synchronization cost, how much data actually moves between cores, and how much work runs in parallel.</p>
-<h3>Amdahl's Law</h3>
-<p>Speedup = 1 / ((1 − p) + p / n), where p is the parallel fraction and n the thread count. The serial part dominates quickly.</p>`,
+<p>How much a parallel program can gain at best is set by its serial fraction (<a href="#/r/perf/amdahl">Amdahl's Law</a>). These pages are about the costs that keep it below that bound.</p>
+<h3 id="sec-pages">How the Pages Fit Together</h3>
+<ul>
+<li><a href="#/c11-ordering">C11 Memory Ordering</a>: what acquire and release guarantee, and when a store becomes visible to another thread.</li>
+<li><a href="#/barrier">Sense-Reversing Barriers</a>: a reusable barrier built from those orderings.</li>
+<li><a href="#/false-sharing">False Sharing and Cache-Line Isolation</a>: how data layout turns independent writes into coherence traffic.</li>
+</ul>`,
   practice: {
     guided: [
       {

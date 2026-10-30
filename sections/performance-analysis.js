@@ -6,11 +6,18 @@ section({
   id: "perf",
   name: "Performance Analysis",
   cap: "Methodology, workloads, benchmarks, models, validation, power",
+  sections: [
+    { id: "ironlaw", label: "The Iron Law" },
+    { id: "amdahl", label: "Amdahl's Law" },
+    { id: "pages", label: "How the Pages Fit Together" }
+  ],
   body: `
 <p>Performance work is mostly measurement: choosing workloads, measuring the right things, finding the bottleneck, and summarizing results honestly. The same analysis applies to performance models, RTL, emulation, and real silicon. This region covers the methodology: how to simulate and summarize, what to run, how to model performance on paper, how to check a model against hardware, and how to model power. Finding where the cycles go, from statistics and stall causes to bounding each stage, is in <a href="#/r/stall">Stalls and Bottlenecks</a>.</p>
-<h3>The Iron Law</h3>
+<h3 id="sec-ironlaw">The Iron Law</h3>
 <p>Time = instructions × CPI × cycle time. A change helps only if it improves the product; a better CPI with a lower clock or more instructions can be a loss (see <a href="#/pipelining">Pipelining and the iron law</a>).</p>
-<h3>How the Pages Fit Together</h3>
+<h3 id="sec-amdahl">Amdahl's Law</h3>
+<p>Speedup = 1 / ((1 − p) + p / n), where p is the fraction of the work that benefits from an improvement and n is how much faster that part gets (for parallel code, the thread count). The part that doesn't improve dominates quickly. <a href="#/r/conc">Concurrency in C</a> covers what keeps real threads below this bound.</p>
+<h3 id="sec-pages">How the Pages Fit Together</h3>
 <ul>
 <li><a href="#/ipc-spec">IPC and simulation methodology</a>: CPI stacks, summarizing results, simulation hygiene, and model correlation.</li>
 <li><a href="#/workloads">Types of workloads</a> and <a href="#/spec-cpu">SPEC CPU benchmarks</a>: what to run, and what each workload stresses.</li>
