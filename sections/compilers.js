@@ -61,7 +61,7 @@ int f(int x) {
     printf("x = %d\\n", x);
     return y;
 }</code></pre>
-<h3 id="sec-preprocess">Step 1: Preprocessing</h3>
+<h3 id="sec-preprocess">Preprocessing</h3>
 <p>The preprocessor works on text, before any real compiling:</p>
 <ul>
 <li><strong>#include</strong> pastes in the contents of other files. Here, stdio.h supplies the declaration <code>int printf(const char *restrict format, ...);</code>, which is how the compiler later knows printf exists, what it returns, and that it takes a variable number of arguments. It does <em>not</em> supply printf's code; that comes from the C library at link time.</li>

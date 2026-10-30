@@ -43,8 +43,8 @@ section({
   title: "What an ISA Defines",
   sections: [
     { id: "types-regs", label: "Data Types and Registers" },
-    { id: "fp", label: "Floating-Point Formats" },
     { id: "abi", label: "ISA vs. ABI" },
+    { id: "fp", label: "Floating-Point Formats" },
     { id: "semantics", label: "Instruction Semantics" },
     { id: "memory", label: "Memory: Endianness, Model, Protection" },
     { id: "system", label: "Privilege, Interrupts, Exceptions" }
@@ -60,6 +60,8 @@ section({
 <li><strong>Special registers:</strong><ul><li>Status flags (x86's FLAGS, Arm's condition flags)</li><li>Floating-point control and status (rounding mode, exception flags)</li><li>Control and status registers (CSRs) for privileged state, such as interrupt settings and the page table base (the address of the current page table's root: CR3 on x86, satp on RISC-V, TTBR on Arm), which the OS switches on every context switch</li></ul> Not every ISA has condition flags: RISC-V has none, so its branches compare two registers directly and comparisons like <code>slt</code> write a 0 or 1 into a register. That avoids a shared flags register every instruction might update, which simplifies out-of-order cores.</li>
 <li><strong>Vector registers</strong> for SIMD or vector extensions.</li>
 </ul>
+<h3 id="sec-abi">ISA vs. ABI</h3>
+<p>The ISA defines only some register roles, such as the zero register and the PC. Conventions like "the first function argument goes in a0," "the return value goes in a0," or "these registers must be preserved across a call" come from the <strong>ABI</strong> (application binary interface), a separate agreement between compilers, libraries, and operating systems. Two programs compiled for the same ISA but different ABIs can't call each other's functions correctly.</p>
 <h3 id="sec-fp">Floating-Point Formats</h3>
 <p>Almost every ISA uses the IEEE 754 standard. A floating-point number works like scientific notation in binary, with three fields:</p>
 <ul>
@@ -86,9 +88,7 @@ section({
 <li><strong>Scientific computing</strong> usually needs double precision; <strong>graphics and AI</strong> tolerate much less.</li>
 <li><strong>Newer ISAs add smaller formats:</strong><ul><li>Half precision (FP16: 1/5/10 bits)</li><li>Bfloat16 (1/8/7 bits: the same range as single precision with less precision, popular for AI training)</li><li>8-bit formats for AI inference</li></ul> Halving the bits doubles how many numbers fit through the same memory bandwidth and vector units, which matters for bandwidth-bound AI workloads (see <a href="#/gen-gpus/roofline">the roofline model</a>).</li>
 </ul>
-<p>Every format from FP128 down to FP4, how the mantissa sets precision, BF16, TF32, and how the hardware computes with them: <a href="#/r/arith">Computer Arithmetic</a>.</p>
-<h3 id="sec-abi">ISA vs. ABI</h3>
-<p>The ISA defines only some register roles, such as the zero register and the PC. Conventions like "the first function argument goes in a0," "the return value goes in a0," or "these registers must be preserved across a call" come from the <strong>ABI</strong> (application binary interface), a separate agreement between compilers, libraries, and operating systems. Two programs compiled for the same ISA but different ABIs can't call each other's functions correctly.</p>
+<p>Every format from FP128 down to FP4, how the mantissa sets precision, BF16, TF32, and how the hardware computes with them: <a href="#/r/arith">Computer Arithmetic</a>, starting with <a href="#/fp-encoding">Encoding a Float</a> and <a href="#/fp-ml-formats">Low-Precision ML Formats</a>.</p>
 <h3 id="sec-semantics">Instruction Semantics</h3>
 <p>For every instruction, the ISA defines the exact effect on the architectural state: which registers and memory it reads and writes, what happens on overflow, which condition flags change, how floating-point results are rounded, and which exceptions it can raise. It also defines the instruction <a href="#/isa-encoding">encoding</a> and the <a href="#/isa-addressing">addressing modes</a> operands can use.</p>
 <p>The encoding says what an instruction <em>is</em>; the semantics say what it <em>does</em>. For unusual cases, the ISA defines what happens: whether the instruction raises an exception or produces a defined result. Divide by zero shows that ISAs genuinely differ, which is exactly why this must be specified:</p>
