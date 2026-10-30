@@ -45,6 +45,7 @@ const GLOSSARY = {
   "demand paging": { def: "Mapping pages as not present and loading each one only when its first access faults.", page: "demand-paging/backing" },
   "precise exception": { def: "An exception taken so that every older instruction has completed and neither the faulting instruction nor any younger one has changed architectural state, so the handler can restart from one PC.", page: "exceptions/out-order-core" },
   "trap frame": { def: "The user thread's registers, PC, and status, saved on the kernel stack at every kernel entry (struct pt_regs on Linux).", page: "exceptions/trap-frame" },
+  "file descriptor": { def: "A small integer indexing the process's descriptor table. Each entry points at an open-file entry holding the offset, which fork and dup2 share.", page: "file-syscalls/descriptors" },
   "TSO": { def: "Total store order, x86's memory model: a load may pass an earlier store to a different address; nothing else is reordered.", page: "consistency/tso" },
   "UVM": { def: "Universal Verification Methodology: the standard SystemVerilog class library for building reusable testbenches.", page: "verif-testbench" },
   "store-to-load forwarding": { def: "A load gets its data straight from an older, not-yet-committed store to the same address in the store queue.", page: "lsq" },
