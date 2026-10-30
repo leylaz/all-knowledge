@@ -177,6 +177,114 @@ section({
 </table></div>
 <h3>Floating-Point Highlights</h3>
 <ul><li><strong>Bandwidth-bound streaming:</strong> 519.lbm, 503.bwaves, 549.fotonik3d, 554.roms.</li><li><strong>Compute-heavy:</strong> 508.namd, 544.nab, 511.povray, 538.imagick.</li><li><strong>Large, mixed applications:</strong> 521.wrf, 527.cam4, 526.blender, 510.parest, 507.cactuBSSN.</li></ul>
+<h3 id="sec-lbm">A Closer Look at 519.lbm</h3>
+<p><strong>What it computes.</strong> 519.lbm_r (and 619.lbm_s) simulates an incompressible fluid in 3D with the lattice Boltzmann method. Thomas Pohl wrote it as the core of a larger code that models gas bubbles forming in metal foams. Instead of solving the Navier–Stokes equations directly, it tracks, for every cell of a regular grid, how much fluid is moving in each of 19 fixed directions (the D3Q19 lattice: at rest, the 6 face neighbors, and the 12 edge neighbors). Each time step does two things:</p>
+<ul><li><strong>Collide:</strong> from a cell's 19 values, compute its density and velocity, then relax each value toward the equilibrium for that density and velocity.</li><li><strong>Stream:</strong> move each relaxed value one cell along its direction, into the neighbor it points at.</li></ul>
+<p>Obstacle cells, read from an obstacle file, bounce values back the way they came. The refrate input runs 3000 time steps on a 100 × 100 × 130 grid with a shear-flow (moving lid) boundary. Refspeed runs 2000 steps on 200 × 200 × 260. Train uses a different geometry and no shear flow, but the same kernel.</p>
+<p><strong>Data layout.</strong> The code keeps two copies of the grid, src and dst, and swaps them after every step. Each cell is 20 doubles (the 19 values plus a flag word that marks obstacle and lid cells), 160 B, stored cell by cell with x varying fastest. One grid is 1.3 M cells × 160 B ≈ 208 MB, so the pair plus padding planes is about 430 MB, far larger than any LLC. All accesses go through macros, so the layout can be changed in one place, but SPEC's run rules forbid source changes, so scored runs always use this array-of-structures layout.</p>
+<h4>One Time Step in Code</h4>
+<p>A simplified version of the kernel (the real one unrolls the 19 directions by hand and handles obstacle and lid cells first). It pushes: it reads one cell from src and writes into 19 neighbors in dst.</p>
+<pre><code>#define NX 100
+#define NY 100
+#define NZ 130
+#define Q  20   /* 19 values + 1 flag word per cell */
+#define IDX(x, y, z, i) ((i) + Q * ((x) + NX * ((y) + NY * (z))))
+
+/* cx, cy, cz: direction i's step in x, y, z (each -1, 0, or +1)
+   w: lattice weights, OMEGA: relaxation rate */
+for (int z = 0; z &lt; NZ; z++)
+  for (int y = 0; y &lt; NY; y++)
+    for (int x = 0; x &lt; NX; x++) {
+      const double *f = &amp;src[IDX(x, y, z, 0)];   /* 160 contiguous bytes */
+
+      double rho = 0, ux = 0, uy = 0, uz = 0;     /* density and velocity */
+      for (int i = 0; i &lt; 19; i++) {
+        rho += f[i];
+        ux += cx[i] * f[i]; uy += cy[i] * f[i]; uz += cz[i] * f[i];
+      }
+      ux /= rho; uy /= rho; uz /= rho;
+      double u2 = 1.5 * (ux * ux + uy * uy + uz * uz);
+
+      for (int i = 0; i &lt; 19; i++) {            /* collide, then stream */
+        double cu  = 3.0 * (cx[i] * ux + cy[i] * uy + cz[i] * uz);
+        double feq = w[i] * rho * (1.0 + cu + 0.5 * cu * cu - u2);
+        dst[IDX(x + cx[i], y + cy[i], z + cz[i], i)] = f[i] - OMEGA * (f[i] - feq);
+      }
+    }
+/* swap src and dst, then repeat (3000 times for refrate) */</code></pre>
+<p>Each cell update does around 200 floating-point operations against 160 B read and 152 B written, well under 1 flop per byte of DRAM traffic. On the <a href="#/perf-analytical/roofline">roofline</a> it sits far left of the ridge point of any current CPU, so memory bandwidth sets its speed.</p>
+<h4>Reading src</h4>
+<div class="tbl"><svg viewBox="0 0 680 222" role="img" aria-label="The src grid in memory. Four 160-byte cells, x minus 1 through x plus 2, sit back to back over ten 64-byte cache lines. Cell x, the one being updated, covers bytes 160 to 319, which is half of line 2 and all of lines 3 and 4. Line 2 was already brought in by cell x minus 1. The sweep reads addresses in ascending order, x fastest, then y, then z." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="14" style="fill:var(--ink);font-size:13px;font-weight:600">src read: cell (x, y, z) is 20 doubles, 160 B, next to its x neighbors in memory</text>
+<g style="fill:var(--surface);stroke:var(--rule);stroke-width:1"><rect x="20" y="32" width="160" height="40"/><rect x="340" y="32" width="160" height="40"/><rect x="500" y="32" width="160" height="40"/></g>
+<rect x="180" y="32" width="160" height="40" style="fill:var(--accent-green);fill-opacity:.2;stroke:var(--accent-green);stroke-width:2"/>
+<g style="font-size:11px" text-anchor="middle"><text x="100" y="50" style="fill:var(--muted)">cell x − 1</text><text x="100" y="64" style="fill:var(--muted)">(read last update)</text><text x="260" y="50" style="fill:var(--ink);font-weight:600">cell x: f[0] … f[18], flag</text><text x="260" y="64" style="fill:var(--ink)">read now</text><text x="420" y="50" style="fill:var(--muted)">cell x + 1</text><text x="420" y="64" style="fill:var(--muted)">(next update)</text><text x="580" y="50" style="fill:var(--muted)">cell x + 2</text></g>
+<g style="fill:var(--surface);stroke:var(--rule);stroke-width:1"><rect x="20" y="92" width="64" height="22"/><rect x="84" y="92" width="64" height="22"/><rect x="340" y="92" width="64" height="22"/><rect x="404" y="92" width="64" height="22"/><rect x="468" y="92" width="64" height="22"/><rect x="532" y="92" width="64" height="22"/><rect x="596" y="92" width="64" height="22"/></g>
+<rect x="148" y="92" width="64" height="22" style="fill:var(--accent-green);fill-opacity:.1;stroke:var(--accent-green);stroke-width:1;stroke-dasharray:3 2"/>
+<g style="fill:var(--accent-green);fill-opacity:.2;stroke:var(--accent-green);stroke-width:2"><rect x="212" y="92" width="64" height="22"/><rect x="276" y="92" width="64" height="22"/></g>
+<g style="fill:var(--muted);font-size:10px" text-anchor="middle"><text x="52" y="107">line 0</text><text x="116" y="107">line 1</text><text x="180" y="107">line 2</text><text x="244" y="107" style="fill:var(--ink)">line 3</text><text x="308" y="107" style="fill:var(--ink)">line 4</text><text x="372" y="107">line 5</text><text x="436" y="107">line 6</text><text x="500" y="107">line 7</text><text x="564" y="107">line 8</text><text x="628" y="107">line 9</text></g>
+<path d="M180,72V92M340,72V92" style="fill:none;stroke:var(--muted);stroke-width:1;stroke-dasharray:2 2"/>
+<text x="0" y="132" style="fill:var(--muted);font-size:11px">64 B lines. Cell x needs 2.5 lines: line 2 is already in L1 from cell x − 1, lines 3 and 4 are new.</text>
+<path d="M20,152H650" style="fill:none;stroke:var(--accent-green);stroke-width:1.5"/><polygon points="660,152 650,147 650,157" style="fill:var(--accent-green)"/>
+<text x="20" y="170" style="fill:var(--ink);font-size:11px">Address order is sweep order (x fastest, then y, then z): one ascending stream for the L2 prefetcher.</text>
+<text x="20" y="190" style="fill:var(--ink);font-size:11px">Each line is finished after at most 2 cell updates. Its next touch is one step later, as dst, after about 430 MB</text>
+<text x="20" y="206" style="fill:var(--ink);font-size:11px">of other traffic, so no cache keeps it: every src line comes from DRAM once per step.</text>
+</svg></div>
+<h4>Writing dst</h4>
+<div class="tbl"><svg viewBox="0 0 680 330" role="img" aria-label="Where the 19 values from source cell x, y, z land in dst. In plane z all 9 cells of the 3 by 3 neighborhood get one value each: C at the source position, N, S, E, W, NE, NW, SE, SW around it. In plane z minus 1, 1.6 MB lower, a plus shape of 5 cells gets B, NB, SB, EB, WB. In plane z plus 1, 1.6 MB higher, a plus shape gets T, NT, ST, ET, WT. The stores hit 9 rows, so the kernel runs 9 write streams." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="14" style="fill:var(--ink);font-size:13px;font-weight:600">dst write: the 19 new values go to 19 different cells (push)</text>
+<g text-anchor="middle"><text x="160" y="42" style="fill:var(--ink);font-size:12px;font-weight:600">plane z − 1</text><text x="374" y="42" style="fill:var(--ink);font-size:12px;font-weight:600">plane z</text><text x="588" y="42" style="fill:var(--ink);font-size:12px;font-weight:600">plane z + 1</text><text x="160" y="58" style="fill:var(--muted);font-size:10px">1.6 MB below the source</text><text x="374" y="58" style="fill:var(--muted);font-size:10px">rows 16 KB apart</text><text x="588" y="58" style="fill:var(--muted);font-size:10px">1.6 MB above the source</text></g>
+<g style="fill:var(--muted);font-size:11px"><text x="0" y="102">y + 1</text><text x="0" y="158">y</text><text x="0" y="214">y − 1</text></g>
+<g style="fill:var(--surface);stroke:var(--rule);stroke-width:1"><rect x="76" y="70" width="56" height="56"/><rect x="188" y="70" width="56" height="56"/><rect x="76" y="182" width="56" height="56"/><rect x="188" y="182" width="56" height="56"/><rect x="504" y="70" width="56" height="56"/><rect x="616" y="70" width="56" height="56"/><rect x="504" y="182" width="56" height="56"/><rect x="616" y="182" width="56" height="56"/></g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"><rect x="132" y="70" width="56" height="56"/><rect x="76" y="126" width="56" height="56"/><rect x="132" y="126" width="56" height="56"/><rect x="188" y="126" width="56" height="56"/><rect x="132" y="182" width="56" height="56"/><rect x="290" y="70" width="56" height="56"/><rect x="346" y="70" width="56" height="56"/><rect x="402" y="70" width="56" height="56"/><rect x="290" y="126" width="56" height="56"/><rect x="346" y="126" width="56" height="56"/><rect x="402" y="126" width="56" height="56"/><rect x="290" y="182" width="56" height="56"/><rect x="346" y="182" width="56" height="56"/><rect x="402" y="182" width="56" height="56"/><rect x="560" y="70" width="56" height="56"/><rect x="504" y="126" width="56" height="56"/><rect x="560" y="126" width="56" height="56"/><rect x="616" y="126" width="56" height="56"/><rect x="560" y="182" width="56" height="56"/></g>
+<rect x="349" y="129" width="50" height="50" style="fill:none;stroke:var(--accent-green);stroke-width:2.5"/>
+<g style="fill:var(--trace);font-size:12px;font-weight:600" text-anchor="middle"><text x="160" y="102">NB</text><text x="104" y="158">WB</text><text x="160" y="158">B</text><text x="216" y="158">EB</text><text x="160" y="214">SB</text><text x="318" y="102">NW</text><text x="374" y="102">N</text><text x="430" y="102">NE</text><text x="318" y="158">W</text><text x="374" y="158">C</text><text x="430" y="158">E</text><text x="318" y="214">SW</text><text x="374" y="214">S</text><text x="430" y="214">SE</text><text x="588" y="102">NT</text><text x="532" y="158">WT</text><text x="588" y="158">T</text><text x="644" y="158">ET</text><text x="588" y="214">ST</text></g>
+<g style="fill:var(--muted);font-size:10px" text-anchor="middle"><text x="104" y="252">x − 1</text><text x="160" y="252">x</text><text x="216" y="252">x + 1</text><text x="318" y="252">x − 1</text><text x="374" y="252">x</text><text x="430" y="252">x + 1</text><text x="532" y="252">x − 1</text><text x="588" y="252">x</text><text x="644" y="252">x + 1</text></g>
+<text x="0" y="280" style="fill:var(--ink);font-size:11px">The stores land in 9 rows, 3 per plane: 9 write streams, each moving 160 B per update.</text>
+<text x="0" y="296" style="fill:var(--ink);font-size:11px">Each store is one 8 B double, so a dst line is filled piece by piece, by updates up to 2 planes apart.</text>
+<g style="fill:var(--muted);font-size:11px"><rect x="0" y="310" width="16" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/><text x="22" y="320">receives one of the 19 values</text><rect x="210" y="310" width="16" height="12" rx="2" style="fill:none;stroke:var(--accent-green);stroke-width:2"/><text x="232" y="320">the source cell's position (x, y, z)</text></g>
+</svg></div>
+<h4>Reading dst: The Hidden Read</h4>
+<p>The kernel never loads from dst, but with ordinary write-allocate stores the hardware does. The first store to a dst line misses and issues a <a href="#/cache-write/wa">read for ownership</a> (RFO), which fetches the old 64 B from DRAM only so the stores can merge into it. The old contents are stale (they are two steps old) and every byte the program cares about gets overwritten.</p>
+<div class="tbl"><svg viewBox="0 0 680 300" role="img" aria-label="Timeline of one dst line in plane Z. While the sweep is in plane Z minus 1, the first store misses and a read for ownership brings 64 bytes from DRAM, then the T family of 5 values is stored. While the sweep is in plane Z, 9 in-plane values are stored. While it is in plane Z plus 1, the B family of 5 values is stored. Later the dirty line is evicted and written back. Below, DRAM bytes per cell update: 480 with ordinary stores, 160 for the src read, 160 for the RFO and 160 for the writeback, versus 320 with non-temporal stores." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="14" style="fill:var(--ink);font-size:13px;font-weight:600">Life of one dst line in plane Z, with ordinary stores</text>
+<path d="M30,100H650" style="fill:none;stroke:var(--rule);stroke-width:1.5"/><polygon points="660,100 650,95 650,105" style="fill:var(--rule)"/>
+<path d="M120,40V88" style="fill:none;stroke:var(--accent-red);stroke-width:2"/><polygon points="120,96 115,86 125,86" style="fill:var(--accent-red)"/>
+<text x="120" y="34" text-anchor="middle" style="fill:var(--accent-red);font-size:11px;font-weight:600">1st store misses: RFO reads 64 B</text>
+<path d="M600,92V50" style="fill:none;stroke:var(--trace);stroke-width:2"/><polygon points="600,42 595,52 605,52" style="fill:var(--trace)"/>
+<text x="600" y="34" text-anchor="middle" style="fill:var(--trace);font-size:11px;font-weight:600">evicted: writeback 64 B</text>
+<g style="fill:var(--trace)"><circle cx="140" cy="100" r="4"/><circle cx="330" cy="100" r="4"/><circle cx="500" cy="100" r="4"/></g>
+<g text-anchor="middle" style="font-size:11px"><text x="140" y="120" style="fill:var(--ink)">sweep in plane Z − 1</text><text x="140" y="134" style="fill:var(--muted)">5 values (T family)</text><text x="330" y="120" style="fill:var(--ink)">sweep in plane Z</text><text x="330" y="134" style="fill:var(--muted)">9 in-plane values</text><text x="500" y="120" style="fill:var(--ink)">sweep in plane Z + 1</text><text x="500" y="134" style="fill:var(--muted)">5 values (B family)</text><text x="600" y="120" style="fill:var(--ink)">later</text></g>
+<g text-anchor="middle" style="fill:var(--muted);font-size:10px"><text x="235" y="92">~3 MB of other lines</text><text x="415" y="92">~3 MB of other lines</text></g>
+<text x="0" y="156" style="fill:var(--muted);font-size:11px">Between visits the line falls out of a 1–2 MB L2 but stays in a 32 MB L3, so DRAM sees it once in each direction.</text>
+<text x="0" y="186" style="fill:var(--ink);font-size:12px;font-weight:600">DRAM bytes per cell update</text>
+<text x="0" y="214" style="fill:var(--muted);font-size:11px">ordinary stores</text>
+<rect x="150" y="198" width="160" height="24" style="fill:var(--accent-green)"/><rect x="310" y="198" width="160" height="24" style="fill:var(--accent-red)"/><rect x="470" y="198" width="160" height="24" style="fill:var(--trace)"/>
+<g text-anchor="middle" style="fill:var(--surface);font-size:11px;font-weight:600"><text x="230" y="214">src read 160</text><text x="390" y="214">dst RFO read 160</text><text x="550" y="214">dst writeback 160</text></g>
+<text x="636" y="214" style="fill:var(--ink);font-size:11px;font-weight:600">480 B</text>
+<text x="0" y="246" style="fill:var(--muted);font-size:11px">non-temporal stores</text>
+<rect x="150" y="230" width="160" height="24" style="fill:var(--accent-green)"/><rect x="310" y="230" width="160" height="24" style="fill:var(--trace)"/>
+<g text-anchor="middle" style="fill:var(--surface);font-size:11px;font-weight:600"><text x="230" y="246">src read 160</text><text x="390" y="246">dst write 160</text></g>
+<text x="476" y="246" style="fill:var(--ink);font-size:11px;font-weight:600">320 B</text>
+<text x="0" y="276" style="fill:var(--ink);font-size:11px">A third of the traffic is the RFO. Over 3000 refrate steps of 1.3 M cells, 480 B per update</text>
+<text x="0" y="292" style="fill:var(--ink);font-size:11px">is about 1.9 TB of DRAM traffic per copy.</text>
+</svg></div>
+<h4>Optimizations for LBM Workloads</h4>
+<p>Real LBM codes (and compilers, within SPEC's rules) attack the bytes per cell update, since that sets the run time. The last column matters when you read SPEC results: only compiler and hardware changes count there.</p>
+<div class="tbl"><table>
+<tr><th>Optimization</th><th>What it changes</th><th>DRAM bytes per update</th><th>Allowed in a SPEC run?</th></tr>
+<tr><td><a href="#/cache-write/nwa">Non-temporal (streaming) stores</a></td><td><ul><li>dst stores skip the RFO and go to memory through write-combining buffers.</li><li>They also stop dst from evicting useful lines from the LLC, which matters in SPECrate.</li><li>Catch: in lbm's push order each dst line is filled across 2 planes, but a core has only about 10 to 16 write-combining buffers. They flush half-filled lines, and partial-line writes can cost more than the RFO saved. Streaming stores pay off when each line is written in full within a short window (pull order or a structure-of-arrays layout).</li></ul></td><td>480 → 320 (1.5× less)</td><td>Yes, if the compiler emits them (for example Intel's <code>-qopt-streaming-stores</code>)</td></tr>
+<tr><td>Hardware RFO elimination</td><td><ul><li>Some cores detect stores that will overwrite a whole line and request ownership without data (Intel's <code>rep movsb</code>/<code>rep stosb</code> fast strings, and the speculative full-line write (SpecI2M) added in Ice Lake-SP).</li><li>Needs the full line written soon, which lbm's scattered stores rarely give it.</li></ul></td><td>Up to 480 → 320</td><td>Yes, it's the hardware</td></tr>
+<tr><td>Pull instead of push</td><td><ul><li>Gather the 19 values from the neighbors in src and write the cell's 160 B contiguously in dst.</li><li>Moves the scattering to loads, which are cheaper when misaligned, and makes full-line writes, so streaming stores work.</li></ul></td><td>None alone, enables 320</td><td>No, source change</td></tr>
+<tr><td>Structure-of-arrays layout</td><td><ul><li>One array per direction, so direction i of neighboring cells is contiguous.</li><li>Gives unit-stride SIMD loads and stores instead of 160 B strides (in array-of-structures, a vector load needs a gather).</li><li>Raises the stream count to 19 reads and 19 writes, which can overflow the L2 prefetcher's stream table and spread accesses over many DRAM rows. Loop splitting keeps fewer arrays live per loop.</li></ul></td><td>None alone, enables 320</td><td>No, source change</td></tr>
+<tr><td>One grid, updated in place (AA pattern, Esoteric Twist)</td><td><ul><li>Alternate two kernels so each value is written back to a slot that was just read, in a line already in cache.</li><li>No RFO without any special stores, and half the memory (215 MB instead of 430 MB for refrate).</li></ul></td><td>480 → 320, half the footprint</td><td>No, source change</td></tr>
+<tr><td>Temporal blocking (wavefront)</td><td><ul><li>Advance a cache-sized block several time steps before moving on, so each value crosses the DRAM bus once per k steps.</li><li>Hard for LBM: 160 B per cell makes blocks small, and the dependence cone shrinks each step.</li></ul></td><td>About 480 / k for k fused steps</td><td>No, source change</td></tr>
+<tr><td>Single precision</td><td><ul><li>Half the bytes per value, at the cost of accuracy.</li></ul></td><td>480 → 240</td><td>No, and output must validate</td></tr>
+<tr><td>Parallel first-touch (SPECspeed)</td><td><ul><li>Initialize the grids with the same threads and decomposition the kernel uses, so each socket's pages sit in its own memory.</li><li>Otherwise one NUMA node serves all the traffic.</li></ul></td><td>Same bytes, more usable bandwidth</td><td>Yes, through OpenMP and OS settings</td></tr>
+</table></div>
+<p><strong>What lbm stresses in a model.</strong></p>
+<ul><li><strong>DRAM bandwidth:</strong> the bound on any multicore run, especially SPECrate with one copy per core.</li><li><strong>Memory-level parallelism:</strong> on one core, L2 miss tracking and prefetch depth limit it before bandwidth does (see the lbm worked example on <a href="#/perf-find-cause">Finding a Stall's Cause</a>).</li><li><strong>Write handling:</strong> RFO versus full-line writes, write-combining buffer count, and writeback buffering.</li><li><strong>LLC policy:</strong> each line is reused only after about 430 MB, a <a href="#/cache-patterns/stream">cyclic stream</a> no LLC can hold, so the policy's job is to keep lbm from evicting other programs' data.</li></ul>
+<p>Sources: <a href="https://www.spec.org/cpu2017/Docs/benchmarks/519.lbm_r.html" target="_blank" rel="noopener">SPEC's 519.lbm_r description</a>, Wittmann et al., “Comparison of different propagation steps for the lattice Boltzmann method,” <em>Computers &amp; Mathematics with Applications</em> 65(6), 2013, and Wellein et al., “On the single processor performance of simple lattice Boltzmann kernels,” <em>Computers &amp; Fluids</em> 35(8–9), 2006.</p>
 <h3>Limits</h3>
 <p>SPEC is mostly single-application and has smaller code footprints than servers, browsers, or JIT-compiled code, so frontend features look less important than they are in practice. Supplement it with real workloads.</p>`,
   practice: {
@@ -188,6 +296,10 @@ section({
       {
         q: `<p>A SPECrate run uses 64 copies of one benchmark. The reference machine ran one copy in 1000 s; your system finishes all 64 copies in 400 s. What’s the ratio? Running one copy alone takes 300 s. What does that tell you?</p>`,
         a: `<ol><li>Rate ratio = 64 × 1000 / 400 = <strong>160</strong>.</li><li>One copy alone takes 300 s, but with 64 copies each takes about 400 s, so each copy is about 33% slower under load. Ideal scaling would give 64 × 1000 / 300 ≈ 213; you’re getting 75% of that. Look at shared LLC misses, DRAM bandwidth, and the all-core clock speed.</li></ol>`
+      },
+      {
+        q: `<p>A production D3Q19 code (19 doubles per cell, no flag word, two grids) runs a 256 × 256 × 256 grid on one AMD EPYC 9654 socket: 12 channels of DDR5-4800, of which a STREAM-like kernel sustains about 370 GB/s. Estimate the memory footprint and the best-case speed in million lattice updates per second (MLUP/s), with ordinary stores and with non-temporal stores.</p>`,
+        a: `<ol><li>Cells: 256³ = 16,777,216. Bytes per cell: 19 × 8 = 152 B.</li><li>Footprint: 2 grids × 16.78 M × 152 B ≈ <strong>5.1 GB</strong>, so every step streams from DRAM.</li><li>Ordinary stores: read 152 B, RFO 152 B, writeback 152 B = 456 B per update. 370 GB/s / 456 B ≈ <strong>811 MLUP/s</strong>, or about 20.7 ms per time step.</li><li>Non-temporal stores: 152 + 152 = 304 B per update. 370 GB/s / 304 B ≈ <strong>1217 MLUP/s</strong>, 1.5× faster.</li><li>These are upper bounds: they assume the kernel reaches STREAM bandwidth, that every dst line is written in full so the streaming stores don't turn into partial writes, and that the roughly 200 flops per update stay hidden under memory time.</li></ol>`
       }
     ],
     interview: [
