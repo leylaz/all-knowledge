@@ -315,7 +315,7 @@ return CONFLICT;</code></pre>
 <li><strong>Best cache size:</strong> with uniform keys, hit rate grows only linearly with size. With skewed keys, a cache that holds the hot keys gets most of the benefit and more capacity adds little.</li>
 <li><strong>Best line size:</strong> small. 32 B lines or 32 B sectors halve the wasted bandwidth, and adjacent-line prefetch hurts.</li>
 <li><strong>Best associativity:</strong> moderate. Hashed addresses already spread over the sets.</li>
-<li><strong>Best replacement policy:</strong> with uniform keys every policy gets about the same hit rate. With skew, frequency-aware policies (LFU-style counters, SHiP) keep the hot keys.</li>
+<li><strong>Best replacement policy:</strong> with uniform keys every policy gets about the same hit rate. With skew, frequency-aware policies (LFU-style counters, or SRRIP with frequency priority) keep the hot keys. PC-based predictors such as SHiP and Hawkeye gain nothing: every probe comes from the same few lookup PCs, so the reuse depends on the key, not the instruction.</li>
 <li><strong>Beyond the cache:</strong> large pages to cut TLB misses, and software prefetching or batched lookups to raise MLP.</li>
 </ul>
 
