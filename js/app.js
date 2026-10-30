@@ -234,8 +234,9 @@ function saveFlags() {
 }
 function cardSnip(card) {
   const qEl = card.querySelector(".q").cloneNode(true);
-  const qn = qEl.querySelector(".qn");
-  if (qn) qn.remove();
+  /* Givens added after a question was written sit in p.given and stay out of
+     the key, so adding one doesn't orphan the card's flags or answers. */
+  qEl.querySelectorAll(".qn, .given").forEach(el => el.remove());
   return qEl.textContent.replace(/\s+/g, " ").trim().slice(0, 160);
 }
 const isFlagged = snip => FLAGS.some(f => f.snip === snip);
