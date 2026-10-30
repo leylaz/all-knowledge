@@ -721,6 +721,7 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
     { id: "ship", label: "Signature-Based Hit Prediction (SHiP)" },
     { id: "hawkeye", label: "Hawkeye" },
     { group: "Trade-Offs" },
+    { id: "reasoning", label: "Reasoning About Any Policy" },
     { id: "math", label: "The Math" },
     { id: "power-performance-area", label: "Power, Performance, Area" },
     { id: "access-pattern", label: "By Access Pattern" },
@@ -2427,6 +2428,36 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Complex reuse that correlates with the load PC but follows no simple recency or frequency rule</li><li>Mixes of scans, thrashing loops, and hot data in one program</li></ul></td><td><ul><li>505.mcf_r and 520.omnetpp_r, where learned policies close much of the gap between LRU and OPT</li><li>Database and graph-analytics LLC traffic</li></ul></td></tr></table></div>
 <h4>Where Hawkeye Hurts</h4>
 <div class="tbl"><table class="halves"><tr><th>Access Patterns</th><th>Workloads</th></tr><tr><td><ul><li>Heavy prefetching: OPT ignores prefetch timeliness (Harmony, ISCA 2018, fixes this)</li><li>PCs that load both reused and single-use data</li><li>Phases shorter than the sampler's training time</li></ul></td><td><ul><li>519.lbm_r with aggressive stream prefetching</li><li>500.perlbench_r's interpreter loads</li></ul></td></tr></table></div>
+
+<h3 id="sec-reasoning">Reasoning About Any Policy</h3>
+<p>Every replacement policy is a bet about when a line will be used again. To predict how a policy does, classify the workload's access pattern and check whether the bet matches it.</p>
+<ol>
+<li><strong>Read the bet from the insertion position.</strong> Where a policy puts a new line is its prediction for that line:
+<ul>
+<li><a href="#/cache-replacement/lru">LRU</a> inserts at MRU, betting "reused soon." That suits recency-friendly code and fails on streams.</li>
+<li><a href="#/cache-replacement/lip">LIP</a> inserts at the LRU end, betting "never reused." <a href="#/cache-replacement/bip">BIP</a> does the same except for 1 fill in 32, which goes to MRU so a new working set can get in. Both protect the lines already in the set.</li>
+<li><a href="#/cache-replacement/srrip">SRRIP</a> inserts at RRPV 2 ("long"), a hedge between the two. <a href="#/cache-replacement/brrip">BRRIP</a> inserts at RRPV 3 ("distant") except for 1 fill in 32 at RRPV 2, close to BIP's bet.</li>
+</ul></li>
+<li><strong>Classify by four patterns, not dozens of workloads.</strong> The RRIP paper (Jaleel et al., ISCA 2010) uses these, where k is the number of distinct lines reused per set and N is the associativity:
+<ul>
+<li><strong>Recency-friendly:</strong> k ≤ N, so the working set fits. After warm-up nothing is evicted and every policy hits.</li>
+<li><strong>Thrashing:</strong> a cyclic working set with k &gt; N. It hurts LRU most when k is just above N, because LRU gets nothing while a policy that keeps N − 1 lines would hit on most accesses.</li>
+<li><strong>Streaming:</strong> no reuse at all. No policy gets hits, so the only question is what the stream evicts.</li>
+<li><strong>Mixed:</strong> a recency-friendly working set interrupted by scans or streams. This is the realistic case and the one the insertion policies were built for.</li>
+</ul></li>
+<li><strong>Run the loop test.</strong> Take a 4-way set and the loop A B C D E A B C D E, five lines in four ways. LRU misses on every access, because it always evicts the line needed next. LIP keeps A, B, and C and lets D and E evict each other in the LRU way: 3 of 5 hits in steady state. MRU replacement (evict the most recently used line) and OPT also keep part of the loop. The rule: LRU's hit rate falls off a cliff as soon as the working set exceeds the associativity.</li>
+<li><strong>Run the scan test.</strong> Ask whether one pass over a large array flushes the hot data:
+<ul>
+<li><strong>LRU, tree PLRU, NRU:</strong> yes. Every scanned line enters at MRU, so a scan of N lines per set evicts everything.</li>
+<li><strong>LIP and BRRIP:</strong> no, for scans of almost any length. Scanned lines enter at the eviction position and replace one another, so the hot lines are never aged.</li>
+<li><strong>SRRIP:</strong> only for short scans. Whenever no line has RRPV 3, every RRPV in the set goes up, hot lines included. In a 4-way set with 2 hot lines at RRPV 0, the hot lines reach RRPV 3 after three such rounds, and the 7th scan line to that set evicts one. SRRIP keeps the hot data only if it is reused during the scan or the scan is short. That is why DRRIP adds BRRIP.</li>
+</ul></li>
+<li><strong>Random has no pathological pattern.</strong> No trace drives it to zero hits the way the loop test does for LRU: on a loop just larger than the set, each line survives some evictions by chance. It gives up LRU's edge when a hot line must survive among lines that aren't reused, since it is as likely to evict the hot line as any other. It is cheap (one LFSR for the cache), competitive on thrashing patterns, and close to LRU in large, highly associative caches.</li>
+<li><strong>Know which policies are stack algorithms.</strong> In a stack algorithm (Mattson et al., 1970) the contents of a smaller cache are always a subset of a larger one's on the same trace, so adding capacity never adds misses. LRU and OPT are stack algorithms, and in a set-associative cache the property holds per set: adding ways while keeping the number of sets fixed never hurts. It says nothing about raising associativity at a fixed capacity, which changes the set mapping. FIFO is not a stack algorithm and can show Belady's anomaly (Belady, Nelson, and Shedler, 1969), where more ways give more misses on some traces.</li>
+<li><strong>Measure against OPT.</strong> <a href="#/cache-replacement/opt">Belady's OPT</a> (MIN in his 1966 paper) evicts the line whose next use is furthest in the future and gives the fewest misses on any trace. For any policy, ask how far it is from OPT on the pattern at hand. <a href="#/cache-replacement/hawkeye">Hawkeye</a> (Jain and Lin, ISCA 2016) trains its predictor by running OPT on past accesses to sampled sets.</li>
+<li><strong>When the pattern is unknown, let sets vote.</strong> <a href="#/cache-replacement/dip">Set dueling</a> in DIP and DRRIP dedicates a few leader sets to each policy (32 each in the papers) and a 10-bit counter picks the one with fewer misses for all other sets. The hardware doesn't know the pattern ahead of time, so it measures it.</li>
+<li><strong>Match the write policy to the reuse of written data.</strong> Write-back with write-allocate wins when written lines are read or written again soon. Large streaming writes, such as memcpy targets and framebuffers, favor <a href="#/cache-write/nwa">no-write-allocate or non-temporal stores</a>. These skip the read-for-ownership that would fetch each line only to overwrite it, and they keep the stream from evicting useful data.</li>
+</ol>
 
 <h3 id="sec-math">The Math</h3>
 <ul>
