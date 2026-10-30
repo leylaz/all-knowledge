@@ -451,11 +451,11 @@ endmodule</code></pre>
   id: "verif-coverage",
   region: "verif",
   title: "Coverage",
-  sections: [{ id: "coverage", label: "Coverage" }, { id: "coverage-calc", label: "How Coverage Is Tracked and Calculated" }],
+  sections: [{ id: "coverage", label: "Code and Functional Coverage" }, { id: "coverage-calc", label: "How Coverage Is Tracked and Calculated" }],
   body: `
 <p>Passing tests only matter if they exercised the design. Coverage measures what the tests actually reached, and it decides when verification is done.</p>
 
-<h3 id="sec-coverage">Coverage</h3>
+<h3 id="sec-coverage">Code and Functional Coverage</h3>
 <p><strong>Coverage</strong> measures how much of the design's behavior the tests have actually exercised. It answers “what have we tested?”, not “is it correct?” Checkers, scoreboards, assertions, and the reference model decide correctness; coverage tells you which situations those checks have seen. Random tests make coverage essential: without it, there's no way to know whether a million random runs ever hit the corner case you care about.</p>
 <p><strong>Code coverage</strong> is collected automatically by the simulator from the RTL itself:</p>
 <ul>

@@ -44,19 +44,19 @@ section({
   region: "gen",
   title: "Neural Network Basics: Neurons, Layers, and Weights",
   sections: [
-    { id: "source", label: "Source" },
+    { id: "source", label: "The Running Example" },
     { id: "structure", label: "The Structure" },
     { id: "why-layers", label: "Why Layers?" },
     { id: "neuron", label: "One Neuron, Step by Step" },
     { id: "squish", label: "Sigmoid and ReLU" },
     { id: "nonlin", label: "Why Nonlinearity?" },
-    { id: "count", label: "13,002 Knobs" },
+    { id: "count", label: "Counting the Parameters" },
     { id: "matrix", label: "Matrix Notation" },
     { id: "function", label: "The Network Is a Function" },
     { id: "nn-hw", label: "The Hardware View" }
   ],
   body: `
-<h3 id="sec-source">Source</h3>
+<h3 id="sec-source">The Running Example</h3>
 <div class="callout">These notes follow Grant Sanderson's lesson <a href="https://www.3blue1brown.com/lessons/neural-networks/" target="_blank" rel="noopener">“But what is a Neural Network?”</a> (3Blue1Brown, Chapter 1 of the Neural Networks series), which has animated versions of every idea below. The hardware sections are additions that tie it to the rest of this site. The figures here are original redraws, not taken from the lesson.</div>
 <p>The running example is recognizing handwritten digits. Your brain does it effortlessly, but writing explicit rules for it (“a 9 is a loop with a line on its right…”) is nearly impossible. A neural network instead <em>learns</em> the rules from many labeled examples.</p>
 <h3 id="sec-structure">The Structure</h3>
@@ -196,7 +196,7 @@ section({
 <p><strong>Remove ReLU</strong> (right) and nothing is clipped anymore. The two hidden neurons are exact opposites apart from their biases, so they cancel:</p><div class="math">\\[y = (x_0 + x_3 - x_1 - x_2 - 1) + (x_1 + x_2 - x_0 - x_3 - 1) = -2\\]</div><p>Every image gets the same output, so the network can't tell any two images apart and misses both diagonals.</p>
 <p>The matrix view shows why. Without ReLU, \\(y = \\mathbf{v}(W\\mathbf{x} + \\mathbf{b}) = (\\mathbf{v}W)\\,\\mathbf{x} + \\mathbf{v}\\,\\mathbf{b}\\). Each column of \\(W\\) holds one +1 and one −1, so adding the two rows cancels every weight:</p><div class="math">\\[\\mathbf{v}W = \\begin{pmatrix} 1 & 1 \\end{pmatrix}\\begin{pmatrix}1 & -1 & -1 & 1 \\\\ -1 & 1 & 1 & -1\\end{pmatrix} = \\begin{pmatrix} 0 & 0 & 0 & 0 \\end{pmatrix} \\qquad \\mathbf{v}\\,\\mathbf{b} = -2\\]</div><p>The collapsed network has all-zero weights, so it ignores the image completely. For Image A, the hidden values before ReLU are (1, −3): the −3 from \\(h_1\\) is exactly what ReLU would have clipped, and here it cancels \\(h_0\\)'s vote.</p>
 <p>As with XOR, retraining can't fix this, because “is a diagonal” isn't linearly separable. For any linear model \\(f(\\mathbf{x}) = \\mathbf{w} \\cdot \\mathbf{x} + b\\), the two diagonal images have the same pixel totals as the top-row and bottom-row images, so</p><div class="math">\\[f(1,0,0,1) + f(0,1,1,0) = f(1,1,0,0) + f(0,0,1,1) = w_0 + w_1 + w_2 + w_3 + 2b\\]</div><p>If both diagonals score above 0.5, the left side is above 1, so the right side is too, and at least one of the two non-diagonal images also scores above 0.5. A linear model always gets at least one of these four images wrong.</p>
-<h3 id="sec-count">13,002 Knobs and Dials</h3>
+<h3 id="sec-count">Counting the Parameters</h3>
 <p>Every connection has a weight and every non-input neuron has a bias:</p>
 <div class="tbl"><table>
 <tr><th>Layer</th><th>Weights</th><th>Biases</th></tr>
