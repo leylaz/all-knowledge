@@ -92,7 +92,7 @@ section({
 <tr><td>SharedClean (SC)</td><td>Shared</td></tr>
 <tr><td>Invalid (I)</td><td>Invalid</td></tr>
 </table></div>
-<p>CHI also adds partial states for lines with only some bytes valid. See <a href="#/icx-coherent">Coherent Interconnects</a> for how CHI transactions flow.</p>
+<p>CHI also adds partial states for lines with only some bytes valid. See <a href="#/icx-coherent/chi-flow">A CHI Read, Step by Step</a> for how CHI transactions flow.</p>
 
 <h3 id="sec-filters">Snoop Filters and Inclusion</h3>
 <p>Broadcasting every miss to every core doesn't scale. A <strong>snoop filter</strong> tracks which private caches might hold each line, so a request probes only those caches, or none.</p>

@@ -516,7 +516,7 @@ for (int z = 0; z &lt; NZ; z++)
 <p>Newer nodes lower every number, but the ratios hold: moving data costs far more than computing on it, and a DRAM access costs as much as thousands of additions. In an out-of-order core, the arithmetic itself is a small fraction of the energy per instruction; fetch, decode, rename, scheduling, register file, and data movement take most of it. That is the overhead SIMD, accelerators, and caches near compute all attack.</p>
 
 <h3 id="sec-dvfs">Voltage and Frequency</h3>
-<p>Within the usable range, the maximum frequency rises roughly linearly with voltage. So dynamic power grows roughly with f<sup>3</sup> (V<sup>2</sup> × f with V ∝ f), while dynamic energy per operation grows with V<sup>2</sup>, roughly f<sup>2</sup>. That is why:</p>
+<p>Within the usable range, the maximum frequency rises roughly linearly with voltage (the transistor-level reason is in <a href="#/transistors">Transistor Physics and Energy</a>). So dynamic power grows roughly with f<sup>3</sup> (V<sup>2</sup> × f with V ∝ f), while dynamic energy per operation grows with V<sup>2</sup>, roughly f<sup>2</sup>. That is why:</p>
 <ul>
 <li>the last few hundred MHz of turbo cost a disproportionate amount of power;</li>
 <li>a chip at a fixed power limit gets more total throughput from more cores at a lower clock (if the work is parallel);</li>
