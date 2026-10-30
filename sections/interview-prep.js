@@ -2003,15 +2003,23 @@ M(`<p>A 1 MB, 16-way L2 with 64-byte lines and 48-bit physical addresses stores,
 <li><strong>(c)</strong> The plain cache holds 16,384 lines, so 700 KB of hot lines fit. The sectored cache has only 8,192 tags, and each hot sector uses a whole one, so it holds at most 8,192 × 64 B = <strong>512 KB</strong> of hot data and misses on the rest. Sectoring saves tag area when access is dense and halves effective capacity when it is sparse.</li>
 </ol>`, "medium") +
 `<h3 id="sec-repl">Matching Policies to Workloads</h3>` +
-Q(`<p>548.exchange2_r’s hot data, a few KB of puzzle state and lookup tables, fits easily in a Zen 4 core’s 32 KB, 8-way L1D, which serves up to 3 loads per cycle. Which replacement policy would you build into this L1D, and what actually decides it?</p>`,
-`<p>Not hit rate. Once the hot set fits, the misses are compulsory plus a few conflicts, and every policy that fills empty ways first gets nearly the same hit rate. The cost of the policy decides, above all the update on every hit:</p>
+Q(`<p>548.exchange2_r’s hot data, a few KB of puzzle state and lookup tables, fits easily in a Zen 4 core’s 32 KB, 8-way L1D (64 sets of 64-byte lines), which serves up to 3 loads per cycle. Assume exchange2 runs alone on the core, with no SMT sibling sharing the L1D, and that its hot lines spread over the sets so that no set needs more than 8 of them. Which replacement policy would you build into this L1D, and what actually decides it? What changes if the hot lines don’t spread out?</p>`,
+`<p>The hit rate doesn’t decide it, because every reasonable policy gets about the same hit rate here. What decides it is the cost of the policy, above all the cost of updating its state on every hit.</p>
+<p>Why the hit rates match: a replacement policy only acts when a miss finds its set full and must pick a victim. Until a set is full, every policy simply fills the next empty way. Since no set needs more than 8 hot lines, the hot lines never have to evict each other. After each one is first touched (a compulsory miss), it stays in the cache under any policy. The only misses left are to cold data, such as rarely used tables or lines brought in by an interrupt or context switch. Those are the only cases where policies differ: a cold line arrives in a full set, and an LRU-like policy evicts a stale line while FIFO or Random may evict a hot one. These misses are rare, so the hit rates differ very little.</p>
+<p>The cost of each candidate:</p>
 <ul>
 <li><strong>True LRU:</strong> an 8-way order needs at least log<sub>2</sub>(8!) ≈ 15.3, so 16 bits per set, or 28 bits as a matrix, and up to 3 hits per cycle rewrite it.</li>
 <li><strong>Tree PLRU:</strong> 7 bits per set, and a hit sets only the 3 bits on its path. This is the usual L1 choice.</li>
 <li><strong>NRU:</strong> 8 bits, one set per hit, but after a clear its victim choice is arbitrary.</li>
 <li><strong>FIFO</strong> (3 bits) and <strong>Random</strong> (one LFSR for the whole cache) never update on a hit, but they ignore recency: on an occasional miss they can evict the hottest line, such as the top of the stack.</li>
 </ul>
-<p>Choose tree PLRU. Scan- and thrash-resistant policies (RRIP, SHiP, Hawkeye) buy nothing here, because nothing threatens the hot set, and their extra state and training logic would sit next to the most timing-critical array in the core.</p>`, "easy") +
+<p>Choose tree PLRU. Scan- and thrash-resistant policies (RRIP, SHiP, Hawkeye) buy nothing here, because nothing threatens the hot set, and their extra state and training logic would sit next to the most timing-critical array in the core.</p>
+<p><strong>If the hot lines cluster.</strong> The set index is address bits 11:6, so lines whose addresses differ by a multiple of 4 KB share a set. Nine tables aligned to 4 KB and read at the same offsets put 9 hot lines in one 8-way set, and they evict each other under any policy. These are conflict misses, and a policy can at best choose which hot line loses. The fixes are in the mapping, not the policy:</p>
+<ul>
+<li><strong>Change the layout:</strong> pad or offset the tables so they start in different sets. This is the cheap fix, and the usual one.</li>
+<li><strong>Add ways:</strong> Zen 5 moved to a 48 KB, 12-way L1D. But each extra way adds a tag compare and a data read to every access of the most latency-critical array, so it is not worth doing for one program’s layout.</li>
+<li><strong>Hash the index:</strong> hard in this L1D. 32 KB / 8 ways = 4 KB per way, so bits 11:6 lie inside the 4 KB page offset, which is what lets the set be read in parallel with the TLB lookup (virtually indexed, physically tagged). Hashing in higher bits would need the translated address, which arrives too late, or virtual bits, which bring synonyms. Hashed indexing belongs in the L2 and LLC, which are physically indexed.</li>
+</ul>`, "easy") +
 Q(`<p>OpenBLAS DGEMM on a Raptor Cove core packs a panel of B that fills about half of the 2 MB, 16-way L2, reuses it for a whole block of rows of A, then packs the next panel. A colleague proposes switching the L2 from LRU to LIP, because LIP beats LRU on thrashing loops. What happens to DGEMM?</p>`,
 `<p>It gets slower. DGEMM is LRU-friendly: the panel is reused at short range, which is exactly what LRU keeps.</p>
 <ul>
