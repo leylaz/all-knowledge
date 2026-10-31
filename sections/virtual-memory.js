@@ -31,10 +31,8 @@ section({
     { id: "motivation", label: "Motivation" },
     { id: "address-spaces", label: "Address Spaces" },
     { id: "pages-page-tables", label: "Pages and Page Tables" },
-    { id: "multilevel", label: "Why Multilevel" },
-    { id: "tlbs", label: "TLBs" },
+    { id: "multilevel", label: "Multilevel Page Tables" },
     { id: "demand-paging-cow", label: "Demand Paging and Copy-on-Write" },
-    { id: "interaction-caches", label: "Interaction with Caches" },
     { id: "power-performance-area", label: "Power, Performance, Area" }
   ],
   body: `
@@ -47,7 +45,7 @@ section({
 <li><strong>Capacity and sparse use:</strong> a process can reserve far more address space than it touches. Its heap and stack sit terabytes apart, and only the pages it actually uses take frames, so physical memory holds the hot pages of many processes and the rest can wait on disk.</li>
 <li><strong>Sharing:</strong> two virtual pages can map the same frame. Shared libraries, copy-on-write after <code>fork</code>, and memory-mapped files all rely on that.</li>
 </ul>
-<p>The cost is a translation on every instruction fetch, load, and store. The rest of this page, and the hardware in <a href="#/tlb">TLBs and Page Walks</a>, is about making that translation nearly free.</p>
+<p>The cost is a translation on every instruction fetch, load, and store. The rest of this page, and the hardware in <a href="#/tlb">Page Walks and TLBs</a>, is about making that translation nearly free.</p>
 <h3 id="sec-address-spaces">Address Spaces</h3>
 <p>Each process sees its own virtual address space. The hardware translates every virtual address (VA) to a physical address (PA) using page tables managed by the OS. This gives isolation, lets physical memory be fragmented while virtual memory looks contiguous, and allows sharing and lazy allocation.</p>
 <h3 id="sec-pages-page-tables">Pages and Page Tables</h3>
@@ -67,8 +65,8 @@ section({
 <text x="20" y="286" style="fill:var(--muted);font-size:11px">Physical address 0x1A2B3ABC: translation replaces the page number and keeps the low 12 bits.</text>
 </svg></div>
 <p>A page table entry holds the frame number plus permission and status bits: present, read/write, execute-disable, user/supervisor, accessed, and dirty.</p>
-<h3 id="sec-multilevel">Why Multilevel</h3>
-<p>A flat table for a 48-bit address space with 4 KB pages needs 2<sup>36</sup> entries × 8 bytes = 512 GB per process. A multilevel (radix) table only allocates the parts actually used. On x86-64, each level indexes 9 bits into a 4 KB table of 512 entries: 9 + 9 + 9 + 9 + 12 = 48 bits. A fifth level extends this to 57 bits. The figure walks one address through all four levels:</p>
+<h3 id="sec-multilevel">Multilevel Page Tables</h3>
+<p>A flat table for a 48-bit address space with 4 KB pages needs 2<sup>36</sup> entries × 8 bytes = 512 GB per process, almost all of it describing addresses the process never uses. A multilevel (radix) table instead splits the page number into one index per level, and each table holds pointers to the tables one level down. On x86-64, each level indexes 9 bits into a 4 KB table of 512 entries: 9 + 9 + 9 + 9 + 12 = 48 bits. A fifth level extends this to 57 bits. The figure walks one address through all four levels:</p>
 <div class="tbl"><svg viewBox="0 0 680 404" role="img" aria-label="A 4-level x86-64 page walk for the virtual address 0x0000555555559ABC. The address splits into PML4 index 170 (bits 47 to 39), PDPT index 341 (bits 38 to 30), PD index 170 (bits 29 to 21), PT index 345 (bits 20 to 12), and page offset 0xABC (bits 11 to 0). CR3 points to the base of the PML4 table. Entry 170 of the PML4 points to the base of a PDPT, entry 341 of that PDPT points to a page directory, entry 170 of the page directory points to a page table, and entry 345 of the page table points to the 4 KB data page, where the offset selects byte 0xABC. Each table is 512 entries of 8 bytes, one 4 KB page. The walk is 4 dependent loads before the data access." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
 <defs><marker id="arrWalkI" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker><marker id="arrWalkP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--pad)"/></marker></defs>
 <text x="20" y="18" style="fill:var(--muted);font-size:12px;font-weight:600">Walking the x86-64 4-level page table for 0x0000555555559ABC</text>
@@ -88,6 +86,7 @@ section({
 <g style="fill:var(--muted);font-size:11px"><text x="20" y="372">Each entry holds the physical address of the next table, so the walk is 4 dependent loads before the data access.</text>
 <text x="20" y="390">Only tables in use exist: mapping one aligned 2 MB region takes one table per level, 16 KB in all.</text></g>
 </svg></div>
+<p>A multilevel table allocates its lower-level tables lazily. A page table (covering 2 MB), page directory (1 GB), or PDPT (512 GB) exists only once some page in its range has been mapped. Until then, the entry above it is marked not present, which marks that whole range unmapped with a single entry. Creating a region with <code>mmap</code> or <code>exec</code> allocates no tables at all. The first access to a page in the region page-faults, and the fault handler allocates every missing table on the path, then the data page (see <a href="#/demand-paging/backing">Demand Paging and Backing Objects</a>). A new process starts with only its top-level table.</p>
 <details class="ex"><summary>Worked example: how many levels does a page table need?</summary>
 <p><strong>Question.</strong> A core implements Armv8-A with the 16 KB translation granule (16 KB pages, as on Apple's ARM systems) and 48-bit virtual addresses. Every page table is one 16 KB page of 8-byte descriptors, and each level of the walk indexes one table. How many levels does a walk need, and how many entries of the top-level table can be used? How does the answer change for 47-bit virtual addresses?</p>
 <ol>
@@ -99,12 +98,76 @@ section({
 </ol>
 <p>The general rule: levels = ⌈(VA bits − log<sub>2</sub> page size) / log<sub>2</sub>(page size / PTE size)⌉. Address widths that divide evenly (36 or 47 bits for this granule, 39 or 48 bits for 4 KB pages) waste nothing at the top.</p>
 </details>
-<h3 id="sec-tlbs">TLBs</h3>
-<p>Walking four levels of table on every access would be far too slow, so the core caches recent translations in TLBs, tagged by address space so a context switch doesn't flush them. Reach, page walks, page-walk caches, and nested walks under virtualization are in <a href="#/tlb">TLBs and Page Walks</a>.</p>
 <h3 id="sec-demand-paging-cow">Demand Paging and Copy-on-Write</h3>
-<p>The OS maps pages lazily: the first touch of a page faults, and the kernel fills in the entry then. After <code>fork</code>, parent and child share pages read-only until one of them writes. Both are covered in <a href="#/demand-paging">Demand Paging and Copy-on-Write</a>, and programs create their own mappings with <code>mmap</code>, covered in <a href="#/mmap">Memory Mapping</a>.</p>
+<p>The OS maps pages lazily: the first touch of a page faults, and the kernel fills in the entry then, allocating any page-table pages missing on the path. After <code>fork</code>, parent and child share pages read-only until one of them writes. Both are covered in <a href="#/demand-paging">Demand Paging and Copy-on-Write</a>, and programs create their own mappings with <code>mmap</code>, covered in <a href="#/mmap">Memory Mapping</a>.</p>
+<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
+<ul><li><strong>Bigger TLBs:</strong> more reach, but TLB lookup is in parallel with the L1 access, so L1 TLB size is latency-limited, like L1 cache size.</li><li><strong>Larger pages:</strong> more reach and shorter walks; more internal fragmentation and costlier copy-on-write and zeroing.</li><li><strong>Hardware walkers:</strong> faster than software-managed TLBs; walker area is small, and multiple concurrent walkers help irregular workloads.</li></ul>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>On x86-64 with 4-level paging and 4 KB pages, split the virtual address 0x00007F3A12345678 into its page-table indices and page offset.</p>`,
+        a: `<ol><li>Layout: bits 47–39 (PML4), 38–30 (PDPT), 29–21 (PD), 20–12 (PT), 11–0 (offset).</li><li>Offset: low 12 bits = <strong>0x678</strong>.</li><li>Shift and mask 9 bits for each level: PML4 = <strong>254</strong>, PDPT = <strong>232</strong>, PD = <strong>145</strong>, PT = <strong>325</strong>.</li><li>A walk reads PML4[254] → PDPT[232] → PD[145] → PT[325], then adds 0x678 to the frame address: up to 4 memory accesses per TLB miss.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A Linux process on x86-64 uses 4-level paging with 4 KB pages and no huge pages. It has touched every page of these regions and nothing else:</p><ul><li>Code and data: 3 MB starting at 0x00400000</li><li>Heap: 64 MB starting at 0x01000000</li><li>Stack: 132 KB ending just below 0x7FFFFFFFF000</li><li>A shared library: 2 MB starting at 0x7F0000000000</li></ul><p>How many page-table pages does the user half of its address space use (count the PML4, but not the kernel's tables), how much memory is that, and when was each one allocated?</p>`,
+        a: `<ol><li><strong>Page tables (each covers 2 MB).</strong> Code and data span 0x00400000 to 0x006FFFFF, which is 2 MB regions 2 and 3: 2 tables. The heap spans 0x01000000 to 0x04FFFFFF, 64 MB starting on a 2 MB boundary: 32 tables. The stack spans 0x7FFFFFFDE000 to 0x7FFFFFFFEFFF, all inside the 2 MB region at 0x7FFFFFE00000: 1 table. The library is 1 table. Total <strong>36</strong>.</li><li><strong>Page directories (each covers 1 GB).</strong> Code, data, and heap all sit in the first 1 GB: 1 directory. The stack and the library are each in their own 1 GB range: 2 more. Total <strong>3</strong>.</li><li><strong>PDPTs (each covers 512 GB).</strong> The low regions use PML4 entry 0. The library uses entry 0x7F0000000000 &gt;&gt; 39 = 254, and the stack uses entry 255. Total <strong>3</strong>.</li><li><strong>Total:</strong> 36 + 3 + 3 + 1 = <strong>43 tables × 4 KB = 172 KB</strong>, for about 69 MB of mapped data, roughly 0.24%. A flat table would need 512 GB.</li><li><strong>When:</strong> the PML4 at process creation. Each other table was allocated by the page-fault handler on the first touch of any page in its range: for example, the first stack access allocated the stack's PDPT, PD, and PT along with the data page. Later touches in the same 2 MB needed only a data frame.</li></ol>`
+      }
+    ]
+  }
+},
+
+{
+  id: "tlb",
+  region: "os",
+  title: "Page Walks and TLBs",
+  sections: [
+    { id: "walk", label: "What a Page Walk Does" },
+    { id: "pwc", label: "Page-Walk Caches and Walkers" },
+    { id: "hierarchy", label: "The TLB Hierarchy" },
+    { id: "reach", label: "TLB Reach" },
+    { id: "huge-pages", label: "Huge Pages" },
+    { id: "interaction-caches", label: "Interaction with Caches" },
+    { id: "virt", label: "Virtualization: Two-Dimensional Walks" },
+    { id: "model", label: "Modeling Translation" }
+  ],
+  body: `
+<p>Every load, store, and instruction fetch needs its virtual address translated before (or while) the cache is accessed. <a href="#/virtual-memory">Virtual and Physical Memory</a> covers how the page table is built. This page follows the hardware: first what a walk of that table costs, then the TLBs that let most accesses skip the walk, and the huge pages that stretch them further.</p>
+
+<h3 id="sec-walk">What a Page Walk Does</h3>
+<p>A hardware <strong>page walker</strong> translates an address by reading the page table, starting from the root in CR3 and using one 9-bit index per level (the figure in <a href="#/virtual-memory/multilevel">Multilevel Page Tables</a> traces one address through all four levels of x86-64). The walk finds a not-present entry if the page or one of its tables hasn't been allocated, and the core raises a page fault. Otherwise it returns the frame number and the permission bits.</p>
+<p>Each step is a dependent load: the next table's address comes from the entry just read. The walker's loads go through the data caches, so a walk whose entries are all in L1 or L2 costs tens of cycles, while one that misses to DRAM at every level costs several DRAM latencies. 5-level paging (57-bit addresses) adds a fifth level, and Armv8 and RISC-V Sv48 work the same way with their own table formats.</p>
+
+<h3 id="sec-pwc">Page-Walk Caches and Walkers</h3>
+<ul>
+<li><strong>Page-walk caches</strong> (Intel's paging-structure caches) keep recently used upper-level entries, so most walks skip straight to the last one or two levels. The upper levels cover huge regions, so a few dozen entries hit almost always.</li>
+<li><strong>Multiple walkers:</strong> a core with one walker serializes all TLB misses; Intel went from one to two walkers in Broadwell, and recent cores have more. Walkers act like MSHRs for translation: their count caps how many TLB misses overlap.</li>
+<li><strong>Prefetching and speculation:</strong> walks can start for speculative loads, and some cores prefetch translations for the next page in a streaming pattern.</li>
+</ul>
+
+<h3 id="sec-hierarchy">The TLB Hierarchy</h3>
+<p>Translation is cached in TLBs organized like data caches:</p>
+<ul>
+<li><strong>L1 TLBs</strong>, separate for instructions and data, small (tens of entries) and fast enough to look up in parallel with the L1 cache. With a virtually indexed, physically tagged L1, the cache set is chosen from page-offset bits while the TLB translates the rest, so translation adds no latency on a hit (see <a href="#/tlb/interaction-caches">Interaction with Caches</a>).</li>
+<li><strong>A shared L2 TLB</strong> (thousands of entries) behind them, a few cycles slower. Zen 4, for example, has a 72-entry L1 DTLB and a 3,072-entry L2 DTLB.</li>
+<li>Entries carry the page size, permissions, and an address-space tag (ASID or PCID) so context switches don't need a flush.</li>
+</ul>
+
+<h3 id="sec-reach">TLB Reach</h3>
+<p><strong>Reach</strong> is how much memory the TLB covers: entries × page size. With 4 KB pages, a 3,072-entry L2 TLB reaches 12 MB, smaller than many last-level caches, so a workload can hit in L3 and still miss in the TLB on every access. With 2 MB pages the same entries reach 6 GB.</p>
+
+<h3 id="sec-huge-pages">Huge Pages</h3>
+<p>A huge page is a leaf entry one or two levels early. On x86-64, a page directory entry with its page-size (PS) bit set maps a 2 MB page directly: its frame number names a 2 MB-aligned physical region, and the low 21 bits of the virtual address are the offset. A PDPT entry with PS set maps 1 GB the same way, with a 30-bit offset. Three things improve together:</p>
+<ul>
+<li><strong>Reach:</strong> one TLB entry covers 512 or 262,144 times as much memory.</li>
+<li><strong>Walk length:</strong> 3 dependent loads for a 2 MB page and 2 for a 1 GB page, against 4.</li>
+<li><strong>Page-table size:</strong> one directory entry replaces a whole 4 KB page table, so the remaining tables are small enough to stay in the data caches.</li>
+</ul>
+<p>That is why large-memory workloads (databases, JVMs, HPC codes, in-memory key-value stores) use huge pages, through explicit reservations or the kernel's transparent huge pages. The costs: memory fragmentation, internal waste for sparse data, and slower page faults (zeroing 2 MB at once). A 2 MB page also needs 2 MB of contiguous, aligned free physical memory, which a long-running system may not have without compaction, so Linux's <code>khugepaged</code> merges 4 KB pages into huge pages in the background.</p>
+
 <h3 id="sec-interaction-caches">Interaction with Caches</h3>
-<p>A VIPT L1 indexes with untranslated offset bits while the TLB translates the tag in parallel, which bounds L1 size to page size × ways. See <a href="#/dcache">Data cache</a>.</p>
+<p>A virtually indexed, physically tagged (VIPT) L1 indexes with untranslated offset bits while the L1 TLB translates the tag in parallel, which bounds L1 size to page size × ways. See <a href="#/dcache">Data cache</a>.</p>
 <p>Zen 4's L1 data cache is 32 KB and 8-way with 64-byte lines, so it has 32 KB / (8 × 64 B) = 64 sets: a 6-bit set index above a 6-bit block offset. Together they are exactly the 12-bit page offset, which translation never changes. The cache reads the selected set while the TLB translates the page number, and only the final tag compare waits for the frame number:</p>
 <div class="tbl"><svg viewBox="0 0 680 552" role="img" aria-label="A virtually indexed, physically tagged lookup in a 32 KB, 8-way L1 data cache with 64-byte lines, so 64 sets, and 4 KB pages. The virtual address splits into the virtual page number, bits 47 to 12, and the page offset, bits 11 to 0. The virtual page number goes to the L1 DTLB, which returns the physical frame number. The page offset is the same 12 bits in the physical address and needs no translation. The cache splits the physical address into the tag, bits 51 to 12, which is the frame number from the TLB, the set index, bits 11 to 6, and the block offset, bits 5 to 0. The set index selects one of the 64 sets while the TLB is translating, reading 8 tags and 8 lines. The 8 tags are compared with the frame number from the TLB, the hit way selects one line, and the block offset selects the bytes for the load." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
 <defs><marker id="arrVIPT" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
@@ -129,70 +192,6 @@ section({
 <text x="20" y="544">That holds while size ÷ ways ≤ page size: 32 KB ÷ 8 ways = 4 KB.</text></g>
 </svg></div>
 <p>A 64 KB, 8-way cache would need a 7th index bit, bit 12, which belongs to the virtual page number. Two virtual addresses that map to the same physical line (synonyms) could then land in different sets. So designers add ways instead: Golden Cove's 48 KB L1 data cache is 12-way, still 4 KB per way.</p>
-<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
-<ul><li><strong>Bigger TLBs:</strong> more reach, but TLB lookup is in parallel with the L1 access, so L1 TLB size is latency-limited, like L1 cache size.</li><li><strong>Larger pages:</strong> more reach and shorter walks; more internal fragmentation and costlier copy-on-write and zeroing.</li><li><strong>Hardware walkers:</strong> faster than software-managed TLBs; walker area is small, and multiple concurrent walkers help irregular workloads.</li></ul>`,
-  practice: {
-    guided: [
-      {
-        q: `<p>On x86-64 with 4-level paging and 4 KB pages, split the virtual address 0x00007F3A12345678 into its page-table indices and page offset.</p>`,
-        a: `<ol><li>Layout: bits 47–39 (PML4), 38–30 (PDPT), 29–21 (PD), 20–12 (PT), 11–0 (offset).</li><li>Offset: low 12 bits = <strong>0x678</strong>.</li><li>Shift and mask 9 bits for each level: PML4 = <strong>254</strong>, PDPT = <strong>232</strong>, PD = <strong>145</strong>, PT = <strong>325</strong>.</li><li>A walk reads PML4[254] → PDPT[232] → PD[145] → PT[325], then adds 0x678 to the frame address: up to 4 memory accesses per TLB miss.</li></ol>`
-      }
-    ],
-    interview: [
-      {
-        q: `<p>A key-value store does random reads over a 64 GB table. The L2 TLB has 2048 entries. What's the TLB reach with 4 KB and 2 MB pages, and what do you expect?</p>`,
-        a: `<p>Reach with 4 KB pages: 2048 × 4 KB = 8 MB, so nearly every access misses the TLB and pays a page walk; the upper levels often hit in the data cache or page-walk caches, but the leaf entries miss too. With 2 MB pages: 2048 × 2 MB = 4 GB, still far below 64 GB, but the page table is 512× smaller, so walks hit in cache far more often and are one level shorter. With 1 GB pages, 64 entries cover the table. Expect large speedups from huge pages on this workload.</p>`
-      },
-      {
-        q: `<p>How many memory accesses can a TLB miss cost under virtualization with 4-level guest and host page tables?</p>`,
-        a: `<p>Every guest page-table pointer is a guest-physical address that must itself be translated through the 4-level host table. With n guest levels and m host levels, the worst case is (n + 1)(m + 1) − 1 = 5 × 5 − 1 = <strong>24</strong> accesses. Nested TLBs, page-walk caches, and huge pages in both layers cut this sharply.</p>`
-      }
-    ]
-  }
-},
-
-{
-  id: "tlb",
-  region: "os",
-  title: "TLBs and Page Walks",
-  sections: [
-    { id: "hierarchy", label: "The TLB Hierarchy" },
-    { id: "reach", label: "TLB Reach and Huge Pages" },
-    { id: "walk", label: "What a Page Walk Does" },
-    { id: "pwc", label: "Page-Walk Caches and Walkers" },
-    { id: "virt", label: "Virtualization: Two-Dimensional Walks" },
-    { id: "model", label: "Modeling Translation" }
-  ],
-  body: `
-<p>Every load, store, and instruction fetch needs its virtual address translated before (or while) the cache is accessed. <a href="#/virtual-memory">Virtual and Physical Memory</a> covers the OS side; this page covers the hardware that makes translation fast and what it costs when it isn't.</p>
-
-<h3 id="sec-hierarchy">The TLB Hierarchy</h3>
-<p>Translation is cached in TLBs organized like data caches:</p>
-<ul>
-<li><strong>L1 TLBs</strong>, separate for instructions and data, small (tens of entries) and fast enough to look up in parallel with the L1 cache. With a virtually indexed, physically tagged L1, the cache set is chosen from page-offset bits while the TLB translates the rest, so translation adds no latency on a hit.</li>
-<li><strong>A shared L2 TLB</strong> (thousands of entries) behind them, a few cycles slower. Zen 4, for example, has a 72-entry L1 DTLB and a 3,072-entry L2 DTLB.</li>
-<li>Entries carry the page size, permissions, and an address-space tag (ASID or PCID) so context switches don't need a flush.</li>
-</ul>
-
-<h3 id="sec-reach">TLB Reach and Huge Pages</h3>
-<p><strong>Reach</strong> is how much memory the TLB covers: entries × page size. With 4 KB pages, a 3,072-entry L2 TLB reaches 12 MB, smaller than many last-level caches, so a workload can hit in L3 and still miss in the TLB on every access. With 2 MB pages the same entries reach 6 GB.</p>
-<p>That is why large-memory workloads (databases, JVMs, HPC codes, in-memory key-value stores) use huge pages, through explicit reservations or the kernel's transparent huge pages. The costs: memory fragmentation, internal waste for sparse data, and slower page faults (zeroing 2 MB at once).</p>
-
-<h3 id="sec-walk">What a Page Walk Does</h3>
-<p>On an L2 TLB miss, a hardware <strong>page walker</strong> reads the page table. On x86-64 with 4-level paging, a 48-bit virtual address splits into four 9-bit indices and a 12-bit offset:</p>
-<pre><code>bits 47..39  PML4 index   -&gt; read PML4 entry  (memory reference 0)
-bits 38..30  PDPT index   -&gt; read PDPT entry  (memory reference 1; a 1 GB page stops here)
-bits 29..21  PD index     -&gt; read PD entry    (memory reference 2; a 2 MB page stops here)
-bits 20..12  PT index     -&gt; read PT entry    (memory reference 3)
-bits 11..0   page offset</code></pre>
-<p>Each step is a dependent load: the next table's address comes from the entry just read. The walker's loads go through the data caches, so a walk whose entries are all in L1 or L2 costs tens of cycles, while one that misses to DRAM at every level costs several DRAM latencies. 5-level paging (57-bit addresses) adds a fifth level, and Armv8 and RISC-V Sv48 work the same way with their own table formats.</p>
-
-<h3 id="sec-pwc">Page-Walk Caches and Walkers</h3>
-<ul>
-<li><strong>Page-walk caches</strong> (Intel's paging-structure caches) keep recently used upper-level entries, so most walks skip straight to the last one or two levels. The upper levels cover huge regions, so a few dozen entries hit almost always.</li>
-<li><strong>Multiple walkers:</strong> a core with one walker serializes all TLB misses; Intel went from one to two walkers in Broadwell, and recent cores have more. Walkers act like MSHRs for translation: their count caps how many TLB misses overlap.</li>
-<li><strong>Prefetching and speculation:</strong> walks can start for speculative loads, and some cores prefetch translations for the next page in a streaming pattern.</li>
-</ul>
 
 <h3 id="sec-virt">Virtualization: Two-Dimensional Walks</h3>
 <p>Under hardware virtualization (Intel EPT, AMD NPT), the guest's page table holds guest-physical addresses, and each of them must itself be translated through the host's table. With 4 levels on each side, a walk can need up to (4 + 1) × (4 + 1) − 1 = <strong>24</strong> memory references: each of the guest's 4 table reads and the final guest-physical address needs a host walk of up to 4 references, plus the 4 guest reads themselves. Page-walk caches for both dimensions and huge pages on the host side are what keep virtualized TLB misses affordable.</p>
@@ -216,6 +215,10 @@ bits 11..0   page offset</code></pre>
       {
         q: `<p>A workload runs 30% slower inside a virtual machine than on bare metal, with no I/O involved. The guest and host both use 4-level page tables. Counters show the same L2 TLB miss rate in both. Explain the gap and propose fixes.</p>`,
         a: `<p>The miss rate is the same, but each miss costs far more: a native walk is up to 4 dependent references, while a nested walk is up to 24, and the extra host-table lines compete for cache space, so more of those references miss. Confirm with page-walk cycles per miss (Intel's <code>DTLB_LOAD_MISSES.WALK_ACTIVE</code> divided by completed walks) inside and outside the VM. Fixes: back the guest with huge pages on the host (2 MB or 1 GB host pages remove most of the host dimension), use huge pages in the guest too, and make sure the host doesn't split those pages (for example, through memory overcommit or deduplication).</p>`
+      },
+      {
+        q: `<p>An Ice Lake server runs a guest that uses 5-level paging (57-bit addresses) on a host whose extended page tables use 4 levels. How many memory references can one guest TLB miss cost in the worst case, and what removes most of them?</p>`,
+        a: `<ol><li>Every guest page-table pointer is a guest-physical address, so each of the 5 guest table reads needs a host walk of up to 4 references before the read itself: 5 × (4 + 1) = 25.</li><li>The final guest-physical address of the data needs one more host walk: 4.</li><li>Total: (n + 1)(m + 1) − 1 with n = 5 and m = 4, so 6 × 5 − 1 = <strong>29</strong> references, against 5 natively.</li><li>Page-walk caches for both dimensions skip most upper levels, and huge pages on the host cut each host walk to 2 or 3 references. Huge pages in the guest also shorten the guest dimension.</li></ol>`
       }
     ]
   }
@@ -428,6 +431,13 @@ bits 11..0   page offset</code></pre>
 <text x="20" y="282" style="fill:var(--muted);font-size:11px">Every arrow starts as a not-present page-table entry. The first touch of each page faults it in.</text>
 </svg></div>
 <p>Demand paging is lazy evaluation for memory: like not studying for an exam you won't take, the OS does no work for a page until an instruction actually needs it. A <strong>minor fault</strong> finds the bytes already in memory (a zero page, or a file page already in the page cache) and costs on the order of a microsecond. A <strong>major fault</strong> waits for storage: tens of microseconds on an NVMe SSD, milliseconds on a disk. Readahead hides much of this for sequential access by pulling in neighboring file pages before they are touched.</p>
+<p>The page table itself is filled in the same lazy way. <code>mmap</code> and <code>exec</code> only record the region (in a VMA), and the fault handler allocates whatever tables are missing on the path to the faulting page, zeroes them, and links them in before mapping the data page. Say a program maps 1 GB of anonymous memory and the kernel places it in a 1 GB range with no other mappings, inside a 512 GB range that already holds the program's shared libraries:</p>
+<ol>
+<li>The first store walks the table. The PML4 entry is present (the libraries' PDPT exists), but the PDPT entry is not, so the store faults.</li>
+<li>The handler allocates <strong>three frames</strong>: a page directory, a page table, and the zeroed data page. It fills in the PDPT, directory, and table entries and returns, and the store re-executes.</li>
+<li>The next first touch in the same 2 MB needs only a data frame. The first touch in the next 2 MB also needs a new page table.</li>
+</ol>
+<p>Tables are freed when no mapping in their range remains: <code>munmap</code> frees the tables whose whole range it removed, and process exit frees them all. Evicting a page to swap doesn't free its table. Its entry becomes a not-present entry that records where the page went on swap.</p>
 
 <h3 id="sec-cow">Copy-on-Write After Fork</h3>
 <p><code>fork</code> must give the child an address space identical to the parent's, after which the two must not see each other's writes. Copying every frame would be slow and wasteful, especially since most children call <code>exec</code> immediately. Copying only the page table would be fast but wrong, since the processes would then share writable frames. Copy-on-write does both: share now, copy at the last possible moment, one page at a time.</p>

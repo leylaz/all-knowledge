@@ -174,7 +174,7 @@ ${procSvg(760, 650, 620, "Zen 5 core block diagram: branch predictor feeds the L
 <tr><td>L2 ITLB</td><td>2,048</td><td>8-way</td><td>4 KB, 2 MB</td></tr>
 <tr><td>L2 DTLB</td><td>4,096 + 1,024</td><td>16-way + 4-way for 1 GB</td><td>4 KB, 16 KB, 2 MB; 1 GB in the side array</td></tr>
 </table></div>
-<p>With 4 KB pages the L2 DTLB reaches 4,096 × 4 KB = 16 MB, half of one CCX's L3; with 2 MB pages it reaches 8 GB. Four contiguous, aligned 4 KB pages with identical attributes can share one entry (16 KB coalescing). Six hardware page walkers handle misses, backed by a page-walk cache for PDPEs and PDEs and a 64-entry cache for PML4/PML5 entries. See <a href="#/tlb">TLBs and Page Walks</a>.</p>
+<p>With 4 KB pages the L2 DTLB reaches 4,096 × 4 KB = 16 MB, half of one CCX's L3; with 2 MB pages it reaches 8 GB. Four contiguous, aligned 4 KB pages with identical attributes can share one entry (16 KB coalescing). Six hardware page walkers handle misses, backed by a page-walk cache for PDPEs and PDEs and a 64-entry cache for PML4/PML5 entries. See <a href="#/tlb">Page Walks and TLBs</a>.</p>
 
 <h3 id="sec-l2">Private L2</h3>
 <p>Each core's L2 is 1 MB, 16-way (associativity doubled from Zen 4), inclusive of its L1s, at no less than 14 cycles. The L1–L2 interface doubled to 64 bytes per cycle each way. L2 victims fill the CCX's shared L3, covered in <a href="#/zen5-soc">AMD Zen 5 Chiplets and SoCs</a>.</p>
