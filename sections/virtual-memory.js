@@ -5,14 +5,14 @@
 section({
   id: "os",
   name: "Virtual Memory and the OS Boundary",
-  cap: "Translation, TLBs, faults, traps, kernel entry, demand paging, eviction, copy-on-write, mmap, file and process system calls",
+  cap: "Translation, TLBs, faults, traps, kernel entry, demand paging, page replacement, copy-on-write, mmap, file and process system calls",
   body: `
 <p>The hardware and OS cooperate on two things: giving each process its own address space, and moving between user code and the kernel safely. Both show up directly in performance.</p>`,
   practice: {
     guided: [
       {
-        q: `<p>A process touches a heap page for the first time. List the hardware and OS events in order.</p>`,
-        a: `<ol><li>The load misses in the TLB, and the page walker reads the page table.</li><li>The leaf entry is not present, so the core raises a page fault on that load (precisely, at commit).</li><li>The kernel's fault handler finds the address is in a valid region, allocates a zeroed physical page, and fills in the page table entry.</li><li>The handler returns; the load re-executes, walks again (or hits a refilled TLB), and completes.</li></ol>`
+        q: `<p>A process has a private anonymous heap page that it has already written. It calls <code>fork</code>, and the child stores to that page. Later, reclaim evicts the parent's copy of the page to swap, and then the parent loads from it. List the hardware and OS events in order, from the <code>fork</code> onward.</p>`,
+        a: `<ol><li><strong>Fork:</strong> the kernel copies the parent's page table into the child, marks the page's entry read-only in both tables, and raises the frame's map count to 2. It flushes the parent's now-stale writable TLB entry.</li><li><strong>Child's store:</strong> the walk finds a present but read-only leaf entry, so the store is marked as faulting, and the core takes a page fault when it reaches the head of the ROB.</li><li><strong>Copy-on-write:</strong> the handler sees that the region is writable and the frame has 2 mappings, so it copies the page into a new frame and points the child's entry at the copy, writable. The store re-executes and completes.</li><li><strong>Eviction:</strong> the parent's frame reaches the tail of an inactive list with its accessed bit clear. Reclaim assigns a swap slot, replaces the parent's entry with a swap entry, shoots down the TLBs, writes the dirty page to swap, and frees the frame.</li><li><strong>Parent's load:</strong> the walk reaches the not-present leaf, and the fault is taken at commit. The handler reads the swap entry, reads the page back from swap (a major fault, unless the page is still in the swap cache), and maps it again. The load re-executes and completes.</li></ol>`
       }
     ],
     interview: [
@@ -29,11 +29,8 @@ section({
   title: "Virtual and Physical Memory",
   sections: [
     { id: "motivation", label: "Motivation" },
-    { id: "address-spaces", label: "Address Spaces" },
     { id: "pages-page-tables", label: "Pages and Page Tables" },
-    { id: "multilevel", label: "Multilevel Page Tables" },
-    { id: "demand-paging-cow", label: "Demand Paging and Copy-on-Write" },
-    { id: "power-performance-area", label: "Power, Performance, Area" }
+    { id: "multilevel", label: "Multilevel Page Tables" }
   ],
   body: `
 <h3 id="sec-motivation">Motivation</h3>
@@ -45,9 +42,7 @@ section({
 <li><strong>Capacity and sparse use:</strong> a process can reserve far more address space than it touches. Its heap and stack sit terabytes apart, and only the pages it actually uses take frames, so physical memory holds the hot pages of many processes and the rest can wait on disk.</li>
 <li><strong>Sharing:</strong> two virtual pages can map the same frame. Shared libraries, copy-on-write after <code>fork</code>, and memory-mapped files all rely on that.</li>
 </ul>
-<p>The cost is a translation on every instruction fetch, load, and store. The rest of this page, and the hardware in <a href="#/tlb">Page Walks and TLBs</a>, is about making that translation nearly free.</p>
-<h3 id="sec-address-spaces">Address Spaces</h3>
-<p>Each process sees its own virtual address space. The hardware translates every virtual address (VA) to a physical address (PA) using page tables managed by the OS. This gives isolation, lets physical memory be fragmented while virtual memory looks contiguous, and allows sharing and lazy allocation.</p>
+<p>Each process sees its own virtual address space, and the hardware translates every virtual address (VA) to a physical address (PA) using page tables that the OS manages. The cost is a translation on every instruction fetch, load, and store. The rest of this page, and the hardware in <a href="#/tlb">Page Walks and TLBs</a>, is about making that translation nearly free.</p>
 <h3 id="sec-pages-page-tables">Pages and Page Tables</h3>
 <p>Memory is divided into pages (commonly 4 KB; 16 KB on Apple's ARM systems). A VA splits into a virtual page number and an offset; translation maps the page number to a physical frame and keeps the offset. The figure shows the split for one address, with a made-up frame number:</p>
 <div class="tbl"><svg viewBox="0 0 680 296" role="img" aria-label="The x86-64 virtual address 0x0000555555559ABC with 4 KB pages. Bits 47 to 12, 36 bits, are the virtual page number, 0x555555559. Bits 11 to 0, 12 bits, are the page offset, 0xABC. The page table, or a TLB hit, maps the virtual page number to physical frame number 0x1A2B3, which fills bits 51 to 12 of the physical address. The offset is copied unchanged, so the physical address is 0x1A2B3ABC." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
@@ -86,7 +81,7 @@ section({
 <g style="fill:var(--muted);font-size:11px"><text x="20" y="372">Each entry holds the physical address of the next table, so the walk is 4 dependent loads before the data access.</text>
 <text x="20" y="390">Only tables in use exist: mapping one aligned 2 MB region takes one table per level, 16 KB in all.</text></g>
 </svg></div>
-<p>A multilevel table allocates its lower-level tables lazily. A page table (covering 2 MB), page directory (1 GB), or PDPT (512 GB) exists only once some page in its range has been mapped. Until then, the entry above it is marked not present, which marks that whole range unmapped with a single entry. Creating a region with <code>mmap</code> or <code>exec</code> allocates no tables at all. The first access to a page in the region page-faults, and the fault handler allocates every missing table on the path, then the data page (see <a href="#/demand-paging/first-touch">Filling the Path on a First Touch</a>). A new process starts with only its top-level table.</p>
+<p>A multilevel table allocates its lower-level tables lazily. A page table (covering 2 MB), page directory (1 GB), or PDPT (512 GB) exists only once some page in its range has been mapped. Until then, the entry above it is not present, which marks that whole range unmapped with a single entry. The page-fault handler builds the missing tables on the first touch of a page (see <a href="#/demand-paging/first-touch">Filling the Path on a First Touch</a>), and a new process starts with only its top-level table. How the OS fills, evicts, and shares pages is covered in <a href="#/demand-paging">Demand Paging and Copy-on-Write</a>, <a href="#/page-replacement">Page Replacement</a>, and <a href="#/mmap">Memory Mapping</a>.</p>
 <details class="ex"><summary>Worked example: how many levels does a page table need?</summary>
 <p><strong>Question.</strong> A core implements Armv8-A with the 16 KB translation granule (16 KB pages, as on Apple's ARM systems) and 48-bit virtual addresses. Every page table is one 16 KB page of 8-byte descriptors, and each level of the walk indexes one table. How many levels does a walk need, and how many entries of the top-level table can be used? How does the answer change for 47-bit virtual addresses?</p>
 <ol>
@@ -97,11 +92,7 @@ section({
 <li><strong>47-bit addresses.</strong> 47 − 14 = 33 = 3 × 11, so exactly <strong>3 levels</strong>, each table fully used. The one extra address bit costs a whole extra dependent load on every walk that misses the page-walk caches.</li>
 </ol>
 <p>The general rule: levels = ⌈(VA bits − log<sub>2</sub> page size) / log<sub>2</sub>(page size / PTE size)⌉. Address widths that divide evenly (36 or 47 bits for this granule, 39 or 48 bits for 4 KB pages) waste nothing at the top.</p>
-</details>
-<h3 id="sec-demand-paging-cow">Demand Paging and Copy-on-Write</h3>
-<p>The OS maps pages lazily: the first touch of a page faults, and the kernel fills in the entry then, allocating any page-table pages missing on the path. After <code>fork</code>, parent and child share pages read-only until one of them writes. Both are covered in <a href="#/demand-paging">Demand Paging and Copy-on-Write</a>, and programs create their own mappings with <code>mmap</code>, covered in <a href="#/mmap">Memory Mapping</a>.</p>
-<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
-<ul><li><strong>Bigger TLBs:</strong> more reach, but TLB lookup is in parallel with the L1 access, so L1 TLB size is latency-limited, like L1 cache size.</li><li><strong>Larger pages:</strong> more reach and shorter walks; more internal fragmentation and costlier copy-on-write and zeroing.</li><li><strong>Hardware walkers:</strong> faster than software-managed TLBs; walker area is small, and multiple concurrent walkers help irregular workloads.</li></ul>`,
+</details>`,
   practice: {
     guided: [
       {
@@ -126,18 +117,19 @@ section({
     { id: "walk", label: "What a Page Walk Does" },
     { id: "pwc", label: "Page-Walk Caches and Walkers" },
     { id: "hierarchy", label: "The TLB Hierarchy" },
-  { id: "tlb-miss", label: "From a TLB Miss to the Translation" },
+    { id: "tlb-miss", label: "From a TLB Miss to the Translation" },
     { id: "reach", label: "TLB Reach" },
     { id: "huge-pages", label: "Huge Pages" },
     { id: "interaction-caches", label: "Interaction with Caches" },
     { id: "virt", label: "Virtualization: Two-Dimensional Walks" },
+    { id: "power-performance-area", label: "Power, Performance, Area" },
     { id: "model", label: "Modeling Translation" }
   ],
   body: `
 <p>Every load, store, and instruction fetch needs its virtual address translated before (or while) the cache is accessed. <a href="#/virtual-memory">Virtual and Physical Memory</a> covers how the page table is built. This page follows the hardware: first what a walk of that table costs, then the TLBs that let most accesses skip the walk, and the huge pages that stretch them further.</p>
 
 <h3 id="sec-walk">What a Page Walk Does</h3>
-<p>A hardware <strong>page walker</strong> translates an address by reading the page table, starting from the root in CR3 and using one 9-bit index per level (the figure in <a href="#/virtual-memory/multilevel">Multilevel Page Tables</a> traces one address through all four levels of x86-64). The walk finds a not-present entry if the page or one of its tables hasn't been allocated, and the core raises a page fault. Otherwise it returns the frame number and the permission bits.</p>
+<p>A hardware <strong>page walker</strong> translates an address by reading the page table, starting from the root in CR3 and using one 9-bit index per level (the figure in <a href="#/virtual-memory/multilevel">Multilevel Page Tables</a> traces one address through all four levels of x86-64). It returns the frame number and the permission bits, or, if it reaches a not-present entry because the page or one of its tables isn't mapped, it marks the access as faulting (when the fault is actually taken is covered in <a href="#/tlb/tlb-miss">From a TLB Miss to the Translation</a>).</p>
 <p>Each level of the walk goes through the same five steps:</p>
 <ol>
 <li><strong>Get the table's base address.</strong> At the first level, the walker reads CR3, a register inside the core, so this costs no memory access. Bits 51&ndash;12 of CR3 hold the physical frame number of the top-level table (PML4). Tables are page-aligned, so the walker appends 12 zero bits to the frame number to get the table's physical base address. At every later level, the frame number comes from the entry read in step 5 instead. The figure uses a made-up CR3 value:
@@ -194,7 +186,7 @@ section({
 <g style="fill:var(--ink);font-size:11px" text-anchor="middle"><text x="60" y="203">Entry 168</text><text x="140" y="203">Entry 169</text><text x="220" y="203">Entry 170</text><text x="300" y="203">Entry 171</text><text x="380" y="203">Entry 172</text><text x="460" y="203">Entry 173</text><text x="540" y="203">Entry 174</text><text x="620" y="203">Entry 175</text></g>
 <text x="20" y="250" style="fill:var(--muted);font-size:11px">Bits 5&ndash;3 of 0x12A4F3550 are 010, so the walker takes slot 2: entry 170. Each neighbor maps its own 512 GB region.</text>
 </svg></div>
-<p><strong>Note:</strong> The walker only reads a table it reached through a <strong>present</strong> entry: CR3 for the root, then an entry with P = 1 for each lower level. That entry holds a physical frame number, and physical addresses that point to RAM are, by definition, locations in DRAM. Nothing sits below DRAM in the hardware hierarchy. Disk is a different storage space that only the OS manages, not a level the walker can reach. So a line the walker asks for can miss in every cache, but DRAM always returns it, at the cost of a full DRAM access. An OS that moves a table to disk first clears the entry pointing to it, so the walk stops one level earlier with a page fault (see <a href="#/demand-paging/table-eviction">Paging Out Page Tables</a>).</p></li>
+<p><strong>Note:</strong> The walker only reads a table it reached through a <strong>present</strong> entry: CR3 for the root, then an entry with P = 1 for each lower level. That entry holds a physical frame number, and physical addresses that point to RAM are, by definition, locations in DRAM. Nothing sits below DRAM in the hardware hierarchy. Disk is a different storage space that only the OS manages, not a level the walker can reach. So a line the walker asks for can miss in every cache, but DRAM always returns it, at the cost of a full DRAM access. An OS that moves a table to disk first clears the entry pointing to it, so the walk stops one level earlier with a page fault (see <a href="#/page-replacement/table-eviction">Paging Out Page Tables</a>).</p></li>
 <li><strong>Check the entry's metadata.</strong> The walker picks the 8-byte entry out of the line (bits 5&ndash;3 of its address say which of the 8) and reads its flag bits:
 <ul>
 <li><strong>Present (bit 0):</strong> if clear, the next table or the page isn't mapped. This is the only way a missing table shows up. The walk stops and the access is marked as faulting.</li>
@@ -301,6 +293,13 @@ section({
 
 <h3 id="sec-virt">Virtualization: Two-Dimensional Walks</h3>
 <p>Under hardware virtualization (Intel EPT, AMD NPT), the guest's page table holds guest-physical addresses, and each of them must itself be translated through the host's table. With 4 levels on each side, a walk can need up to (4 + 1) × (4 + 1) − 1 = <strong>24</strong> memory references: each of the guest's 4 table reads and the final guest-physical address needs a host walk of up to 4 references, plus the 4 guest reads themselves. Page-walk caches for both dimensions and huge pages on the host side are what keep virtualized TLB misses affordable.</p>
+
+<h3 id="sec-power-performance-area">Power, Performance, Area</h3>
+<ul>
+<li><strong>Bigger TLBs:</strong> more reach, but the L1 TLB is looked up in parallel with the L1 cache, so its size is latency-limited, like the L1 cache's. Capacity goes into the L2 TLB instead, which is slower but is reached only on an L1 TLB miss.</li>
+<li><strong>Larger pages:</strong> more reach and shorter walks, but more internal fragmentation and costlier copy-on-write and zeroing (see <a href="#/tlb/huge-pages">Huge Pages</a>).</li>
+<li><strong>Hardware walkers:</strong> much faster than software-managed TLBs, and small in area, since a walker is a state machine plus a few registers. Several concurrent walkers help irregular workloads, and page-walk caches cost little because a few dozen upper-level entries cover most walks.</li>
+</ul>
 
 <h3 id="sec-model">Modeling Translation</h3>
 <ul>
@@ -470,13 +469,11 @@ section({
     { id: "root-table", label: "Setting Up CR3 and the Root Table" },
     { id: "backing", label: "Demand Paging and Backing Objects" },
     { id: "first-touch", label: "Filling the Path on a First Touch" },
-    { id: "eviction", label: "Evicting Pages" },
-    { id: "table-eviction", label: "Paging Out Page Tables" },
     { id: "cow", label: "Copy-on-Write After Fork" },
     { id: "perf", label: "Performance Trade-Offs" }
   ],
   body: `
-<p>Once every access goes through a page table, the OS can point any virtual page at any physical frame, or at nothing yet. Two features fall out of that one layer of indirection: loading pages only when they are touched (demand paging), and letting processes share a page until one of them writes to it (copy-on-write). The same indirection lets the OS take a frame back later (eviction) and fault the page in again when it is next touched. Both work by having the CPU, the OS, and user code see different things about the same page, and both rely on the page fault being precise and restartable (see <a href="#/exceptions">Faults, Traps, Interrupts, and System Calls</a>). The next page, <a href="#/mmap">Memory Mapping</a>, hands the same machinery to the program. Builds on <a href="#/virtual-memory">Virtual and Physical Memory</a>. Main sources: Bryant and O’Hallaron’s <em>Computer Systems: A Programmer’s Perspective</em> (chapter 9) and Chris Kanich’s CS 361 lecture on memory mapping.</p>
+<p>Once every access goes through a page table, the OS can point any virtual page at any physical frame, or at nothing yet. Two features fall out of that one layer of indirection: loading pages only when they are touched (demand paging), and letting processes share a page until one of them writes to it (copy-on-write). The same indirection lets the OS take a frame back later and fault the page in again when it is next touched, which is covered in <a href="#/page-replacement">Page Replacement</a>. Both work by having the CPU, the OS, and user code see different things about the same page, and both rely on the page fault being precise and restartable (see <a href="#/exceptions">Faults, Traps, Interrupts, and System Calls</a>). <a href="#/mmap">Memory Mapping</a> hands the same machinery to the program. Builds on <a href="#/virtual-memory">Virtual and Physical Memory</a>. Main sources: Bryant and O’Hallaron’s <em>Computer Systems: A Programmer’s Perspective</em> (chapter 9) and Chris Kanich’s CS 361 lecture on memory mapping.</p>
 
 <h3 id="sec-indirection">The Page Table as a Layer of Indirection</h3>
 <p>Each process has its own page table, and each table maps virtual pages to physical frames however the OS likes:</p>
@@ -554,7 +551,7 @@ section({
 <p>The page table is filled in the same lazy way as the data. <code>mmap</code> and <code>exec</code> only record a region in a VMA, and the fault handler builds whatever tables are missing on the path to the faulting page. Say CR3 points at a root table whose entry 170 is not present, because nothing in that 512 GB range has been touched yet. The process stores to 0x0000555555559ABC, the address from <a href="#/virtual-memory/multilevel">Multilevel Page Tables</a> (PML4 index 170, PDPT index 341, PD index 170, PT index 345), inside an anonymous region it created with <code>mmap</code>:</p>
 <ol>
 <li><strong>The walk stops at the root.</strong> The store misses in the L1 DTLB and the L2 TLB, and the walker reads PML4 entry 170 at the address built from CR3. Its P bit is clear, so the walk ends after one read: the walker marks the store's ROB entry as faulting and fills no TLB entry. x86 never caches a not-present entry, in the TLBs or in the page-walk caches.</li>
-<li><strong>The core takes the fault.</strong> When the store reaches the head of the ROB, the core flushes every younger instruction, writes the faulting address into CR2, pushes an error code (not present, write, user mode), switches to the kernel stack, and jumps to the page-fault handler, vector 14. The saved PC points at the store itself (see <a href="#/exceptions/hardware-sequence">The Hardware Sequence</a>).</li>
+<li><strong>The core takes the fault.</strong> When the store reaches the head of the ROB, the core takes a page fault (vector 14) as described in <a href="#/exceptions/hardware-sequence">The Hardware Sequence</a>. CR2 holds the faulting address, the error code says not present, write, user mode, and the saved PC points at the store itself.</li>
 <li><strong>The handler checks the access.</strong> It looks up the VMA containing the address in CR2. The address is inside an anonymous region that allows writes, so the fault is legal. An address in no region, or a write to a read-only region, would end in <code>SIGSEGV</code> instead.</li>
 <li><strong>It builds the missing path, top-down.</strong> At each level it reads the entry, and if the entry is not present, it takes a frame from the page allocator, zeroes it through the direct map, and writes the entry: the new table's frame number, P = 1, and permissive flags (writable, user, executable). Here all three lower levels are missing, so it allocates a PDPT and writes PML4[170], then a page directory for PDPT[341], then a page table for PD[170]. The real permissions go only in the leaf entry. The walker ANDs the flags of every level, and one upper entry covers many regions with different permissions, so upper entries must allow everything their range might need.</li>
 <li><strong>It maps the data page.</strong> For an anonymous region, that is a freshly zeroed frame. For a file-backed region, the handler looks up the file page in the page cache, and if it isn't there, reads it from storage. That makes it a major fault, and the process sleeps while other processes run. The handler then writes PT[345]: the data frame's number, P = 1, writable, user, and no-execute for a data region.</li>
@@ -562,47 +559,10 @@ section({
 </ol>
 <p>This first touch took four frames: three tables and the data page, 16 KB in all. Two details make the handler's job safe and cheap:</p>
 <ul>
-<li><strong>No TLB invalidation.</strong> Every entry the handler wrote was not present before, and not-present entries are never cached, so no TLB or page-walk cache on any core holds a stale copy. Adding a mapping needs no shootdown. Removing or restricting one does (see <a href="#/demand-paging/eviction">Evicting Pages</a>).</li>
+<li><strong>No TLB invalidation.</strong> Every entry the handler wrote was not present before, and not-present entries are never cached, so no TLB or page-walk cache on any core holds a stale copy. Adding a mapping needs no shootdown. Removing or restricting one does (see <a href="#/page-replacement/eviction">Evicting Pages</a>).</li>
 <li><strong>Write order.</strong> Other threads of the process may run on other cores, and their walkers can read the table at any moment. So the kernel zeroes each new table before writing the entry that points at it, with a write barrier in between, and a concurrent walker sees either a not-present entry or a complete table, never garbage. A page-table lock keeps two threads faulting in the same range from both allocating a table.</li>
 </ul>
 <p>Later first touches reuse the path. A page elsewhere in the same 2 MB needs only a data frame, and the first page in the next 2 MB also needs a new page table. File-backed faults go further: Linux's fault-around maps up to 16 neighboring pages that are already in the page cache in the same fault. Tables are freed when no mapping in their range remains: <code>munmap</code> frees the tables whose whole range it removed, and process exit frees them all. Evicting a page doesn't free its table. Its entry becomes a not-present entry that records where the page went.</p>
-<h3 id="sec-eviction">Evicting Pages</h3>
-<p>When memory runs short, the OS takes frames back from pages that are mapped but cold. The decision belongs entirely to the OS. The hardware only reports usage: the walker sets a leaf entry's accessed bit when it walks the entry, and its dirty bit on the first store. It never picks a victim. That is the opposite of a cache, where hardware replacement (LRU, pseudo-LRU, RRIP) chooses on every miss. A page miss costs microseconds to milliseconds, so the OS can afford a policy that runs thousands of instructions, and it knows things the hardware can't: whether a page is clean file data that can be read again, anonymous memory that needs swap space, locked in memory with <code>mlock</code>, or charged to a cgroup over its limit.</p>
-<p><strong>When reclaim runs.</strong> Linux keeps three watermarks of free memory per zone: min, low, and high.</p>
-<ul>
-<li><strong>Free memory falls below low:</strong> the allocator wakes <code>kswapd</code>, one kernel thread per NUMA node, which reclaims in the background until free memory is back above high. Applications don't wait for it.</li>
-<li><strong>An allocation would take free memory below min:</strong> the allocating thread reclaims pages itself (<strong>direct reclaim</strong>) and waits until it has enough. This is where reclaim shows up as tail latency.</li>
-<li><strong>Reclaim frees nothing:</strong> the OOM killer kills a process, chosen mostly by how much memory it uses.</li>
-</ul>
-<p><strong>Choosing the victim.</strong> Exact LRU would need a timestamp on every access, and only the hardware sees accesses. The OS approximates LRU with the accessed bit, as the clock (second-chance) algorithm does (Hennessy &amp; Patterson, Appendix B): it sweeps over the frames, and a page whose accessed bit is set gets the bit cleared and is passed over, while a page whose bit is still clear hasn't been used since the last sweep and is evicted. Linux keeps frames on LRU lists, separate for anonymous and file pages, each split into an active and an inactive list. Reclaim scans the tail of an inactive list. It checks a page's accessed bit in every page table that maps the page, through the reverse map: a page with a set bit moves to the active list, and a page with none is evicted. Pages age from the active list into the inactive one to keep the two balanced, and <code>vm.swappiness</code> sets how hard reclaim leans on anonymous pages versus file pages. Since Linux 6.1, the multi-generational LRU (MGLRU) can replace the two lists with several generations, which it ages by walking page tables instead of the reverse map.</p>
-<p>The accessed bit has a hardware catch. The walker sets it only during a walk, so while a page's translation stays in a TLB, accesses don't touch the bit. Linux on x86 clears accessed bits without flushing the TLB, to avoid a shootdown per page, so a page that stays hot in some core's TLB can look unused until that entry is evicted. TLB entries usually turn over much faster than reclaim scans, so this costs little accuracy.</p>
-<p><strong>Evicting the victim.</strong></p>
-<ol>
-<li><strong>Find every mapping.</strong> Through the reverse map, the kernel finds each page-table entry that maps the frame: one for a private page, possibly thousands for a page of <code>libc</code>.</li>
-<li><strong>Clear the entries.</strong> Each entry becomes not present. For an anonymous page, the kernel first assigns a swap slot and writes a <strong>swap entry</strong> in place of the old one: P = 0, with the swap device and offset in the other bits. The hardware ignores every other bit of an entry whose P bit is clear, so the OS is free to store anything there. For a file page, the entry is simply cleared, since the VMA already says which file offset backs it.</li>
-<li><strong>Shoot down the TLBs.</strong> Any core may still cache the old translation, and a core holding a stale entry could keep reading or writing the frame after it has been reused. The kernel invalidates the entry locally with <code>invlpg</code>, sends an inter-processor interrupt to every other core that may be running the process, and waits for all of them to confirm. Reclaim batches many pages per shootdown to spread its cost.</li>
-<li><strong>Write back if needed.</strong> If the page is dirty, its contents go to the swap slot or back to the file. A clean file page, such as program code, is just dropped, because the file still holds its bytes. A clean anonymous page that already has a copy in swap skips the write too.</li>
-<li><strong>Free the frame.</strong> The frame goes back to the page allocator only once the shootdown and any write have completed.</li>
-</ol>
-<p>The next access to the page walks to the not-present entry and faults. For a swap entry, the handler reads the page back from swap, which is a major fault, unless the page is still in the <strong>swap cache</strong> (written out but not yet freed), which makes it a minor one. Windows does the same work in a different shape: it trims each process's working set separately, and trimmed pages wait on a standby list (or on a modified list until they are written), where a touch brings them back with a soft fault. When the pages that running processes keep using add up to more than physical memory, every eviction removes a page that is needed again soon, and the system spends its time in major faults instead of doing work. That is <strong>thrashing</strong>.</p>
-
-<h3 id="sec-table-eviction">Paging Out Page Tables</h3>
-<p>Page tables live in ordinary frames, so an OS can evict them too. Linux never does. A process's tables are a fraction of a percent of the memory they map, the kernel walks them constantly for faults and reclaim, and an empty table is simply freed. Windows does page out the page tables of user processes, with one condition: a page table can leave memory only once none of its entries points at a page still in memory (its frame-database entry counts them). The hardware isn't told any of this. It reaches a not-present entry and faults, exactly as it does for a data page.</p>
-<p>Evicting the page table that covers one 2 MB range takes these steps:</p>
-<ol>
-<li><strong>Wait until the table maps nothing.</strong> Every data page under it has been evicted, so all 512 entries are not present, and most hold the disk location of their page. (If all 512 are empty, the table can be freed without being written.)</li>
-<li><strong>Write the table out.</strong> The table's 4 KB go to the pagefile like any data page. Its entries have to be saved, because they are the only record of where the data pages went.</li>
-<li><strong>Clear the parent entry.</strong> The page-directory entry that pointed at the table becomes not present, with the table's pagefile location in its other bits.</li>
-<li><strong>Flush the paging-structure caches.</strong> No TLB holds a translation through the table, since all its entries were already not present. But a page-walk cache may still hold the old page-directory entry and send a walk straight to the old frame. On x86, <code>invlpg</code> for any address also flushes the paging-structure caches for the current PCID, and a shootdown does the same on the other cores.</li>
-<li><strong>Free the frame.</strong></li>
-</ol>
-<p>A later access to that 2 MB range plays out in this order:</p>
-<ol>
-<li><strong>The walk stops one level early.</strong> The walker reads the PML4 and PDPT entries, which are present, and then the page-directory entry, whose P bit is clear. It stops there and marks the access as faulting, so it never fetches a line from the missing table. That is why the walk itself never needs anything that isn't in DRAM (see <a href="#/tlb/walk">What a Page Walk Does</a>).</li>
-<li><strong>The handler restores the table.</strong> It finds a pagefile location in the page-directory entry, allocates a frame, reads the table back, and writes the page-directory entry with P = 1.</li>
-<li><strong>It restores the data page.</strong> The table's entry for the faulting page is itself not present, because the data page left first. The handler can read the data page in the same fault, or return and let the access fault a second time on the leaf entry. Either way, the access waits for two reads from storage, one after the other.</li>
-</ol>
-
 <h3 id="sec-cow">Copy-on-Write After Fork</h3>
 <p><code>fork</code> must give the child an address space identical to the parent's, after which the two must not see each other's writes. Copying every frame would be slow and wasteful, especially since most children call <code>exec</code> immediately. Copying only the page table would be fast but wrong, since the processes would then share writable frames. Copy-on-write does both: share now, copy at the last possible moment, one page at a time.</p>
 <ol>
@@ -684,7 +644,77 @@ section({
       {
         q: `<p>A program allocates 8 GiB with anonymous <code>mmap</code> and then only reads it. How much physical memory does it use, and what happens on the first write to a page?</p>`,
         a: `<p>Almost none. Each read fault on an untouched anonymous page maps the kernel's single shared zero page read-only, so all 2,097,152 pages (8 GiB / 4 KiB) point at one frame, at the cost of a page-table entry each. The first write to a page faults again, because the entry is read-only. The kernel allocates a zeroed frame (no copy is needed, since the source is known to be zeros), maps it writable, and invalidates the stale TLB entry. The cost is a second fault per page that was read before being written, which is why benchmarks that read a buffer before filling it see double the faults.</p>`
-      },
+      }
+    ]
+  }
+},
+
+{
+  id: "page-replacement",
+  region: "os",
+  title: "Page Replacement",
+  sections: [
+    { id: "eviction", label: "Evicting Pages" },
+    { id: "table-eviction", label: "Paging Out Page Tables" },
+    { id: "perf", label: "Performance Trade-Offs" }
+  ],
+  body: `
+<p><a href="#/demand-paging">Demand Paging and Copy-on-Write</a> showed how a page gets a frame: lazily, on the first touch, with the fault handler building any missing tables on the way. This page covers the reverse: how the OS takes frames back when memory runs short, which pages it picks, what happens to their page-table entries, and what it costs when the pages are needed again. Main sources: Hennessy &amp; Patterson, Appendix B, Mel Gorman's <em>Understanding the Linux Virtual Memory Manager</em>, and Russinovich, Solomon, Ionescu, and Yosifovich's <em>Windows Internals</em> (chapter 5).</p>
+
+<h3 id="sec-eviction">Evicting Pages</h3>
+<p>When memory runs short, the OS takes frames back from pages that are mapped but cold. The decision belongs entirely to the OS. The hardware only reports usage: the walker sets a leaf entry's accessed bit when it walks the entry, and its dirty bit on the first store. It never picks a victim. That is the opposite of a cache, where hardware replacement (LRU, pseudo-LRU, RRIP) chooses on every miss. A page miss costs microseconds to milliseconds, so the OS can afford a policy that runs thousands of instructions, and it knows things the hardware can't: whether a page is clean file data that can be read again, anonymous memory that needs swap space, locked in memory with <code>mlock</code>, or charged to a cgroup over its limit.</p>
+<p><strong>When reclaim runs.</strong> Linux keeps three watermarks of free memory per zone: min, low, and high.</p>
+<ul>
+<li><strong>Free memory falls below low:</strong> the allocator wakes <code>kswapd</code>, one kernel thread per NUMA node, which reclaims in the background until free memory is back above high. Applications don't wait for it.</li>
+<li><strong>An allocation would take free memory below min:</strong> the allocating thread reclaims pages itself (<strong>direct reclaim</strong>) and waits until it has enough. This is where reclaim shows up as tail latency.</li>
+<li><strong>Reclaim frees nothing:</strong> the OOM killer kills a process, chosen mostly by how much memory it uses.</li>
+</ul>
+<p><strong>Choosing the victim.</strong> Exact LRU would need a timestamp on every access, and only the hardware sees accesses. The OS approximates LRU with the accessed bit, as the clock (second-chance) algorithm does (Hennessy &amp; Patterson, Appendix B): it sweeps over the frames, and a page whose accessed bit is set gets the bit cleared and is passed over, while a page whose bit is still clear hasn't been used since the last sweep and is evicted. Linux keeps frames on LRU lists, separate for anonymous and file pages, each split into an active and an inactive list. Reclaim scans the tail of an inactive list. It checks a page's accessed bit in every page table that maps the page, through the reverse map: a page with a set bit moves to the active list, and a page with none is evicted. Pages age from the active list into the inactive one to keep the two balanced, and <code>vm.swappiness</code> sets how hard reclaim leans on anonymous pages versus file pages. Since Linux 6.1, the multi-generational LRU (MGLRU) can replace the two lists with several generations, which it ages by walking page tables instead of the reverse map.</p>
+<p>The accessed bit has a hardware catch. The walker sets it only during a walk, so while a page's translation stays in a TLB, accesses don't touch the bit. Linux on x86 clears accessed bits without flushing the TLB, to avoid a shootdown per page, so a page that stays hot in some core's TLB can look unused until that entry is evicted. TLB entries usually turn over much faster than reclaim scans, so this costs little accuracy.</p>
+<p><strong>Evicting the victim.</strong></p>
+<ol>
+<li><strong>Find every mapping.</strong> Through the reverse map, the kernel finds each page-table entry that maps the frame: one for a private page, possibly thousands for a page of <code>libc</code>.</li>
+<li><strong>Clear the entries.</strong> Each entry becomes not present. For an anonymous page, the kernel first assigns a swap slot and writes a <strong>swap entry</strong> in place of the old one: P = 0, with the swap device and offset in the other bits. The hardware ignores every other bit of an entry whose P bit is clear, so the OS is free to store anything there. For a file page, the entry is simply cleared, since the VMA already says which file offset backs it.</li>
+<li><strong>Shoot down the TLBs.</strong> Any core may still cache the old translation, and a core holding a stale entry could keep reading or writing the frame after it has been reused. The kernel invalidates the entry locally with <code>invlpg</code>, sends an inter-processor interrupt to every other core that may be running the process, and waits for all of them to confirm. Reclaim batches many pages per shootdown to spread its cost.</li>
+<li><strong>Write back if needed.</strong> If the page is dirty, its contents go to the swap slot or back to the file. A clean file page, such as program code, is just dropped, because the file still holds its bytes. A clean anonymous page that already has a copy in swap skips the write too.</li>
+<li><strong>Free the frame.</strong> The frame goes back to the page allocator only once the shootdown and any write have completed.</li>
+</ol>
+<p>The next access to the page walks to the not-present entry and faults. For a swap entry, the handler reads the page back from swap, which is a major fault, unless the page is still in the <strong>swap cache</strong> (written out but not yet freed), which makes it a minor one. Windows does the same work in a different shape: it trims each process's working set separately, and trimmed pages wait on a standby list (or on a modified list until they are written), where a touch brings them back with a soft fault. When the pages that running processes keep using add up to more than physical memory, every eviction removes a page that is needed again soon, and the system spends its time in major faults instead of doing work. That is <strong>thrashing</strong>.</p>
+
+<h3 id="sec-table-eviction">Paging Out Page Tables</h3>
+<p>Page tables live in ordinary frames, so an OS can evict them too. Linux never does. A process's tables are a fraction of a percent of the memory they map, the kernel walks them constantly for faults and reclaim, and an empty table is simply freed. Windows does page out the page tables of user processes, with one condition: a page table can leave memory only once none of its entries points at a page still in memory (its frame-database entry counts them). The hardware isn't told any of this. It reaches a not-present entry and faults, exactly as it does for a data page.</p>
+<p>Evicting the page table that covers one 2 MB range takes these steps:</p>
+<ol>
+<li><strong>Wait until the table maps nothing.</strong> Every data page under it has been evicted, so all 512 entries are not present, and most hold the disk location of their page. (If all 512 are empty, the table can be freed without being written.)</li>
+<li><strong>Write the table out.</strong> The table's 4 KB go to the pagefile like any data page. Its entries have to be saved, because they are the only record of where the data pages went.</li>
+<li><strong>Clear the parent entry.</strong> The page-directory entry that pointed at the table becomes not present, with the table's pagefile location in its other bits.</li>
+<li><strong>Flush the paging-structure caches.</strong> No TLB holds a translation through the table, since all its entries were already not present. But a page-walk cache may still hold the old page-directory entry and send a walk straight to the old frame. On x86, <code>invlpg</code> for any address also flushes the paging-structure caches for the current PCID, and a shootdown does the same on the other cores.</li>
+<li><strong>Free the frame.</strong></li>
+</ol>
+<p>A later access to that 2 MB range plays out in this order:</p>
+<ol>
+<li><strong>The walk stops one level early.</strong> The walker reads the PML4 and PDPT entries, which are present, and then the page-directory entry, whose P bit is clear. It stops there and marks the access as faulting, so it never fetches a line from the missing table. That is why the walk itself never needs anything that isn't in DRAM (see <a href="#/tlb/walk">What a Page Walk Does</a>).</li>
+<li><strong>The handler restores the table.</strong> It finds a pagefile location in the page-directory entry, allocates a frame, reads the table back, and writes the page-directory entry with P = 1.</li>
+<li><strong>It restores the data page.</strong> The table's entry for the faulting page is itself not present, because the data page left first. The handler can read the data page in the same fault, or return and let the access fault a second time on the leaf entry. Either way, the access waits for two reads from storage, one after the other.</li>
+</ol>
+
+<h3 id="sec-perf">Performance Trade-Offs</h3>
+<ul>
+<li><strong>Major faults dominate quickly.</strong> With DRAM accesses near 100 ns and a swap-in from an NVMe SSD near 100 µs, one access in a thousand that faults roughly doubles the average access time. A workload whose hot pages don't fit in memory slows down by orders of magnitude, not percent.</li>
+<li><strong>Direct reclaim lands on the request path.</strong> <code>kswapd</code> reclaims in the background, but a burst of allocations can outrun it and push threads into direct reclaim, which shows up as latency spikes. Raising the watermarks (<code>vm.watermark_scale_factor</code> or <code>vm.min_free_kbytes</code>) wakes <code>kswapd</code> earlier, trading some unused memory for steadier latency.</li>
+<li><strong>Shootdowns cost every core that runs the process.</strong> Each eviction batch sends inter-processor interrupts, which cost the sender microseconds of waiting and interrupt the receivers. Evicting a page shared by many processes, such as a library page, reaches the most cores.</li>
+<li><strong>Compressed swap trades CPU for I/O.</strong> zram (Linux) and memory compression (Windows, macOS) keep evicted pages compressed in RAM, so a swap-in costs a few microseconds of decompression instead of a storage read.</li>
+<li><strong>For a simulator:</strong> user-level and syscall-emulation simulators give the workload all the memory it asks for, so eviction never happens. If the real system runs under memory pressure, use full-system simulation or add the major faults as a rate times a latency.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix B · Mel Gorman, <em>Understanding the Linux Virtual Memory Manager</em> · Russinovich, Solomon, Ionescu, and Yosifovich, <em>Windows Internals</em>, 7th edition, Part 1, chapter 5 · Intel, <em>Intel 64 and IA-32 Architectures Software Developer's Manual</em>, Volume 3, Chapter 4 (paging)</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A key-value store's memory accesses take 90 ns on average when the page they touch is in memory. Its server swaps to an NVMe SSD, where a major fault costs 80 µs in all, including the kernel's work. Assume every fault is a major fault and nothing else changes.</p><ol><li>What fraction of accesses can fault before the average access time doubles?</li><li>What fraction can fault before it rises by only 10%?</li></ol>`,
+        a: `<ol><li>Average access time = 90 ns + <em>p</em> × 80,000 ns. It doubles when <em>p</em> × 80,000 = 90, so <em>p</em> = 90 / 80,000 = <strong>1.125 × 10<sup>−3</sup></strong>, about 1 access in 889.</li><li>A 10% rise means <em>p</em> × 80,000 = 9, so <em>p</em> = <strong>1.125 × 10<sup>−4</sup></strong>, about 1 access in 8,889.</li><li>A fault is about 890 times as expensive as a normal access, so even a tiny fault rate dominates. That is why a workload whose hot pages don't fit in memory thrashes instead of slowing down gradually.</li></ol>`
+      }
+    ],
+    interview: [
       {
         q: `<p>A Linux x86-64 server pins a latency-critical thread to one Golden Cove core. The thread reads a 4 KiB page of a lookup table every 2 µs and touches only 40 pages in all, so their translations stay in the core's 2,048-entry L2 TLB. Under memory pressure, reclaim swaps that hot page out anyway, and the thread's next read takes a 90 µs major fault. How did reclaim conclude that the page was cold, and what are two fixes?</p>`,
         a: `<ol><li>Reclaim judges a page by its accessed bit, and the walker sets that bit only during a walk. Linux on x86 clears accessed bits without flushing the TLB.</li><li>The thread is pinned, its 40 translations fit easily in the TLB, and with PCIDs even a context switch doesn't flush them. So after reclaim cleared the bit, the thread's reads all hit in the TLB, no walk ran, and the bit stayed clear.</li><li>When reclaim scanned the page again, the bit was still clear, so the page looked unused and was evicted. Eviction cleared the entry and shot down the TLB, so the next read walked, found a swap entry, and faulted.</li><li><strong>Fix 1:</strong> lock the table in memory with <code>mlock</code>, which moves its pages to the unevictable list.</li><li><strong>Fix 2:</strong> put the service in a memory cgroup with <code>memory.min</code> covering its working set, or <code>memory.swap.max</code> = 0, so reclaim takes memory from other cgroups first.</li></ol>`
