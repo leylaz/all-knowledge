@@ -354,6 +354,7 @@ The speedup is 1.536 / 1.254 &asymp; <strong>1.22</strong>. Even with the PWC, w
 <tr><td>6</td><td>6</td><td>2,100</td><td>66</td><td>9.1</td></tr>
 <tr><td>TLB hits</td><td>0</td><td>600</td><td>19</td><td>16</td></tr>
 </table></div>
+<p>Cycles per load is a little more than 300 / W because the last data miss starts after the final round of walks, with nothing left to overlap. With one walker, 9,900 / 32 = 9,600 / 32 + 300 / 32 = 300 + 9.4 &asymp; 309. That 9.4 is a one-time 300 cycles spread over the batch, not a per-load cost, and it shrinks toward 0 as the batch grows. With 6 walkers the walk part is 6 &times; 300 / 32 &asymp; 56, not 300 / 6 = 50, because the last round has only 2 walks for its 6 walkers.</p>
 <p>With one walker, translation sets the pace: the core keeps fewer than 2 DRAM reads in flight while its fill buffers could hold 16. Each doubling of the walker count nearly halves the time, as long as walkers are the bottleneck. Even with 6, the loads take 66 / 19 &asymp; 3.5&times; as long as with TLB hits, because each load now makes two serial DRAM accesses. More walkers can't remove that. Fewer page-table reads in DRAM can: with 2 MB pages, the page directories for 64 GB take only 256 KB, so each walk's one read usually hits on chip.</p>
 </details>
 
