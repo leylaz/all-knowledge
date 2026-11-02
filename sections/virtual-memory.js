@@ -715,11 +715,17 @@ The speedup is 1.536 / 1.254 &asymp; <strong>1.22</strong>. Even with the PWC, w
 </details>
 
 <h3 id="sec-power-performance-area">Power, Performance, Area</h3>
-<ul>
-<li><strong>Bigger TLBs:</strong> more reach, but the L1 TLB is looked up in parallel with the L1 cache, so its size is latency-limited, like the L1 cache's. Capacity goes into the L2 TLB instead, which is slower but is reached only on an L1 TLB miss.</li>
-<li><strong>Larger pages:</strong> more reach and shorter walks, but more internal fragmentation and costlier copy-on-write and zeroing (see <a href="#/tlb/huge-pages">Huge Pages</a>).</li>
-<li><strong>Hardware walkers:</strong> much faster than software-managed TLBs, and small in area, since a walker is a state machine plus a few registers. Several concurrent walkers help irregular workloads, and page-walk caches cost little because a few dozen upper-level entries cover most walks.</li>
-</ul>
+<p>Each structure on this page buys back part of the translation cost at a price:</p>
+<div class="tbl"><table>
+<tr><th>Structure</th><th>Typical size</th><th>Cost</th><th>What it buys</th><th>Where it stops paying</th></tr>
+<tr><td>L1 DTLB</td><td>64&ndash;72 entries (Skylake: 64 for 4 KB pages, Zen 4: 72)</td><td>Looked up on every load in parallel with the L1 cache, so latency limits its size, as it does the L1 cache's</td><td>Translation with no added latency on a hit</td><td>Reach under 1 MB with 4 KB pages</td></tr>
+<tr><td>L2 TLB</td><td>1,536&ndash;3,072 entries (Skylake: 1,536, Zen 4: 3,072)</td><td>A few cycles on every L1 TLB miss, and SRAM on the scale of a small cache</td><td>Reach of 6&ndash;12 MB with 4 KB pages, several GB with 2 MB pages</td><td>Footprints beyond its reach, which miss on nearly every access</td></tr>
+<tr><td>Page-walk caches</td><td>A few to a few dozen entries per level</td><td>Under 3 Kbit, a few CAM searches per walk, and flushes the OS must not forget</td><td>Skipping 2 or 3 of the 4 reads of a walk</td><td>The leaf read, which it never skips</td></tr>
+<tr><td>Page walkers</td><td>2&ndash;6</td><td>A state machine and a few registers each, plus their reads' share of L1 load ports and fill buffers</td><td>Several misses resolved at once (translation MLP)</td><td>One serial page-table read per walk, which more walkers can't shorten</td></tr>
+<tr><td>TLB prefetching</td><td>A queue and a prefetch buffer of a few dozen entries</td><td>Walker time and cache bandwidth spent on wrong guesses</td><td>Walks finished before the demand miss arrives</td><td>Irregular access, where the guesses are wrong</td></tr>
+<tr><td>Huge pages</td><td>No extra hardware beyond the page-size support in TLBs</td><td>Fragmentation, coarse copy-on-write, slower faults (see <a href="#/tlb/huge-pages">Huge Pages</a>)</td><td>512&times; the reach per entry and one fewer level per walk</td><td>Sparse data, and memory that can't be compacted into 2 MB runs</td></tr>
+</table></div>
+<p>The walk hardware (page-walk caches, walkers, and prefetching) makes each walk cheaper or hides it. Only reach, from more entries or larger pages, makes walks rarer, which is why huge pages help random access over large data more than any amount of walker hardware does. Hardware walkers themselves won over software-managed TLBs on the same grounds: they cost little area and let walks overlap with the program.</p>
 
 <h3 id="sec-model">Modeling Translation</h3>
 <ul>
