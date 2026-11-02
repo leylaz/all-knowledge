@@ -268,6 +268,40 @@ section({
 <li><strong>Virtualized guests:</strong> each guest upper-level hit also skips a whole host walk (see <a href="#/tlb/virt">Virtualization: Two-Dimensional Walks</a>).</li>
 </ul>
 <p>A core whose working set fits in its L2 TLB's reach, such as a small embedded core with a few megabytes of memory, gains little, since it rarely walks at all. Because the cost is so low, every current Intel, AMD, and Arm application core has one.</p>
+<details class="ex"><summary>Worked example: how much a page-walk cache saves on a hash-table lookup</summary>
+<p><strong>Question.</strong> A key-value store on a Skylake-class core probes a 256 MB hash table, mapped with 4 KB pages, at uniformly random keys. It takes 12 L2 TLB misses per 1,000 instructions. Assume:</p>
+<ul>
+<li>The table starts on a 1 GB boundary, and its walks are the only ones that matter (ignore code, stack, and other data).</li>
+<li>Each probe picks its page independently and uniformly at random.</li>
+<li>The page-walk cache is VA-tagged, with a 16-entry fully associative LRU page-directory cache, and PML4 and PDPT caches of a few entries each. Probing it takes 2 cycles, before the first read.</li>
+<li>PML4, PDPT, and page-directory entry reads hit in L2 at 12 cycles. Page-table entry reads hit in the LLC at 42 cycles.</li>
+<li>Walks are fully exposed: each walk cycle adds one cycle to execution time. Apart from walks, the program runs at a CPI of 0.6.</li>
+</ul>
+<p>Find:</p>
+<ol>
+<li>The average walk latency without a PWC.</li>
+<li>The page-directory cache's hit rate and the average walk latency with the PWC.</li>
+<li>The average walk latency if the page-directory cache doubles to 32 entries, and why the gain is small.</li>
+<li>The CPI with and without the PWC, and the speedup.</li>
+</ol>
+<p><strong>Solution.</strong></p>
+<ol>
+<li><strong>Without a PWC</strong>, every walk reads all four levels in sequence: 12 + 12 + 12 + 42 = <strong>78 cycles</strong>.</li>
+<li><strong>With the PWC.</strong> The table is 256 MB / 2 MB = 128 page-directory entries, all under one PDPT entry and one PML4 entry, since it sits inside one aligned 1 GB range. Every walk uses that PDPT entry, so after warm-up it never leaves the PDPT cache. The page-directory cache always holds 16 of the 128 page-directory entries, and the next probe's entry is uniformly random, so it hits with probability 16 / 128 = 12.5%.
+<ul>
+<li>A page-directory hit leaves 1 read: 2 + 42 = 44 cycles.</li>
+<li>A miss there still hits at the PDPT level, leaving 2 reads: 2 + 12 + 42 = 56 cycles.</li>
+</ul>
+The average is 0.125 &times; 44 + 0.875 &times; 56 = 5.5 + 49 = <strong>54.5 cycles</strong>, 30% less than 78.</li>
+<li><strong>32 entries:</strong> the hit rate becomes 32 / 128 = 25%, and the average is 0.25 &times; 44 + 0.75 &times; 56 = 11 + 42 = <strong>53 cycles</strong>, only 1.5 cycles better. Nearly all of the saving came from the PDPT level, which removes two 12-cycle reads on every walk. A page-directory hit removes only one more 12-cycle read, and the 42-cycle page-table read is left either way, since the PWC holds no leaf entries. Covering the whole table would take 128 entries, and even then the walk would cost 44 cycles.</li>
+<li><strong>CPI.</strong> Walk cycles per instruction are 12 / 1,000 &times; latency.
+<ul>
+<li>Without a PWC: 0.6 + 0.012 &times; 78 = 0.6 + 0.936 = <strong>1.536</strong>.</li>
+<li>With it: 0.6 + 0.012 &times; 54.5 = 0.6 + 0.654 = <strong>1.254</strong>.</li>
+</ul>
+The speedup is 1.536 / 1.254 &asymp; <strong>1.22</strong>. Even with the PWC, walks still take 0.654 / 1.254 &asymp; 52% of the time. The page-table read dominates, and only fewer walks (2 MB pages, so the table needs 128 L2 TLB entries) or a closer page-table line would cut it further.</li>
+</ol>
+</details>
 
 <h3 id="sec-walkers">Multiple Walkers</h3>
 <p>A walker is a small finite-state machine plus a register set that holds one walk in progress. The registers keep everything needed to resume the walk each time one of its reads returns. The figure shows walker 0 partway through the walk above, after the page-directory hit:</p>
