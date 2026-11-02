@@ -3753,6 +3753,402 @@ a: `<p>The direction test is one unsigned comparison: <code>d − s &lt; n</code
 <p>Production versions go much further: 32- or 64-byte vector loops, overlapping loads and stores for short copies (load the first and last 16 bytes and store both, which handles 16 to 32 bytes with no branches), <code>rep movsb</code> on cores with fast string support, and streaming stores for large copies. The exhaustive offset and length check is what catches the off-by-one bugs these optimizations invite.</p>`
 });
 
+C("intv-vm", "xlate", {
+lvl: "medium",
+q: `<p>Model a 4-entry, fully associative TLB whose entries carry an ASID, with RISC-V <code>sfence.vma</code> invalidation.</p>
+<ul>
+<li><code>tlb_lookup</code> hits on a valid entry with the same virtual page number whose ASID matches, or that is global (global entries match every ASID). A hit makes the entry most recently used and returns the physical page number.</li>
+<li><code>tlb_fill</code> writes the lowest-numbered invalid entry, or else the least recently used one, and makes it most recently used. It is called only after a miss.</li>
+<li><code>sfence_vma(t, by_va, vpn, by_asid, asid)</code> follows the RISC-V rules:
+<ul>
+<li>Neither: invalidate every entry, global ones included.</li>
+<li>ASID only: invalidate the entries with that ASID, except global ones.</li>
+<li>Address only: invalidate the entries for that page under every ASID, global ones included.</li>
+<li>Both: invalidate the entry for that page with that ASID, except global ones.</li>
+</ul></li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+
+#define TLB_SIZE 4
+typedef struct {
+    int valid, global;
+    uint16_t asid;
+    uint32_t vpn, ppn;
+    uint32_t last_use;   /* larger is more recent */
+} tlb_entry_t;
+typedef struct { tlb_entry_t e[TLB_SIZE]; uint32_t now; } tlb_t;`,
+todo: String.raw`int tlb_lookup(tlb_t *t, uint16_t asid, uint32_t vpn, uint32_t *ppn) {
+    /* TODO: return 1 and set *ppn on a hit */
+    return 0;
+}
+
+void tlb_fill(tlb_t *t, uint16_t asid, uint32_t vpn, uint32_t ppn, int global) {
+    /* TODO */
+}
+
+void sfence_vma(tlb_t *t, int by_va, uint32_t vpn, int by_asid, uint16_t asid) {
+    /* TODO */
+}`,
+impl: String.raw`static int matches(const tlb_entry_t *e, uint16_t asid, uint32_t vpn) {
+    return e->valid && e->vpn == vpn && (e->global || e->asid == asid);
+}
+
+int tlb_lookup(tlb_t *t, uint16_t asid, uint32_t vpn, uint32_t *ppn) {
+    for (int i = 0; i < TLB_SIZE; i++) {
+        tlb_entry_t *e = &t->e[i];
+        if (matches(e, asid, vpn)) {
+            e->last_use = ++t->now;
+            *ppn = e->ppn;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void tlb_fill(tlb_t *t, uint16_t asid, uint32_t vpn, uint32_t ppn, int global) {
+    int victim = -1;
+    for (int i = 0; i < TLB_SIZE && victim < 0; i++)
+        if (!t->e[i].valid) victim = i;
+    if (victim < 0) {
+        victim = 0;
+        for (int i = 1; i < TLB_SIZE; i++)
+            if (t->e[i].last_use < t->e[victim].last_use) victim = i;
+    }
+    t->e[victim] = (tlb_entry_t){ 1, global, asid, vpn, ppn, ++t->now };
+}
+
+void sfence_vma(tlb_t *t, int by_va, uint32_t vpn, int by_asid, uint16_t asid) {
+    for (int i = 0; i < TLB_SIZE; i++) {
+        tlb_entry_t *e = &t->e[i];
+        if (by_va && e->vpn != vpn) continue;
+        /* An ASID-specific fence never touches global mappings. */
+        if (by_asid && (e->global || e->asid != asid)) continue;
+        e->valid = 0;
+    }
+}`,
+tests: String.raw`static int valid_count(const tlb_t *t) {
+    int n = 0;
+    for (int i = 0; i < TLB_SIZE; i++) n += t->e[i].valid;
+    return n;
+}
+
+int main(void) {
+    tlb_t t = {0};
+    uint32_t ppn = 0;
+    tlb_fill(&t, 1, 0x10, 0x100, 0);
+    tlb_fill(&t, 2, 0x10, 0x200, 0);
+    tlb_fill(&t, 1, 0x20, 0x300, 0);
+    tlb_fill(&t, 1, 0x80000, 0x999, 1);   /* a global kernel page */
+
+    CHECK(tlb_lookup(&t, 1, 0x10, &ppn) && ppn == 0x100, "ASID 1, page 0x10 should give 0x100 (got %x)", ppn);
+    CHECK(tlb_lookup(&t, 2, 0x10, &ppn) && ppn == 0x200, "ASID 2, page 0x10 should give 0x200 (got %x)", ppn);
+    CHECK(!tlb_lookup(&t, 3, 0x10, &ppn), "ASID 3 has no entry for page 0x10");
+    CHECK(tlb_lookup(&t, 3, 0x80000, &ppn) && ppn == 0x999, "a global entry matches any ASID");
+    CHECK(!tlb_lookup(&t, 2, 0x20, &ppn), "page 0x20 belongs to ASID 1 only");
+
+    /* Full: the LRU entry is ASID 1's page 0x20 (entry 2), untouched since its fill. */
+    tlb_fill(&t, 3, 0x30, 0x400, 0);
+    CHECK(t.e[2].valid && t.e[2].vpn == 0x30, "the fill should replace entry 2, the LRU one");
+    CHECK(!tlb_lookup(&t, 1, 0x20, &ppn), "page 0x20 should have been evicted");
+
+    sfence_vma(&t, 0, 0, 1, 2);   /* everything of ASID 2 */
+    CHECK(!tlb_lookup(&t, 2, 0x10, &ppn), "ASID fence should remove ASID 2's page 0x10");
+    CHECK(tlb_lookup(&t, 2, 0x80000, &ppn), "ASID fence must keep global entries");
+    CHECK(tlb_lookup(&t, 1, 0x10, &ppn) && ppn == 0x100, "ASID fence must keep other ASIDs");
+
+    sfence_vma(&t, 1, 0x80000, 1, 1);   /* that page in ASID 1 */
+    CHECK(tlb_lookup(&t, 1, 0x80000, &ppn), "an address-and-ASID fence must keep a global entry");
+    sfence_vma(&t, 1, 0x80000, 0, 0);   /* that page in every ASID */
+    CHECK(!tlb_lookup(&t, 1, 0x80000, &ppn), "an address-only fence removes a global entry");
+    CHECK(valid_count(&t) == 2, "2 entries should remain, found %d", valid_count(&t));
+
+    /* Invalid entries are refilled first, lowest index first. */
+    tlb_fill(&t, 4, 0x40, 0x500, 0);
+    CHECK(t.e[1].valid && t.e[1].vpn == 0x40, "the fill should use entry 1, the lowest invalid one");
+    tlb_fill(&t, 2, 0x10, 0x201, 0);
+    CHECK(t.e[3].valid && t.e[3].ppn == 0x201, "the next fill should use entry 3");
+    sfence_vma(&t, 1, 0x10, 1, 1);   /* page 0x10 in ASID 1 only */
+    CHECK(!tlb_lookup(&t, 1, 0x10, &ppn), "ASID 1's page 0x10 should be gone");
+    CHECK(tlb_lookup(&t, 2, 0x10, &ppn) && ppn == 0x201, "ASID 2's page 0x10 must stay");
+
+    sfence_vma(&t, 0, 0, 0, 0);
+    CHECK(valid_count(&t) == 0, "a full fence should empty the TLB, %d entries left", valid_count(&t));
+    return REPORT();
+}`,
+a: `<p>A lookup compares the page number and then accepts the entry if it is global or its ASID matches. The fence is one loop with two filters: an address filter skips entries for other pages, and an ASID filter skips other ASIDs and all global entries. The RISC-V spec defines it that way because a fence for one address space is what the kernel issues after changing a user mapping, and the global kernel mappings are shared by every address space, so they need a fence without an ASID.</p>
+<p>The ASID is what lets a context switch skip the flush: the next process simply looks up with its own ASID, and both processes’ entries share the TLB. The cost moves to ASID reuse. When the kernel gives an ASID to a new process, it must fence that ASID first, or the new process could hit the old one’s translations.</p>`
+});
+
+C("intv-vm", "paging", {
+lvl: "hard",
+q: `<p>Simulate demand paging and copy-on-write <code>fork</code> for address spaces of 8 pages of 64 bytes over 16 physical frames. Frame 0 is the shared zero frame: always zero, never written, never freed, and not reference-counted. <code>refs[f]</code> counts the page tables that map frame <em>f</em>. <code>frame_alloc</code> (given) returns the lowest free frame without clearing it. Every access whose page-table entry doesn’t allow it counts as a fault in <code>stats.faults</code>, including one that ends in −1.</p>
+<ul>
+<li><strong>Unmapped page:</strong> any access returns −1.</li>
+<li><strong>Read, not present:</strong> map the zero frame read-only.</li>
+<li><strong>Write, region read-only:</strong> return −1.</li>
+<li><strong>Write, not present:</strong> map a new zeroed frame writable (<code>zero_fills</code>).</li>
+<li><strong>Write, present but read-only:</strong> if the frame is the zero frame or is shared, copy it to a new frame, map that writable, and drop a reference to the old one (<code>copies</code>). If this table is the only one mapping it, just make the entry writable (<code>reuses</code>).</li>
+<li><strong><code>vm_fork</code>:</strong> the child gets the parent’s regions and entries. Every present frame gains a reference, and pages in writable regions become read-only in both tables.</li>
+<li><strong><code>vm_exit</code>:</strong> drop the references of every present entry and clear the address space.</li>
+</ul>
+<p>Return 0 on success. Frames never run out in the tests.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+#define PAGE_SIZE 64
+#define NPAGES 8
+#define NFRAMES 16
+#define ZERO_FRAME 0
+
+typedef struct { int present, writable, frame; } pte_t;
+typedef struct {
+    int mapped[NPAGES];      /* the OS's view: is the page in a region? */
+    int may_write[NPAGES];   /* the region's permission */
+    pte_t pt[NPAGES];        /* the hardware's view */
+} as_t;
+
+static uint8_t frames[NFRAMES][PAGE_SIZE];
+static int refs[NFRAMES];
+static struct { int faults, zero_fills, copies, reuses; } stats;
+
+static int frame_alloc(void) {
+    for (int f = 1; f < NFRAMES; f++)
+        if (refs[f] == 0) { refs[f] = 1; return f; }
+    return -1;
+}
+
+static void vm_map(as_t *as, int vpn, int may_write) {
+    as->mapped[vpn] = 1;
+    as->may_write[vpn] = may_write;
+}`,
+todo: String.raw`int vm_read(as_t *as, int va, uint8_t *out) {
+    /* TODO */
+    return -1;
+}
+
+int vm_write(as_t *as, int va, uint8_t val) {
+    /* TODO */
+    return -1;
+}
+
+void vm_fork(as_t *parent, as_t *child) {
+    /* TODO */
+}
+
+void vm_exit(as_t *as) {
+    /* TODO */
+}`,
+impl: String.raw`static void put_frame(int f) {
+    if (f != ZERO_FRAME) refs[f]--;
+}
+
+int vm_read(as_t *as, int va, uint8_t *out) {
+    int vpn = va / PAGE_SIZE;
+    pte_t *e = &as->pt[vpn];
+    if (!e->present) {
+        stats.faults++;
+        if (!as->mapped[vpn]) return -1;
+        *e = (pte_t){ 1, 0, ZERO_FRAME };
+    }
+    *out = frames[e->frame][va % PAGE_SIZE];
+    return 0;
+}
+
+int vm_write(as_t *as, int va, uint8_t val) {
+    int vpn = va / PAGE_SIZE;
+    pte_t *e = &as->pt[vpn];
+    if (!e->present || !e->writable) {
+        stats.faults++;
+        if (!as->mapped[vpn] || !as->may_write[vpn]) return -1;
+        if (!e->present) {
+            int f = frame_alloc();
+            if (f < 0) return -1;
+            memset(frames[f], 0, PAGE_SIZE);   /* frames are reused: clear old data */
+            *e = (pte_t){ 1, 1, f };
+            stats.zero_fills++;
+        } else if (e->frame == ZERO_FRAME || refs[e->frame] > 1) {
+            int f = frame_alloc();
+            if (f < 0) return -1;
+            memcpy(frames[f], frames[e->frame], PAGE_SIZE);
+            put_frame(e->frame);
+            *e = (pte_t){ 1, 1, f };
+            stats.copies++;
+        } else {
+            e->writable = 1;                   /* last sharer: no copy needed */
+            stats.reuses++;
+        }
+    }
+    frames[e->frame][va % PAGE_SIZE] = val;
+    return 0;
+}
+
+void vm_fork(as_t *parent, as_t *child) {
+    *child = *parent;
+    for (int v = 0; v < NPAGES; v++) {
+        if (!parent->pt[v].present) continue;
+        if (parent->pt[v].frame != ZERO_FRAME) refs[parent->pt[v].frame]++;
+        if (parent->may_write[v]) parent->pt[v].writable = child->pt[v].writable = 0;
+    }
+}
+
+void vm_exit(as_t *as) {
+    for (int v = 0; v < NPAGES; v++)
+        if (as->pt[v].present) put_frame(as->pt[v].frame);
+    memset(as, 0, sizeof *as);
+}`,
+tests: String.raw`int main(void) {
+    as_t a = {0}, b = {0};
+    uint8_t v = 99;
+    vm_map(&a, 0, 1); vm_map(&a, 1, 1); vm_map(&a, 2, 1); vm_map(&a, 3, 0);
+
+    CHECK(vm_read(&a, 5, &v) == 0 && v == 0, "first read of a heap page returns 0");
+    CHECK(a.pt[0].present && !a.pt[0].writable && a.pt[0].frame == ZERO_FRAME, "a read fault maps the zero frame read-only");
+    CHECK(vm_write(&a, 5, 7) == 0 && a.pt[0].frame == 1 && a.pt[0].writable, "a write to the zero frame copies it into frame 1");
+    CHECK(vm_write(&a, 64 + 3, 9) == 0 && a.pt[1].frame == 2, "a write to a new page zero-fills frame 2");
+    CHECK(vm_write(&a, 64 + 3, 10) == 0 && stats.faults == 3, "a write to a writable page doesn't fault (%d faults, expected 3)", stats.faults);
+    CHECK(vm_write(&a, 3 * 64, 1) == -1, "writing a read-only region fails");
+    CHECK(vm_read(&a, 3 * 64 + 1, &v) == 0 && v == 0, "reading a read-only region works");
+    CHECK(vm_read(&a, 5 * 64, &v) == -1, "reading an unmapped page fails");
+    CHECK(stats.faults == 6, "%d faults before the fork, expected 6", stats.faults);
+
+    vm_fork(&a, &b);
+    CHECK(refs[1] == 2 && refs[2] == 2 && !a.pt[0].writable && !b.pt[1].writable, "fork shares frames 1 and 2 read-only");
+    CHECK(vm_write(&b, 5, 8) == 0 && b.pt[0].frame == 3 && refs[1] == 1, "the child's write copies frame 1 into frame 3");
+    CHECK(vm_read(&a, 5, &v) == 0 && v == 7, "the parent still reads 7 (got %d)", v);
+    CHECK(vm_read(&b, 5, &v) == 0 && v == 8, "the child reads 8 (got %d)", v);
+    CHECK(vm_read(&b, 64 + 3, &v) == 0 && v == 10, "the child reads the shared page (got %d)", v);
+    CHECK(vm_write(&a, 6, 1) == 0 && a.pt[0].frame == 1 && stats.reuses == 1, "the parent is now frame 1's only user: no copy");
+
+    vm_exit(&b);
+    CHECK(refs[3] == 0 && refs[2] == 1, "exit frees frame 3 and drops frame 2 to one reference");
+    CHECK(vm_write(&a, 64 + 4, 2) == 0 && a.pt[1].frame == 2 && stats.reuses == 2, "frame 2 is reused in place after the child exits");
+    CHECK(vm_read(&a, 64 + 3, &v) == 0 && v == 10, "page 1 kept its data (got %d)", v);
+
+    /* Frame 3 still holds the child's 8 at offset 5. */
+    CHECK(vm_write(&a, 2 * 64, 1) == 0 && a.pt[2].frame == 3, "page 2 gets frame 3, the lowest free one");
+    CHECK(vm_read(&a, 2 * 64 + 5, &v) == 0 && v == 0, "a fresh page must read 0, not the old owner's data (got %d)", v);
+
+    CHECK(stats.faults == 10 && stats.zero_fills == 2 && stats.copies == 2 && stats.reuses == 2,
+          "faults %d, zero fills %d, copies %d, reuses %d, expected 10, 2, 2, 2",
+          stats.faults, stats.zero_fills, stats.copies, stats.reuses);
+    int zero_ok = 1;
+    for (int i = 0; i < PAGE_SIZE; i++) zero_ok &= frames[ZERO_FRAME][i] == 0;
+    CHECK(zero_ok, "the zero frame was written");
+    return REPORT();
+}`,
+a: `<p>The key is that there are two views of each page. The region says what the program may do, and the page-table entry says what the hardware will allow without asking. Copy-on-write works by keeping the entry stricter than the region: a write fault on a page whose region is writable is a request for a private copy, not an error. The handler’s decision is then the reference count. A shared frame is copied, and a frame that only this table maps is upgraded in place, which is why the parent’s writes after the child exits cost a fault but no copy.</p>
+<p>The traps the checks catch:</p>
+<ul>
+<li>The zero frame has no reference count, so “only one user” must never apply to it, or the program would write into the page every other process reads as zero.</li>
+<li>Read faults map the zero frame and use no memory, so a program that reads a large array before writing it takes two faults per page.</li>
+<li>Freed frames keep their old contents. A new page must be cleared, or it leaks another process’s data, which is why kernels zero every frame they hand to user space.</li>
+</ul>`
+});
+
+C("intv-vm", "reclaim", {
+lvl: "hard",
+q: `<p>Implement page replacement with the enhanced clock algorithm, which prefers clean pages because a dirty victim must be written back first. Each of 4 frames holds a page number (−1 if free), a referenced bit, and a dirty bit. <code>pager_access</code> returns the frame used.</p>
+<ul>
+<li><strong>Hit:</strong> set the referenced bit, and the dirty bit on a write. The hand doesn’t move.</li>
+<li><strong>Miss with a free frame:</strong> use the lowest-numbered free frame. The hand doesn’t move.</li>
+<li><strong>Miss with all frames full,</strong> scanning from the hand and wrapping around:
+<ol>
+<li>Look at each of the 4 frames once for referenced = 0, dirty = 0. Change nothing.</li>
+<li>If none, look at each frame once for referenced = 0, dirty = 1, clearing the referenced bit of every frame passed over.</li>
+<li>If still none, repeat steps 1 and 2. Every referenced bit is now clear, so one of them finds a victim.</li>
+</ol>
+Count a writeback if the victim is dirty, load the new page with referenced = 1 and dirty set on a write, and move the hand to the frame after the victim.</li>
+</ul>
+<p>Count every miss in <code>faults</code>.</p>`,
+head: String.raw`#include <stdio.h>
+
+#define NFRAMES 4
+typedef struct { int vpn, ref, dirty; } frame_t;
+typedef struct {
+    frame_t f[NFRAMES];
+    int hand;
+    int faults, writebacks;
+} pager_t;
+
+void pager_init(pager_t *p) {
+    for (int i = 0; i < NFRAMES; i++) p->f[i] = (frame_t){ -1, 0, 0 };
+    p->hand = p->faults = p->writebacks = 0;
+}`,
+todo: String.raw`int pager_access(pager_t *p, int vpn, int is_write) {
+    /* TODO */
+    return -1;
+}`,
+impl: String.raw`/* One sweep from the hand for a frame with ref == 0 and the given dirty
+   bit, clearing ref on the frames passed over if asked. */
+static int sweep(pager_t *p, int dirty, int clear_ref) {
+    for (int k = 0; k < NFRAMES; k++) {
+        frame_t *fr = &p->f[(p->hand + k) % NFRAMES];
+        if (!fr->ref && fr->dirty == dirty) return (p->hand + k) % NFRAMES;
+        if (clear_ref) fr->ref = 0;
+    }
+    return -1;
+}
+
+int pager_access(pager_t *p, int vpn, int is_write) {
+    for (int i = 0; i < NFRAMES; i++) {
+        if (p->f[i].vpn == vpn) {
+            p->f[i].ref = 1;
+            p->f[i].dirty |= is_write;
+            return i;
+        }
+    }
+    p->faults++;
+    int victim = -1;
+    for (int i = 0; i < NFRAMES && victim < 0; i++)
+        if (p->f[i].vpn < 0) victim = i;
+    if (victim < 0) {
+        for (int round = 0; round < 2 && victim < 0; round++) {
+            victim = sweep(p, 0, 0);
+            if (victim < 0) victim = sweep(p, 1, 1);
+        }
+        if (p->f[victim].dirty) p->writebacks++;
+        p->hand = (victim + 1) % NFRAMES;
+    }
+    p->f[victim] = (frame_t){ vpn, 1, is_write };
+    return victim;
+}`,
+tests: String.raw`int main(void) {
+    pager_t p;
+    pager_init(&p);
+    /* page, is_write, expected frame */
+    static const int trace[][3] = {
+        {1, 0, 0}, {2, 1, 1}, {3, 0, 2}, {4, 1, 3},   /* fill the free frames */
+        {1, 0, 0},                                    /* hit */
+        {5, 0, 0},   /* all referenced: step 2 clears them all, then clean page 1 goes */
+        {3, 1, 2},   /* hit, page 3 becomes dirty */
+        {6, 0, 1},   /* no clean unreferenced page, dirty page 2 is next at the hand */
+        {2, 0, 3},   /* step 2 clears page 3's bit and takes dirty page 4 */
+        {7, 0, 2},   /* clears pages 5 and 6, takes dirty page 3 */
+        {8, 0, 0},   /* step 1 finds page 5, clean and unreferenced */
+        {6, 1, 1},   /* hit, page 6 becomes dirty */
+        {9, 0, 2},   /* full second round: clean page 7 beats dirty page 6 */
+    };
+    int n = sizeof trace / sizeof trace[0];
+    for (int i = 0; i < n; i++) {
+        int got = pager_access(&p, trace[i][0], trace[i][1]);
+        CHECK(got == trace[i][2], "access %d (page %d): frame %d, expected %d", i, trace[i][0], got, trace[i][2]);
+    }
+    CHECK(p.faults == 10, "%d faults, expected 10", p.faults);
+    CHECK(p.writebacks == 3, "%d writebacks, expected 3 (pages 2, 4, and 3)", p.writebacks);
+    CHECK(p.hand == 3, "hand at %d, expected 3", p.hand);
+    int want[NFRAMES][3] = { {8, 0, 0}, {6, 0, 1}, {9, 1, 0}, {2, 0, 0} };
+    for (int i = 0; i < NFRAMES; i++)
+        CHECK(p.f[i].vpn == want[i][0] && p.f[i].ref == want[i][1] && p.f[i].dirty == want[i][2],
+              "frame %d holds page %d ref %d dirty %d, expected page %d ref %d dirty %d",
+              i, p.f[i].vpn, p.f[i].ref, p.f[i].dirty, want[i][0], want[i][1], want[i][2]);
+    return REPORT();
+}`,
+a: `<p>The four (referenced, dirty) classes rank the victims: (0, 0) is cold and free to drop, (0, 1) is cold but costs a write, and the referenced classes were used since the last sweep. Step 1 looks for the best class without disturbing anything. Step 2 accepts a dirty victim, and on the way it clears referenced bits, which is the “second chance”: a page passed over now has to be referenced again before the next sweep to survive. The repeat always ends, because after a full step 2 no referenced bit is set.</p>
+<p>The trace shows the trade. Access 9 (page 7) skips past two clean pages whose bits were set and evicts dirty page 3, paying a writeback to keep recently used pages. The last access does a full second round and then takes clean page 7 over dirty page 6, which was written more recently anyway. Real kernels add more: Linux keeps active and inactive lists, writes dirty pages back in the background so most victims are clean by the time reclaim reaches them, and reads the referenced bits from page-table accessed bits, which a TLB hit doesn’t set (the Conceptual tab covers why).</p>`
+});
+
 C("intv-design", "build", {
 lvl: "hard",
 q: `<p>Implement a PC-indexed stride prefetcher (a reference prediction table, Chen and Baer, 1995). The table is 64 entries, direct-mapped by <code>(pc &gt;&gt; 2) % 64</code>, and each entry holds the full PC as its tag, the last address, a stride, and a state. On each load:</p>

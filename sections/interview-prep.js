@@ -89,7 +89,7 @@ ${window.INTV_CODING_HELP || ""}
 <ol>
 <li><strong>Fundamentals:</strong> <a href="#/intv-pipeline">Pipeline Flow and Width</a>, <a href="#/intv-renaming">Renaming and Dependences</a>, <a href="#/intv-rob">The ROB and Retirement</a>, <a href="#/intv-sched">Scheduling and Execution</a>, <a href="#/intv-arith">Arithmetic and Floating Point</a>.</li>
 <li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-fe">Front End and Fetch</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-mem">Caches, TLBs and DRAM</a>, <a href="#/intv-coh">Coherence and Consistency</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>.</li>
-<li><strong>Systems programming:</strong> <a href="#/intv-conc">Concurrency and Parallelism</a>, <a href="#/intv-alloc">Memory Allocation and the C Library</a>. Expect to write code for these in an interview.</li>
+<li><strong>Systems programming:</strong> <a href="#/intv-conc">Concurrency and Parallelism</a>, <a href="#/intv-alloc">Memory Allocation and the C Library</a>, <a href="#/intv-vm">Virtual Memory and the OS Boundary</a>. Expect to write code for these in an interview.</li>
 <li><strong>Your own experience:</strong> <a href="#/intv-sim">Building a Performance Model in C</a>, <a href="#/intv-design">Open-Ended Design Problems</a>. Connect every answer here to a decision or bug from your own simulator.</li>
 </ol>
 
@@ -3143,6 +3143,228 @@ M(`<p>A program keeps 10 million live 24-byte objects.</p>
 <li>⌊4,096 / 24⌋ = 170 slots per page (16 bytes left over). 10<sup>7</sup> / 170 = 58,824 pages × 4,096 B = <strong>241 MB</strong>, an overhead of about <strong>0.4%</strong>.</li>
 <li>General: 2 objects per line, <strong>5 million</strong> lines. Slab: 64 / 24 ≈ 2.67 objects per line, about <strong>3.75 million</strong> lines, 25% fewer misses for the same work. For small objects, the allocator’s layout is a cache-efficiency decision as much as a memory one.</li>
 </ol>`, "hard")
+},
+{
+  id: "intv-vm",
+  title: "Virtual Memory and the OS Boundary",
+  body: `
+<p>Background: <a href="#/virtual-memory">Virtual and Physical Memory</a>, <a href="#/tlb">Page Walks and TLBs</a>, <a href="#/exceptions">Faults, Traps, Interrupts, and System Calls</a>, <a href="#/demand-paging">Demand Paging and Copy-on-Write</a>, <a href="#/page-replacement">Page Replacement</a>, <a href="#/mmap">Memory Mapping</a>. Questions on modeling page walks and huge pages for data-heavy workloads are on <a href="#/intv-mem">Caches, TLBs and DRAM</a>. The main references are Hennessy &amp; Patterson (Appendices B and C), Bryant and O’Hallaron’s <em>Computer Systems: A Programmer’s Perspective</em> (chapters 8 and 9), the Intel SDM volume 3, and the RISC-V privileged specification.</p>
+<h3 id="sec-xlate">Address Spaces and Translation</h3>` +
+Q(`<p>x86-64 uses 4 KB pages and 48-bit virtual addresses. Why is the page table a 4-level tree rather than one flat array indexed by virtual page number, and what does the tree cost?</p>`,
+`<p>A flat table needs one 8-byte entry for every virtual page, mapped or not: 2<sup>48</sup> / 2<sup>12</sup> = 2<sup>36</sup> entries, 512 GB per process. A real process uses a few regions (code, heap, libraries, stacks) scattered across that space, so almost all of the flat table would describe nothing.</p>
+<p>The tree splits the 36-bit page number into four 9-bit fields, so each level is one 4 KB page of 512 entries. A table exists only for a 512-entry range that holds at least one mapping, and an empty subtree costs a single not-present entry one level up. A small process needs a handful of tables, tens of KB.</p>
+<p>The cost is the TLB miss. The walk is a chain of up to 4 dependent memory reads (5 with 57-bit addresses), each needing the previous one’s result before it can start. Page-walk caches hold upper-level entries so most walks read only the last level or two, and huge pages end the walk one or two levels early.</p>`, "easy") +
+Q(`<p>Two processes ping-pong through a pipe on one core, switching hundreds of thousands of times per second. Each touches about 50 pages, and both working sets fit in the TLB together. Compare a core that flushes its TLB on every page-table switch with one whose TLB entries carry an address-space ID (ASID, PCID on x86). Then explain how Linux on x86 gets by with only a few ASIDs per core although it runs thousands of processes.</p>`,
+`<p>Without ASIDs, each switch to a new page-table base must flush every non-global entry, because the same virtual address means something else in the other process. Each process then takes about 50 TLB misses at the start of every time slice, rebuilding a working set it had a moment ago. Kernel mappings marked global survive, so only user entries are lost. With ASIDs, both processes’ entries stay in the TLB side by side, a lookup matches only entries with the current ASID, and after warm-up a switch costs no TLB misses at all.</p>
+<p>ASIDs don’t help when the working sets don’t fit together: then the entries are evicted by capacity, flushed or not.</p>
+<p>Linux on x86 keeps only 6 ASIDs per core (<code>TLB_NR_DYN_ASIDS</code>), even though PCIDs are 12 bits. On a switch, it reuses the slot if the incoming process still owns one on this core, keeping its entries. Otherwise it takes the least recently used slot and loads CR3 with a flush of that PCID, so the previous owner’s stale entries can’t be hit. Per-core assignment means recycling an ASID never needs to invalidate anything on other cores. And entries of a process that hasn’t run on this core for a while are mostly evicted anyway, so a few slots catch nearly all the benefit. Arm takes the other route: 16-bit ASIDs allocated system-wide with a generation number, and a TLB flush on every core when the ASIDs run out.</p>`, "medium") +
+Q(`<p>A hypervisor can virtualize memory with shadow page tables or with hardware nested paging (Intel EPT, AMD NPT). Which makes a guest TLB miss cheaper, which makes a guest page-table update cheaper, and which workloads favor each? What hardware reduces the cost of nested walks?</p>`,
+`<p><strong>Shadow paging:</strong> the hypervisor builds a table that maps guest-virtual addresses straight to host-physical ones, and the hardware walks it like a native table, so a TLB miss costs a native walk. But the shadow table must track the guest’s own tables, so the hypervisor write-protects them and every guest page-table write traps into the hypervisor (a VM exit, thousands of cycles). Guest CR3 writes trap too.</p>
+<p><strong>Nested paging:</strong> the guest edits its own tables and switches CR3 freely, with no exits. But every guest table pointer is a guest-physical address that needs its own host walk, so a miss walks two dimensions: up to 24 memory references with 4-level tables on both sides (the Math tab counts them).</p>
+<p><strong>Who favors which:</strong> workloads that change mappings often (process creation, <code>fork</code>, <code>mmap</code>, frequent context switches, as in build farms or container churn) favor nested paging. Workloads with stable mappings and many TLB misses (a large in-memory database on 4 KB pages) lose less under shadow paging. Nested paging won in practice because huge pages and walk caching close most of its gap, while shadow paging’s exits have no hardware fix.</p>
+<p><strong>Hardware help:</strong></p>
+<ul>
+<li>The TLB caches the final guest-virtual to host-physical translation, so a hit costs nothing extra.</li>
+<li>Page-walk caches hold guest-level entries with the host-physical address of the next table, skipping whole host walks.</li>
+<li>A nested TLB caches guest-physical to host-physical translations used during walks (Bhargava et al., ASPLOS 2008, AMD’s design).</li>
+<li>Host huge pages shorten every host walk, and VPID or ASID tags keep entries across VM switches.</li>
+</ul>`, "hard") +
+M(`<p>A guest and its host each use 4-level x86-64 page tables. Count the memory references in a guest TLB miss that finds nothing in any page-walk cache or nested TLB:</p>
+<ol>
+<li>Native, 4 KB pages.</li>
+<li>Guest 4 KB pages, host 4 KB pages.</li>
+<li>Guest 4 KB pages, host 2 MB pages.</li>
+<li>Guest 2 MB pages, host 2 MB pages.</li>
+</ol>
+<p>Then a workload runs at CPI 0.70 not counting translation. It takes 2.0 L2 TLB misses per 1,000 instructions when the TLB holds 4 KB translations, and 0.5 when it holds 2 MB ones. The TLB caches each translation at the smaller of the guest and host page sizes. Each walk reference averages 15 cycles, and half of each walk’s latency is exposed. Find the CPI in each case.</p>`,
+`<p><strong>Counting.</strong> With <em>n</em> guest levels and <em>m</em> host levels, each guest level’s table address is guest-physical, so it needs a host walk of <em>m</em> references plus 1 read of the guest entry. The final guest-physical data address needs one more host walk. Total = <em>n</em>(<em>m</em> + 1) + <em>m</em> = (<em>n</em> + 1)(<em>m</em> + 1) − 1. A 2 MB page removes the last level, so <em>n</em> or <em>m</em> becomes 3.</p>
+<ol>
+<li>Native: <strong>4</strong> references.</li>
+<li>4 × 5 + 4 = <strong>24</strong>.</li>
+<li>4 × 4 + 3 = <strong>19</strong>.</li>
+<li>3 × 4 + 3 = <strong>15</strong>.</li>
+</ol>
+<p><strong>CPI.</strong> Exposed cycles per miss = references × 15 × 0.5. Cases 1 to 3 cache 4 KB translations (2.0 misses per 1,000 instructions), and case 4 caches 2 MB ones (0.5).</p>
+<ol>
+<li>4 × 7.5 = 30 cycles × 0.002 = 0.060, CPI <strong>0.760</strong>.</li>
+<li>24 × 7.5 = 180 × 0.002 = 0.360, CPI <strong>1.060</strong>, 39% slower than native.</li>
+<li>19 × 7.5 = 142.5 × 0.002 = 0.285, CPI <strong>0.985</strong>.</li>
+<li>15 × 7.5 = 112.5 × 0.0005 = 0.056, CPI <strong>0.756</strong>, slightly faster than native 4 KB.</li>
+</ol>
+<p>Host huge pages alone recover only a quarter of the loss (0.075 of 0.30 CPI), because they shorten each walk but leave TLB reach unchanged while the guest uses 4 KB pages. Huge pages on both sides fix both, which is why cloud providers back guests with huge pages. Real walks are far cheaper than 24 uncached references because of the walk caches, so treat these as upper bounds.</p>`, "hard") +
+`<h3 id="sec-entry">Exceptions and Kernel Entry</h3>` +
+Q(`<p>Why must a page fault be precise, while a machine-check abort need not be? How does an out-of-order core make the page fault precise?</p>`,
+`<p>A page fault is a normal event that the OS fixes, after which the faulting instruction runs again as if nothing had happened. That only works if, at the moment of the fault, every older instruction has updated architectural state and nothing from the faulting instruction or anything younger has. Otherwise the re-execution would apply some effects twice or skip others. An abort such as an uncorrectable machine check doesn’t resume the program, so the state only has to be good enough to log the error and kill the process or the machine.</p>
+<p>The out-of-order core makes it precise with the ROB. The unit that detects the fault (the TLB or the walker) only marks the instruction’s ROB entry with the cause and address. The fault is taken when that entry reaches the head, so every older instruction has committed. The core then flushes everything younger, restores the rename map from the committed state, saves the faulting PC, and redirects fetch to the handler. If the instruction turns out to be on a mispredicted path, it is flushed first and the fault never happens.</p>`, "easy") +
+Q(`<p>A timer interrupt arrives on a core with a 512-entry ROB while the window is full and its head is a load waiting on DRAM. What does a typical core do, what does the interrupt cost beyond the handler’s own instructions, and what would the alternative design cost?</p>`,
+`<p>A typical core treats the oldest uncommitted instruction, here the load, as the interrupt boundary. It flushes all 512 uncommitted instructions, saves the load’s PC, and redirects to the handler. After the handler returns, the load and everything behind it are fetched, renamed, and executed again.</p>
+<p>The extra costs:</p>
+<ul>
+<li>The discarded work: refilling a 512-entry window takes over a hundred cycles of front-end bandwidth plus the pipeline depth.</li>
+<li>The handler’s pollution of the caches, predictors, and TLB.</li>
+<li>Kernel entry and exit themselves.</li>
+</ul>
+<p>The DRAM miss isn’t wasted: its fill still lands in the cache, so the replayed load usually hits.</p>
+<p>The alternative is to stop fetching and let the window drain, taking the interrupt once everything in flight has committed. No work is lost, but interrupt latency now includes the DRAM miss and any misses that depend on it, hundreds to thousands of cycles with a full window, which hurts real-time and I/O latency. Since a 1,000 Hz timer fires once every few million cycles, flushing costs a negligible fraction, so cores choose short latency. The cost matters for high-rate device interrupts, which is why NICs coalesce interrupts and drivers switch to polling under load.</p>`, "medium") +
+Q(`<p>Meltdown read kernel memory from user mode on many Intel cores although every such load faults. Explain why the fault didn’t stop it, why AMD cores of the same era weren’t affected, and what kernel page-table isolation (KPTI) does. Then explain why KPTI’s cost depends so much on PCID, and which workloads it hurts most.</p>`,
+`<p><strong>Why the fault didn’t help:</strong> the fault is only recorded in the ROB and taken at commit. Meanwhile the load, whose permission check failed, still returned the kernel data to dependent instructions, which used it to index a probe array. The flush discards the registers but not the cache line the dependent load brought in, and timing the probe array (Flush+Reload) recovers the value.</p>
+<p><strong>AMD:</strong> its cores enforce the permission check before a load passes data to dependents, so a faulting user load forwards nothing useful.</p>
+<p><strong>KPTI:</strong> user mode runs on a page table that doesn’t map the kernel at all, apart from a small entry trampoline and its stack. A user load to a kernel address then has no translation, so there is no physical address to read, even speculatively. The price is two CR3 writes per kernel entry and exit.</p>
+<p><strong>Why PCID matters:</strong> without PCID, each CR3 write flushes the non-global TLB entries, and the kernel’s entries can no longer be global. Every system call then costs the user code a fresh round of TLB misses on its working set. With PCID, the user and kernel tables get separate PCIDs, CR3 is written with the no-flush bit, and both sets of entries survive. What remains is the CR3 writes themselves.</p>
+<p><strong>Who pays:</strong> workloads that cross into the kernel very often, such as databases doing many small I/O calls, network servers without batching, and file-metadata scans. Compute-bound code barely notices. Cores fixed in hardware (they report <code>RDCL_NO</code>) run without KPTI.</p>`, "hard") +
+Q(`<p><code>perf</code> shows a network server spending 12% of its cycles in the kernel. Moving it to <code>io_uring</code> with batched submission removes most of its system calls and raises throughput by 30%, more than the 12% it could have gained even if all kernel time had vanished. How is that possible, and how would you show the mechanism with counters?</p>`,
+`<p>Assume the kernel work stays on the same core (no kernel polling thread). The kernel still does the network work with <code>io_uring</code>, so the gain must come from user code getting faster per request. The mechanism is the indirect cost of crossings:</p>
+<ul>
+<li>Each entry and exit flushes the pipeline.</li>
+<li>The kernel’s code and data displace user lines in the L1I, L1D, and L2.</li>
+<li>Kernel branches overwrite BTB and predictor state.</li>
+<li>Kernel accesses evict user TLB entries, or flush them on cores that need KPTI without PCID.</li>
+</ul>
+<p>After each return, the user code runs at depressed IPC for thousands of cycles while it rebuilds that state. Soares and Stumm (FlexSC, OSDI 2010) measured exactly this. Batching makes crossings rare, so user and kernel each run long enough to keep their state warm.</p>
+<p>Evidence, comparing the two versions with user-only counters (the <code>:u</code> modifier):</p>
+<ul>
+<li>User-mode IPC per request, and user instructions per request, which should barely change.</li>
+<li>User-mode L1I misses, branch mispredictions, and iTLB and dTLB misses per 1,000 instructions, which should fall.</li>
+<li>User IPC as a function of instructions since the last kernel exit, from sampled timestamps or LBRs, showing the recovery curve.</li>
+</ul>
+<p>Also check the trap: if <code>io_uring</code> runs with SQPOLL, the kernel work moves to another core, and the 30% is partly CPU time spent elsewhere. Count total CPU time per request across all cores before crediting the indirect cost.</p>`, "hard") +
+Q(`<p>Your syscall-emulation model of a web server (like gem5’s SE mode) matches silicon’s user-mode IPC within 3% but predicts 40% more requests per second. What is the model missing, and how would you fix it short of full-system simulation?</p>`,
+`<p>In syscall emulation, the simulator carries out each system call itself and charges nearly no time. The kernel’s instructions never run, so the model misses the network stack, the copies, scheduling, interrupt handling, and page faults. Since user IPC matches and the user instructions per request are the same, the gap is the missing kernel cycles: if silicon serves <em>R</em> requests per second and the model 1.4<em>R</em>, the kernel takes about 1 − 1/1.4 ≈ <strong>29%</strong> of silicon’s cycles per request. The kernel’s pollution of caches and predictors is missing too, but a 3% match on user IPC says it is small here.</p>
+<p>Fixes, cheapest first:</p>
+<ul>
+<li>Measure the kernel cycles per call type and per fault on silicon (<code>perf trace</code>, ftrace, or per-mode cycle counts per request) and charge them in the model as a latency per call, with their measured spread.</li>
+<li>Add pollution by splicing recorded kernel instruction traces (for example from Intel PT) into the user trace at each call, so the caches and predictors see the kernel’s footprint.</li>
+<li>Take full-system checkpoints and simulate only representative regions in full-system mode, and validate the corrected SE model against them.</li>
+</ul>
+<p>Then validate with microbenchmarks that stress one call type at a time.</p>`, "hard") +
+M(`<p>A key-value server on one 4 GHz core handles each request with 4 system calls. Each request takes 6.0 µs of user work, 2.0 µs of kernel work inside the calls, and 0.10 µs per call to enter and leave the kernel without Meltdown mitigations. KPTI adds 0.15 µs per call for the page-table switches. Without PCID, each call also flushes the TLB, and the user code then takes 40 extra TLB misses of 30 cycles each.</p>
+<ol>
+<li>Find the requests per second without KPTI, with KPTI and PCID, and with KPTI but no PCID.</li>
+<li>With <code>io_uring</code>, the server submits and reaps the calls of 32 requests with a single system call, and the kernel work is unchanged. Find the requests per second with KPTI and PCID.</li>
+</ol>`,
+`<ol>
+<li>Without KPTI: 6.0 + 2.0 + 4 × 0.10 = 8.4 µs per request, <strong>119,000 requests/s</strong>.<br>
+KPTI with PCID: 8.4 + 4 × 0.15 = 9.0 µs, <strong>111,000 requests/s</strong>, 6.7% fewer.<br>
+KPTI without PCID: the refill costs 40 × 30 = 1,200 cycles = 0.30 µs per call. 8.4 + 4 × (0.15 + 0.30) = 10.2 µs, <strong>98,000 requests/s</strong>, 17.6% fewer.</li>
+<li>One call per 32 requests: (0.10 + 0.15) / 32 = 0.008 µs per request. 6.0 + 2.0 + 0.008 = 8.008 µs, <strong>124,900 requests/s</strong>, 12% more than per-request calls with KPTI and PCID, and more than the unmitigated server.</li>
+</ol>
+<p>Batching makes the mitigation’s cost irrelevant because it is paid per crossing, not per request. These are direct costs only. The indirect cost of each crossing on user IPC would make batching look better still.</p>`, "medium") +
+`<h3 id="sec-paging">Demand Paging and Copy-on-Write</h3>` +
+Q(`<p>What separates a minor page fault from a major one? Give two common causes of each, and how you would count them.</p>`,
+`<p>A <strong>minor</strong> fault is resolved without I/O: the data is already in memory, or none is needed. Causes:</p>
+<ul>
+<li>The first touch of anonymous memory, which gets a zeroed frame.</li>
+<li>A copy-on-write copy after <code>fork</code>.</li>
+<li>A mapped file page that is already in the page cache.</li>
+</ul>
+<p>A <strong>major</strong> fault has to read from storage first. Causes:</p>
+<ul>
+<li>A mapped file page that isn’t in the page cache, such as program code after a cold start.</li>
+<li>An anonymous page that was swapped out.</li>
+</ul>
+<p>A minor fault costs on the order of a microsecond, and a major one from tens of microseconds on NVMe to milliseconds on a disk. Count them with <code>perf stat -e minor-faults,major-faults</code>, <code>getrusage</code> (<code>ru_minflt</code>, <code>ru_majflt</code>), or <code>/usr/bin/time -v</code>.</p>`, "easy") +
+Q(`<p>When the kernel adds a mapping on a first-touch fault, it needs no TLB shootdown, but removing or write-protecting a mapping does. Why? And why must the kernel zero a new page-table page before writing the entry that points at it?</p>`,
+`<p>TLBs and page-walk caches never cache a not-present entry. The entries the fault handler fills in were all not present, so no core can hold a stale copy of them, and the next access anywhere simply walks and finds the new mapping. Removing or restricting a mapping is the reverse: any core that ran the process may still hold the old, more permissive translation and could keep using it, so every such core must invalidate it before the change is safe. That is the shootdown.</p>
+<p>The zeroing is about concurrent walkers. Other threads of the process run on other cores, and their walkers can read the tables at any moment. If the kernel linked a new table before clearing it, a walker could follow the link and treat leftover bytes as valid entries, mapping arbitrary memory. So the kernel zeroes the table, issues a write barrier, and only then writes the parent entry. A walker sees either not present or a fully initialized table.</p>
+<p>One related case needs no shootdown: upgrading a read-only entry to writable, as when the last sharer of a copy-on-write page writes it. A stale read-only entry elsewhere can only cause a spurious fault, which the kernel answers by flushing that one entry locally.</p>`, "medium") +
+Q(`<p>Redis snapshots its dataset by forking: the child writes the data to disk while the parent keeps serving writes. Operators see a latency spike at the fork, slow writes during the snapshot, and memory use climbing toward double. Explain each, and why Redis tells users to disable transparent huge pages.</p>`,
+`<ul>
+<li><strong>The fork pause:</strong> the single-threaded parent waits while the kernel copies its page table and write-protects every private page, which takes time proportional to the mapped size, not the work done. It then flushes the parent’s TLB entries.</li>
+<li><strong>Slow writes:</strong> the first write to each page after the fork takes a copy-on-write fault: kernel entry, a new frame, a page copy, and an entry update. Right after the fork, nearly every write hits a page not yet copied, so the slowdown is front-loaded and fades as the hot pages get their own copies.</li>
+<li><strong>Memory growth:</strong> each written page now exists twice, once for the child’s frozen view and once for the parent. With writes spread over the heap, the copied fraction grows toward 100% the longer the snapshot runs.</li>
+</ul>
+<p><strong>Transparent huge pages:</strong> on kernels that copy whole huge pages on a write fault (Linux before 5.8), a 1-byte write copies 2 MB, which takes hundreds of microseconds and copies 512 times more data than needed. Scattered writes touch nearly every huge page within seconds, so memory doubles almost at once. Huge pages shorten the fork itself, but that doesn’t make up for this. The Math tab works the numbers. Newer kernels split the huge mapping and copy 4 KB instead.</p>`, "hard") +
+M(`<p>A single-threaded Redis-like server has a 24 GiB heap, fully touched, and forks to write a snapshot that takes 20 s. During the snapshot the parent makes 50,000 writes per second, each to a uniformly random location in the heap, and the child only reads. The fork pauses the parent while it copies and write-protects the leaf page-table entries at 2 ns per entry (ignore upper levels). A copy-on-write fault costs 1 µs plus copying the page at 10 GB/s. Assume the kernel copies a whole huge page on a write fault, as Linux did before version 5.8. For 4 KiB pages and for 2 MiB pages, find:</p>
+<ol>
+<li>The fork pause.</li>
+<li>The extra memory at the end of the snapshot.</li>
+<li>The parent’s total time in copy-on-write faults, and the cost of one such fault.</li>
+</ol>`,
+`<p>The snapshot sees 50,000 × 20 = 1,000,000 writes. With <em>N</em> uniform writes over <em>P</em> pages, the expected number of distinct pages written is <em>P</em>(1 − e<sup>−<em>N</em>/<em>P</em></sup>).</p>
+<p><strong>4 KiB pages:</strong> <em>P</em> = 24 × 2<sup>30</sup> / 2<sup>12</sup> = 6,291,456.</p>
+<ol>
+<li>6,291,456 × 2 ns = <strong>12.6 ms</strong>.</li>
+<li><em>N</em>/<em>P</em> = 0.159, so 6,291,456 × (1 − e<sup>−0.159</sup>) ≈ 924,600 pages are copied: × 4 KiB = <strong>3.5 GiB</strong>.</li>
+<li>Each fault: 1 + 4,096 B / 10 GB/s = 1 + 0.41 = 1.41 µs. Total: 924,600 × 1.41 µs ≈ <strong>1.30 s</strong>, 6.5% of the snapshot.</li>
+</ol>
+<p><strong>2 MiB pages:</strong> <em>P</em> = 12,288.</p>
+<ol>
+<li>12,288 × 2 ns = <strong>25 µs</strong>.</li>
+<li><em>N</em>/<em>P</em> = 81, so every huge page is copied: <strong>24 GiB</strong>, double the heap.</li>
+<li>Each fault: 1 + 2,097,152 B / 10 GB/s = 210.7 µs. Total: 12,288 × 210.7 µs ≈ <strong>2.59 s</strong>.</li>
+</ol>
+<p>The total hides how bad 2 MiB pages are. After the first 50,000 writes, 12,288 × (1 − e<sup>−4.07</sup>) ≈ 12,078 huge pages would have faulted, 2.5 s of copying. So in the first second almost every write costs 211 µs, and the server manages only about 5,000 writes per second until the copying is done. Huge pages save 12.6 ms at the fork and cost 20.5 GiB of memory and seconds of stalls.</p>`, "hard") +
+`<h3 id="sec-reclaim">Reclaim and Memory Pressure</h3>` +
+Q(`<p>Linux approximates LRU by clearing page-table accessed bits and later checking whether they were set again. On x86 it clears them without flushing the TLB. Why can that make a hot page look cold, why does Linux accept it, and how else could the OS find out which pages are hot?</p>`,
+`<p>The walker sets the accessed bit in memory only when it walks, that is, on a TLB miss. If the page’s translation stays in the TLB after the bit is cleared, every later access hits in the TLB, no walk happens, and the bit stays clear. To the scanner, the page looks unused. Pages that stay in a large L2 TLB are, by definition, ones being used, so the error falls on exactly the pages that should be kept.</p>
+<p>Linux accepts it because the alternative is worse: an accurate scan would flush each page’s translation, with a shootdown on every core running the process, per page per scan. The error is limited in practice: scans are seconds apart, so context switches and TLB pressure usually evict the entry, and a wrongly evicted hot page simply faults back in as a minor fault (if it is still in the swap or page cache) and is marked as recently used.</p>
+<p>Other ways to find hot pages:</p>
+<ul>
+<li>Sample load and store addresses with PEBS (Intel) or IBS (AMD), as memory-tiering systems such as HeMem do.</li>
+<li>Make pages briefly not present and count the hinting faults, as Linux’s NUMA balancing does, at the cost of a fault per sample.</li>
+<li>Scan the page tables in address order instead of the LRU lists, as Linux’s multi-generational LRU does, which reads 8 entries per cache line and cuts the scan cost.</li>
+</ul>`, "hard") +
+Q(`<p>A latency-critical service on a host with little free memory shows p99 latency spikes of several milliseconds that don’t line up with garbage collection or I/O. Free memory hovers near the low watermark. What is likely happening, how would you confirm it, and what are the fixes?</p>`,
+`<p>Most likely <strong>direct reclaim</strong>. When an allocation finds free memory below the minimum watermark, because background reclaim (<code>kswapd</code>) fell behind, the allocating thread reclaims memory itself before it can continue. It scans the LRU lists, may write back dirty pages, and triggers TLB shootdowns. Allocations of several contiguous pages, such as transparent huge pages, can also stall in memory compaction.</p>
+<p>Confirm it:</p>
+<ul>
+<li><code>/proc/vmstat</code>: <code>allocstall_*</code>, <code>pgscan_direct</code>, and <code>compact_stall</code> rising during the spikes.</li>
+<li>Pressure stall information: <code>/proc/pressure/memory</code> or the service’s cgroup <code>memory.pressure</code>.</li>
+<li>The <code>vmscan:mm_vmscan_direct_reclaim_begin</code> and <code>_end</code> tracepoints, showing which threads stall and for how long.</li>
+</ul>
+<p>Fixes:</p>
+<ul>
+<li>Raise <code>vm.watermark_scale_factor</code> or <code>vm.min_free_kbytes</code> so <code>kswapd</code> starts earlier and keeps a larger buffer free.</li>
+<li>Limit the neighbors: put batch jobs in cgroups with <code>memory.high</code> so they reclaim their own memory.</li>
+<li>Set transparent huge page defragmentation to defer or madvise, so faults don’t compact synchronously.</li>
+<li>Have the service allocate and touch its memory at startup and reuse it.</li>
+</ul>`, "medium") +
+M(`<p>A VM’s analytics job reads 8-byte values at uniformly random positions in a 64 GiB array, and each read touches a different random page. 48 GiB of RAM is available for the array. A read of a resident page takes 100 ns. A read that faults from NVMe swap takes 80 µs in total, and one that faults from zram (compressed swap held in RAM) takes 4 µs. zram compresses this data 3:1. Assume a page is either resident, in zram, or on NVMe, and ignore the TLB.</p>
+<ol>
+<li>What fraction of reads must fault to NVMe to double the average read time?</li>
+<li>Find the average read time with NVMe swap only.</li>
+<li>Give part of the 48 GiB to zram, just enough that no read goes to NVMe. How much, and what is the average read time?</li>
+</ol>`,
+`<ol>
+<li>Solve (1 − <em>p</em>) × 0.1 + <em>p</em> × 80 = 0.2 µs: <em>p</em> = 0.1 / 79.9 = <strong>0.125%</strong>, about one read in 800.</li>
+<li>48 / 64 = 75% of pages are resident. Average = 0.75 × 0.1 + 0.25 × 80 = 0.075 + 20 = <strong>20.1 µs</strong>, 200× slower than all-resident. With uniform random reads, every resident set of 48 GiB hits equally often, so no replacement policy can do better.</li>
+<li>With <em>Z</em> GiB of zram holding 3<em>Z</em> GiB of pages: (48 − <em>Z</em>) + 3<em>Z</em> ≥ 64, so <em>Z</em> = <strong>8 GiB</strong>. Then 40/64 = 62.5% of reads are resident and 37.5% fault to zram: 0.625 × 0.1 + 0.375 × 4 = 0.0625 + 1.5 = <strong>1.56 µs</strong>.</li>
+</ol>
+<p>zram is 12.8× better than NVMe swap here, but still 15.6× slower than having the memory, and it costs CPU time to compress. For a random-access working set, the real fix is to fit it in RAM.</p>`, "hard") +
+`<h3 id="sec-calls">Mappings and System Calls</h3>` +
+Q(`<p>A tool scans a 40 GB file once, sequentially, with 16 threads that each take a contiguous slice. The file is already in the page cache, which uses 4 KB pages. Version A maps the file with <code>mmap</code> and reads it in place. Version B uses <code>pread</code> into a 256 KB buffer per thread, small enough to stay in L2. Which is faster, and why? What would flip the answer?</p>`,
+`<p>B is usually at least as fast, although A avoids the copy.</p>
+<p><strong>A’s costs:</strong></p>
+<ul>
+<li>Page faults: fault-around maps 16 cached pages per fault, so 40 GB / 64 KB ≈ 655,000 faults of about a microsecond each, which also contend on the process’s memory-map lock and page-table locks across 16 threads.</li>
+<li>TLB misses: one per 4 KB page, about 10 million walks.</li>
+<li>The final <code>munmap</code>: a TLB shootdown across all 16 cores, and tearing down 10 million entries.</li>
+</ul>
+<p><strong>B’s costs:</strong> 160,000 system calls of about a microsecond, spread over 16 threads, and a copy at about 10 GB/s per core, 2.5 GB per thread, about 0.25 s. The copy reads each byte from DRAM once, as A’s loads do, and writes into a buffer that stays in L2, where the processing then reads it. The page cache’s pages are accessed through the kernel’s direct map, which uses huge pages, so B takes few TLB misses.</p>
+<p><strong>What flips it:</strong></p>
+<ul>
+<li>Random or repeated access: once A’s mappings exist, each access costs a load, while B pays a system call and a copy each time.</li>
+<li>Huge pages for the mapping (tmpfs or hugetlbfs with huge pages, or <code>MAP_POPULATE</code> on a single thread), which remove most faults and TLB misses.</li>
+<li>Processing heavy enough per byte that neither overhead matters, which makes the difference vanish.</li>
+</ul>`, "hard") +
+Q(`<p>A 48-thread service calls <code>munmap</code> on a 64 KB buffer after each request. The <code>munmap</code> calls take 5 to 10 µs each, and the other threads’ throughput drops as the request rate rises. Explain, and give fixes at the application, allocator, and hardware levels.</p>`,
+`<p>Each <code>munmap</code> removes translations that any core running the process may hold, so the kernel sends an inter-processor interrupt to each of those cores and waits for all of them to invalidate the entries: a TLB shootdown. The caller waits microseconds for the slowest core, and every other core takes an interrupt (a pipeline flush, the handler, the invalidation) in the middle of its work, which is why throughput drops everywhere. <code>munmap</code> also takes the process’s memory-map lock for writing, which blocks page faults and other mapping calls in all threads meanwhile.</p>
+<p>Fixes:</p>
+<ul>
+<li><strong>Application:</strong> reuse buffers from a pool, or allocate them with <code>malloc</code>, which keeps freed memory mapped.</li>
+<li><strong>Allocator:</strong> return memory lazily and in batches, as jemalloc’s decay-based purging does with <code>madvise</code>, so one shootdown covers many ranges. <code>MADV_FREE</code> lets the kernel reclaim the pages only under memory pressure.</li>
+<li><strong>Hardware:</strong> broadcast TLB invalidation removes the interrupts: Arm’s inner-shareable <code>TLBI</code> instructions, and AMD’s <code>INVLPGB</code> (since Zen 3), which invalidate entries on other cores without running code there.</li>
+</ul>`, "medium") +
+M(`<p>A service runs 32 threads, one per core, on 32 cores at 3.5 GHz. Its allocator returns each freed 1 MiB chunk to the kernel with <code>madvise(MADV_DONTNEED)</code> as soon as it is freed, 20,000 times per second across the process. Each call needs a TLB shootdown: the calling core spends 4 µs sending interrupts and waiting for acknowledgments, and each of the other 31 cores loses 2 µs handling the interrupt. Ignore the rest of the call’s kernel work.</p>
+<ol>
+<li>What fraction of the machine’s CPU time do the shootdowns take?</li>
+<li>The allocator instead purges 64 chunks at a time with one shootdown, in which every core, including the caller, flushes its entire TLB. Afterward each core takes 300 extra TLB misses of 30 cycles each. Repeat.</li>
+</ol>`,
+`<ol>
+<li>Per shootdown: 4 + 31 × 2 = 66 µs of core time. × 20,000 per second = 1.32 core-seconds per second, so 1.32 / 32 = <strong>4.1%</strong> of the machine.</li>
+<li>20,000 / 64 = 312.5 shootdowns per second. The refill costs each core 300 × 30 = 9,000 cycles = 2.57 µs, so 32 × 2.57 = 82.3 µs per shootdown. Per shootdown: 66 + 82.3 = 148.3 µs. × 312.5 = 46.3 ms per second, <strong>0.14%</strong> of the machine, about 28× less.</li>
+</ol>
+<p>The full flush costs more per shootdown than the interrupts themselves, but batching divides the number of shootdowns by 64. The interrupt cost scales with the number of cores running the process, so the same allocator on a 128-core machine would lose about 4× as much per shootdown.</p>`, "hard")
 },
 {
   id: "intv-design",
