@@ -2195,6 +2195,31 @@ M(`<p>A graph kernel does independent random 8-byte reads over a 48 GB array, an
 <li><strong>1 GB pages:</strong> 48 pages, all in the 1,024-entry array, so no walks. T = <strong>25 cycles</strong>, no better than 2 MB here.</li>
 <li>2 MB pages win not by hitting in the TLB (83% still miss) but by making walks cheap: their 24,576 leaf entries take 192 KB and stay cached, while 4 KB pages need 12.6 million entries, about 96 MB.</li>
 </ol>`, "hard") +
+M(`<p>A service gives each of its 6 worker threads a private 128 MB heap with 4 KB pages, and ASLR places each heap in its own 512 GB range of the address space. Requests read 8-byte values at uniformly random addresses across all 6 heaps, with 15 L2 TLB misses per 1,000 instructions. The VA-tagged page-walk cache has fully associative LRU caches of 2 PML4 entries, 4 PDPT entries, and 48 page-directory entries, probed alongside the L2 TLB at no extra cost. Assume:</p>
+<ul>
+<li>A hit in any of the three caches refreshes its LRU position, and the walker fills an entry only for a level it reads.</li>
+<li>The page-directory cache's hits are independent of the other two caches' hits.</li>
+<li>PML4, PDPT, and page-directory entry reads hit in L2 at 17 cycles, and page-table entry reads hit in L3 at 60 cycles.</li>
+<li>Walks are fully exposed, and the CPI without walks is 0.7.</li>
+</ul>
+<ul>
+<li>(a) What is the average walk latency and the CPI?</li>
+<li>(b) The allocator instead packs the 6 heaps into one 1 GB-aligned range. What are the walk latency, the CPI, and the speedup?</li>
+<li>(c) Keeping the spread layout, the hardware team offers an 8-entry PDPT cache. How does it compare with (b), and why would a model tuned on single-heap benchmarks never show the difference?</li>
+</ul>`,
+`<ol>
+<li><strong>Hit rates.</strong> Each heap is 64 page-directory entries, 384 in all, and the page-directory cache holds 48 of them, so it hits 48 / 384 = 12.5% of the time. The PDPT cache holds 4 of the 6 heaps' PDPT entries, so it hits 4 / 6 of the time. The trap is the PML4 cache: each heap has its own PML4 entry, and the 2-entry cache holds the 2 most recently used heaps, which are always among the 4 the PDPT cache holds. So a PDPT miss is always a PML4 miss too, and those walks read all 4 levels. Treating the PML4 cache as an independent 2 / 6 chance would wrongly shorten a third of those walks.</li>
+<li><strong>(a)</strong> The cases:
+<ul>
+<li>Page-directory hit, 0.125: the leaf read only, 60 cycles.</li>
+<li>Page-directory miss with a PDPT hit, 0.875 × 2/3 = 0.583: 17 + 60 = 77 cycles.</li>
+<li>Both miss, 0.875 × 1/3 = 0.292: 3 × 17 + 60 = 111 cycles.</li>
+</ul>
+Average: 7.5 + 44.9 + 32.4 = <strong>84.8 cycles</strong>. CPI = 0.7 + 0.015 × 84.8 = 0.7 + 1.272 = <strong>1.97</strong>.</li>
+<li><strong>(b)</strong> 768 MB in one aligned 1 GB range uses one PML4 entry and one PDPT entry, so the PDPT cache always hits. The page-directory hit rate is still 12.5%: 0.125 × 60 + 0.875 × 77 = 7.5 + 67.4 = <strong>74.9 cycles</strong>. CPI = 0.7 + 0.015 × 74.9 = 0.7 + 1.123 = <strong>1.82</strong>, a speedup of 1.97 / 1.82 &asymp; <strong>1.08</strong> from address layout alone.</li>
+<li><strong>(c)</strong> 8 PDPT entries hold all 6 heaps, so the PDPT cache always hits and the walk is again 74.9 cycles, the same as packing. It costs 4 more entries of about 75 bits each (an 18-bit tag, a 12-bit PCID, a 40-bit frame number, and permissions), about 300 bits. A benchmark with one heap uses a single PDPT entry, so any PDPT cache of 1 entry or more looks perfect, and the model would conclude its size doesn't matter. Size the upper-level caches from the number of distinct 1 GB and 512 GB regions real workloads touch (heaps, thread stacks, shared libraries, mapped files), not from footprint alone.</li>
+<li>Even in the best case, the 60-cycle leaf read is 80% of the walk. Further gains come from fewer walks (2 MB pages, so 384 L2 TLB entries cover all 768 MB), not from more PWC entries.</li>
+</ol>`, "hard") +
 `<h3 id="sec-dram">DRAM and Bandwidth</h3>` +
 Q(`<p>Why is a fixed DRAM latency fine for modeling a pointer-chasing benchmark but badly wrong for a bandwidth-heavy one?</p>`,
 `<p>Pointer chasing has one miss in flight at a time, so the controller is lightly loaded, requests rarely queue, and latency stays near idle. Bandwidth-heavy code keeps many misses in flight: queues build, bank conflicts multiply, and latency rises steeply as utilization nears 70 to 90% of peak. A fixed latency gives such code no bandwidth ceiling and too low a latency at the same time. Use a DRAM model with banks, row buffers, and timing constraints, and validate its latency-versus-bandwidth curve (with a tool like Intel’s Memory Latency Checker), not just its idle latency.</p>`, "easy") +
