@@ -124,6 +124,7 @@ section({
     { id: "walk-prefetch", label: "Translation Prefetching and Speculation" },
     { id: "reach", label: "TLB Reach" },
     { id: "huge-pages", label: "Huge Pages" },
+    { id: "coherence", label: "Keeping TLBs Coherent" },
     { id: "virt", label: "Virtualization: Two-Dimensional Walks" },
     { id: "power-performance-area", label: "Power, Performance, Area" },
     { id: "model", label: "Modeling Translation" }
@@ -314,7 +315,7 @@ section({
 </svg></div>
 <p>A page-directory hit removes 3 of the 4 dependent reads. Upper-level lines are hot, so each skipped read would usually have hit in L1 (about 5 cycles on Golden Cove and Zen 4) or L2 (about 14&ndash;16 cycles). The hit therefore saves roughly 15&ndash;45 cycles per walk, and a few hundred when a large footprint has pushed the upper-level lines out to the LLC or DRAM. The skipped reads also leave L1 load ports and fill buffers to the program's own loads.</p>
 <p>AMD's original page walk cache took the other approach and tagged entries by the entry's <em>physical</em> address. It works as a private cache level for page-table entries: the walker still goes level by level, because it needs each entry to compute the next address, but the upper reads hit in a 1-cycle structure instead of the L1 data cache. Barr, Cox, and Rixner compared the two and found that VA-tagged caches, which skip levels instead of speeding them up, get more out of the same number of entries.</p>
-<p>The area cost is small. 32 page-directory entries of about 90 bits each (a 27-bit tag, a 12-bit PCID, a 40-bit frame number, and the permission and cache-control bits) come to under 3 Kbit, smaller than a 72-entry L1 DTLB. The energy is a few CAM searches per walk, and walks happen only on L2 TLB misses. The real cost is correctness: every invalidation the OS performs must clear PWC entries too. INVLPG and a CR3 write that doesn't preserve the PCID flush them, and an OS that frees a page-table page must flush them before it reuses the frame, or a stale entry would point the walker at a frame that now holds something else. A PWC pays off when walks are frequent and their upper levels repeat:</p>
+<p>The area cost is small. 32 page-directory entries of about 90 bits each (a 27-bit tag, a 12-bit PCID, a 40-bit frame number, and the permission and cache-control bits) come to under 3 Kbit, smaller than a 72-entry L1 DTLB. The energy is a few CAM searches per walk, and walks happen only on L2 TLB misses. The real cost is correctness: every invalidation the OS performs must clear PWC entries too, and an OS that frees a page-table page must flush them before it reuses the frame, or a stale entry would point the walker at a frame that now holds something else (see <a href="#/tlb/coherence">Keeping TLBs Coherent</a>). A PWC pays off when walks are frequent and their upper levels repeat:</p>
 <ul>
 <li><strong>Large, irregular footprints:</strong> graph analytics, databases, and key-value stores, which miss in the L2 TLB a few times per thousand instructions.</li>
 <li><strong>Virtualized guests:</strong> each guest upper-level hit also skips a whole host walk (see <a href="#/tlb/virt">Virtualization: Two-Dimensional Walks</a>).</li>
@@ -608,6 +609,56 @@ The speedup is 1.536 / 1.254 &asymp; <strong>1.22</strong>. Even with the PWC, w
 </ul>
 <p>That is why large-memory workloads (databases, JVMs, HPC codes, in-memory key-value stores) use huge pages, through explicit reservations or the kernel's transparent huge pages. The costs: memory fragmentation, internal waste for sparse data, and slower page faults (zeroing 2 MB at once). A 2 MB page also needs 2 MB of contiguous, aligned free physical memory, which a long-running system may not have without compaction, so Linux's <code>khugepaged</code> merges 4 KB pages into huge pages in the background.</p>
 
+<h3 id="sec-coherence">Keeping TLBs Coherent</h3>
+<p>Hardware keeps the data caches coherent: a store to a line invalidates every other core's copy. TLBs and page-walk caches get no such help. When the OS stores to a page-table entry, the store updates the entry's line in the caches, but a translation that some core already holds in its TLB stays there, and no hardware notices. Software has to remove it, and what needs removing follows from what a TLB can hold:</p>
+<ul>
+<li><strong>Changes that need an invalidation:</strong> clearing the present bit, removing a permission (write-protecting a page for copy-on-write), changing the frame number, and freeing a page-table page, which a page-walk cache entry may still point at.</li>
+<li><strong>Changes that need none:</strong> a not-present entry becoming present, since x86 never caches a translation unless every level is present. Adding a permission needs none on x86 either. An access that uses the stale, stricter entry takes a page fault, which also drops that entry, and the handler finds nothing to fix and returns, so the retry walks the updated table. Linux relies on this to skip the flush.</li>
+</ul>
+<p><strong>Address-space tags</strong> keep context switches from flushing anything. Each TLB and page-walk cache entry carries the tag of the address space that filled it: a 12-bit PCID in the low bits of CR3 on x86 (4,096 values), an 8- or 16-bit ASID on Arm, and up to 16 bits of ASID on RISC-V. A lookup matches only entries with the current tag, so other processes' translations can stay in the TLB unused. Linux on x86 recycles a handful of PCIDs per core (6) rather than giving every process its own. Leaf entries with the <strong>global</strong> bit (bit 8) set match under every PCID and survive CR3 writes, so the kernel marks its own mappings global when kernel page-table isolation is off. When the context switch writes CR3 is covered in <a href="#/demand-paging/root-table">Setting Up CR3 and the Root Table</a>.</p>
+<p><strong>Local invalidation.</strong> x86 gives the kernel these ways to drop entries from its own core's TLBs and page-walk caches:</p>
+<div class="tbl"><table>
+<tr><th>Operation</th><th>TLB entries removed</th><th>Page-walk cache entries removed</th></tr>
+<tr><td><code>INVLPG</code> address</td><td>That page's entries for the current PCID, global ones included</td><td>All entries for the current PCID</td></tr>
+<tr><td>CR3 write with bit 63 clear</td><td>Every non-global entry of the new PCID</td><td>All entries for that PCID</td></tr>
+<tr><td>CR3 write with bit 63 set</td><td>None</td><td>None</td></tr>
+<tr><td><code>INVPCID</code> single-context</td><td>Every non-global entry of a chosen PCID, without switching to it</td><td>All entries for that PCID</td></tr>
+<tr><td><code>INVPCID</code> all-context</td><td>Every entry, global ones included</td><td>All entries</td></tr>
+</table></div>
+<p>Flushing one page at a time is precise but costs a few hundred cycles per <code>INVLPG</code>. Flushing the whole PCID is a single operation but throws away every translation the process had, and later misses must walk again to get them back. Linux uses <code>INVLPG</code> for ranges of up to 33 pages (<code>tlb_single_page_flush_ceiling</code>) and flushes the whole PCID above that.</p>
+<p><strong>Shootdowns.</strong> None of these instructions reach another core's TLB. When a change can be cached on other cores, x86 Linux interrupts them:</p>
+<ol>
+<li><strong>Update the entries</strong> under the page-table lock.</li>
+<li><strong>Pick the targets:</strong> the cores in the process's CPU mask, which records every core that has run the process and may still hold its entries.</li>
+<li><strong>Invalidate locally</strong>, page by page or with a full PCID flush.</li>
+<li><strong>Send inter-processor interrupts and wait.</strong> Each target's interrupt handler performs the same invalidation and acknowledges. The initiating thread spins until every target has acknowledged, so it pays the slowest core's interrupt latency.</li>
+<li><strong>Reuse the memory</strong>, freeing the frames or page-table pages, only after every acknowledgment. A core that still held a stale entry could otherwise read or write a frame that now belongs to someone else.</li>
+</ol>
+<p>Arm needs no interrupts: an inner-shareable <code>TLBI</code> instruction broadcasts the invalidation over the interconnect to every core's TLB, and a following <code>DSB ISH</code> waits until all of them have completed it. AMD added a similar broadcast, <code>INVLPGB</code> with <code>TLBSYNC</code>, in Zen 3. Shootdowns are why changing mappings costs more in a threaded program than in a single-threaded one. Copy-on-write after <code>fork</code> (<a href="#/demand-paging/perf">Demand Paging and Copy-on-Write</a>), evicting a page (<a href="#/page-replacement/eviction">Evicting Pages</a>), and <code>munmap</code> (<a href="#/mmap/perf">Memory Mapping</a>) all pay for one.</p>
+<details class="ex"><summary>Worked example: what a shootdown costs a 32-thread server</summary>
+<p><strong>Question.</strong> A 32-thread server runs on 32 cores of a 3 GHz Sapphire Rapids socket, one thread pinned to each core, and every core has run the process. Its allocator returns memory to the kernel with <code>munmap</code> 20,000 times per second, 16 pages of 4 KB each time. Assume:</p>
+<ul>
+<li>Each <code>INVLPG</code> takes 200 cycles.</li>
+<li>The initiating core invalidates its own 16 pages first, then sends the interrupts and spins for 4 µs until the last acknowledgment arrives.</li>
+<li>Each of the 31 other cores spends 1 µs entering and leaving the interrupt handler, plus its own 16 <code>INVLPG</code>s, all inside the initiator's 4 µs wait.</li>
+<li>No core touches the unmapped pages again, so page-by-page invalidation causes no extra TLB misses.</li>
+<li>A full flush of the process's PCID costs 0.5 µs, after which the core takes 300 extra L2 TLB misses that would otherwise have hit, at 40 cycles per walk.</li>
+</ul>
+<p>Find:</p>
+<ol>
+<li>The time one <code>munmap</code>'s shootdown takes on the initiating core.</li>
+<li>The core time it takes across the machine, and the fraction of the 32 cores lost at 20,000 per second.</li>
+<li>For a 2 MB region (512 pages) instead, the per-core cost of page-by-page invalidation and of a full flush, and the range size at which the two cost the same.</li>
+</ol>
+<p><strong>Solution.</strong></p>
+<ol>
+<li><strong>Initiator.</strong> 16 &times; 200 = 3,200 cycles, which is 3,200 / 3 GHz &asymp; 1.07 µs, plus the 4 µs wait: about <strong>5.07 µs</strong>.</li>
+<li><strong>Whole machine.</strong> Each other core spends 1 + 1.07 = 2.07 µs, and the 31 of them spend 31 &times; 2.07 &asymp; 64.1 µs. With the initiator, one shootdown costs about 64.1 + 5.07 &asymp; <strong>69.2 µs</strong> of core time. At 20,000 per second that is 20,000 &times; 69.2 µs &asymp; 1.38 core-seconds per second, or 1.38 / 32 &asymp; <strong>4.3%</strong> of the machine, to free 64 KB at a time. Nearly all of the cost scales with the number of cores that ran the process, not with the amount of memory freed.</li>
+<li><strong>2 MB region.</strong> Page by page: 512 &times; 200 = 102,400 cycles &asymp; <strong>34.1 µs</strong> per core. Full flush: 300 &times; 40 = 12,000 cycles = 4 µs of extra walks, plus 0.5 µs, so <strong>4.5 µs</strong>. Break-even: 4.5 µs &times; 3 GHz = 13,500 cycles, and 13,500 / 200 = <strong>67.5 pages</strong>. Below about 67 pages, invalidating page by page is cheaper here, and above that a full flush wins. Linux's ceiling of 33 pages is more conservative, which fits a process with a larger TLB footprint that loses more than 300 useful translations to a full flush.</li>
+</ol>
+<p>The biggest saving is not making the call at all. An allocator that keeps freed memory mapped and reuses it causes no shootdowns, which is why jemalloc and tcmalloc return memory to the kernel lazily and in large batches.</p>
+</details>
+
 <h3 id="sec-virt">Virtualization: Two-Dimensional Walks</h3>
 <p>Under hardware virtualization (Intel EPT, AMD NPT), the guest's page table holds guest-physical addresses, and each of them must itself be translated through the host's table. With 4 levels on each side, a walk can need up to (4 + 1) × (4 + 1) − 1 = <strong>24</strong> memory references: each of the guest's 4 table reads and the final guest-physical address needs a host walk of up to 4 references, plus the 4 guest reads themselves. Page-walk caches for both dimensions and huge pages on the host side are what keep virtualized TLB misses affordable.</p>
 
@@ -816,7 +867,7 @@ The speedup is 1.536 / 1.254 &asymp; <strong>1.22</strong>. Even with the PWC, w
 <ol>
 <li><strong>Boot.</strong> A core can't enter 64-bit mode with paging off, so the first tables are built while every address is still physical. Early boot code writes a small set of tables into memory that map the kernel's own image, writes the physical address of the top table into CR3, and then turns paging on. (UEFI firmware already runs with paging on, using its own tables, and the kernel just loads CR3 with its own.) With paging on, the kernel builds its final tables, including the <strong>direct map</strong>: all of physical memory, mapped at one fixed virtual offset. From then on, the kernel reads and writes any frame, page tables included, at its physical address plus that offset. That is how the kernel edits tables that it can only name by physical address.</li>
 <li><strong>Process creation.</strong> <code>fork</code> and <code>exec</code> each give the process a new address space, and its root table is allocated then, before the process runs: the kernel takes one free 4 KB frame from the page allocator and zeroes it. The upper half of the PML4, entries 256 to 511, maps the kernel, so the kernel copies those entries from its own reference table, and every process points at the same kernel PDPTs. The lower half, entries 0 to 255, is the user half. After <code>exec</code> it stays empty (all not present). After <code>fork</code> it holds the copy-on-write copy of the parent's entries. The kernel records the table in the process's memory descriptor (<code>mm-&gt;pgd</code> on Linux). With kernel page-table isolation (the Meltdown mitigation), each process gets two root tables instead: a full one for kernel mode, and one for user mode that maps almost none of the kernel. Kernel entry and exit then switch CR3 between the two.</li>
-<li><strong>Context switch.</strong> When the scheduler switches to a thread of another process, it writes the new process's root frame number into CR3. The low 12 bits carry the process's PCID, and setting bit 63 tells the core to keep that PCID's TLB entries instead of flushing them. Without PCIDs, a CR3 write flushes every TLB entry that isn't marked global. Kernel mappings are global, so they survive either way. Threads of one process share its root table, so switching between them leaves CR3 alone.</li>
+<li><strong>Context switch.</strong> When the scheduler switches to a thread of another process, it writes the new process's root frame number into CR3. The low 12 bits carry the process's PCID, and setting bit 63 tells the core to keep that PCID's TLB entries instead of flushing them. Without PCIDs, a CR3 write flushes every TLB entry that isn't marked global. Kernel mappings are global, so they survive either way (see <a href="#/tlb/coherence">Keeping TLBs Coherent</a>). Threads of one process share its root table, so switching between them leaves CR3 alone.</li>
 </ol>
 <p>The walker keeps its own copy of CR3, which the write updates, and uses it on the next TLB miss (see <a href="#/tlb/tlb-miss">From a TLB Miss to the Translation</a>).</p>
 
@@ -996,7 +1047,7 @@ The speedup is 1.536 / 1.254 &asymp; <strong>1.22</strong>. Even with the PWC, w
 <ol>
 <li><strong>Find every mapping.</strong> Through the reverse map, the kernel finds each page-table entry that maps the frame: one for a private page, possibly thousands for a page of <code>libc</code>.</li>
 <li><strong>Clear the entries.</strong> Each entry becomes not present. For an anonymous page, the kernel first assigns a swap slot and writes a <strong>swap entry</strong> in place of the old one: P = 0, with the swap device and offset in the other bits. The hardware ignores every other bit of an entry whose P bit is clear, so the OS is free to store anything there. For a file page, the entry is simply cleared, since the VMA already says which file offset backs it.</li>
-<li><strong>Shoot down the TLBs.</strong> Any core may still cache the old translation, and a core holding a stale entry could keep reading or writing the frame after it has been reused. The kernel invalidates the entry locally with <code>invlpg</code>, sends an inter-processor interrupt to every other core that may be running the process, and waits for all of them to confirm. Reclaim batches many pages per shootdown to spread its cost.</li>
+<li><strong>Shoot down the TLBs.</strong> Any core may still cache the old translation, and a core holding a stale entry could keep reading or writing the frame after it has been reused. The kernel invalidates the entry on every core that may hold it and waits for all of them to confirm (the protocol is in <a href="#/tlb/coherence">Keeping TLBs Coherent</a>). Reclaim batches many pages per shootdown to spread its cost.</li>
 <li><strong>Write back if needed.</strong> If the page is dirty, its contents go to the swap slot or back to the file. A clean file page, such as program code, is just dropped, because the file still holds its bytes. A clean anonymous page that already has a copy in swap skips the write too.</li>
 <li><strong>Free the frame.</strong> The frame goes back to the page allocator only once the shootdown and any write have completed.</li>
 </ol>
@@ -1009,7 +1060,7 @@ The speedup is 1.536 / 1.254 &asymp; <strong>1.22</strong>. Even with the PWC, w
 <li><strong>Wait until the table maps nothing.</strong> Every data page under it has been evicted, so all 512 entries are not present, and most hold the disk location of their page. (If all 512 are empty, the table can be freed without being written.)</li>
 <li><strong>Write the table out.</strong> The table's 4 KB go to the pagefile like any data page. Its entries have to be saved, because they are the only record of where the data pages went.</li>
 <li><strong>Clear the parent entry.</strong> The page-directory entry that pointed at the table becomes not present, with the table's pagefile location in its other bits.</li>
-<li><strong>Flush the paging-structure caches.</strong> No TLB holds a translation through the table, since all its entries were already not present. But a page-walk cache may still hold the old page-directory entry and send a walk straight to the old frame. On x86, <code>invlpg</code> for any address also flushes the paging-structure caches for the current PCID, and a shootdown does the same on the other cores.</li>
+<li><strong>Flush the paging-structure caches.</strong> No TLB holds a translation through the table, since all its entries were already not present. But a page-walk cache may still hold the old page-directory entry and send a walk straight to the old frame. On x86, <code>invlpg</code> for any address also flushes the paging-structure caches for the current PCID, and a shootdown does the same on the other cores (see <a href="#/tlb/coherence">Keeping TLBs Coherent</a>).</li>
 <li><strong>Free the frame.</strong></li>
 </ol>
 <p>A later access to that 2 MB range plays out in this order:</p>
