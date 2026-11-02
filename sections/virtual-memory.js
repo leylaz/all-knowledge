@@ -341,10 +341,11 @@ The speedup is 1.536 / 1.254 &asymp; <strong>1.22</strong>. Even with the PWC, w
 <li>Every walk hits the page-directory cache, so it is one read, the page-table entry. The page tables for 64 GB of 4 KB pages take 64 GB / 512 = 128 MB, far more than the LLC, so that read goes to DRAM: about 300 cycles (75 ns).</li>
 <li>Each data load then misses to DRAM too, another 300 cycles.</li>
 <li>The core has 16 L1 fill buffers, shared by walker reads and data misses.</li>
-<li>All 32 loads fit in the ROB, so nothing but the walkers and fill buffers limits overlap.</li>
+<li>Every DRAM read also holds an L2 MSHR. The L2 has 48 (as in Golden Cove), and the L2 prefetcher is off, so the L2 has more MSHRs than DRAM reads can ever be in flight.</li>
+<li>All 32 loads fit in the ROB, so nothing but the walkers and L1 fill buffers limits overlap.</li>
 </ul>
 <p>How long do the 32 loads take with 1, 2, 4, and 6 walkers, and with TLB hits?</p>
-<p><strong>Solution.</strong> Walks run in rounds of W, one round per 300 cycles. Each data load starts as soon as its walk ends, overlapping the next round of walks, and the last data loads finish 300 cycles after the last round. Even with 6 walkers, 6 walk reads plus 6 data misses use only 12 of the 16 fill buffers, so the batch takes &lceil;32 / W&rceil; &times; 300 + 300 cycles. Each load makes 2 DRAM accesses, 64 in all, so the average number in flight is 64 &times; 300 / total cycles. With TLB hits there are no walks, and the 16 fill buffers serve the 32 data misses in 2 rounds:</p>
+<p><strong>Solution.</strong> Walks run in rounds of W, one round per 300 cycles. Each data load starts as soon as its walk ends, overlapping the next round of walks, and the last data loads finish 300 cycles after the last round. Even with 6 walkers, 6 walk reads plus 6 data misses use only 12 of the 16 fill buffers (and 12 of the 48 L2 MSHRs), so the batch takes &lceil;32 / W&rceil; &times; 300 + 300 cycles. Each load makes 2 DRAM accesses, 64 in all, so the average number in flight is 64 &times; 300 / total cycles. With TLB hits there are no walks, and the 16 fill buffers serve the 32 data misses in 2 rounds:</p>
 <div class="tbl"><table>
 <tr><th>Walkers</th><th>Rounds of walks</th><th>Cycles for 32 loads</th><th>Cycles per load</th><th>DRAM reads in flight (average)</th></tr>
 <tr><td>1</td><td>32</td><td>9,900</td><td>309</td><td>1.9</td></tr>
