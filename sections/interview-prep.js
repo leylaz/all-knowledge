@@ -1963,7 +1963,7 @@ Q(`<p>Skylake has a 72-entry load queue but only 12 L1D fill buffers, so at most
   id: "intv-mem",
   title: "Caches, TLBs and DRAM",
   body: `
-<p>Background: <a href="#/r/mem">Memory Hierarchy</a>, <a href="#/r/ctr">Cache Trade-Offs</a>, <a href="#/dcache/way-pred">Way Prediction in the Data Cache</a>, <a href="#/tlb">Page Walks and TLBs</a>, <a href="#/dram-ctrl">DRAM Controllers and Scheduling</a>.</p>
+<p>Background: <a href="#/r/mem">Memory Hierarchy</a>, <a href="#/r/ctr">Cache Trade-Offs</a>, <a href="#/dcache/way-pred">Way Prediction in the Data Cache</a>, <a href="#/tlb">Translation Lookaside Buffers</a>, <a href="#/dram-ctrl">DRAM Controllers and Scheduling</a>.</p>
 <h3 id="sec-cache">Cache Organization and Policy</h3>` +
 Q(`<p>Zen 5 grew its L1D from 32 KB, 8-way to 48 KB, 12-way, keeping 64 sets. Why add ways instead of sets, and what does that cost?</p>`,
 `<p>With 64-byte lines and 64 sets, offset plus index is 6 + 6 = 12 bits, exactly the 4 KB page offset. The set is chosen from bits that need no translation, so the cache can be virtually indexed and physically tagged, with the DTLB lookup in parallel and no aliasing. 128 sets would need bit 12, which is translated, so the design would need synonym handling or a slower physically indexed access.</p>
@@ -3070,7 +3070,7 @@ Q(`<p>Compare mechanistic analytical models (interval analysis, first-order queu
   id: "intv-alloc",
   title: "Memory Allocation and the C Library",
   body: `
-<p>Background: <a href="#/virtual-memory">Virtual and Physical Memory</a>, <a href="#/tlb">Page Walks and TLBs</a>, <a href="#/false-sharing">False Sharing and Cache-Line Isolation</a>. The standard references are Wilson, Johnstone, Neely, and Boles, “Dynamic Storage Allocation: A Survey and Critical Review” (1995), Bryant and O’Hallaron’s <em>Computer Systems: A Programmer’s Perspective</em> (chapter 9), and the design notes for jemalloc, tcmalloc, and mimalloc.</p>
+<p>Background: <a href="#/virtual-memory">Virtual and Physical Memory</a>, <a href="#/tlb">Translation Lookaside Buffers</a>, <a href="#/page-walk">Page Walks</a>, <a href="#/false-sharing">False Sharing and Cache-Line Isolation</a>. The standard references are Wilson, Johnstone, Neely, and Boles, “Dynamic Storage Allocation: A Survey and Critical Review” (1995), Bryant and O’Hallaron’s <em>Computer Systems: A Programmer’s Perspective</em> (chapter 9), and the design notes for jemalloc, tcmalloc, and mimalloc.</p>
 <h3 id="sec-alloc">Allocator Design</h3>` +
 Q(`<p>What alignment does <code>malloc</code> have to return, and what do <code>malloc(0)</code> and <code>free(NULL)</code> do?</p>`,
 `<p><code>malloc</code> must return memory aligned for any object type that fits in the requested size, in practice <code>alignof(max_align_t)</code>: 16 bytes on x86-64 Linux and on AArch64. That is because the caller can store anything there, including <code>long double</code> or SSE vectors, and the allocator can’t know which.</p>
@@ -3173,7 +3173,7 @@ M(`<p>A program keeps 10 million live 24-byte objects.</p>
   id: "intv-vm",
   title: "Virtual Memory and the OS Boundary",
   body: `
-<p>Background: <a href="#/virtual-memory">Virtual and Physical Memory</a>, <a href="#/tlb">Page Walks and TLBs</a>, <a href="#/exceptions">Faults, Traps, Interrupts, and System Calls</a>, <a href="#/demand-paging">Demand Paging and Copy-on-Write</a>, <a href="#/page-replacement">Page Replacement</a>, <a href="#/mmap">Memory Mapping</a>. Questions on modeling page walks and huge pages for data-heavy workloads are on <a href="#/intv-mem">Caches, TLBs and DRAM</a>. The main references are Hennessy &amp; Patterson (Appendices B and C), Bryant and O’Hallaron’s <em>Computer Systems: A Programmer’s Perspective</em> (chapters 8 and 9), the Intel SDM volume 3, and the RISC-V privileged specification.</p>
+<p>Background: <a href="#/virtual-memory">Virtual and Physical Memory</a>, <a href="#/tlb">Translation Lookaside Buffers</a>, <a href="#/page-walk">Page Walks</a>, <a href="#/exceptions">Faults, Traps, Interrupts, and System Calls</a>, <a href="#/demand-paging">Demand Paging and Copy-on-Write</a>, <a href="#/page-replacement">Page Replacement</a>, <a href="#/mmap">Memory Mapping</a>. Questions on modeling page walks and huge pages for data-heavy workloads are on <a href="#/intv-mem">Caches, TLBs and DRAM</a>. The main references are Hennessy &amp; Patterson (Appendices B and C), Bryant and O’Hallaron’s <em>Computer Systems: A Programmer’s Perspective</em> (chapters 8 and 9), the Intel SDM volume 3, and the RISC-V privileged specification.</p>
 <h3 id="sec-xlate">Address Spaces and Translation</h3>` +
 Q(`<p>x86-64 uses 4 KB pages and 48-bit virtual addresses. Why is the page table a 4-level tree rather than one flat array indexed by virtual page number, and what does the tree cost?</p>`,
 `<p>A flat table needs one 8-byte entry for every virtual page, mapped or not: 2<sup>48</sup> / 2<sup>12</sup> = 2<sup>36</sup> entries, 512 GB per process. A real process uses a few regions (code, heap, libraries, stacks) scattered across that space, so almost all of the flat table would describe nothing.</p>
