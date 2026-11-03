@@ -6,8 +6,113 @@ section({
   id: "os",
   name: "Operating System",
   cap: "Faults, traps, kernel entry, context switching, scheduling, demand paging, page replacement, copy-on-write, mmap, file and process system calls",
+  sections: [
+    { id: "what-os", label: "What an Operating System Is" },
+    { id: "what-it-does", label: "What It Does" },
+    { id: "kernel", label: "The Kernel" },
+    { id: "shell", label: "The Shell" }
+  ],
   body: `
-<p>The kernel decides what runs, when, and with which memory. Every one of those decisions is made in code that user programs enter through a fault, a trap, or an interrupt, and every one shows up directly in performance.</p>`,
+<h3 id="sec-what-os">What an Operating System Is</h3>
+<p>An <strong>operating system</strong> (OS) is the software layer between the hardware and the programs that run on it. Programs never drive the cores, DRAM, disks, or network card directly. They ask the OS, and the OS does the work on their behalf. Linux, Windows, macOS, Android, and iOS are general-purpose operating systems, and real-time systems such as FreeRTOS and Zephyr run on microcontrollers where meeting deadlines matters more than throughput.</p>
+<p>Textbooks describe the OS in two complementary ways:</p>
+<ul>
+<li><strong>A resource manager:</strong> many programs want the same cores, memory, and devices at the same time. The OS decides who gets what, for how long, and keeps one program from taking resources that belong to another.</li>
+<li><strong>An extended machine:</strong> raw hardware is awkward to use (disk sectors, physical addresses, device registers). The OS hides it behind cleaner abstractions: <strong>processes</strong> instead of cores, <strong>virtual address spaces</strong> instead of physical DRAM, <strong>files</strong> instead of disk blocks, and <strong>sockets</strong> instead of network card queues.</li>
+</ul>
+<p>The word "operating system" is used narrowly and broadly. Narrowly, it means just the <a href="#/r/os/kernel">kernel</a>, the part that is always in memory and runs with full hardware privilege. Broadly, it also includes the system programs shipped with it: the <a href="#/r/os/shell">shell</a>, the init system (systemd on most Linux distributions), the C library, the window system, and the standard utilities.</p>
+
+<h3 id="sec-what-it-does">What It Does</h3>
+<ul>
+<li><strong>Managing hardware:</strong> sharing the cores, memory, and devices among programs, and hiding device differences behind drivers.</li>
+<li><strong>Running applications:</strong> loading programs, turning them into processes, scheduling them, and giving them services through system calls.</li>
+<li><strong>Handling files and storage:</strong> organizing persistent data into named files and directories, and caching it in memory.</li>
+<li><strong>Security and protection:</strong> keeping programs and users from reading or corrupting what isn't theirs.</li>
+<li><strong>Enabling user interaction:</strong> command lines, graphical desktops, and touch screens, plus the input and display paths behind them.</li>
+<li><strong>Networking and communication:</strong> moving data between processes on one machine and between machines.</li>
+</ul>
+
+<h4 id="sec-hardware">Managing Hardware</h4>
+<ul>
+<li><strong>Cores:</strong> a periodic timer interrupt hands control back to the kernel even when a program never gives it up, so the scheduler can share each core among many threads (see <a href="#/context-switch">Context Switching</a>). The kernel also manages power. It picks voltage and frequency levels (cpufreq governors on Linux) and puts idle cores into sleep states (C-states).</li>
+<li><strong>Memory:</strong> the kernel tracks every physical page frame, builds the page tables that map each process's virtual addresses to frames, fills pages in on first touch, and evicts them to disk under pressure (see <a href="#/demand-paging">Demand Paging and Copy-on-Write</a> and <a href="#/page-replacement">Page Replacement</a>).</li>
+<li><strong>Devices:</strong> each device is run by a <strong>driver</strong>, kernel code that knows its registers, interrupts, and DMA engine. Drivers present a few standard interfaces (block devices for disks, character devices for serial ports and terminals, network interfaces for NICs), so the rest of the system doesn't care which vendor's SSD is installed. Drivers make up the majority of the Linux source tree.</li>
+<li><strong>Interrupts and DMA:</strong> devices raise interrupts when they finish, so a core doesn't spin waiting for a slow disk. DMA lets the device copy data to and from memory without the core moving each byte.</li>
+</ul>
+
+<h4 id="sec-applications">Running Applications</h4>
+<ul>
+<li><strong>Loading:</strong> <code>execve</code> reads the executable's ELF headers, maps its code and data segments into a fresh address space, builds the initial stack with the arguments and environment, and jumps to the dynamic linker or the entry point (see <a href="#/r/comp">Compilers and the Toolchain</a> and <a href="#/process-syscalls">Process System Calls</a>).</li>
+<li><strong>Processes and threads:</strong> a <strong>process</strong> is a running program plus everything the kernel tracks for it: its address space, open files, credentials, and one or more <strong>threads</strong>. Threads of one process share its memory and files, and each has its own registers and stack.</li>
+<li><strong>Scheduling:</strong> the scheduler picks which ready thread runs on each core and for how long. Linux used CFS (the Completely Fair Scheduler) for years and switched to EEVDF in version 6.6. Its goals pull against each other: throughput, fast response for interactive work, fairness, and keeping caches warm.</li>
+<li><strong>System calls:</strong> programs ask for services (read a file, allocate memory, create a process) through a controlled entry into the kernel (see <a href="#/exceptions/system-calls">System Calls</a>).</li>
+<li><strong>Isolation and communication:</strong> each process has its own address space, so a crash in one doesn't corrupt another. When processes do need to cooperate, the OS provides pipes, shared memory, signals, and sockets.</li>
+</ul>
+
+<h4 id="sec-files">Handling Files and Storage</h4>
+<ul>
+<li><strong>The file abstraction:</strong> a file is a named sequence of bytes that outlives the process that wrote it. Directories arrange files in a tree. The <strong>file system</strong> (ext4, XFS, NTFS, APFS) decides which disk blocks hold each file and keeps the metadata (size, owner, permissions, timestamps) in structures such as inodes.</li>
+<li><strong>One interface:</strong> programs use <code>open</code>, <code>read</code>, <code>write</code>, and <code>close</code> on small integer file descriptors, no matter which file system or device is underneath (see <a href="#/file-syscalls">File System Calls</a>). Unix extends the same interface to devices, pipes, and sockets, which is where "everything is a file" comes from.</li>
+<li><strong>The page cache:</strong> the kernel keeps recently used file data in spare DRAM, so most reads never touch the disk, and writes land in memory and are flushed later. A program that needs its data on disk now calls <code>fsync</code>.</li>
+<li><strong>Crash consistency:</strong> journaling file systems write a log of each metadata change before applying it, so a power failure leaves the file system consistent rather than half-updated.</li>
+</ul>
+
+<h4 id="sec-security">Security and Protection</h4>
+<ul>
+<li><strong>Privilege levels:</strong> the hardware runs user programs in an unprivileged mode (ring 3 on x86, EL0 on Arm) and the kernel in a privileged one (ring 0, EL1). Only privileged code can change page tables, mask interrupts, or touch device registers, so a program can't bypass the OS (see <a href="#/exceptions/privilege-levels">Privilege Levels</a>).</li>
+<li><strong>Memory isolation:</strong> each process sees only its own page tables. Permission bits in each entry mark pages readable, writable, executable, or kernel-only, and an access that breaks them faults into the kernel.</li>
+<li><strong>Users and access control:</strong> every process runs as a user. Files carry an owner and read, write, and execute permissions for the owner, the group, and everyone else, and access control lists refine them further. The superuser (root on Unix, Administrator on Windows) bypasses most checks.</li>
+<li><strong>Hardening:</strong> address space layout randomization (ASLR) makes addresses hard to guess, sandboxes such as seccomp limit which system calls a process may make, and kernel page-table isolation (KPTI) keeps kernel memory unmapped while user code runs to block Meltdown. KPTI switches page tables on every kernel entry and exit, which makes system calls measurably slower.</li>
+</ul>
+
+<h4 id="sec-interaction">Enabling User Interaction</h4>
+<ul>
+<li><strong>Interfaces:</strong> a command-line interface (a <a href="#/r/os/shell">shell</a> in a terminal), a graphical interface (windows, menus, a mouse), or a touch interface on phones and tablets.</li>
+<li><strong>The input path:</strong> a key press raises an interrupt, the keyboard driver turns it into an input event, and the kernel hands it to the terminal or to the window system, which delivers it to the application that has focus.</li>
+<li><strong>The output path:</strong> applications draw into buffers, and a compositor (a Wayland compositor on Linux, the Desktop Window Manager on Windows) combines the windows into one frame that the GPU driver puts on the screen.</li>
+<li><strong>Terminals:</strong> a terminal emulator and the programs in it talk through a pseudo-terminal, a kernel device that carries keystrokes one way and text output the other, and also handles line editing and Ctrl-C.</li>
+</ul>
+
+<h4 id="sec-networking">Networking and Communication</h4>
+<ul>
+<li><strong>The protocol stack:</strong> the kernel implements TCP, UDP, and IP, so programs send and receive byte streams or datagrams without building packets themselves.</li>
+<li><strong>Sockets:</strong> a socket is a file descriptor for a network connection, so the same <code>read</code> and <code>write</code> calls work on it.</li>
+<li><strong>NIC drivers:</strong> the driver moves packets between the network card's DMA rings and kernel buffers and spreads incoming traffic across cores.</li>
+</ul>
+
+<h3 id="sec-kernel">The Kernel</h3>
+<p>The <strong>kernel</strong> is the core of the OS: the code that stays in memory from boot to shutdown, runs in privileged mode, and is the only software allowed to touch the hardware directly. Everything else, including the shell and every application, runs in user mode and reaches the hardware only by asking the kernel.</p>
+<p>The kernel isn't a separate program running beside the others. It runs only when something enters it:</p>
+<ul>
+<li><strong>A system call:</strong> a program asks for a service.</li>
+<li><strong>An exception:</strong> a program does something that needs the kernel's help, such as touching an unmapped page or dividing by zero.</li>
+<li><strong>An interrupt:</strong> a device or the timer needs attention.</li>
+</ul>
+<p>Each entry saves the user state, runs a handler in kernel mode on that thread's kernel stack, and returns (see <a href="#/exceptions">Faults, Traps, Interrupts, and System Calls</a>). On Linux, the kernel is mapped into the upper half of every process's address space, so entering it doesn't require switching address spaces (except with KPTI). The kernel also runs a few kernel threads of its own for background work such as writing dirty pages back to disk.</p>
+<p>Its main jobs are the ones listed above: scheduling, memory management, device drivers, file systems, networking, and interprocess communication. Kernels differ in how much of that runs in privileged mode:</p>
+<div class="tbl"><table>
+<thead><tr><th>Design</th><th>What Runs in the Kernel</th><th>Examples</th><th>Trade-Off</th></tr></thead>
+<tbody>
+<tr><td>Monolithic</td><td>Everything: scheduler, memory manager, drivers, file systems, network stack, all in one address space</td><td>Linux, FreeBSD</td><td>Fast, since parts call each other directly, but a bug in any driver can crash or compromise the whole system. Loadable modules let parts be added at runtime.</td></tr>
+<tr><td>Microkernel</td><td>Only the minimum: address spaces, threads, and message passing. Drivers and file systems run as user processes.</td><td>seL4, QNX, MINIX 3</td><td>A crashed driver can be restarted, and the small kernel can even be formally verified (seL4), but every service request costs messages and context switches.</td></tr>
+<tr><td>Hybrid</td><td>A microkernel-style core with most services moved back into kernel mode for speed</td><td>Windows NT, macOS (XNU: Mach plus BSD)</td><td>Close to monolithic performance, with some of the microkernel's structure.</td></tr>
+</tbody></table></div>
+<p>For performance work, the kernel matters because it decides what runs, when, and with which memory. Every one of those decisions is made in code that user programs enter through a fault, a trap, or an interrupt, and every one shows up directly in performance: time spent in the kernel, pipeline flushes on entry and exit, and cache and TLB pollution after it returns.</p>
+
+<h3 id="sec-shell">The Shell</h3>
+<p>The <strong>shell</strong> is the program that takes commands from the user and asks the kernel to carry them out. The name comes from the picture of an outer layer wrapped around the kernel. Despite that, the shell is an ordinary user-mode process with no special privileges, so it can be swapped for another one: bash, zsh, fish, and dash on Unix, and PowerShell and cmd.exe on Windows. Graphical desktops such as Windows Explorer and GNOME Shell are shells in the same sense, since they also launch programs for the user.</p>
+<p>A command-line shell runs a loop. For a command like <code>grep error log.txt &gt; errors.txt</code>:</p>
+<ol>
+<li><strong>Read:</strong> it prints a prompt and reads a line from the terminal.</li>
+<li><strong>Parse:</strong> it splits the line into words, expands variables and wildcards, and notes the redirection.</li>
+<li><strong>Find the program:</strong> if the command is a builtin, the shell runs it itself. Otherwise it searches the directories in <code>PATH</code> and finds <code>/usr/bin/grep</code>.</li>
+<li><strong>Fork:</strong> it calls <code>fork</code> to create a child process.</li>
+<li><strong>Set up and exec:</strong> the child opens <code>errors.txt</code>, moves it onto descriptor 1 (standard output) with <code>dup2</code>, and calls <code>execve</code> to replace itself with grep (see <a href="#/file-syscalls/sharing">Sharing Descriptors</a>).</li>
+<li><strong>Wait:</strong> the parent calls <code>waitpid</code> until grep exits, stores its exit status in <code>$?</code>, and prints the next prompt.</li>
+</ol>
+<p>A pipeline such as <code>ls | wc -l</code> works the same way, except the shell first creates a pipe and forks two children, wiring the first one's standard output to the pipe's write end and the second one's standard input to its read end. Ending a command with <code>&amp;</code> skips the wait, which runs it in the background.</p>
+<p>Some commands have to be builtins. <code>cd</code> changes the current directory, which belongs to each process, so if a child process ran it, only the child's directory would change and the shell's would stay the same. <code>exit</code> and <code>export</code> are builtins for the same reason.</p>
+<p>The shell is also a programming language, with variables, conditionals, loops, and functions, so sequences of commands can be saved as scripts. It is separate from the <strong>terminal</strong>: the terminal emulator draws text and reads keys, the shell interprets commands, and a pseudo-terminal connects the two.</p>`,
   practice: {
     guided: [
       {
@@ -19,6 +124,10 @@ section({
       {
         q: `<p>Why is a page fault a "fault" and a system call a "trap"? What does that change for the return address?</p>`,
         a: `<p>A fault is reported before the instruction completes, so the saved PC points at the faulting instruction and it is re-executed after the handler fixes the cause. A trap is reported after the instruction completes, so the saved PC points to the next instruction and execution continues past it.</p>`
+      },
+      {
+        q: `<p>The shell is an ordinary user-mode process, not part of the kernel. What would be lost if a command interpreter were built into the kernel instead, and what would a shell running in the kernel still not be able to do without the same system calls it uses today?</p>`,
+        a: `<ul><li><strong>Isolation:</strong> a bug in the parser or in a script would run with full privilege, so it could crash or compromise the whole machine instead of just one process.</li><li><strong>Choice:</strong> users pick bash, zsh, fish, or a graphical shell, and can run several at once with different settings. A built-in interpreter would fix one for everyone, and changing it would mean changing the kernel.</li><li><strong>A smaller trusted kernel:</strong> parsing, wildcard expansion, history, and scripting are large and change often, so keeping them out of privileged code keeps the kernel smaller and easier to get right.</li><li><strong>Nothing gained in power:</strong> starting a program still needs a new process with its own address space and descriptors, which is exactly what <code>fork</code>, <code>execve</code>, <code>dup2</code>, and <code>waitpid</code> already provide. The shell needs no privilege, only those calls, which is why it can be an ordinary program.</li></ul>`
       }
     ]
   }
