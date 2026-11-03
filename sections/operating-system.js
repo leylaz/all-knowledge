@@ -137,14 +137,15 @@ section({
   region: "os",
   title: "Faults, Traps, Interrupts, and System Calls",
   sections: [
-    { id: "common-events", label: "Common Events" },
     { id: "privilege-levels", label: "Privilege Levels" },
     { id: "out-order-core", label: "Making the Exception Precise" },
     { id: "hardware-sequence", label: "The Hardware Sequence" },
+    { id: "vectors", label: "Vectors and the Interrupt Descriptor Table" },
     { id: "trap-frame", label: "The Handler and the Trap Frame" },
     { id: "return", label: "Returning to User Mode" },
     { id: "system-calls", label: "System Calls" },
-    { id: "performance-trade-offs", label: "Performance Trade-Offs" }
+    { id: "performance-trade-offs", label: "Performance Trade-Offs" },
+    { id: "common-events", label: "Reference: Common Events" }
   ],
   body: `
 <p>User code can't touch the page tables, the devices, or other processes. The only way into the kernel is for the core itself to transfer control there, to an address the kernel chose in advance. Four kinds of event do that. They differ in what causes them and where execution resumes. Main sources: Hennessy and Patterson (appendix C on exceptions in pipelines, and chapter 3 on reorder buffers), Bryant and O’Hallaron chapter 8, the RISC-V privileged specification, and the Intel SDM volume 3.</p>
@@ -154,52 +155,6 @@ section({
 <tr><td>Trap</td><td>Intentional, or reported after completion</td><td>Synchronous, after completion</td><td>The next instruction</td><td>System call, breakpoint, single-step</td></tr>
 <tr><td>Abort</td><td>Unrecoverable error</td><td>Synchronous or not</td><td>Usually doesn't resume</td><td>Machine check, double fault</td></tr>
 <tr><td>Interrupt</td><td>External device or timer</td><td>Asynchronous</td><td>Between instructions</td><td>Timer, I/O completion, inter-processor interrupt</td></tr>
-</table></div>
-
-<h3 id="sec-common-events">Common Events</h3>
-<p>The events a kernel handles most often, with their x86-64 vector (the IDT entry) and RISC-V <code>scause</code> code. For interrupts, the RISC-V code is the one with the interrupt bit set. For system calls, the two number columns hold the Linux call number instead (AArch64 Linux uses the same numbers as RISC-V). A dash in the last column means no subsection covers the event yet.</p>
-<div class="tbl"><table>
-<tr><th>Event</th><th>Kind</th><th>x86-64 vector or call number</th><th>RISC-V <code>scause</code> or call number</th><th>What usually happens</th><th>Described in</th></tr>
-<tr><td>Page fault, page not present</td><td>Fault</td><td>14 (#PF)</td><td>12, 13, 15 (fetch, load, store)</td><td>The kernel maps a zeroed page or reads it from a file or swap (a minor or major fault), and the instruction re-executes</td><td><a href="#/exceptions/out-order-core">Making the Exception Precise</a>, <a href="#/demand-paging/first-touch">Filling the Path on a First Touch</a>, <a href="#/page-replacement/eviction">Evicting Pages</a></td></tr>
-<tr><td>Copy-on-write fault</td><td>Fault</td><td>14 (#PF)</td><td>15</td><td>A store to a shared read-only page gets a private copy, and the store re-executes</td><td><a href="#/demand-paging/cow">Copy-on-Write After Fork</a></td></tr>
-<tr><td>Protection violation (segmentation fault)</td><td>Fault</td><td>14 (#PF)</td><td>12, 13, 15, or 1, 5, 7 for a PMP access fault</td><td>An address in no region, or an access the region forbids, becomes <code>SIGSEGV</code></td><td><a href="#/virtual-memory/pages-page-tables">Pages and Page Tables</a>, <a href="#/process-syscalls/signals">Signals</a></td></tr>
-<tr><td>Instruction fetch fault</td><td>Fault</td><td>14 (#PF)</td><td>12, or 1 for an access fault</td><td>Taken only if the faulting fetch reaches commit, then handled like any page fault</td><td><a href="#/stage-if/exceptions">Exceptions in Fetch</a></td></tr>
-<tr><td>General protection fault</td><td>Fault</td><td>13 (#GP)</td><td>2 (a privileged instruction in user mode is illegal)</td><td>A privileged instruction in user mode, or a non-canonical address, becomes <code>SIGSEGV</code></td><td><a href="#/exceptions/privilege-levels">Privilege Levels</a></td></tr>
-<tr><td>Invalid opcode</td><td>Fault</td><td>6 (#UD)</td><td>2</td><td>Decode flags it, and it becomes <code>SIGILL</code> (or the kernel emulates the instruction)</td><td><a href="#/exceptions/out-order-core">Making the Exception Precise</a>, <a href="#/process-syscalls/signals">Signals</a></td></tr>
-<tr><td>Integer divide by zero</td><td>Fault</td><td>0 (#DE)</td><td>None. RISC-V division by zero returns all ones and doesn't trap.</td><td><code>SIGFPE</code></td><td><a href="#/exceptions/out-order-core">Making the Exception Precise</a>, <a href="#/process-syscalls/signals">Signals</a></td></tr>
-<tr><td>Floating-point exception</td><td>Fault, only when unmasked</td><td>19 (#XM, SSE and AVX), 16 (#MF, x87)</td><td>None. RISC-V only sets the <code>fflags</code> bits.</td><td>Masked by default, so it only sets sticky flags. Unmasked, it becomes <code>SIGFPE</code>.</td><td><a href="#/fp-rounding/exceptions">The Five Exceptions</a></td></tr>
-<tr><td>Misaligned access</td><td>Fault</td><td>17 (#AC, only with the AC flag set)</td><td>0, 4, 6 (fetch, load, store)</td><td>Usually handled in hardware or emulated by firmware or the kernel, otherwise <code>SIGBUS</code></td><td><a href="#/stage-if/exceptions">Exceptions in Fetch</a> (fetch only)</td></tr>
-<tr><td>Device not available</td><td>Fault</td><td>7 (#NM)</td><td>2 (FP instruction while <code>sstatus</code>.FS is Off)</td><td>Lazy FPU switching: the kernel restores the thread's FP registers and re-executes</td><td>—</td></tr>
-<tr><td>Guest page fault (EPT or G-stage violation)</td><td>Fault, taken by the hypervisor</td><td>A VM exit, not an IDT vector</td><td>20, 21, 23 (fetch, load, store)</td><td>The hypervisor maps the guest-physical page and resumes the guest</td><td><a href="#/virtualization/nested-walks">Two-Dimensional Page Walks</a></td></tr>
-<tr><td>System call</td><td>Trap</td><td>None. <code>syscall</code> jumps through LSTAR, not the IDT.</td><td>8 (<code>ecall</code> from user mode)</td><td>The kernel runs the call and resumes after the trap instruction</td><td><a href="#/exceptions/system-calls">System Calls</a>, <a href="#/exceptions/return">Returning to User Mode</a></td></tr>
-<tr><td>Breakpoint</td><td>Trap</td><td>3 (#BP, <code>int3</code>)</td><td>3 (<code>ebreak</code>)</td><td><code>SIGTRAP</code> to a debugger</td><td>—</td></tr>
-<tr><td>Single-step and watchpoint</td><td>Trap</td><td>1 (#DB)</td><td>None. Handled by the debug specification's trigger module.</td><td><code>SIGTRAP</code> to a debugger</td><td>—</td></tr>
-<tr><td>Double fault</td><td>Abort</td><td>8 (#DF)</td><td>16 (double trap, Ssdbltrp, taken in machine mode)</td><td>An exception while delivering another one. The kernel reports it and panics.</td><td>—</td></tr>
-<tr><td>Machine check</td><td>Abort</td><td>18 (#MC)</td><td>19 (hardware error)</td><td>An uncorrectable hardware error, such as a multi-bit ECC error. The kernel kills the affected process or panics.</td><td>—</td></tr>
-<tr><td>Timer interrupt</td><td>Interrupt</td><td>Local APIC timer, a vector the OS assigns (32–255)</td><td>5 (supervisor timer)</td><td>The scheduler tick: account time and maybe switch threads</td><td><a href="#/exceptions/out-order-core">Making the Exception Precise</a> (how any interrupt is taken)</td></tr>
-<tr><td>Device interrupt</td><td>Interrupt</td><td>A vector from 32–255, through the I/O APIC or an MSI</td><td>9 (supervisor external, through the PLIC or AIA)</td><td>The driver's handler acknowledges the device and queues the rest of the work</td><td><a href="#/exceptions/out-order-core">Making the Exception Precise</a></td></tr>
-<tr><td>Inter-processor interrupt (TLB shootdown, reschedule)</td><td>Interrupt</td><td>A vector the OS assigns, sent through the local APIC</td><td>1 (supervisor software), or 9 through the AIA's IMSIC</td><td>The target core flushes TLB entries or reschedules, then acknowledges</td><td><a href="#/tlb/coherence">Keeping TLBs Coherent</a>, <a href="#/mmap/change">Changing and Removing Mappings</a></td></tr>
-<tr><td>Non-maskable interrupt</td><td>Interrupt</td><td>2 (NMI)</td><td>None standard. The Smrnmi extension adds resumable NMIs in machine mode.</td><td>Watchdogs and hardware errors, taken even with interrupts masked</td><td>—</td></tr>
-<tr><td>Performance-counter overflow</td><td>Interrupt</td><td>The local APIC's PMI entry, usually set to deliver an NMI on Linux</td><td>13 (counter overflow, Sscofpmf)</td><td>A sampling profiler such as <code>perf record</code> logs the PC</td><td>—</td></tr>
-<tr><td><code>read</code>, <code>write</code></td><td>System call</td><td>0, 1</td><td>63, 64</td><td>Copy bytes between a descriptor and a buffer</td><td><a href="#/file-syscalls/read-write">Reading and Writing</a></td></tr>
-<tr><td><code>openat</code>, <code>close</code></td><td>System call</td><td>257, 3 (and <code>open</code>, 2)</td><td>56, 57</td><td>Create and release a file descriptor</td><td><a href="#/file-syscalls/open-close">Opening and Closing Files</a></td></tr>
-<tr><td><code>lseek</code></td><td>System call</td><td>8</td><td>62</td><td>Move a descriptor's offset</td><td><a href="#/file-syscalls/read-write">Reading and Writing</a></td></tr>
-<tr><td><code>fstat</code>, <code>stat</code></td><td>System call</td><td>5, 4</td><td>80, 79 (<code>newfstatat</code>)</td><td>Read an inode's size, mode, and timestamps</td><td><a href="#/file-syscalls/durability">Metadata and Durability</a></td></tr>
-<tr><td><code>fsync</code></td><td>System call</td><td>74</td><td>82</td><td>Wait until a file's data is on storage</td><td><a href="#/file-syscalls/durability">Metadata and Durability</a></td></tr>
-<tr><td><code>rename</code>, <code>unlink</code></td><td>System call</td><td>82, 87</td><td>276 (<code>renameat2</code>), 35 (<code>unlinkat</code>)</td><td>Replace or remove a name</td><td><a href="#/file-syscalls/durability">Metadata and Durability</a></td></tr>
-<tr><td><code>pipe</code>, <code>dup2</code></td><td>System call</td><td>22, 33</td><td>59 (<code>pipe2</code>), 24 (<code>dup3</code>)</td><td>Create a pipe, and point one descriptor at another's open file</td><td><a href="#/file-syscalls/sharing">Sharing Descriptors: fork, dup2, and pipe</a></td></tr>
-<tr><td><code>mmap</code></td><td>System call</td><td>9</td><td>222</td><td>Create a region backed by a file or anonymous memory</td><td><a href="#/mmap/mmap">Mapping a File with mmap</a></td></tr>
-<tr><td><code>munmap</code>, <code>mprotect</code>, <code>madvise</code>, <code>msync</code></td><td>System call</td><td>11, 10, 28, 26</td><td>215, 226, 233, 227</td><td>Remove a region, change its permissions, give paging hints, or write back a shared mapping</td><td><a href="#/mmap/change">Changing and Removing Mappings</a></td></tr>
-<tr><td><code>brk</code></td><td>System call</td><td>12</td><td>214</td><td>Move the end of the heap</td><td><a href="#/mmap/malloc">Where malloc Gets Its Memory</a></td></tr>
-<tr><td><code>fork</code>, <code>clone</code></td><td>System call</td><td>57, 56</td><td>None (glibc's <code>fork</code> calls <code>clone</code>), 220</td><td>Create a process or a thread</td><td><a href="#/process-syscalls/fork">Creating a Process with fork</a>, <a href="#/process-syscalls/lifecycle">The Life of a Process</a></td></tr>
-<tr><td><code>execve</code></td><td>System call</td><td>59</td><td>221</td><td>Replace the program in the calling process</td><td><a href="#/process-syscalls/spawn">Starting a New Program: Exec and Spawn</a></td></tr>
-<tr><td><code>exit_group</code>, <code>wait4</code></td><td>System call</td><td>231, 61</td><td>94, 260</td><td>End a process, and reap a child's exit status</td><td><a href="#/process-syscalls/exit-wait">Exiting and Waiting</a></td></tr>
-<tr><td><code>kill</code>, <code>rt_sigaction</code>, <code>rt_sigreturn</code></td><td>System call</td><td>62, 13, 15</td><td>129, 134, 139</td><td>Send a signal, install a handler, and return from one</td><td><a href="#/process-syscalls/signals">Signals</a>, <a href="#/process-syscalls/lifecycle">The Life of a Process</a></td></tr>
-<tr><td><code>getpid</code>, <code>getppid</code></td><td>System call</td><td>39, 110</td><td>172, 173</td><td>Return the caller's and its parent's PID. The usual null call for timing kernel entry.</td><td><a href="#/process-syscalls/lifecycle">The Life of a Process</a>, <a href="#/exceptions/performance-trade-offs">Performance Trade-Offs</a></td></tr>
-<tr><td><code>nanosleep</code>, <code>sched_yield</code></td><td>System call</td><td>35, 24</td><td>101, 124</td><td>Block for a time, or give up the core</td><td><a href="#/process-syscalls/lifecycle">The Life of a Process</a></td></tr>
-<tr><td><code>clock_gettime</code></td><td>System call, usually served by the vDSO</td><td>228</td><td>113</td><td>Read the time, normally without entering the kernel</td><td><a href="#/exceptions/system-calls">System Calls</a></td></tr>
-<tr><td><code>epoll_wait</code></td><td>System call</td><td>232</td><td>22 (<code>epoll_pwait</code>)</td><td>Wait until any of many descriptors is ready</td><td><a href="#/process-syscalls/perf">Performance Trade-Offs</a> (in passing)</td></tr>
-<tr><td><code>io_uring_enter</code></td><td>System call</td><td>426</td><td>426</td><td>Submit and reap a batch of I/O through shared rings</td><td><a href="#/exceptions/performance-trade-offs">Performance Trade-Offs</a></td></tr>
 </table></div>
 
 <h3 id="sec-privilege-levels">Privilege Levels</h3>
@@ -239,6 +194,37 @@ section({
 <tr><td>Return instruction</td><td><code>iretq</code>, or <code>sysretq</code> after <code>syscall</code></td><td><code>eret</code></td><td><code>sret</code></td></tr>
 </table></div>
 
+<h3 id="sec-vectors">Vectors and the Interrupt Descriptor Table</h3>
+<p>On x86-64, every event that enters the kernel through the IDT carries a <strong>vector</strong>: an 8-bit number, 0 to 255, that says which event it is. The vector does two jobs at once. It identifies the event, and it selects the handler, so the kernel never has to work out after the fact what happened. The range is split in two (Intel SDM volume 3, chapter 6):</p>
+<ul>
+<li><strong>0 to 31, fixed by the architecture:</strong> the CPU's own exceptions, plus the NMI (vector 2). Each has a short name: #DE (0, divide error), #UD (6, invalid opcode), #GP (13, general protection), #PF (14, page fault), and so on. The core raises these itself, with the vector built in.</li>
+<li><strong>32 to 255, assigned by the OS:</strong> device interrupts, the local APIC timer, and inter-processor interrupts. The kernel picks a free vector and programs it into whatever raises the interrupt: an I/O APIC redirection entry, a device's MSI message, the timer's register, or the command register used to send an IPI. Software can also raise any vector with <code>int n</code>, which is how the old <code>int 0x80</code> system call worked.</li>
+</ul>
+<p>The <strong>Interrupt Descriptor Table</strong> (IDT) is an array in kernel memory with one 16-byte entry, called a <strong>gate</strong>, per vector. At boot, the kernel fills it in and loads its base address and size into the IDTR register with <code>lidt</code>, a privileged instruction. Each gate holds:</p>
+<ul>
+<li><strong>The handler address</strong> and the kernel code segment to run it in.</li>
+<li><strong>The gate type:</strong> an interrupt gate clears IF, so the handler starts with maskable interrupts off, and a trap gate leaves IF alone. Linux uses interrupt gates for all of them.</li>
+<li><strong>A descriptor privilege level (DPL):</strong> the least privileged code allowed to raise this vector with <code>int n</code>. Linux gives vector 3 a DPL of 3 so a debugger's <code>int3</code> works from user mode, and gives most other vectors a DPL of 0, so a user program that runs <code>int 14</code> gets a #GP rather than a fake page fault. Hardware-raised events skip this check.</li>
+<li><strong>An IST index:</strong> 0 means "use the normal kernel stack". 1 to 7 picks one of the seven Interrupt Stack Table stacks in the TSS, which Linux uses for events that can arrive when the current stack is unusable: the double fault, the NMI, the machine check, and the debug exception.</li>
+<li><strong>A present bit:</strong> a vector with no handler installed raises #NP (11) instead.</li>
+</ul>
+<p>When an event with vector \\(v\\) is taken, the core:</p>
+<ol>
+<li><strong>Reads the gate</strong> at IDTR.base + 16 × \\(v\\). For a page fault, that is the entry at offset 16 × 14 = 224 bytes.</li>
+<li><strong>Checks</strong> that it is present, and, for <code>int n</code>, that the DPL allows the current privilege level.</li>
+<li><strong>Switches stacks</strong> if it is coming from ring 3, loading RSP from the TSS (RSP0, or the IST entry the gate names).</li>
+<li><strong>Pushes the interrupted state:</strong> SS, RSP, RFLAGS, CS, and RIP. For some vectors (8, 10 to 14, 17, and 21 among them) it also pushes an <strong>error code</strong>. A page fault's error code says whether the page was present, whether the access was a write, whether it came from user mode, and whether it was an instruction fetch. The faulting address goes in CR2.</li>
+<li><strong>Jumps</strong> to the gate's handler, clearing IF for an interrupt gate.</li>
+</ol>
+<p>Because every vector has its own handler, Linux's IDT entries point at small assembly stubs, one per vector, that build the trap frame and call the matching C function (see <a href="#/exceptions/trap-frame">The Handler and the Trap Frame</a>). Device interrupts share one common path, which looks up the vector in a per-CPU table to find the driver's handler. The local APIC also uses the vector as a priority: its upper 4 bits form the priority class, and an interrupt is delivered only if its class is above the one the core is currently handling and above the task priority register (TPR).</p>
+<p>The other ISAs do the same job differently:</p>
+<ul>
+<li><strong>RISC-V:</strong> no table. Every exception and interrupt jumps to the one address in <code>stvec</code>, and the handler reads <code>scause</code> to dispatch in software. Vectored mode only spreads interrupts across slots.</li>
+<li><strong>ARMv8-A:</strong> a fixed table at VBAR_EL1 with 16 slots of 0x80 bytes, one for each pair of source (current level or lower level, AArch64 or AArch32) and type (synchronous, IRQ, FIQ, SError). The handler reads ESR_EL1 for the exception class, and for an IRQ it reads the interrupt number from the GIC.</li>
+<li><strong>FRED on newer Intel cores:</strong> Flexible Return and Event Delivery replaces IDT-based delivery with two fixed entry points (events from ring 3 and events from ring 0). The event type and vector are saved in the stack frame for software to dispatch on, and new <code>eretu</code> and <code>erets</code> instructions replace <code>iretq</code>. Linux has supported it since version 6.9.</li>
+</ul>
+<p>System calls through <code>syscall</code> don't use a vector at all: the instruction jumps to the address in the LSTAR register (see <a href="#/exceptions/system-calls">System Calls</a>). The full list of common vectors is in <a href="#/exceptions/common-events">Reference: Common Events</a>.</p>
+
 <h3 id="sec-trap-frame">The Handler and the Trap Frame</h3>
 <p>The hardware saves only what it must to reach the handler. The kernel's entry code, written in assembly, saves everything else before any C code runs:</p>
 <ol>
@@ -277,7 +263,60 @@ section({
 <li><strong>Batching:</strong> <code>io_uring</code> passes requests and completions through rings shared with the kernel, so one system call, or none with kernel-side polling, covers many operations.</li>
 <li><strong>Interrupts:</strong> interrupt coalescing and polling trade latency for throughput in I/O-heavy servers.</li>
 <li><strong>For a simulator:</strong> syscall-emulation mode (gem5 SE) carries out each call in the simulator, so neither the kernel's instructions nor its pollution of caches and predictors appears. Workloads that cross often need full-system simulation.</li>
-</ul>`,
+</ul>
+
+<h3 id="sec-common-events">Reference: Common Events</h3>
+<p>The events a kernel handles most often, split into hardware events and system calls. A dash in the last column means no subsection covers the event yet.</p>
+<h4 id="sec-hardware-events">Hardware Events</h4>
+<p>The x86-64 column gives the event's vector, the number that picks its entry in the IDT (see <a href="#/exceptions/vectors">Vectors and the Interrupt Descriptor Table</a>). The RISC-V column gives the <code>scause</code> code. For interrupts, the RISC-V code is the one with the interrupt bit set.</p>
+<div class="tbl"><table>
+<tr><th>Event</th><th>Kind</th><th>x86-64 vector</th><th>RISC-V <code>scause</code></th><th>What usually happens</th><th>Described in</th></tr>
+<tr><td>Page fault, page not present</td><td>Fault</td><td>14 (#PF)</td><td>12, 13, 15 (fetch, load, store)</td><td>The kernel maps a zeroed page or reads it from a file or swap (a minor or major fault), and the instruction re-executes</td><td><a href="#/exceptions/out-order-core">Making the Exception Precise</a>, <a href="#/demand-paging/first-touch">Filling the Path on a First Touch</a>, <a href="#/page-replacement/eviction">Evicting Pages</a></td></tr>
+<tr><td>Copy-on-write fault</td><td>Fault</td><td>14 (#PF)</td><td>15</td><td>A store to a shared read-only page gets a private copy, and the store re-executes</td><td><a href="#/demand-paging/cow">Copy-on-Write After Fork</a></td></tr>
+<tr><td>Protection violation (segmentation fault)</td><td>Fault</td><td>14 (#PF)</td><td>12, 13, 15, or 1, 5, 7 for a PMP access fault</td><td>An address in no region, or an access the region forbids, becomes <code>SIGSEGV</code></td><td><a href="#/virtual-memory/pages-page-tables">Pages and Page Tables</a>, <a href="#/process-syscalls/signals">Signals</a></td></tr>
+<tr><td>Instruction fetch fault</td><td>Fault</td><td>14 (#PF)</td><td>12, or 1 for an access fault</td><td>Taken only if the faulting fetch reaches commit, then handled like any page fault</td><td><a href="#/stage-if/exceptions">Exceptions in Fetch</a></td></tr>
+<tr><td>General protection fault</td><td>Fault</td><td>13 (#GP)</td><td>2 (a privileged instruction in user mode is illegal)</td><td>A privileged instruction in user mode, or a non-canonical address, becomes <code>SIGSEGV</code></td><td><a href="#/exceptions/privilege-levels">Privilege Levels</a></td></tr>
+<tr><td>Invalid opcode</td><td>Fault</td><td>6 (#UD)</td><td>2</td><td>Decode flags it, and it becomes <code>SIGILL</code> (or the kernel emulates the instruction)</td><td><a href="#/exceptions/out-order-core">Making the Exception Precise</a>, <a href="#/process-syscalls/signals">Signals</a></td></tr>
+<tr><td>Integer divide by zero</td><td>Fault</td><td>0 (#DE)</td><td>None. RISC-V division by zero returns all ones and doesn't trap.</td><td><code>SIGFPE</code></td><td><a href="#/exceptions/out-order-core">Making the Exception Precise</a>, <a href="#/process-syscalls/signals">Signals</a></td></tr>
+<tr><td>Floating-point exception</td><td>Fault, only when unmasked</td><td>19 (#XM, SSE and AVX), 16 (#MF, x87)</td><td>None. RISC-V only sets the <code>fflags</code> bits.</td><td>Masked by default, so it only sets sticky flags. Unmasked, it becomes <code>SIGFPE</code>.</td><td><a href="#/fp-rounding/exceptions">The Five Exceptions</a></td></tr>
+<tr><td>Misaligned access</td><td>Fault</td><td>17 (#AC, only with the AC flag set)</td><td>0, 4, 6 (fetch, load, store)</td><td>Usually handled in hardware or emulated by firmware or the kernel, otherwise <code>SIGBUS</code></td><td><a href="#/stage-if/exceptions">Exceptions in Fetch</a> (fetch only)</td></tr>
+<tr><td>Device not available</td><td>Fault</td><td>7 (#NM)</td><td>2 (FP instruction while <code>sstatus</code>.FS is Off)</td><td>Lazy FPU switching: the kernel restores the thread's FP registers and re-executes</td><td>—</td></tr>
+<tr><td>Guest page fault (EPT or G-stage violation)</td><td>Fault, taken by the hypervisor</td><td>A VM exit, not an IDT vector</td><td>20, 21, 23 (fetch, load, store)</td><td>The hypervisor maps the guest-physical page and resumes the guest</td><td><a href="#/virtualization/nested-walks">Two-Dimensional Page Walks</a></td></tr>
+<tr><td>System call</td><td>Trap</td><td>None. <code>syscall</code> jumps through LSTAR, not the IDT.</td><td>8 (<code>ecall</code> from user mode)</td><td>The kernel runs the call and resumes after the trap instruction</td><td><a href="#/exceptions/system-calls">System Calls</a>, <a href="#/exceptions/return">Returning to User Mode</a></td></tr>
+<tr><td>Breakpoint</td><td>Trap</td><td>3 (#BP, <code>int3</code>)</td><td>3 (<code>ebreak</code>)</td><td><code>SIGTRAP</code> to a debugger</td><td>—</td></tr>
+<tr><td>Single-step and watchpoint</td><td>Trap</td><td>1 (#DB)</td><td>None. Handled by the debug specification's trigger module.</td><td><code>SIGTRAP</code> to a debugger</td><td>—</td></tr>
+<tr><td>Double fault</td><td>Abort</td><td>8 (#DF)</td><td>16 (double trap, Ssdbltrp, taken in machine mode)</td><td>An exception while delivering another one. The kernel reports it and panics.</td><td>—</td></tr>
+<tr><td>Machine check</td><td>Abort</td><td>18 (#MC)</td><td>19 (hardware error)</td><td>An uncorrectable hardware error, such as a multi-bit ECC error. The kernel kills the affected process or panics.</td><td>—</td></tr>
+<tr><td>Timer interrupt</td><td>Interrupt</td><td>Local APIC timer, a vector the OS assigns (32–255)</td><td>5 (supervisor timer)</td><td>The scheduler tick: account time and maybe switch threads</td><td><a href="#/exceptions/out-order-core">Making the Exception Precise</a> (how any interrupt is taken)</td></tr>
+<tr><td>Device interrupt</td><td>Interrupt</td><td>A vector from 32–255, through the I/O APIC or an MSI</td><td>9 (supervisor external, through the PLIC or AIA)</td><td>The driver's handler acknowledges the device and queues the rest of the work</td><td><a href="#/exceptions/out-order-core">Making the Exception Precise</a></td></tr>
+<tr><td>Inter-processor interrupt (TLB shootdown, reschedule)</td><td>Interrupt</td><td>A vector the OS assigns, sent through the local APIC</td><td>1 (supervisor software), or 9 through the AIA's IMSIC</td><td>The target core flushes TLB entries or reschedules, then acknowledges</td><td><a href="#/tlb/coherence">Keeping TLBs Coherent</a>, <a href="#/mmap/change">Changing and Removing Mappings</a></td></tr>
+<tr><td>Non-maskable interrupt</td><td>Interrupt</td><td>2 (NMI)</td><td>None standard. The Smrnmi extension adds resumable NMIs in machine mode.</td><td>Watchdogs and hardware errors, taken even with interrupts masked</td><td>—</td></tr>
+<tr><td>Performance-counter overflow</td><td>Interrupt</td><td>The local APIC's PMI entry, usually set to deliver an NMI on Linux</td><td>13 (counter overflow, Sscofpmf)</td><td>A sampling profiler such as <code>perf record</code> logs the PC</td><td>—</td></tr>
+</table></div>
+<h4 id="sec-syscall-numbers">System Call Numbers</h4>
+<p>A system call is identified by a number the program puts in a register before the trap instruction: <code>rax</code> on x86-64, <code>a7</code> on RISC-V, and <code>x8</code> on AArch64. The numbers below are Linux's. AArch64 Linux uses the same numbers as RISC-V, since both follow the kernel's generic table.</p>
+<div class="tbl"><table>
+<tr><th>Call</th><th>x86-64 number</th><th>RISC-V and AArch64 number</th><th>What it does</th><th>Described in</th></tr>
+<tr><td><code>read</code>, <code>write</code></td><td>0, 1</td><td>63, 64</td><td>Copy bytes between a descriptor and a buffer</td><td><a href="#/file-syscalls/read-write">Reading and Writing</a></td></tr>
+<tr><td><code>openat</code>, <code>close</code></td><td>257, 3 (and <code>open</code>, 2)</td><td>56, 57</td><td>Create and release a file descriptor</td><td><a href="#/file-syscalls/open-close">Opening and Closing Files</a></td></tr>
+<tr><td><code>lseek</code></td><td>8</td><td>62</td><td>Move a descriptor's offset</td><td><a href="#/file-syscalls/read-write">Reading and Writing</a></td></tr>
+<tr><td><code>fstat</code>, <code>stat</code></td><td>5, 4</td><td>80, 79 (<code>newfstatat</code>)</td><td>Read an inode's size, mode, and timestamps</td><td><a href="#/file-syscalls/durability">Metadata and Durability</a></td></tr>
+<tr><td><code>fsync</code></td><td>74</td><td>82</td><td>Wait until a file's data is on storage</td><td><a href="#/file-syscalls/durability">Metadata and Durability</a></td></tr>
+<tr><td><code>rename</code>, <code>unlink</code></td><td>82, 87</td><td>276 (<code>renameat2</code>), 35 (<code>unlinkat</code>)</td><td>Replace or remove a name</td><td><a href="#/file-syscalls/durability">Metadata and Durability</a></td></tr>
+<tr><td><code>pipe</code>, <code>dup2</code></td><td>22, 33</td><td>59 (<code>pipe2</code>), 24 (<code>dup3</code>)</td><td>Create a pipe, and point one descriptor at another's open file</td><td><a href="#/file-syscalls/sharing">Sharing Descriptors: fork, dup2, and pipe</a></td></tr>
+<tr><td><code>mmap</code></td><td>9</td><td>222</td><td>Create a region backed by a file or anonymous memory</td><td><a href="#/mmap/mmap">Mapping a File with mmap</a></td></tr>
+<tr><td><code>munmap</code>, <code>mprotect</code>, <code>madvise</code>, <code>msync</code></td><td>11, 10, 28, 26</td><td>215, 226, 233, 227</td><td>Remove a region, change its permissions, give paging hints, or write back a shared mapping</td><td><a href="#/mmap/change">Changing and Removing Mappings</a></td></tr>
+<tr><td><code>brk</code></td><td>12</td><td>214</td><td>Move the end of the heap</td><td><a href="#/mmap/malloc">Where malloc Gets Its Memory</a></td></tr>
+<tr><td><code>fork</code>, <code>clone</code></td><td>57, 56</td><td>None (glibc's <code>fork</code> calls <code>clone</code>), 220</td><td>Create a process or a thread</td><td><a href="#/process-syscalls/fork">Creating a Process with fork</a>, <a href="#/process-syscalls/lifecycle">The Life of a Process</a></td></tr>
+<tr><td><code>execve</code></td><td>59</td><td>221</td><td>Replace the program in the calling process</td><td><a href="#/process-syscalls/spawn">Starting a New Program: Exec and Spawn</a></td></tr>
+<tr><td><code>exit_group</code>, <code>wait4</code></td><td>231, 61</td><td>94, 260</td><td>End a process, and reap a child's exit status</td><td><a href="#/process-syscalls/exit-wait">Exiting and Waiting</a></td></tr>
+<tr><td><code>kill</code>, <code>rt_sigaction</code>, <code>rt_sigreturn</code></td><td>62, 13, 15</td><td>129, 134, 139</td><td>Send a signal, install a handler, and return from one</td><td><a href="#/process-syscalls/signals">Signals</a>, <a href="#/process-syscalls/lifecycle">The Life of a Process</a></td></tr>
+<tr><td><code>getpid</code>, <code>getppid</code></td><td>39, 110</td><td>172, 173</td><td>Return the caller's and its parent's PID. The usual null call for timing kernel entry.</td><td><a href="#/process-syscalls/lifecycle">The Life of a Process</a>, <a href="#/exceptions/performance-trade-offs">Performance Trade-Offs</a></td></tr>
+<tr><td><code>nanosleep</code>, <code>sched_yield</code></td><td>35, 24</td><td>101, 124</td><td>Block for a time, or give up the core</td><td><a href="#/process-syscalls/lifecycle">The Life of a Process</a></td></tr>
+<tr><td><code>clock_gettime</code></td><td>228</td><td>113</td><td>Read the time, normally through the vDSO without entering the kernel</td><td><a href="#/exceptions/system-calls">System Calls</a></td></tr>
+<tr><td><code>epoll_wait</code></td><td>232</td><td>22 (<code>epoll_pwait</code>)</td><td>Wait until any of many descriptors is ready</td><td><a href="#/process-syscalls/perf">Performance Trade-Offs</a> (in passing)</td></tr>
+<tr><td><code>io_uring_enter</code></td><td>426</td><td>426</td><td>Submit and reap a batch of I/O through shared rings</td><td><a href="#/exceptions/performance-trade-offs">Performance Trade-Offs</a></td></tr>
+</table></div>`,
   practice: {
     guided: [
       {
@@ -287,6 +326,10 @@ section({
       {
         q: `<p>On RISC-V Linux, a user program executes <code>ecall</code> at address 0x10a4c with a7 = 63 (<code>read</code>) and interrupts enabled. Give <code>sepc</code>, <code>scause</code>, SPP, and SIE right after the trap, the PC the program resumes at, and what happens if the kernel forgets to adjust <code>sepc</code>.</p>`,
         a: `<ol><li><code>sepc</code> = <strong>0x10a4c</strong>, the address of the <code>ecall</code> itself.</li><li><code>scause</code> = <strong>8</strong>, environment call from user mode, with the interrupt bit clear.</li><li>SPP = <strong>0</strong> (the trap came from user mode). SPIE takes the old SIE value, 1, and SIE = <strong>0</strong>.</li><li>The PC jumps to <code>stvec</code>. The entry code builds the trap frame, the dispatcher calls the <code>read</code> handler (number 63), and the result goes into the saved a0.</li><li>Before <code>sret</code>, the kernel sets <code>sepc</code> = 0x10a4c + 4 = <strong>0x10a50</strong>, so the program resumes after the <code>ecall</code>.</li><li>Without that adjustment, <code>sret</code> returns to the <code>ecall</code>, which traps again with the same a7 (and the result in a0 as the new first argument), so the program never gets past it.</li></ol>`
+      },
+      {
+        q: `<p>Linux on x86-64 maps its IDT read-only at virtual address 0xfffffe0000000000 and assigns the local APIC timer to vector 0xec. The task priority register is 0. The timer fires while a user thread is running.</p><ol><li>From which address does the core read the timer's gate?</li><li>Does the core push an error code, and which stack does it switch to?</li><li>Suppose instead that the core is in the middle of handling a reschedule IPI (vector 0xfd) when the timer fires. Is the timer delivered right away?</li></ol>`,
+        a: `<ol><li>Each gate is 16 bytes, so the offset is 16 × 0xec = 0xec0, and the gate is at 0xfffffe0000000000 + 0xec0 = <strong>0xfffffe0000000ec0</strong>.</li><li><strong>No error code:</strong> only some of the architecture's exception vectors (0 to 31) push one, and an external interrupt never does. The thread was in ring 3, so the core switches stacks. The timer's gate has an IST index of 0, so it loads <strong>RSP0 from the TSS</strong>, the current thread's kernel stack, then pushes SS, RSP, RFLAGS, CS, and RIP.</li><li><strong>No.</strong> The priority class is the vector's upper 4 bits: 0xe for the timer and 0xf for the reschedule IPI. The local APIC holds an interrupt until its class is above the class in service, so the timer waits in the IRR until the IPI handler writes EOI. The interrupt gate already cleared IF as well, so even a higher class would wait until the handler re-enables interrupts.</li></ol>`
       }
     ],
     interview: [
@@ -301,6 +344,10 @@ section({
       {
         q: `<p>In an x86-64 out-of-order core, a load page-faults and records the fault in its ROB entry. Twenty cycles later, an older integer divide in the same thread finds a zero divisor and records a divide error. No branch between them is mispredicted. Which exception does the kernel see first, and what happens to the other one?</p>`,
         a: `<p>The kernel sees the divide error first. Exceptions are taken only when the instruction reaches the ROB head, in program order, and the divide is older, so it reaches the head first no matter when each fault was detected. Taking it flushes everything younger, including the faulting load, and its recorded page fault is discarded with it. If the handler resumes the program (for example, a SIGFPE handler that skips the divide), the load is fetched and executed again, and only then does it raise its page fault again. If the divide error kills the process, the page fault is never taken at all.</p>`
+      },
+      {
+        q: `<p>Linux points the x86-64 double-fault gate (vector 8) at an IST stack instead of letting it use the normal kernel stack. Why, and what would happen without it? Assume the double fault is raised while the core is already in ring 0.</p>`,
+        a: `<ul><li><strong>The usual cause is a broken stack.</strong> A kernel stack overflow runs RSP into the unmapped guard page below the stack. The next push takes a page fault, and delivering that page fault means pushing onto the same unmapped stack, which faults again. A fault while delivering a page fault becomes a double fault.</li><li><strong>Ring 0 to ring 0 doesn't switch stacks.</strong> Without an IST entry, the core would push the double fault's frame onto the same bad RSP. That push faults too, and a fault while delivering a double fault is a <strong>triple fault</strong>: the core shuts down and the machine resets with no message.</li><li><strong>An IST index forces a switch</strong> to a known-good, per-CPU stack regardless of privilege level. The handler gets a valid stack, prints the "kernel stack overflow" oops with a backtrace, and panics cleanly. NMIs and machine checks use IST stacks for the same reason, since they can arrive at any instruction, including the few in the entry code before the kernel stack is set up.</li></ul>`
       },
       {
         q: `<p>On x86-64, <code>syscall</code> doesn't switch stacks. Why can't the kernel just keep running on the user's stack for the call?</p>`,
