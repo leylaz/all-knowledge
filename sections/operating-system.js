@@ -222,6 +222,22 @@ section({
 <li><strong>The top bit (bit 63 on RV64):</strong> 1 for an interrupt, 0 for a synchronous exception.</li>
 <li><strong>The exception code in the low bits:</strong> for exceptions, 2 for an illegal instruction, 8 for an <code>ecall</code> from user mode, and 12, 13, and 15 for instruction, load, and store page faults. For interrupts, 1 for a software interrupt (an IPI), 5 for the timer, and 9 for an external interrupt from the PLIC.</li>
 </ul>
+<div class="tbl"><svg viewBox="0 0 680 236" role="img" aria-label="The fields of scause on RV64. Bit 63 is the Interrupt bit: 1 for an interrupt, 0 for a synchronous exception. Bits 62 to 0 hold the Exception Code, the cause number as an unsigned integer. Two examples: a load page fault reads 0x0000_0000_0000_000D, Interrupt 0 and code 13. A supervisor timer interrupt reads 0x8000_0000_0000_0005, Interrupt 1 and code 5." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="20" y="18" style="fill:var(--muted);font-size:11px">scause on RV64 (64 bits)</text>
+<g style="fill:var(--muted);font-size:11px;font-family:var(--mono)"><text x="50" y="42" text-anchor="middle">63</text><text x="86" y="42">62</text><text x="654" y="42" text-anchor="end">0</text></g>
+<rect x="20" y="50" width="60" height="36" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="80" y="50" width="580" height="36" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle"><text x="50" y="72" style="font-size:11px">Interrupt</text><text x="370" y="72">Exception Code</text></g>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle"><text x="50" y="104">1 = interrupt</text><text x="50" y="118">0 = exception</text><text x="370" y="104">which interrupt or exception, as an unsigned number</text></g>
+<text x="20" y="148" style="fill:var(--muted);font-size:11px">Two examples</text>
+<g style="stroke-width:1.5">
+<rect x="20" y="156" width="60" height="28" rx="3" style="fill:var(--surface);stroke:var(--trace)"/><rect x="80" y="156" width="300" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="20" y="196" width="60" height="28" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/><rect x="80" y="196" width="300" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+</g>
+<g style="fill:var(--ink);font-size:12px;font-family:var(--mono)" text-anchor="middle"><text x="50" y="174">0</text><text x="230" y="174">13 (0xD)</text><text x="50" y="214">1</text><text x="230" y="214">5</text></g>
+<g style="fill:var(--ink);font-size:12px"><text x="396" y="168">load page fault</text><text x="396" y="208">supervisor timer interrupt</text></g>
+<g style="fill:var(--muted);font-size:11px;font-family:var(--mono)"><text x="396" y="182">0x0000_0000_0000_000D</text><text x="396" y="222">0x8000_0000_0000_0005</text></g>
+</svg></div>
 <code>stval</code> gets the detail the handler needs: the faulting virtual address for a page fault, access fault, or misaligned access, the instruction bits for an illegal instruction (or 0, which the spec allows), and 0 for an <code>ecall</code> or an interrupt.</li>
 <li><strong>Save the old mode and interrupt state.</strong> Three bits of <code>sstatus</code> change:
 <ul>
