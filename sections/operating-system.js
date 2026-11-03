@@ -431,7 +431,7 @@ section({
 <h3 id="sec-hardware-sequence">The Hardware Sequence</h3>
 <p>Once the exception is taken, the core runs a fixed sequence with no software involved. In an out-of-order core, all of it happens when the excepting instruction reaches the ROB head: the flush removes every younger instruction, the sequence runs, and only then is the front end redirected, so the handler's first instruction sees all of the change and no instruction sees half of it. On x86-64 this is the IDT delivery sequence of the Intel SDM, volume 3, chapter 6. For an exception or interrupt taken from ring 3 into ring 0 through an IDT gate (the gate's fields are in <a href="#/exceptions/vectors">Vectors and the Interrupt Descriptor Table</a>):</p>
 <ol>
-<li><strong>Read the gate.</strong> The vector selects the 16-byte gate at IDTR.base + 16 × vector, so a page fault (vector 14) reads the gate at offset 224. The core checks it:
+<li><strong>Read the gate.</strong> Every exception and interrupt arrives with a <strong>vector</strong>, an 8-bit number from 0 to 255 that identifies the event. The core uses it to index the IDT, an array in kernel memory whose 16-byte entries, called <strong>gates</strong>, each describe how to enter the handler for one vector: the handler's address, the code segment it runs in, and which stack to use. The gate for vector \\(v\\) sits at IDTR.base + 16 × \\(v\\). A page fault, for example, is vector 14, so the core reads the gate 224 bytes into the table. The core checks it:
 <ul>
 <li><strong>Present:</strong> the P bit must be set, or the core raises #NP.</li>
 <li><strong>Type:</strong> it must be a 64-bit interrupt gate or trap gate, or the core raises #GP.</li>
