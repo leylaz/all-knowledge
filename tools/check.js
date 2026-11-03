@@ -2,7 +2,7 @@
 /* Repo checks: run `node tools/check.js` before every commit.
    Loads js/site.js, every sections/ file, and js/diagrams.js in the order
    index.html lists them, then checks links, anchors, practice problems,
-   private placeholders, and the home-page grid. Exits 1 on any error. */
+   private placeholders, and the home-page tabs and grids. Exits 1 on any error. */
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -22,7 +22,7 @@ for (const dir of ["js", "sections", "coding"])
 /* Only data files run here; js/app.js and the widget scripts need a DOM. */
 const DATA = new Set(["js/site.js", "js/diagrams.js", "js/glossary.js", "js/calc.js", "js/trace.js", "coding/interview.js"]);
 /* Top-level consts aren't properties of the context, so copy them out. */
-const EXPOSE = "\n;" + ["REGIONS", "NOTES", "GLOSSARY", "CALCS", "TRACES"].map(k => `if (typeof ${k} !== "undefined") globalThis.${k} = ${k};`).join(" ");
+const EXPOSE = "\n;" + ["REGIONS", "NOTES", "TABS", "GLOSSARY", "CALCS", "TRACES"].map(k => `if (typeof ${k} !== "undefined") globalThis.${k} = ${k};`).join(" ");
 const ctx = vm.createContext({ console, window: {}, document: undefined });
 for (const s of scripts) {
   if (!(DATA.has(s) || s.startsWith("sections/"))) continue;
@@ -127,13 +127,28 @@ for (const n of NOTES.filter(n => n.private))
   if (n.title !== "Private Page" || n.body || (n.sections || []).length || Object.keys(n.practice || {}).length)
     err("sections/private.js", `page ${n.id} holds more than a placeholder`);
 
-/* ---------- Home-page grid: every region has a cell, desktop and mobile ---------- */
-const areas = [...html.matchAll(/grid-template-areas:([^;]+);/g)].map(m => new Set(m[1].match(/[a-z0-9]+/gi)));
-if (areas.length < 2) err("index.html", "expected desktop and mobile grid-template-areas");
-areas.forEach((set, i) => {
-  for (const r of REGIONS) if (!set.has(r.id)) err("index.html", `grid ${i} has no cell for region "${r.id}"`);
-  for (const a of set) if (!regionById.has(a)) err("index.html", `grid ${i} has a cell "${a}" with no region`);
-});
+/* ---------- Home-page tabs and grids: every region sits in one tab and has a cell in its grid ---------- */
+const TABS = ctx.TABS || [];
+const tabOf = new Map();
+for (const t of TABS) for (const id of t.regions) {
+  if (!regionById.has(id)) err("js/site.js", `tab "${t.id}" lists unknown region "${id}"`);
+  if (tabOf.has(id)) err("js/site.js", `region "${id}" is in tabs "${tabOf.get(id)}" and "${t.id}"`);
+  tabOf.set(id, t.id);
+}
+for (const r of REGIONS) if (!tabOf.has(r.id)) err("js/site.js", `region "${r.id}" is in no tab`);
+const grids = new Map([...html.matchAll(/\.floor\[data-tab="([^"]+)"\] \{ grid-template-areas:([^;]+);/g)]
+  .map(m => [m[1], new Set(m[2].match(/[a-z0-9]+/gi))]));
+for (const t of TABS) {
+  const set = grids.get(t.id);
+  if (!set) { err("index.html", `tab "${t.id}" has no grid-template-areas`); continue; }
+  for (const id of t.regions) if (!set.has(id)) err("index.html", `grid for tab "${t.id}" has no cell for region "${id}"`);
+  for (const a of set) if (!t.regions.includes(a)) err("index.html", `grid for tab "${t.id}" has a cell "${a}" outside the tab`);
+}
+for (const id of grids.keys()) if (!TABS.some(t => t.id === id)) err("index.html", `grid for unknown tab "${id}"`);
+/* Script order is region order, so each tab's regions load in one run. */
+const loadOrder = REGIONS.map(r => tabOf.get(r.id));
+TABS.forEach(t => { const first = loadOrder.indexOf(t.id), last = loadOrder.lastIndexOf(t.id);
+  if (loadOrder.slice(first, last + 1).some(x => x !== t.id)) err("index.html", `regions of tab "${t.id}" are not loaded together`); });
 
 /* ---------- Titles in title case (first letter of each major word) ---------- */
 const SMALL = new Set(["a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or", "the", "to", "vs.", "with", "from", "into", "per", "via"]);

@@ -59,25 +59,35 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .intro p { margin: 0; color: var(--muted); max-width: 56ch; font-size: 1.05rem; }
 
 .die { border: 2px dashed var(--pad); padding: 14px; border-radius: 4px; margin-bottom: 56px; }
-.floor { display: grid; gap: 10px; grid-template-columns: repeat(6, 1fr);
-  grid-template-areas:
-    "fab fab fab fab fab fab"
-    "circ circ circ isa isa isa"
+.floor { display: grid; gap: 10px; grid-template-columns: repeat(6, 1fr); }
+.floor[data-tab="arch"] { grid-template-areas:
+    "isa isa isa isa isa isa"
     "pipe pipe pipe pipe pipe pipe"
     "fe fe fe fe fe fe"
     "core core core arith arith arith"
     "core core core mem mem mem"
     "ctr ctr ctr vm vm vm"
-    "os os os os os os"
     "coh coh coh icx icx icx"
     "proc proc proc proc proc proc"
-    "comp comp comp conc conc conc"
-    "perf perf perf stall stall stall"
-    "eda eda eda verif verif verif"
-    "gen gen gen llm llm llm"
+    "perf perf perf stall stall stall"; }
+.floor[data-tab="sw"] { grid-template-areas:
+    "os os os os os os"
+    "comp comp comp conc conc conc"; }
+.floor[data-tab="chip"] { grid-template-areas:
+    "fab fab fab circ circ circ"
+    "eda eda eda eda eda eda"
+    "verif verif verif verif verif verif"; }
+.floor[data-tab="ai"] { grid-template-areas:
+    "gen gen gen llm llm llm"; }
+.floor[data-tab="intv"] { grid-template-areas:
     "intv intv intv intv intv intv"
     "p1 p1 p1 p1 p1 p1"
     "p2 p2 p2 p2 p2 p2"; }
+.home-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--rule); margin: 0 0 24px; font-family: var(--sans); }
+.home-tab { font-size: .98rem; font-weight: 600; color: var(--muted); text-decoration: none; border-bottom: 3px solid transparent; margin-bottom: -1px; padding: 8px 14px; }
+.home-tab:hover { color: var(--trace); }
+.home-tab[aria-current="page"] { color: var(--trace); border-bottom-color: var(--trace); }
+.side .tab-label { margin: 0 0 6px; padding: 0 8px; font-size: .74rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .block { background: var(--surface); border: 1px solid var(--rule); border-top: 3px solid var(--trace); border-radius: 3px; padding: 16px 18px 18px; transition: opacity .2s; }
 .block.dim { opacity: .35; }
 .floor .block:nth-child(4n+2) { border-top-color: var(--accent-green); }
@@ -467,7 +477,7 @@ svg.chip { touch-action: pan-x pan-y; }
 [data-theme="pink"] .chip-legend .sw.g-io { background: #FBE8E3 !important; border-color: #E9A48F !important; }
 [data-theme="pink"] .chip-legend .sw.g-misc { background: #F4F2DF !important; border-color: #CBC28E !important; }
 
-/* Semiconductor industry stack (bottom of the home page) */
+/* Semiconductor industry stack (top of the Chip Design and Verification tab) */
 .stack-fig { margin: 0 0 56px; }
 .stack-fig h2 { margin: 0 0 4px; font-size: 1.35rem; letter-spacing: -0.01em; }
 .stack-cap { margin: 0 0 16px; color: var(--muted); font-size: .95rem; }
@@ -503,7 +513,9 @@ a.lyr-name::after { content: ""; position: absolute; inset: 0; border-radius: 4p
 }
 
 @media (max-width: 860px) {
-  .floor { grid-template-columns: 1fr; grid-template-areas: "fab" "circ" "isa" "pipe" "fe" "core" "arith" "mem" "ctr" "vm" "os" "coh" "icx" "proc" "comp" "conc" "perf" "stall" "eda" "verif" "gen" "llm" "intv" "p1" "p2"; }
+  .floor, .floor[data-tab] { grid-template-columns: 1fr; grid-template-areas: none; }
+  .floor .block { grid-area: auto !important; }
+  .home-tab { padding: 8px 10px; }
   .intro { padding-top: 32px; }
   .page { grid-template-columns: 1fr; gap: 0; padding-top: 16px; }
   .menu-btn.show { display: inline-block; }
@@ -557,8 +569,6 @@ window.MathJax = {
 </script>
 <script async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js"></script>
 <script src="js/site.js"></script>
-<script src="sections/fabrication.js"></script>
-<script src="sections/circuits.js"></script>
 <script src="sections/instruction-sets.js"></script>
 <script src="sections/pipeline-stages.js"></script>
 <script src="sections/front-end.js"></script>
@@ -567,14 +577,16 @@ window.MathJax = {
 <script src="sections/memory-hierarchy.js"></script>
 <script src="sections/cache-tradeoffs.js"></script>
 <script src="sections/virtual-memory.js"></script>
-<script src="sections/operating-system.js"></script>
 <script src="sections/cache-coherence.js"></script>
 <script src="sections/interconnects.js"></script>
 <script src="sections/real-processors.js"></script>
-<script src="sections/compilers.js"></script>
-<script src="sections/c-concurrency.js"></script>
 <script src="sections/performance-analysis.js"></script>
 <script src="sections/stalls-bottlenecks.js"></script>
+<script src="sections/operating-system.js"></script>
+<script src="sections/compilers.js"></script>
+<script src="sections/c-concurrency.js"></script>
+<script src="sections/fabrication.js"></script>
+<script src="sections/circuits.js"></script>
 <script src="sections/eda-stack.js"></script>
 <script src="sections/verification.js"></script>
 <script src="sections/neural-generative-models.js"></script>

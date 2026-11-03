@@ -66,7 +66,9 @@ const menuBtn = document.getElementById("menuBtn");
 const strip = s => s.replace(/<[^>]+>/g, " ");
 const text = n => (n.title + " " + strip(n.body) + " " + JSON.stringify(n.practice || "")).toLowerCase();
 
-function renderHome() {
+/* Home-page tabs: the first is the default page at #/, the rest live at #/t/<id>. */
+const tabHref = t => t === TABS[0] ? "#/" : "#/t/" + t.id;
+function renderHome(tab = TABS[0]) {
   menuBtn.classList.remove("show");
   app.innerHTML = `
   <div class="wrap">
@@ -74,10 +76,13 @@ function renderHome() {
       <h1>All Knowledge</h1>
       <p>From transistors to workloads, laid out like a die. <a href="#/drill">Drill a random question</a> or <a href="#/review">review what you've flagged</a>.</p>
     </section>
+    <nav class="home-tabs" aria-label="Topics">${TABS.map(t =>
+      `<a class="home-tab" href="${tabHref(t)}"${t === tab ? ' aria-current="page"' : ""}>${t.name}</a>`).join("")}</nav>
     <section class="results" id="results" aria-live="polite" hidden></section>
-    ${typeof floorplanSVG === "function" ? floorplanSVG() : ""}
-    <div class="die"><div class="floor">
-      ${visibleRegions().map(r => `
+    ${tab.id === "arch" && typeof floorplanSVG === "function" ? floorplanSVG() : ""}
+    ${tab.id === "chip" && typeof stackHTML === "function" ? stackHTML() : ""}
+    <div class="die"><div class="floor" data-tab="${tab.id}">
+      ${visibleRegions().filter(r => tab.regions.includes(r.id)).map(r => `
         <section class="block" style="grid-area:${r.id}" data-region="${r.id}">
           <h2><a href="#/r/${r.id}">${r.name}</a></h2>
           <p class="cap">${r.cap}</p>
@@ -86,7 +91,6 @@ function renderHome() {
         </section>`).join("")}
     </div></div>
     <p class="empty" id="empty" hidden>No notes match that search. Try a shorter term.</p>
-    ${typeof stackHTML === "function" ? stackHTML() : ""}
   </div>`;
   applySearch();
   if (typeof initChipZoom === "function") initChipZoom();
@@ -106,8 +110,9 @@ function sideNav(curId, curSec) {
   return `<nav class="side" id="side" aria-label="All sections">
     <a class="home" href="#/">All Knowledge</a>
     ${visibleRegions().map(r => {
+      const tab = TABS.find(t => t.regions[0] === r.id);
       const isCurR = curId === "r/" + r.id;
-      return `<div class="grp">
+      return `${tab ? `<p class="tab-label">${tab.name}</p>` : ""}<div class="grp">
       <a class="rg ${isCurR && !curSec ? "cur" : ""}" href="#/r/${r.id}">${r.name}</a>
       ${isCurR ? subFor(r, "r/" + r.id) : ""}
       <ul>${r.id === "intv" ? `<li><a class="${curId === "drill" ? "cur" : ""}" href="#/drill">Random Drill</a></li>` : ""}${visibleNotes().filter(n => n.region === r.id).map(n =>
@@ -918,7 +923,7 @@ function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/");
   menuBtn.setAttribute("aria-expanded", "false");
   /* Leaving home ends the search, so coming back shows the full page. */
-  if (parts[0]) q.value = "";
+  if (parts[0] && parts[0] !== "t") q.value = "";
   if (parts[0] === "review") { renderReview(); goToSection(parts[1]); return; }
   if (parts[0] === "flagged") { renderReview(); goToSection("questions"); return; }
   if (parts[0] === "drill") { renderDrill(); window.scrollTo(0, 0); return; }
@@ -929,7 +934,8 @@ function route() {
   }
   const n = NOTES.find(x => x.id === parts[0]);
   if (n) { renderNote(n, parts[1]); if (n.private) { window.scrollTo(0, 0); loadPrivate(n, parts[1]); } else goToSection(parts[1]); return; }
-  renderHome();
+  const tab = parts[0] === "t" && TABS.find(t => t.id === parts[1]);
+  renderHome(tab || TABS[0]);
   window.scrollTo(0, 0);
 }
 
@@ -940,7 +946,7 @@ menuBtn.addEventListener("click", () => {
   menuBtn.setAttribute("aria-expanded", String(open));
 });
 q.addEventListener("input", () => {
-  if (location.hash && location.hash !== "#/") location.hash = "#/";
+  if (location.hash && location.hash !== "#/" && !location.hash.startsWith("#/t/")) location.hash = "#/";
   else applySearch();
 });
 
