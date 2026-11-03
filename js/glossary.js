@@ -36,6 +36,7 @@ const GLOSSARY = {
   "PEBS": { def: "Precise event-based sampling (Intel): tags a counter sample with the exact instruction that caused it.", page: "perf-find-cause/silicon" },
   "PRF": { def: "Physical register file: holds every renamed register value; architectural registers map onto its entries.", page: "prf-sizing" },
   "RAS": { def: "Return address stack: predicts return targets by pushing on calls and popping on returns.", page: "fe-targets/ras" },
+  "branch mask": { def: "A bit vector on every in-flight micro-op, one bit per unresolved older branch, so a mispredict can kill exactly the younger micro-ops in one step.", page: "flush-recovery/squash-point" },
   "ROB": { def: "Reorder buffer: holds every in-flight instruction in program order so they retire in order, giving precise exceptions.", page: "rob" },
   "RTL": { def: "Register-transfer level: the hardware description (SystemVerilog or VHDL) of registers and the logic between them.", page: "eda-rtl" },
   "SIMD": { def: "Single instruction, multiple data: one instruction operates on a vector of elements (SSE, AVX, NEON, SVE).", page: "simd" },
