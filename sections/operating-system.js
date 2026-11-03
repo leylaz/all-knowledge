@@ -139,6 +139,7 @@ section({
   sections: [
     { id: "privilege-levels", label: "Privilege Levels" },
     { id: "out-order-core", label: "Making the Exception Precise" },
+    { id: "trap-target", label: "Which Mode Handles the Trap" },
     { id: "hardware-sequence", label: "The Hardware Sequence" },
     { id: "vectors", label: "Vectors and the Interrupt Descriptor Table" },
     { id: "trap-frame", label: "The Handler and the Trap Frame" },
@@ -174,10 +175,42 @@ section({
 </ol>
 <p>Because exceptions are taken in commit order, the oldest one always wins, even if a younger instruction detected its fault first. An interrupt has no faulting instruction, so the core chooses a boundary: it flushes everything uncommitted and saves the PC of the oldest uncommitted instruction as the resume point. Flushing keeps interrupt latency short but throws away the work in flight, which in a 512-entry ROB (Intel's Golden Cove) can be hundreds of instructions that are fetched again after the handler. See <a href="#/rob">Reorder buffer</a>.</p>
 
+<h3 id="sec-trap-target">Which Mode Handles the Trap</h3>
+<p>RISC-V has three privilege modes. From least to most privileged:</p>
+<ul>
+<li><strong>User mode (U):</strong> applications.</li>
+<li><strong>Supervisor mode (S):</strong> the operating system kernel. It runs with virtual memory, using the page table that <code>satp</code> points at, and can manage the page tables and interrupts of the code below it.</li>
+<li><strong>Machine mode (M):</strong> firmware. "Machine" names the privilege level, not machine code, since every mode runs machine code. It is the mode the core resets into and the only one with no restrictions. It uses physical addresses directly, can access every CSR (control and status register), and programs the physical memory protection (PMP) registers that keep the other two modes out of its memory. On a Linux system it runs OpenSBI, an implementation of the Supervisor Binary Interface. The boot loader starts OpenSBI before the kernel, and it stays resident to do the few jobs that need machine mode, such as programming the timer on older cores, sending inter-processor interrupts, and powering cores off.</li>
+</ul>
+<p>Code asks the mode above it for a service with one instruction, <code>ecall</code> (environment call). It has no operands and does nothing except raise an exception, whose cause code records the mode it ran in: 8 from user mode, 9 from supervisor mode, and 11 from machine mode. A program's <code>ecall</code> is a system call to the kernel, with the call number in a7 (see <a href="#/exceptions/system-calls">System Calls</a>). The kernel's <code>ecall</code> is an SBI call to the firmware, with the requested service in a7 and a6.</p>
+<p>Supervisor and machine mode can both handle traps, so each has its own set of trap CSRs. Each name is the mode's letter followed by the register's job, so every register exists twice:</p>
+<div class="tbl"><table>
+<tr><th>Job</th><th>Machine mode</th><th>Supervisor mode</th></tr>
+<tr><td>Resume PC (exception program counter)</td><td><code>mepc</code></td><td><code>sepc</code></td></tr>
+<tr><td>What happened</td><td><code>mcause</code></td><td><code>scause</code></td></tr>
+<tr><td>Trap value: the faulting address or instruction</td><td><code>mtval</code></td><td><code>stval</code></td></tr>
+<tr><td>Previous mode, saved and current interrupt enable</td><td><code>mstatus</code> MPP, MPIE, MIE</td><td><code>sstatus</code> SPP, SPIE, SIE</td></tr>
+<tr><td>Handler address (trap vector)</td><td><code>mtvec</code></td><td><code>stvec</code></td></tr>
+<tr><td>Scratch register for the handler's first instructions</td><td><code>mscratch</code></td><td><code>sscratch</code></td></tr>
+<tr><td>Return instruction</td><td><code>mret</code></td><td><code>sret</code></td></tr>
+</table></div>
+<p><code>sstatus</code> isn't a separate register. It is a view of <code>mstatus</code> that shows only the supervisor fields. MPP is 2 bits wide because a trap into machine mode can come from any of the three modes, while SPP needs only 1 bit, because a trap into supervisor mode can come only from user or supervisor mode.</p>
+<p>Which set a trap uses is decided by two machine-mode CSRs, both bit vectors indexed by cause code:</p>
+<ul>
+<li><strong><code>medeleg</code> (machine exception delegation):</strong> bit \\(i\\) set means exception code \\(i\\) is delegated.</li>
+<li><strong><code>mideleg</code> (machine interrupt delegation):</strong> the same for interrupt codes.</li>
+</ul>
+<p>Both reset to 0, and with every bit clear, every trap from every mode goes to machine mode: the core writes <code>mepc</code>, <code>mcause</code>, <code>mtval</code>, and <code>mstatus</code>, enters machine mode, and jumps to <code>mtvec</code>. Setting a bit <strong>delegates</strong> that trap to supervisor mode. When a delegated trap happens in user or supervisor mode, the core runs the same sequence with the supervisor registers and jumps to <code>stvec</code>, so the kernel gets it directly and the firmware never runs. Delegation never moves a trap to a less privileged mode than the one it happened in, so a trap in machine mode stays in machine mode whatever the bits say.</p>
+<p>On a core without the hypervisor extension, OpenSBI writes <code>medeleg</code> = 0xB109 and <code>mideleg</code> = 0x222 before it starts Linux:</p>
+<ul>
+<li><strong>Delegated exceptions (<code>medeleg</code> bits 0, 3, 8, 12, 13, and 15):</strong> misaligned instruction fetch, breakpoint, <code>ecall</code> from user mode, and the instruction, load, and store page faults. These are the frequent ones, and they go straight to the kernel.</li>
+<li><strong>Delegated interrupts (<code>mideleg</code> bits 1, 5, and 9):</strong> the supervisor software interrupt (an IPI), timer interrupt, and external interrupt.</li>
+<li><strong>Kept in machine mode:</strong> <code>ecall</code> from supervisor mode (code 9), which is how an SBI call reaches the firmware. Also the illegal instruction (code 2) and the misaligned load and store (codes 4 and 6), which OpenSBI handles in software, for example a read of the <code>time</code> CSR on a core that doesn't implement it, or a misaligned load the core can't do. Anything it doesn't handle, it forwards to the kernel by doing the trap sequence in software. It copies <code>mepc</code>, <code>mcause</code>, and <code>mtval</code> into <code>sepc</code>, <code>scause</code>, and <code>stval</code>, sets SPP, SPIE, and SIE the way the hardware would, and then runs <code>mret</code> with <code>mepc</code> pointing at <code>stvec</code> and MPP set to supervisor. The kernel sees exactly what a delegated trap would have produced, only slower: an emulated misaligned load costs hundreds of cycles, against a few for one the hardware handles.</li>
+</ul>
+
 <h3 id="sec-hardware-sequence">The Hardware Sequence</h3>
-<p>Once the exception is taken, the core runs a fixed sequence with no software involved. RISC-V shows it most plainly. In an out-of-order core, all of it happens when the excepting instruction reaches the ROB head: the flush removes every younger instruction, the register writes below happen together, and the front end is redirected, so no instruction ever sees half of the change. No step writes memory, so the sequence itself can't fault. For an exception taken from user mode into supervisor mode:</p>
+<p>Once the exception is taken, the core runs a fixed sequence with no software involved. RISC-V shows it most plainly. In an out-of-order core, all of it happens when the excepting instruction reaches the ROB head: the flush removes every younger instruction, the register writes below happen together, and the front end is redirected, so no instruction ever sees half of the change. No step writes memory, so the sequence itself can't fault. For a delegated exception taken from user mode into supervisor mode (an undelegated one runs the same steps with the machine-mode registers from <a href="#/exceptions/trap-target">Which Mode Handles the Trap</a>):</p>
 <ol>
-<li><strong>Pick the target mode.</strong> By default every trap goes to machine mode. Machine-mode firmware (OpenSBI on Linux systems) sets bits in <code>medeleg</code> (one bit per exception code) and <code>mideleg</code> (one bit per interrupt) to hand chosen traps to supervisor mode instead. Linux has page faults, illegal instructions, breakpoints, and user <code>ecall</code>s delegated, so they reach the kernel directly and never pass through firmware. A delegated trap uses the <code>s</code>-prefixed registers below. An undelegated one runs the same steps with <code>mepc</code>, <code>mcause</code>, <code>mtval</code>, <code>mstatus</code>.MPP and MPIE, and <code>mtvec</code>.</li>
 <li><strong>Save the resume PC.</strong> The virtual address of the instruction to resume at is written into <code>sepc</code>:
 <ul>
 <li><strong>Fault:</strong> the faulting instruction itself, so returning re-executes it.</li>
