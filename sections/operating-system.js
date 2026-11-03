@@ -202,6 +202,149 @@ section({
 },
 
 {
+  id: "context-switch",
+  region: "os",
+  title: "Context Switching",
+  sections: [
+    { id: "what-switch", label: "What a Context Switch Is" },
+    { id: "triggers", label: "What Triggers a Switch" },
+    { id: "preemption", label: "Preemption Points" },
+    { id: "scheduler", label: "How the Scheduler Decides" },
+    { id: "switch-path", label: "The Switch Itself" },
+    { id: "cost", label: "Direct and Indirect Costs" },
+    { id: "measure", label: "Measuring and Modeling" }
+  ],
+  body: `
+<h3 id="sec-what-switch">What a Context Switch Is</h3>
+<p>A <strong>context switch</strong> moves a core from running one thread to running another. It is different from a mode switch: a system call or an interrupt enters the kernel and usually returns to the same thread (see <a href="#/exceptions">Faults, Traps, Interrupts, and System Calls</a>). A context switch happens only when the kernel, already running on behalf of one thread, decides to return to a different one.</p>
+<p>The state that has to change hands:</p>
+<ul>
+<li><strong>User registers, PC, and flags.</strong> These were already saved in the thread's <a href="#/exceptions/trap-frame">trap frame</a> on its kernel stack when it entered the kernel, so the switch doesn't copy them again.</li>
+<li><strong>The kernel's own context:</strong> the callee-saved registers and the kernel stack pointer at the point where the thread called the scheduler. Linux keeps them in the thread's <code>task_struct</code>.</li>
+<li><strong>Floating-point and vector state.</strong> With AVX-512 the XSAVE area is about 2.7 KB, and AMX tiles add 8 KB more.</li>
+<li><strong>The address space</strong> (CR3 on x86, <code>satp</code> on RISC-V, TTBR0 on Arm), but only if the next thread belongs to a different process.</li>
+<li><strong>Per-thread registers</strong> such as the thread-local storage base (FS base on x86-64) and debug registers.</li>
+</ul>
+<p>A <strong>thread switch</strong> within one process keeps the address space, so it skips the page-table switch and leaves the TLB and the process's cached data useful. A <strong>process switch</strong> changes the address space as well.</p>
+
+<h3 id="sec-triggers">What Triggers a Switch</h3>
+<p>Every switch starts with the kernel running, either because the thread called into it or because an interrupt took the core there. The triggers fall into two groups, which Linux counts separately per thread:</p>
+<div class="tbl"><table>
+<tr><th>Trigger</th><th>Kind</th><th>Example</th></tr>
+<tr><td>Blocking</td><td>Voluntary</td><td>A <code>read</code> on an empty socket, a <code>futex</code> wait on a held lock, a major page fault waiting for the disk, <code>nanosleep</code></td></tr>
+<tr><td>Yielding</td><td>Voluntary</td><td><code>sched_yield</code>, or a spin-then-sleep lock giving up</td></tr>
+<tr><td>Exit</td><td>Voluntary</td><td>The thread calls <code>exit</code></td></tr>
+<tr><td>Time slice used up</td><td>Involuntary</td><td>The timer interrupt finds that the running thread has had its share</td></tr>
+<tr><td>Wakeup preemption</td><td>Involuntary</td><td>A thread that was blocked becomes runnable and deserves the core more than the one running</td></tr>
+<tr><td>Priority or policy change</td><td>Involuntary</td><td>A real-time thread becomes runnable, or a thread's priority is raised</td></tr>
+<tr><td>Migration</td><td>Involuntary</td><td>Load balancing moves a thread to this core, or <code>sched_setaffinity</code> moves the running one away</td></tr>
+</table></div>
+<p>The timer is what makes involuntary switches possible at all. Without it, a thread in an infinite loop that never makes a system call would keep the core forever. Linux programs the local APIC timer to fire <code>CONFIG_HZ</code> times per second (typically 250 or 1,000), and the tick handler charges the running thread for the time it used and checks whether it should yield. An idle core stops its tick, and a core with a single runnable thread can stop it too (<code>nohz_full</code>), which matters to latency-sensitive and HPC workloads.</p>
+<p>A wakeup on another core arrives as a <strong>reschedule IPI</strong>: when the thread a core wakes should run on a different core, it sends that core an inter-processor interrupt so it re-evaluates its choice right away instead of at its next tick.</p>
+
+<h3 id="sec-preemption">Preemption Points</h3>
+<p>The decision to switch and the switch itself happen at different times. When the tick or a wakeup decides the running thread should give up the core, the kernel only sets a flag on it (<code>TIF_NEED_RESCHED</code> on Linux). The thread is switched out at the next <strong>preemption point</strong>, where the kernel checks the flag and calls the scheduler:</p>
+<ul>
+<li><strong>Return to user mode</strong>, after any system call or interrupt. This is the common case, and it is always safe, because the thread holds no kernel locks there.</li>
+<li><strong>Return from an interrupt to kernel code</strong>, if the kernel is built preemptible and the interrupted code holds no spinlocks (a per-thread preemption count tracks that).</li>
+<li><strong>Explicit checks</strong> (<code>cond_resched</code>) that long-running kernel loops call.</li>
+</ul>
+<p>Linux offers several preemption models that trade throughput for latency: none (switch only on return to user or on blocking), voluntary (also at explicit checks), full (also on return from interrupts into the kernel), lazy (6.13 onward: full preemption for real-time threads, but fair-class threads are preempted in the kernel only at the next tick), and real-time (<code>PREEMPT_RT</code>, merged in 6.12, which makes even most spinlock sections preemptible).</p>
+
+<h3 id="sec-scheduler">How the Scheduler Decides</h3>
+<p>Each core has its own run queue, and the scheduler picks the next thread from it. Linux tries its scheduling classes in strict priority order, and a thread in a higher class always runs before any thread in a lower one:</p>
+<ol>
+<li><strong>Deadline</strong> (<code>SCHED_DEADLINE</code>): each thread declares a runtime, deadline, and period, and the scheduler runs the one with the earliest deadline.</li>
+<li><strong>Real-time</strong> (<code>SCHED_FIFO</code>, <code>SCHED_RR</code>), priorities 1&ndash;99: the highest-priority runnable thread runs. A FIFO thread runs until it blocks or yields, and a round-robin thread rotates with equal-priority peers every 100 ms.</li>
+<li><strong>Fair</strong> (<code>SCHED_NORMAL</code>, <code>SCHED_BATCH</code>): almost every thread, sharing the core in proportion to weights set by the nice value.</li>
+<li><strong>Idle</strong> (<code>SCHED_IDLE</code>): runs only when nothing else wants the core.</li>
+</ol>
+<p><strong>The fair class.</strong> Each nice value maps to a weight: 1,024 at nice 0, about 1.25&times; more per step down and 1.25&times; less per step up (nice 5 is 335, nice &minus;5 is 3,121). The scheduler gives each runnable thread a share of the core proportional to its weight. To track that, it keeps each thread's <strong>virtual runtime</strong>: real running time scaled by 1,024 / weight, so a heavy thread's virtual clock runs slowly. The completely fair scheduler (CFS, Linux 2.6.23 to 6.5) always ran the thread with the smallest virtual runtime, kept in a red-black tree, and let it run for a slice of a target latency (6 ms by default, scaled up on machines with more cores) divided among the runnable threads.</p>
+<p>Since Linux 6.6 the fair class uses <strong>EEVDF</strong> (earliest eligible virtual deadline first, Stoica and Abdel-Wahab, 1995). It keeps the same weights and virtual time, but picks threads in two steps:</p>
+<ul>
+<li><strong>Eligibility:</strong> a thread is eligible if it has received no more than its fair share so far (its lag, fair service minus actual service, is at least 0).</li>
+<li><strong>Deadline:</strong> each thread asks for a slice (3 ms by default on a machine with 8 or more CPUs), and its virtual deadline is its eligible time plus slice &times; 1,024 / weight. Among eligible threads, the one with the earliest virtual deadline runs.</li>
+</ul>
+<p>Fairness over time comes from the weights, and latency comes from the slice: a thread that asks for a shorter slice (through <code>sched_setattr</code>, since 6.12) gets an earlier deadline and runs sooner after it wakes, without getting a larger share. A waking thread preempts the running one if it is eligible and its deadline is earlier.</p>
+<p><strong>Across cores</strong>, the scheduler balances load periodically and whenever a core goes idle, walking a hierarchy of scheduling domains (SMT siblings, then cores sharing a last-level cache, then NUMA nodes). Moving a thread costs its cache warmth, so the balancer prefers nearby cores and treats a thread that ran within the last 0.5 ms as cache-hot and not worth moving.</p>
+<details class="ex"><summary>Worked example: how weights divide a core</summary>
+<p><strong>Question.</strong> Two CPU-bound threads share one core under the fair class: thread A at nice 0 (weight 1,024) and thread B at nice 5 (weight 335). Neither ever blocks. Find:</p>
+<ol>
+<li>Each thread's share of the core.</li>
+<li>How much each thread's virtual runtime grows over 1 second.</li>
+<li>The shares after a third CPU-bound thread C at nice &minus;5 (weight 3,121) joins.</li>
+</ol>
+<p><strong>Solution.</strong></p>
+<ol>
+<li><strong>Shares:</strong> total weight 1,024 + 335 = 1,359. A gets 1,024 / 1,359 = <strong>75.3%</strong>, B gets 335 / 1,359 = <strong>24.7%</strong>.</li>
+<li><strong>Virtual runtime:</strong> A runs 753 ms and its virtual runtime grows by 753 &times; 1,024 / 1,024 = 753 ms. B runs 247 ms and grows by 247 &times; 1,024 / 335 = 755 ms. They grow at the same rate (up to rounding), which is exactly what the scheduler enforces.</li>
+<li><strong>With C:</strong> total weight 4,480. C gets 3,121 / 4,480 = <strong>69.7%</strong>, A gets 1,024 / 4,480 = <strong>22.9%</strong>, and B gets 335 / 4,480 = <strong>7.5%</strong>.</li>
+</ol>
+</details>
+
+<h3 id="sec-switch-path">The Switch Itself</h3>
+<p>On Linux x86-64, the scheduler's <code>__schedule</code> picks the next thread and calls <code>context_switch</code>, which does three things:</p>
+<ol>
+<li><strong>Switch the address space</strong> (<code>switch_mm_irqs_off</code>). If the next thread is in another process, it writes that process's page-table root into CR3 with its PCID, so the TLB keeps both processes' entries instead of flushing (see <a href="#/demand-paging/root-table">Setting Up CR3 and the Root Table</a>). Threads of the same process skip this step. Kernel threads have no user address space and borrow the previous one ("lazy TLB" mode), so switching to them and back costs no CR3 write either.</li>
+<li><strong>Switch stacks</strong> (<code>switch_to</code>). It pushes the callee-saved registers on the old thread's kernel stack, saves the stack pointer in its <code>task_struct</code>, loads the new thread's stack pointer, and pops its callee-saved registers. From this instruction on, the core is running the new thread, still inside the scheduler, where that thread last called it.</li>
+<li><strong>Switch the rest</strong> (<code>__switch_to</code>): the FS and GS bases, the kernel stack pointer the CPU uses on the next kernel entry, and the FPU state. Linux saves the old thread's vector registers with <code>XSAVES</code>, which skips components still in their initial state, and restores the new thread's lazily, on its next return to user mode, so a kernel thread or a thread that blocks again before returning never pays for it.</li>
+</ol>
+<p>The new thread then returns out of the scheduler along its own call chain, and eventually to user mode through its own trap frame. That is the sense in which a context switch "returns through a different thread's trap frame."</p>
+
+<h3 id="sec-cost">Direct and Indirect Costs</h3>
+<p><strong>The direct cost</strong> is the kernel's work: the trap in, the scheduler's decision, the register and stack switch, a CR3 write for a process switch, and the trap out. Ping-ponging a token between two processes on one core through a pipe measures it at a microsecond or two per switch on recent cores, including the system calls around it. Security mitigations add to it: an indirect-branch predictor barrier (IBPB) on a switch between processes costs thousands of cycles on many cores, so Linux by default issues one only for processes that ask for it.</p>
+<p><strong>The indirect cost</strong> is usually larger. While the other thread ran, it replaced the first thread's lines in the caches, its TLB entries, and its branch-predictor state. PCIDs keep the TLB from being flushed, but they can't stop the other process's entries from evicting its entries. When the first thread resumes, it runs slowly until it has refilled them. Li, Ding, and Shen measured direct costs of a few microseconds and indirect costs that grew with the working set, past a millisecond for large ones.</p>
+<details class="ex"><summary>Worked example: refilling the cache after a switch</summary>
+<p><strong>Question.</strong> Two processes alternate on one 3.0 GHz core, each running for 3 ms before the other one gets the core. Assume:</p>
+<ul>
+<li>Process A's working set is 1 MB and fits in the core's private 2 MB L2 cache, with 64-byte lines.</li>
+<li>While B runs, it evicts 60% of A's lines from the L2.</li>
+<li>Each evicted line costs A a miss to the L3 of 80 cycles, and A overlaps 4 misses at a time, so each miss effectively costs 20 cycles.</li>
+<li>The direct cost of a switch is 2 µs.</li>
+</ul>
+<p>Find the indirect cost per switch, compare it with the direct cost, and find the total fraction of A's time lost.</p>
+<p><strong>Solution.</strong></p>
+<ol>
+<li><strong>Lines refilled:</strong> 1 MB / 64 B = 16,384 lines, and 60% of them is about 9,830.</li>
+<li><strong>Indirect cost:</strong> 9,830 &times; 20 = 196,600 cycles, or 196,600 / 3.0 GHz &asymp; <strong>65.5 µs</strong>, about 33 times the 2 µs direct cost.</li>
+<li><strong>Overhead:</strong> (65.5 + 2) / 3,000 µs &asymp; <strong>2.25%</strong> of each 3 ms slice.</li>
+</ol>
+<p>The switch itself is cheap. What costs time is the working set B destroyed, which is why the balancer keeps cache-hot threads where they are, and why latency-sensitive services pin threads to cores instead of sharing them.</p>
+</details>
+
+<h3 id="sec-measure">Measuring and Modeling</h3>
+<ul>
+<li><strong>Counting switches:</strong> <code>/proc/&lt;pid&gt;/status</code> reports <code>voluntary_ctxt_switches</code> and <code>nonvoluntary_ctxt_switches</code> per thread. <code>perf stat -e context-switches,cpu-migrations</code> counts them over a run, and <code>vmstat</code>'s <code>cs</code> column shows the system-wide rate. Many voluntary switches mean the thread blocks a lot (on I/O or locks), and many involuntary ones mean the core is oversubscribed.</li>
+<li><strong>Scheduling latency:</strong> <code>perf sched record</code> and <code>perf sched latency</code> show how long runnable threads waited for a core, which is often what a tail-latency problem really is.</li>
+<li><strong>In a performance model:</strong> trace-driven and sampled simulation (SimPoint regions of one process) never see a switch, so they report warm-cache behavior. To estimate the cost, flush or pollute the caches, TLBs, and predictor tables at the measured switch interval, or simulate a full system that runs the OS. A predictor or prefetcher that needs a long time to train loses more of its benefit at each switch than one that trains quickly.</li>
+</ul>
+<p class="refs">References: Arpaci-Dusseau and Arpaci-Dusseau, <em>Operating Systems: Three Easy Pieces</em>, Chapters 6&ndash;10 (limited direct execution, scheduling, multiprocessor scheduling) · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Section 2.4 and Appendix B (protection and process switching) · Stoica and Abdel-Wahab, "Earliest Eligible Virtual Deadline First," 1995 · Linux kernel documentation, "EEVDF Scheduler" and "CFS Scheduler" · Li, Ding, and Shen, "Quantifying the Cost of Context Switch," ExpCS 2007 · Love, <em>Linux Kernel Development</em>, Chapter 4 (process scheduling)</p>
+`,
+  practice: {
+    guided: [
+      {
+        q: `<p>An event-driven server on a 3.2 GHz core handles 40,000 requests per second on one thread. For each request, the thread blocks in <code>epoll_wait</code> and is woken when the request arrives, so every request costs 2 context switches (the switch away to the idle task and the switch back). Assume each switch costs 1.6 µs directly and 3 µs more in refilling caches and predictors, and nothing else runs on the core. Find:</p><ol><li>The fraction of the core the switches use, and whether <code>/proc</code> would report them as voluntary or involuntary.</li><li>The fraction if requests arrive in bursts so that each <code>epoll_wait</code> returns 8 requests on average.</li></ol>`,
+        a: `<ol><li><strong>One request per wakeup:</strong> 40,000 &times; 2 = 80,000 switches per second, each 1.6 + 3 = 4.6 µs, so 80,000 &times; 4.6 µs = 368 ms per second, or <strong>36.8%</strong> of the core. They are <strong>voluntary</strong>, since the thread blocks itself.</li><li><strong>Eight per wakeup:</strong> the thread blocks 40,000 / 8 = 5,000 times per second, so 10,000 switches &times; 4.6 µs = 46 ms, or <strong>4.6%</strong>.</li></ol><p>Batching cuts the switch rate by 8. The alternative at very high rates is busy polling, which removes the switches but keeps the core at 100% even when idle.</p>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>On Linux 6.6 or later with EEVDF, on a 16-core machine with the default 3 ms base slice, a latency-critical thread at nice 0 shares a core with a CPU-bound batch thread, also at nice 0. The latency thread wakes for each request and runs for about 50 µs. Its p99 latency is about 3 ms worse than when it has the core to itself. Explain the 3 ms and give three fixes.</p>`,
+        a: `<p>Assume the batch thread never blocks and the machine has no idle core to move either thread to.</p><ul><li><strong>Why:</strong> when the latency thread wakes, it preempts the batch thread only if it is eligible and its virtual deadline is earlier. Both threads have the same weight and the same 3 ms slice, so the waking thread's deadline is often not earlier than the batch thread's current one. Then it waits until the batch thread's slice ends, which takes up to 3 ms. Over many requests, the tail is that worst case.</li><li><strong>Fix 1:</strong> give the latency thread a short slice with <code>sched_setattr</code> (for example 0.1 ms, kernel 6.12 or later). Its deadline then lands early, so it preempts on wakeup, and its share of the core doesn't change.</li><li><strong>Fix 2:</strong> demote the batch thread to <code>SCHED_IDLE</code> (or nice 19), so any wakeup of the latency thread preempts it.</li><li><strong>Fix 3:</strong> separate them: pin the latency thread to a core the batch thread can't use (cpusets), or make it <code>SCHED_FIFO</code>, which always preempts the fair class. Pinning also keeps the batch thread from evicting the latency thread's cache lines.</li></ul>`
+      },
+      {
+        q: `<p>On a CPU with PCIDs, a CR3 write no longer flushes the TLB. Why is switching between two threads of the same process still cheaper than switching between two processes? Assume the process-switch path issues no IBPB.</p>`,
+        a: `<p>A thread switch does strictly less work and keeps more useful state:</p><ul><li><strong>No CR3 write.</strong> Threads share the page-table root, so the switch skips the write, which is a serializing instruction that costs hundreds of cycles even without a flush.</li><li><strong>Shared translations and data.</strong> Both threads use the same TLB entries, page-walk cache entries, and cached lines for shared code, heap, and libraries. With PCIDs, the other process's entries survive, but they are useless to this process and they evict its entries, so the TLB holds two working sets instead of one.</li><li><strong>Limited PCIDs.</strong> Linux uses only 6 PCIDs per core. A core that cycles through more processes than that reuses PCIDs and flushes their old entries, so process switches lose even that benefit.</li></ul><p>The indirect cost depends on how much the two threads share. Two threads of one process working on disjoint data still evict each other's cache lines.</p>`
+      },
+      {
+        q: `<p>A bulk-synchronous HPC code runs on 64 cores, one thread per core, and every iteration takes 100 µs of compute followed by a barrier. Each core has a timer tick at 1,000 Hz that steals 5 µs (handler plus refilled state). Assume the ticks on different cores are not aligned (Linux's <code>skew_tick=1</code>), so each core's tick falls at an independent random point. What fraction of time does one core lose to ticks, and how much does the application slow down? What changes with <code>nohz_full</code>?</p>`,
+        a: `<ol><li><strong>One core:</strong> 1,000 &times; 5 µs = 5 ms per second, or <strong>0.5%</strong>.</li><li><strong>Per iteration:</strong> a tick lands in a given 100 µs window on a given core with probability 100 µs / 1 ms = 0.1. The chance that no core is hit is 0.9<sup>64</sup> &asymp; 0.0012, so <strong>about 99.9%</strong> of iterations have at least one delayed core.</li><li><strong>Slowdown:</strong> the barrier waits for the slowest core, so almost every iteration takes 105 µs instead of 100 µs: about <strong>5%</strong>, 10 times the per-core loss.</li><li><strong>With <code>nohz_full</code>:</strong> a core with a single runnable thread stops its tick (down to about once per second for housekeeping), so the jitter nearly disappears.</li></ol><p>With aligned ticks (the default <code>skew_tick=0</code>), every core is delayed in the same iteration, which happens in 1 of 10 iterations, so the slowdown would be about 0.5% instead.</p>`
+      }
+    ]
+  }
+},
+
+{
   id: "demand-paging",
   region: "os",
   title: "Demand Paging and Copy-on-Write",

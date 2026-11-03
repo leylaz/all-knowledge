@@ -45,6 +45,8 @@ const GLOSSARY = {
   "demand paging": { def: "Mapping pages as not present and loading each one only when its first access faults.", page: "demand-paging/backing" },
   "precise exception": { def: "An exception taken so that every older instruction has completed and neither the faulting instruction nor any younger one has changed architectural state, so the handler can restart from one PC.", page: "exceptions/out-order-core" },
   "trap frame": { def: "The user thread's registers, PC, and status, saved on the kernel stack at every kernel entry (struct pt_regs on Linux).", page: "exceptions/trap-frame" },
+  "context switch": { def: "The kernel moving a core from one thread to another: it saves the old thread's kernel context and switches stacks, and for a different process, the page-table root too.", page: "context-switch" },
+  "virtual runtime": { def: "A thread's running time scaled by 1,024 / its weight. The fair scheduler keeps every runnable thread's virtual runtime growing at the same rate.", page: "context-switch/scheduler" },
   "hypervisor": { def: "The software that owns the real CPUs, memory, and devices and runs guest operating systems in virtual machines. Also called a virtual machine monitor (VMM).", page: "virtualization/what-vm" },
   "VM exit": { def: "A transfer from a running guest to the hypervisor, for an event the hypervisor asked to handle. It saves guest state, loads host state, and costs far more than a system call.", page: "virtualization/vm-exits" },
   "file descriptor": { def: "A small integer indexing the process's descriptor table. Each entry points at an open-file entry holding the offset, which fork and dup2 share.", page: "file-syscalls/descriptors" },
