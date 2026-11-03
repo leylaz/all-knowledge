@@ -429,69 +429,69 @@ section({
 </ul>
 
 <h3 id="sec-hardware-sequence">The Hardware Sequence</h3>
-<p>Once the exception is taken, the core runs a fixed sequence with no software involved. RISC-V shows it most plainly. In an out-of-order core, all of it happens when the excepting instruction reaches the ROB head: the flush removes every younger instruction, the register writes below happen together, and the front end is redirected, so no instruction ever sees half of the change. No step writes memory, so the sequence itself can't fault. For a delegated exception taken from user mode into supervisor mode (an undelegated one runs the same steps with the machine-mode registers from <a href="#/exceptions/trap-target">Which Mode Handles the Trap</a>):</p>
+<p>Once the exception is taken, the core runs a fixed sequence with no software involved. In an out-of-order core, all of it happens when the excepting instruction reaches the ROB head: the flush removes every younger instruction, the sequence runs, and only then is the front end redirected, so the handler's first instruction sees all of the change and no instruction sees half of it. On x86-64 this is the IDT delivery sequence of the Intel SDM, volume 3, chapter 6. For an exception or interrupt taken from ring 3 into ring 0 through an IDT gate (the gate's fields are in <a href="#/exceptions/vectors">Vectors and the Interrupt Descriptor Table</a>):</p>
 <ol>
-<li><strong>Save the resume PC.</strong> The virtual address of the instruction to resume at is written into <code>sepc</code>:
+<li><strong>Read the gate.</strong> The vector selects the 16-byte gate at IDTR.base + 16 × vector, so a page fault (vector 14) reads the gate at offset 224. The core checks it:
 <ul>
-<li><strong>Fault:</strong> the faulting instruction itself, so returning re-executes it.</li>
-<li><strong>System call:</strong> the <code>ecall</code> itself, not the next instruction. The kernel adds 4 before returning.</li>
+<li><strong>Present:</strong> the P bit must be set, or the core raises #NP.</li>
+<li><strong>Type:</strong> it must be a 64-bit interrupt gate or trap gate, or the core raises #GP.</li>
+<li><strong>Privilege, for <code>int n</code> and <code>int3</code> only:</strong> the gate's DPL must be at least the current CPL, or the core raises #GP. Exceptions the core raises itself and external interrupts skip this check.</li>
+</ul>
+The gate names a code segment. The core reads that descriptor from the GDT and checks that it is a present 64-bit code segment. Its DPL becomes the new privilege level, so Linux's <code>__KERNEL_CS</code> (selector 0x10, DPL 0) means ring 0.</li>
+<li><strong>Record the cause.</strong> No register holds it. The vector is the cause, and since every vector has its own gate, the handler knows the cause from which handler is running. Two vectors add detail:
+<ul>
+<li><strong>CR2:</strong> a page fault writes the faulting linear address into CR2.</li>
+<li><strong>Error code:</strong> vectors 8, 10 to 14, 17, and 21 push a 32-bit error code, zero-extended to 8 bytes, as the last word of the frame in step 4. For #GP, #NP, and #TS it holds a segment selector or 0, and for a double fault it is always 0. For a page fault it describes the access:</li>
+</ul>
+<div class="tbl"><svg viewBox="0 0 680 248" role="img" aria-label="The page-fault error code. Bits 31 to 7 are 0 except bit 15, SGX. Bit 6 is SS, a shadow-stack access. Bit 5 is PK, a protection-key violation. Bit 4 is I/D, an instruction fetch. Bit 3 is RSVD, a reserved bit set in a paging entry. Bit 2 is U/S, an access from user mode. Bit 1 is W/R, a write. Bit 0 is P, 0 for a not-present page and 1 for a protection violation. Two examples: a user load from a not-present page gives 0x4, U/S set. A user store to a present read-only page gives 0x7, U/S, W/R, and P set." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="20" y="18" style="fill:var(--muted);font-size:11px">Page-fault error code (pushed as 8 bytes, upper 32 bits 0)</text>
+<g style="fill:var(--muted);font-size:11px;font-family:var(--mono)"><text x="24" y="42">31</text><text x="206" y="42" text-anchor="end">7</text><text x="242" y="42" text-anchor="middle">6</text><text x="306" y="42" text-anchor="middle">5</text><text x="370" y="42" text-anchor="middle">4</text><text x="434" y="42" text-anchor="middle">3</text><text x="498" y="42" text-anchor="middle">2</text><text x="562" y="42" text-anchor="middle">1</text><text x="626" y="42" text-anchor="middle">0</text></g>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"><rect x="20" y="50" width="190" height="36" rx="3"/><rect x="210" y="50" width="64" height="36" rx="3"/><rect x="274" y="50" width="64" height="36" rx="3"/><rect x="338" y="50" width="64" height="36" rx="3"/><rect x="402" y="50" width="64" height="36" rx="3"/><rect x="466" y="50" width="64" height="36" rx="3"/><rect x="530" y="50" width="64" height="36" rx="3"/><rect x="594" y="50" width="64" height="36" rx="3"/></g>
+<g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle"><text x="115" y="72">0 (bit 15: SGX)</text><text x="242" y="72">SS</text><text x="306" y="72">PK</text><text x="370" y="72">I/D</text><text x="434" y="72">RSVD</text><text x="498" y="72">U/S</text><text x="562" y="72">W/R</text><text x="626" y="72">P</text></g>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle"><text x="242" y="104">shadow</text><text x="242" y="118">stack</text><text x="306" y="104">prot.</text><text x="306" y="118">key</text><text x="370" y="104">fetch</text><text x="434" y="104">reserved</text><text x="434" y="118">bit set</text><text x="498" y="104">user</text><text x="498" y="118">mode</text><text x="562" y="104">write</text><text x="626" y="104">present</text></g>
+<text x="20" y="150" style="fill:var(--ink);font-size:12px">User load from a not-present page <tspan style="fill:var(--muted);font-family:var(--mono);font-size:11px">0x4</tspan></text>
+<g style="stroke-width:1.5"><rect x="20" y="158" width="190" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/><rect x="210" y="158" width="64" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/><rect x="274" y="158" width="64" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/><rect x="338" y="158" width="64" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/><rect x="402" y="158" width="64" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/><rect x="466" y="158" width="64" height="28" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/><rect x="530" y="158" width="64" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/><rect x="594" y="158" width="64" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/></g>
+<g style="fill:var(--ink);font-size:12px;font-family:var(--mono)" text-anchor="middle"><text x="115" y="176">0</text><text x="242" y="176">0</text><text x="306" y="176">0</text><text x="370" y="176">0</text><text x="434" y="176">0</text><text x="498" y="176">1</text><text x="562" y="176">0</text><text x="626" y="176">0</text></g>
+<text x="20" y="212" style="fill:var(--ink);font-size:12px">User store to a present read-only page (copy-on-write) <tspan style="fill:var(--muted);font-family:var(--mono);font-size:11px">0x7</tspan></text>
+<g style="stroke-width:1.5"><rect x="20" y="220" width="190" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/><rect x="210" y="220" width="64" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/><rect x="274" y="220" width="64" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/><rect x="338" y="220" width="64" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/><rect x="402" y="220" width="64" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/><rect x="466" y="220" width="64" height="28" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/><rect x="530" y="220" width="64" height="28" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/><rect x="594" y="220" width="64" height="28" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/></g>
+<g style="fill:var(--ink);font-size:12px;font-family:var(--mono)" text-anchor="middle"><text x="115" y="238">0</text><text x="242" y="238">0</text><text x="306" y="238">0</text><text x="370" y="238">0</text><text x="434" y="238">0</text><text x="498" y="238">1</text><text x="562" y="238">1</text><text x="626" y="238">1</text></g>
+</svg></div>
+P is 0 when no valid translation exists and 1 when the page is present but the access breaks its permissions. U/S is 1 for an access made at CPL 3, and the core's own reads of the IDT, GDT, and stack during delivery count as supervisor accesses even when they come from user code.</li>
+<li><strong>Switch stacks.</strong> The privilege level changes from 3 to 0, so the core loads RSP from RSP0 in the TSS, which it finds through the task register. If the gate's IST field is nonzero, RSP comes from that IST entry instead, whether or not the privilege changes, which is how a double fault in the kernel still gets a good stack. The new RSP is aligned down to 16 bytes, and SS is loaded with the null selector, since 64-bit mode doesn't use SS for addressing. Linux points RSP0 at a small per-CPU entry stack, and the entry code moves the frame onto the thread's own kernel stack. An event taken in ring 0 through a gate with IST 0 stays on the current stack.</li>
+<li><strong>Push the interrupted state.</strong> Onto the new stack, 8 bytes each and in this order: the old SS, the old RSP, the old RFLAGS, the old CS, and the old RIP, then the error code if the vector has one. That is 40 bytes, or 48 with an error code, and the old SS and RSP are pushed even when the stack didn't change. The saved RIP is:
+<ul>
+<li><strong>Fault (#PF, #GP, #UD):</strong> the faulting instruction itself, so <code>iretq</code> re-executes it.</li>
+<li><strong>Trap (#BP from <code>int3</code>, <code>int n</code>):</strong> the next instruction.</li>
 <li><strong>Interrupt:</strong> the oldest uncommitted instruction, which hasn't run yet.</li>
 </ul></li>
-<li><strong>Record the cause.</strong> <code>scause</code> gets two fields:
+<li><strong>Update RFLAGS.</strong> With the old value saved, the core clears TF, so the handler isn't single-stepped, along with NT, RF, and VM. An interrupt gate also clears IF, and Linux uses interrupt gates for every vector, so every handler starts with maskable interrupts off. It must save CR2 before setting IF again, because a nested page fault would overwrite it. An NMI isn't gated by IF, so after one the core blocks further NMIs until the next <code>iretq</code>. AC is not cleared, so user code can leave it set, and Linux's entry code runs <code>clac</code> before anything else.</li>
+<li><strong>Raise privilege and jump to the handler.</strong> CS is loaded with the gate's selector, which sets the CPL, the low 2 bits of CS, to 0, and RIP is loaded with the gate's 64-bit handler address. Unlike the hidden mode register of RISC-V, the CPL is readable by any code that reads CS. From the first handler instruction onward four things change:
 <ul>
-<li><strong>The top bit (bit 63 on RV64):</strong> 1 for an interrupt, 0 for a synchronous exception.</li>
-<li><strong>The exception code in the low bits:</strong> for exceptions, 2 for an illegal instruction, 8 for an <code>ecall</code> from user mode, and 12, 13, and 15 for instruction, load, and store page faults. For interrupts, 1 for a software interrupt (an IPI), 5 for the timer, and 9 for an external interrupt from the PLIC.</li>
+<li><strong>Privileged instructions become legal:</strong> moves to and from CR0, CR3, and CR4, <code>rdmsr</code> and <code>wrmsr</code>, <code>lidt</code>, <code>invlpg</code>, <code>hlt</code>, <code>swapgs</code>, and <code>sysretq</code>. At CPL 3 each of them raises #GP.</li>
+<li><strong>The page permission check flips.</strong> CR3 doesn't change, so the page table is the same, but the U/S bit of each entry is now read the other way. Supervisor pages (U/S = 0), the kernel's, become accessible. User pages (U/S = 1) now fault on an instruction fetch when CR4.SMEP is set, and on a load or store when CR4.SMAP is set and RFLAGS.AC is 0. Linux sets both bits and opens user data only inside <code>copy_from_user</code> and <code>copy_to_user</code> with <code>stac</code> and <code>clac</code>, so a stray kernel dereference of a user pointer faults instead of reading whatever the user put there.</li>
+<li><strong>I/O instructions become legal:</strong> <code>in</code> and <code>out</code> check CPL ≤ RFLAGS.IOPL, and Linux leaves IOPL at 0.</li>
+<li><strong>Interrupt gating:</strong> maskable interrupts are now taken only while IF is 1, and the previous step just cleared it.</li>
 </ul>
-<div class="tbl"><svg viewBox="0 0 680 236" role="img" aria-label="The fields of scause on RV64. Bit 63 is the Interrupt bit: 1 for an interrupt, 0 for a synchronous exception. Bits 62 to 0 hold the Exception Code, the cause number as an unsigned integer. Two examples: a load page fault reads 0x0000_0000_0000_000D, Interrupt 0 and code 13. A supervisor timer interrupt reads 0x8000_0000_0000_0005, Interrupt 1 and code 5." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
-<text x="20" y="18" style="fill:var(--muted);font-size:11px">scause on RV64 (64 bits)</text>
-<g style="fill:var(--muted);font-size:11px;font-family:var(--mono)"><text x="50" y="42" text-anchor="middle">63</text><text x="86" y="42">62</text><text x="654" y="42" text-anchor="end">0</text></g>
-<rect x="20" y="50" width="60" height="36" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
-<rect x="80" y="50" width="580" height="36" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
-<g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle"><text x="50" y="72" style="font-size:11px">Interrupt</text><text x="370" y="72">Exception Code</text></g>
-<g style="fill:var(--muted);font-size:11px" text-anchor="middle"><text x="50" y="104">1 = interrupt</text><text x="50" y="118">0 = exception</text><text x="370" y="104">which interrupt or exception, as an unsigned number</text></g>
-<text x="20" y="148" style="fill:var(--muted);font-size:11px">Two examples</text>
-<g style="stroke-width:1.5">
-<rect x="20" y="156" width="60" height="28" rx="3" style="fill:var(--surface);stroke:var(--trace)"/><rect x="80" y="156" width="300" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
-<rect x="20" y="196" width="60" height="28" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/><rect x="80" y="196" width="300" height="28" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
-</g>
-<g style="fill:var(--ink);font-size:12px;font-family:var(--mono)" text-anchor="middle"><text x="50" y="174">0</text><text x="230" y="174">13 (0xD)</text><text x="50" y="214">1</text><text x="230" y="214">5</text></g>
-<g style="fill:var(--ink);font-size:12px"><text x="396" y="168">load page fault</text><text x="396" y="208">supervisor timer interrupt</text></g>
-<g style="fill:var(--muted);font-size:11px;font-family:var(--mono)"><text x="396" y="182">0x0000_0000_0000_000D</text><text x="396" y="222">0x8000_0000_0000_0005</text></g>
-</svg></div>
-<code>stval</code> gets the detail the handler needs: the faulting virtual address for a page fault, access fault, or misaligned access, the instruction bits for an illegal instruction (or 0, which the spec allows), and 0 for an <code>ecall</code> or an interrupt.</li>
-<li><strong>Save the old mode and interrupt state.</strong> Three bits of <code>sstatus</code> change:
-<ul>
-<li><strong>SPP</strong> takes the mode the trap came from: 0 for user, 1 for supervisor. This is the only record of where to return, because software can't read the mode itself.</li>
-<li><strong>SPIE</strong> takes the old value of SIE.</li>
-<li><strong>SIE</strong> is cleared. In supervisor mode, SIE gates every supervisor interrupt, so the handler starts with interrupts masked. It must copy <code>sepc</code>, <code>scause</code>, and <code>stval</code> to memory before setting SIE again, because a nested trap would overwrite them. In user mode SIE is ignored and supervisor interrupts always get through, which is how the timer preempts user code.</li>
-</ul></li>
-<li><strong>Raise privilege to supervisor mode.</strong> The core holds the current mode in a hidden 2-bit register (0 user, 1 supervisor, 3 machine), and this step writes 1 into it. Every privilege check in the pipeline reads that register, so from the first handler instruction onward four things change:
-<ul>
-<li><strong>Supervisor CSRs become accessible.</strong> Bits 9:8 of a CSR's 12-bit address give the lowest mode allowed to access it. <code>sstatus</code> (0x100), <code>sepc</code> (0x141), <code>satp</code> (0x180), and the other supervisor CSRs have 01 there, so <code>csrr</code> and <code>csrw</code> on them no longer raise an illegal instruction exception.</li>
-<li><strong>Privileged instructions become legal:</strong> <code>sret</code>, <code>sfence.vma</code>, and <code>wfi</code>. Machine mode can still make <code>sret</code> and <code>wfi</code> trap through <code>mstatus</code>.TSR and TW, which a hypervisor uses.</li>
-<li><strong>The page permission check flips.</strong> The page table doesn't change, since <code>satp</code> still points at the same root, but the U bit of each PTE is now read the other way. Pages with U = 0, the kernel's, become accessible. Pages with U = 1, the user's, now fault on a load or store unless <code>sstatus</code>.SUM is set, and always fault on an instruction fetch. Linux keeps SUM clear except inside <code>copy_from_user</code> and <code>copy_to_user</code>, so a stray kernel dereference of a user pointer faults instead of reading whatever the user put there.</li>
-<li><strong>Interrupt gating changes:</strong> supervisor interrupts are now taken only while SIE is 1, and the previous step just cleared it.</li>
-</ul></li>
-<li><strong>Jump to the handler.</strong> <code>stvec</code>, which the kernel wrote at boot, holds a 4-byte-aligned BASE plus a 2-bit MODE in its low bits. The PC is set to:
-<ul>
-<li><strong>Direct mode (0):</strong> BASE, for every trap. Linux uses this, with BASE pointing at <code>handle_exception</code>, which dispatches on <code>scause</code> in software.</li>
-<li><strong>Vectored mode (1):</strong> BASE for synchronous exceptions, and BASE + 4 × the cause code for interrupts, so a timer interrupt (code 5) lands at BASE + 20.</li>
-</ul>
-Fetch restarts at that address in supervisor mode, translated through the same page table. The handler sits on a kernel page (U = 0, X = 1), so this fetch passes a check that the same fetch from user mode would fail.</li>
+Fetch restarts at the handler in ring 0, translated through the same CR3. The handler sits on a supervisor page, so this fetch passes a check that the same fetch from ring 3 would fail.</li>
 </ol>
-<p>For example, a user program on an RV64 Linux system with Sv39 paging loads from a heap page it has never touched, so no PTE exists yet. The load is <code>ld a0, 8(a1)</code> at PC 0x1_0a3c, with a1 = 0x15_5556_1000. When the load reaches the ROB head, the core flushes and changes this state:</p>
+<p>Unlike the RISC-V sequence, which only writes registers, this one touches memory: it reads the IDT, the GDT, and the TSS, and it writes the frame onto the new stack. Any of those accesses can fault. A page fault while delivering a page fault, or a #GP while delivering a page fault or a #GP, becomes a <strong>double fault</strong> (vector 8), which Linux sends to its own IST stack. A fault while delivering the double fault is a triple fault: the core shuts down, and the platform resets it. To keep delivery from faulting, Linux maps the IDT, GDT, TSS, and entry stacks at fixed addresses in the CPU entry area, which every page table maps, including the user page table under KPTI.</p>
+<p>This is the path for every exception and interrupt. <code>syscall</code> skips it: there is no gate, no stack switch, and nothing is pushed. It saves RIP in rcx and RFLAGS in r11, clears the RFLAGS bits set in the IA32_FMASK MSR, loads CS and SS from fixed selectors in IA32_STAR, and jumps to the address in IA32_LSTAR at CPL 0 (see <a href="#/exceptions/system-calls">System Calls</a>). FRED, on newer Intel cores, replaces IDT delivery with a different sequence (see <a href="#/exceptions/vectors">Vectors and the Interrupt Descriptor Table</a>).</p>
+<p>For example, a user program on x86-64 Linux with 4-level paging loads from a page of a fresh anonymous mapping that it has never touched, so no PTE exists yet. The load is <code>mov rax, [rbx+8]</code> at RIP 0x40_1a3c, with rbx = 0x7f3a_5c61_2000 and RSP = 0x7ffd_3e8a_1c50. When the load reaches the ROB head, the core flushes and changes this state:</p>
 <div class="tbl"><table>
 <tr><th>State</th><th>Before (user code running)</th><th>After (first handler instruction)</th></tr>
-<tr><td>Mode</td><td>User (0)</td><td>Supervisor (1)</td></tr>
-<tr><td>PC</td><td>0x1_0a3c</td><td>0xffff_ffff_8000_3a40 (<code>handle_exception</code>, from <code>stvec</code>)</td></tr>
-<tr><td><code>sepc</code></td><td>Left over from the last trap</td><td>0x1_0a3c</td></tr>
-<tr><td><code>scause</code></td><td>Left over from the last trap</td><td>13 (bit 63 is 0: a load page fault)</td></tr>
-<tr><td><code>stval</code></td><td>Left over from the last trap</td><td>0x15_5556_1008</td></tr>
-<tr><td><code>sstatus</code> SPP, SPIE, SIE</td><td>0, 1, 1 (the last <code>sret</code> set them)</td><td>0, 1, 0</td></tr>
-<tr><td>a0, a1, sp, and the other general registers</td><td>User values</td><td>Unchanged</td></tr>
-<tr><td><code>satp</code></td><td>This process's page table</td><td>Unchanged</td></tr>
+<tr><td>CPL (CS bits 1:0)</td><td>3</td><td>0</td></tr>
+<tr><td>CS</td><td>0x33 (<code>__USER_CS</code>)</td><td>0x10 (<code>__KERNEL_CS</code>, from the gate)</td></tr>
+<tr><td>SS</td><td>0x2b (<code>__USER_DS</code>)</td><td>0 (null selector)</td></tr>
+<tr><td>RIP</td><td>0x40_1a3c</td><td><code>asm_exc_page_fault</code>, from IDT entry 14</td></tr>
+<tr><td>RSP</td><td>0x7ffd_3e8a_1c50</td><td>TSS.RSP0 − 48, near the top of this CPU's entry stack</td></tr>
+<tr><td>RFLAGS</td><td>0x246 (IF, ZF, PF, and bit 1, which is always 1)</td><td>0x046 (IF cleared)</td></tr>
+<tr><td>CR2</td><td>Left over from the last page fault</td><td>0x7f3a_5c61_2008</td></tr>
+<tr><td>Frame at the new RSP, lowest address first</td><td>—</td><td>Error code 0x4, RIP 0x40_1a3c, CS 0x33, RFLAGS 0x246, RSP 0x7ffd_3e8a_1c50, SS 0x2b</td></tr>
+<tr><td>rax, rbx, and the other general registers</td><td>User values</td><td>Unchanged</td></tr>
+<tr><td>GS base</td><td>The user's</td><td>Unchanged</td></tr>
+<tr><td>CR3</td><td>This process's page table (the user copy under KPTI)</td><td>Unchanged</td></tr>
 </table></div>
-<p>The last two rows matter most: RISC-V saves no general registers and doesn't switch stacks, so the handler starts with the user's sp and has to find a kernel stack before it can save anything (see <a href="#/exceptions/trap-frame">The Handler and the Trap Frame</a>). x86 and ARM do some of that in hardware:</p>
+<p>The last three rows matter most: the hardware moved to a kernel stack and saved just enough to return, but it saved no general registers and changed neither GS nor CR3, so the entry code runs <code>swapgs</code> to reach per-CPU data, switches CR3 to the kernel page table under KPTI, and saves the general registers itself (see <a href="#/exceptions/trap-frame">The Handler and the Trap Frame</a>). Arm and RISC-V keep the saved state in registers instead of on the stack:</p>
 <div class="tbl"><table>
 <tr><th>Step</th><th>x86-64 (interrupt or exception from ring 3)</th><th>ARMv8-A (EL0 to EL1)</th><th>RISC-V (user to supervisor)</th></tr>
 <tr><td>Resume PC</td><td>Pushed on the kernel stack (RIP)</td><td>ELR_EL1</td><td><code>sepc</code></td></tr>
@@ -516,14 +516,7 @@ Fetch restarts at that address in supervisor mode, translated through the same p
 <li><strong>An IST index:</strong> 0 means "use the normal kernel stack". 1 to 7 picks one of the seven Interrupt Stack Table stacks in the TSS, which Linux uses for events that can arrive when the current stack is unusable: the double fault, the NMI, the machine check, and the debug exception.</li>
 <li><strong>A present bit:</strong> a vector with no handler installed raises #NP (11) instead.</li>
 </ul>
-<p>When an event with vector \\(v\\) is taken, the core:</p>
-<ol>
-<li><strong>Reads the gate</strong> at IDTR.base + 16 × \\(v\\). For a page fault, that is the entry at offset 16 × 14 = 224 bytes.</li>
-<li><strong>Checks</strong> that it is present, and, for <code>int n</code>, that the DPL allows the current privilege level.</li>
-<li><strong>Switches stacks</strong> if it is coming from ring 3, loading RSP from the TSS (RSP0, or the IST entry the gate names).</li>
-<li><strong>Pushes the interrupted state:</strong> SS, RSP, RFLAGS, CS, and RIP. For some vectors (8, 10 to 14, 17, and 21 among them) it also pushes an <strong>error code</strong>. A page fault's error code says whether the page was present, whether the access was a write, whether it came from user mode, and whether it was an instruction fetch. The faulting address goes in CR2.</li>
-<li><strong>Jumps</strong> to the gate's handler, clearing IF for an interrupt gate.</li>
-</ol>
+<p>When an event with vector \\(v\\) is taken, the core reads the gate at IDTR.base + 16 × \\(v\\) and runs the sequence in <a href="#/exceptions/hardware-sequence">The Hardware Sequence</a>: it switches stacks, pushes the interrupted state and any error code, and jumps to the gate's handler.</p>
 <p>Because every vector has its own handler, Linux's IDT entries point at small assembly stubs, one per vector, that build the trap frame and call the matching C function (see <a href="#/exceptions/trap-frame">The Handler and the Trap Frame</a>). Device interrupts share one common path, which looks up the vector in a per-CPU table to find the driver's handler. The local APIC also uses the vector as a priority: its upper 4 bits form the priority class, and an interrupt is delivered only if its class is above the one the core is currently handling and above the task priority register (TPR).</p>
 <p>The other ISAs do the same job differently:</p>
 <ul>
