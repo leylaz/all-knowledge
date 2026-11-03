@@ -539,8 +539,8 @@ Fetch restarts at the handler in ring 0, translated through the same CR3. The ha
 <ol>
 <li><strong>Choose where to go.</strong> Usually back to the same thread. If the scheduler picked another thread, the kernel switches to that thread's kernel stack and returns through its trap frame instead. If a signal is pending, it edits the trap frame first.</li>
 <li><strong>Switch page tables if needed.</strong> With kernel page-table isolation (KPTI, for Meltdown-affected x86 cores), CR3 goes back to the user page table.</li>
-<li><strong>Restore the general registers</strong> from the trap frame.</li>
-<li><strong>Execute the return instruction.</strong> <code>sret</code> sets the PC to <code>sepc</code>, the privilege to SPP, and SIE to SPIE in one step, so user code never runs with kernel privilege and the kernel never runs at a user PC.</li>
+<li><strong>Restore the general registers</strong> from the trap frame, run <code>swapgs</code> to put the user's GS base back, and drop the error code if there is one, so the five words the hardware pushed are on top of the stack.</li>
+<li><strong>Execute the return instruction.</strong> <code>iretq</code> pops RIP, CS, RFLAGS, RSP, and SS in one step. The low 2 bits of the popped CS set the CPL back to 3, the popped RFLAGS restores IF, and RSP goes back to the user stack, so user code never runs with kernel privilege and the kernel never runs at a user PC. After a <code>syscall</code>, Linux usually returns with <code>sysretq</code> instead, which touches no memory: it loads RIP from rcx and RFLAGS from r11, takes CS and SS from fixed selectors in IA32_STAR, and sets the CPL to 3. The entry code restores the user RSP itself just before it.</li>
 </ol>
 <p>The saved PC is what makes a fault different from a trap. A fault leaves it at the faulting instruction, so returning re-executes it. RISC-V also leaves <code>sepc</code> at the <code>ecall</code>, so the kernel adds 4 before returning, or the system call would repeat forever. x86 <code>syscall</code> and ARM <code>svc</code> save the address of the next instruction instead.</p>
 
