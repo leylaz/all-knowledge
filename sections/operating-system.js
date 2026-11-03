@@ -149,7 +149,7 @@ section({
     { id: "common-events", label: "Reference: Common Events" }
   ],
   body: `
-<p>User code can't touch the page tables, the devices, or other processes. The only way into the kernel is for the core itself to transfer control there, to an address the kernel chose in advance. Four kinds of event do that. They differ in what causes them and where execution resumes. Main sources: Hennessy and Patterson (appendix C on exceptions in pipelines, and chapter 3 on reorder buffers), Bryant and O’Hallaron chapter 8, the RISC-V privileged specification, and the Intel SDM volume 3.</p>
+<p>User code can't touch the page tables, the devices, or other processes. The only way into the kernel is for the core itself to transfer control there, to an address the kernel chose in advance. Four kinds of event do that. They differ in what causes them and where execution resumes. Main sources: Hennessy and Patterson (appendix C on exceptions in pipelines, and chapter 3 on reorder buffers), Bryant and O’Hallaron chapter 8, the RISC-V privileged specification, the Intel SDM volume 3, and the Arm Architecture Reference Manual for A-profile.</p>
 <div class="tbl"><table>
 <tr><th>Type</th><th>Cause</th><th>Timing</th><th>Resumes at</th><th>Examples</th></tr>
 <tr><td>Fault</td><td>Instruction can't complete, but it's fixable</td><td>Synchronous, before completion</td><td>The faulting instruction (re-executed)</td><td>Page fault, protection fault</td></tr>
@@ -176,14 +176,73 @@ section({
 <p>Because exceptions are taken in commit order, the oldest one always wins, even if a younger instruction detected its fault first. An interrupt has no faulting instruction, so the core chooses a boundary: it flushes everything uncommitted and saves the PC of the oldest uncommitted instruction as the resume point. Flushing keeps interrupt latency short but throws away the work in flight, which in a 512-entry ROB (Intel's Golden Cove) can be hundreds of instructions that are fetched again after the handler. See <a href="#/rob">Reorder buffer</a>.</p>
 
 <h3 id="sec-trap-target">Which Mode Handles the Trap</h3>
+<h4 id="sec-trap-target-x86">x86-64</h4>
+<p>x86-64 has four privilege levels in hardware, rings 0–3, held as the current privilege level (CPL) in the low 2 bits of CS. Linux and Windows use only two of them: ring 3 for applications and ring 0 for the kernel. Rings 1 and 2 still exist, but paging only separates ring 3 from the rest, so code in ring 1 or 2 could touch kernel pages, and nothing uses them. Two more levels sit outside the rings, which is why they are informally called "ring −1" and "ring −2". From least to most privileged:</p>
+<ul>
+<li><strong>Ring 3:</strong> applications.</li>
+<li><strong>Ring 0:</strong> the operating system kernel.</li>
+<li><strong>VMX root operation:</strong> the hypervisor. Intel VT-x splits the core into root and non-root operation. A guest runs in non-root operation with its own rings 0–3, so a guest kernel really is in ring 0, but chosen events leave the guest with a VM exit (see <a href="#/virtualization/hw-support">Hardware Support: Root and Non-Root Mode</a>).</li>
+<li><strong>System Management Mode (SMM):</strong> firmware. It is entered only through a system management interrupt (SMI), which the chipset raises for platform events or when software writes I/O port 0xB2. The core saves its state into SMRAM, a region of DRAM that the chipset hides from every other mode, and runs the UEFI firmware's handler there until <code>rsm</code>. The firmware stays resident below the OS for the life of the system, and the OS can't see, mask, or block it.</li>
+</ul>
+<p>Two rules hold on every ISA in this section:</p>
+<ul>
+<li><strong>A trap never goes down:</strong> it is taken in the level where it happened or a more privileged one, never a less privileged one.</li>
+<li><strong>The level above decides:</strong> which level takes a given trap is set by software at a more privileged level, normally once at boot.</li>
+</ul>
+<p>On every ISA, code also asks the level above it for a service the same way: with a dedicated instruction that does nothing except trap into that level, at an entry point the level chose in advance, with the call number and arguments in registers. On x86-64:</p>
+<ul>
+<li><strong><code>syscall</code> (ring 3 to ring 0):</strong> a system call, with the call number in rax (see <a href="#/exceptions/system-calls">System Calls</a>).</li>
+<li><strong><code>vmcall</code> (guest to hypervisor):</strong> a hypercall. In non-root operation it always causes a VM exit (exit reason 18). Under KVM the hypercall number is in rax, and KVM refuses calls made from guest ring 3.</li>
+<li><strong>No instruction enters SMM.</strong> The port 0xB2 write is a chipset convention, not part of the ISA.</li>
+</ul>
+<p>x86 has no register that sends a trap to a chosen ring. Every exception and interrupt goes through the IDT (see <a href="#/exceptions/vectors">Vectors and the Interrupt Descriptor Table</a>), and Linux points every gate at a ring-0 handler, so the kernel takes it whether it happened in ring 3 or ring 0. The two levels above decide on their own:</p>
+<ul>
+<li><strong>The hypervisor, through the VMCS:</strong> while a guest runs, the VMCS controls decide which events leave it. The exception bitmap has one bit per vector 0 to 31, and a set bit makes that exception cause a VM exit. "External-interrupt exiting" makes every physical interrupt exit, and KVM sets it so the host keeps its own devices and timer. Some instructions always exit (<code>cpuid</code>), and others exit under a control (<code>hlt</code>, I/O, and MSR accesses through bitmaps). With EPT, KVM leaves bit 14 clear, so a guest's page fault goes straight to the guest kernel through the guest's IDT, and only an EPT violation, a miss in the hypervisor's own table, exits.</li>
+<li><strong>The firmware, through SMIs:</strong> an SMI goes to SMM from every mode, ring 0 and VMX root included, and no OS setting changes that. Since the OS can't see time spent in SMM, SMIs show up as unexplained latency spikes. Intel cores count them in MSR_SMI_COUNT (0x34), which <code>turbostat</code> reports.</li>
+</ul>
+<p>So by default a trap stays with the kernel, and a more privileged level sets bits to pull specific events up to itself. Arm works the same way, and RISC-V the opposite way.</p>
+
+<h4 id="sec-trap-target-arm">Arm64</h4>
+<p>AArch64 calls its levels exception levels, held in PSTATE.EL. Unlike x86, the hypervisor and the firmware are ordinary levels in the same numbering, entered and left with the same exception mechanism as the kernel. From least to most privileged:</p>
+<ul>
+<li><strong>EL0:</strong> applications.</li>
+<li><strong>EL1:</strong> the operating system kernel.</li>
+<li><strong>EL2:</strong> the hypervisor.</li>
+<li><strong>EL3:</strong> the secure monitor, which is firmware. It also switches the core between the Non-secure world, where Linux runs, and the Secure world, where a trusted OS such as OP-TEE runs at Secure EL1. On most systems EL3 runs the BL31 stage of Trusted Firmware-A (TF-A), the Arm counterpart of RISC-V's OpenSBI (below). It handles PSCI calls, such as CPU_ON, CPU_OFF, and SYSTEM_RESET, and the world switches. Unlike OpenSBI, it emulates nothing for the kernel: the generic timer and the GIC's system registers are accessible at EL1, so the kernel's timer and IPIs never pass through EL3.</li>
+</ul>
+<p>Each step up has its own instruction, and each carries a 16-bit immediate that lands in the syndrome register:</p>
+<ul>
+<li><strong><code>svc</code> (EL0 to EL1):</strong> a system call. Linux always uses <code>svc #0</code> and reads the call number from x8.</li>
+<li><strong><code>hvc</code> (EL1 to EL2):</strong> a hypercall.</li>
+<li><strong><code>smc</code> (EL1 or EL2 to EL3):</strong> a firmware call, following the SMC Calling Convention, with the function ID in w0. PSCI CPU_ON from a 64-bit caller is 0xC400_0003.</li>
+</ul>
+<p><code>hvc</code> and <code>smc</code> are undefined instructions at EL0, so user code can reach only the kernel. Each level that can take exceptions has its own copy of the trap registers, named with the level as a suffix:</p>
+<div class="tbl"><table>
+<tr><th>Job</th><th>EL3</th><th>EL2</th><th>EL1</th></tr>
+<tr><td>Resume PC (exception link register)</td><td>ELR_EL3</td><td>ELR_EL2</td><td>ELR_EL1</td></tr>
+<tr><td>Saved PSTATE (saved program status register)</td><td>SPSR_EL3</td><td>SPSR_EL2</td><td>SPSR_EL1</td></tr>
+<tr><td>What happened (exception syndrome register)</td><td>ESR_EL3</td><td>ESR_EL2</td><td>ESR_EL1</td></tr>
+<tr><td>Faulting address</td><td>FAR_EL3</td><td>FAR_EL2</td><td>FAR_EL1</td></tr>
+<tr><td>Handler table base (vector base address register)</td><td>VBAR_EL3</td><td>VBAR_EL2</td><td>VBAR_EL1</td></tr>
+<tr><td>Stack pointer</td><td>SP_EL3</td><td>SP_EL2</td><td>SP_EL1</td></tr>
+<tr><td>Return instruction</td><td colspan="3"><code>eret</code>, which reads the copy of the level it runs in</td></tr>
+</table></div>
+<p>EL0 never takes an exception, so it has no copies, only SP_EL0, its own stack pointer. Separate copies mean a trap into EL2 or EL3 never overwrites the state EL1 saved for a trap it is still handling.</p>
+<p>By default, an exception from EL0 or EL1 goes to EL1. Two configuration registers pull events higher:</p>
+<ul>
+<li><strong>HCR_EL2 (hypervisor configuration register):</strong> IMO, FMO, and AMO route physical IRQs, FIQs, and SErrors to EL2 while a guest runs at EL0 or EL1, and KVM sets all three. TSC traps the guest's <code>smc</code> to EL2. TGE (trap general exceptions) sends every exception from EL0 to EL2 instead of EL1. It exists for VHE (Armv8.1, HCR_EL2.E2H), where the host Linux kernel itself runs at EL2, so host applications trap straight into it. Translation splits the same way as on x86 with EPT: a fault on the guest's own stage-1 table goes to the guest's EL1, and a stage-2 fault, a miss in the hypervisor's table, goes to EL2.</li>
+<li><strong>SCR_EL3 (secure configuration register):</strong> its IRQ, FIQ, and EA bits route IRQs, FIQs, and external aborts to EL3, and its NS bit picks the world for the levels below. TF-A leaves IRQ clear, so Linux's interrupts go to the kernel. With GICv3 it typically sets FIQ, because Secure-world interrupts arrive as FIQs while the Non-secure world runs.</li>
+</ul>
+
+<h4 id="sec-trap-target-riscv">RISC-V</h4>
 <p>RISC-V has three privilege modes. From least to most privileged:</p>
 <ul>
 <li><strong>User mode (U):</strong> applications.</li>
 <li><strong>Supervisor mode (S):</strong> the operating system kernel. It runs with virtual memory, using the page table that <code>satp</code> points at, and can manage the page tables and interrupts of the code below it.</li>
 <li><strong>Machine mode (M):</strong> firmware. "Machine" names the privilege level, not machine code, since every mode runs machine code. It is the mode the core resets into and the only one with no restrictions. It uses physical addresses directly, can access every CSR (control and status register), and programs the physical memory protection (PMP) registers that keep the other two modes out of its memory. On a Linux system it runs OpenSBI, an implementation of the Supervisor Binary Interface. The boot loader starts OpenSBI before the kernel, and it stays resident to do the few jobs that need machine mode, such as programming the timer on older cores, sending inter-processor interrupts, and powering cores off.</li>
 </ul>
-<p>Code asks the mode above it for a service with one instruction, <code>ecall</code> (environment call). It has no operands and does nothing except raise an exception, whose cause code records the mode it ran in: 8 from user mode, 9 from supervisor mode, and 11 from machine mode. A program's <code>ecall</code> is a system call to the kernel, with the call number in a7 (see <a href="#/exceptions/system-calls">System Calls</a>). The kernel's <code>ecall</code> is an SBI call to the firmware, with the requested service in a7 and a6.</p>
-<p>Supervisor and machine mode can both handle traps, so each has its own set of trap CSRs. Each name is the mode's letter followed by the register's job, so every register exists twice:</p>
+<p>Where x86 and Arm have one call instruction per level, RISC-V uses a single one, <code>ecall</code> (environment call), for every step up. It has no operands, and the cause code of its exception records the mode it ran in: 8 from user mode, 9 from supervisor mode, and 11 from machine mode. A program's <code>ecall</code> is a system call to the kernel, with the call number in a7 (see <a href="#/exceptions/system-calls">System Calls</a>). The kernel's <code>ecall</code> is an SBI call to the firmware, with the requested service in a7 and a6.</p>
+<p>Supervisor and machine mode can both handle traps, so each has its own set of trap CSRs, as each Arm exception level has its own registers. Here the mode's letter comes first, followed by the register's job, so every register exists twice:</p>
 <div class="tbl"><table>
 <tr><th>Job</th><th>Machine mode</th><th>Supervisor mode</th></tr>
 <tr><td>Resume PC (exception program counter)</td><td><code>mepc</code></td><td><code>sepc</code></td></tr>
@@ -200,7 +259,7 @@ section({
 <li><strong><code>medeleg</code> (machine exception delegation):</strong> bit \\(i\\) set means exception code \\(i\\) is delegated.</li>
 <li><strong><code>mideleg</code> (machine interrupt delegation):</strong> the same for interrupt codes.</li>
 </ul>
-<p>Both reset to 0, and with every bit clear, every trap from every mode goes to machine mode: the core writes <code>mepc</code>, <code>mcause</code>, <code>mtval</code>, and <code>mstatus</code>, enters machine mode, and jumps to <code>mtvec</code>. Setting a bit <strong>delegates</strong> that trap to supervisor mode. When a delegated trap happens in user or supervisor mode, the core runs the same sequence with the supervisor registers and jumps to <code>stvec</code>, so the kernel gets it directly and the firmware never runs. Delegation never moves a trap to a less privileged mode than the one it happened in, so a trap in machine mode stays in machine mode whatever the bits say.</p>
+<p>Both reset to 0, and with every bit clear, every trap from every mode goes to machine mode: the core writes <code>mepc</code>, <code>mcause</code>, <code>mtval</code>, and <code>mstatus</code>, enters machine mode, and jumps to <code>mtvec</code>. This is the reverse of x86 and Arm, where a trap stays with the kernel unless a higher level pulls it up. On RISC-V every trap goes to the firmware unless the firmware pushes it down. Setting a bit <strong>delegates</strong> that trap to supervisor mode. When a delegated trap happens in user or supervisor mode, the core runs the same sequence with the supervisor registers and jumps to <code>stvec</code>, so the kernel gets it directly and the firmware never runs. Since a trap never goes down (see <a href="#/exceptions/trap-target">x86-64</a> above), a trap in machine mode stays in machine mode whatever the bits say.</p>
 <p>On a core without the hypervisor extension, OpenSBI writes <code>medeleg</code> = 0xB109 and <code>mideleg</code> = 0x222 before it starts Linux:</p>
 <ul>
 <li><strong>Delegated exceptions (<code>medeleg</code> bits 0, 3, 8, 12, 13, and 15):</strong> misaligned instruction fetch, breakpoint, <code>ecall</code> from user mode, and the instruction, load, and store page faults. These are the frequent ones, and they go straight to the kernel.</li>
