@@ -5,7 +5,7 @@
 section({
   id: "os",
   name: "Operating System",
-  cap: "Privilege levels, faults, traps, kernel entry, context switching, scheduling, demand paging, page replacement, copy-on-write, mmap, file and process system calls",
+  cap: "Privilege levels, faults, traps, kernel entry, context switching, scheduling, locks, futexes, RCU, deadlock, priority inversion, demand paging, page replacement, copy-on-write, mmap, file and process system calls",
   sections: [
     { id: "what-os", label: "What an Operating System Is" },
     { id: "what-it-does", label: "What It Does" },
@@ -803,6 +803,243 @@ Fetch restarts at that address in supervisor mode, translated through the same p
       {
         q: `<p>A bulk-synchronous HPC code runs on 64 cores, one thread per core, and every iteration takes 100 µs of compute followed by a barrier. Each core has a timer tick at 1,000 Hz that steals 5 µs (handler plus refilled state). Assume the ticks on different cores are not aligned (Linux's <code>skew_tick=1</code>), so each core's tick falls at an independent random point. What fraction of time does one core lose to ticks, and how much does the application slow down? What changes with <code>nohz_full</code>?</p>`,
         a: `<ol><li><strong>One core:</strong> 1,000 &times; 5 µs = 5 ms per second, or <strong>0.5%</strong>.</li><li><strong>Per iteration:</strong> a tick lands in a given 100 µs window on a given core with probability 100 µs / 1 ms = 0.1. The chance that no core is hit is 0.9<sup>64</sup> &asymp; 0.0012, so <strong>about 99.9%</strong> of iterations have at least one delayed core.</li><li><strong>Slowdown:</strong> the barrier waits for the slowest core, so almost every iteration takes 105 µs instead of 100 µs: about <strong>5%</strong>, 10 times the per-core loss.</li><li><strong>With <code>nohz_full</code>:</strong> a core with a single runnable thread stops its tick (down to about once per second for housekeeping), so the jitter nearly disappears.</li></ol><p>With aligned ticks (the default <code>skew_tick=0</code>), every core is delayed in the same iteration, which happens in 1 of 10 iterations, so the slowdown would be about 0.5% instead.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "sync",
+  region: "os",
+  title: "Locks and Synchronization",
+  sections: [
+    { id: "why", label: "Why Threads Need Locks" },
+    { id: "spinlocks", label: "Spinlocks and Coherence Traffic" },
+    { id: "kernel-spinlocks", label: "Spinlocks in the Kernel" },
+    { id: "futex", label: "Sleeping Locks and the Futex" },
+    { id: "read-mostly", label: "Read-Mostly Data: Seqlocks and RCU" },
+    { id: "deadlock", label: "Deadlock" },
+    { id: "inversion", label: "Priority Inversion" },
+    { id: "perf", label: "Performance Trade-Offs" }
+  ],
+  body: `
+<p>Threads that share memory need a way to take turns on shared data. This page builds locks up from the hardware's atomic instructions: spinlocks and the coherence traffic they cause, how the kernel uses them, how user-space mutexes sleep through the futex system call, how read-mostly data avoids locks almost entirely, and the two classic ways locking goes wrong, deadlock and priority inversion. <a href="#/context-switch">Context Switching</a> covers what blocking costs, and <a href="#/c11-ordering">C11 Memory Ordering</a> covers the ordering rules that every lock below relies on. Main sources: Hennessy &amp; Patterson, Section 5.5, Herlihy and Shavit's <em>The Art of Multiprocessor Programming</em> (chapter 7), Mellor-Crummey and Scott's MCS lock paper, Ulrich Drepper's "Futexes Are Tricky," and Paul McKenney's <em>Is Parallel Programming Hard, And, If So, What Can You Do About It?</em></p>
+
+<h3 id="sec-why">Why Threads Need Locks</h3>
+<p><code>counter++</code> on shared memory is three operations: a load, an add, and a store. If two threads both load 7, both store 8, and one increment is lost. Any sequence of operations that must appear indivisible to other threads is a <strong>critical section</strong>, and a lock guarantees that at most one thread is inside it at a time. A correct lock needs three properties:</p>
+<ul>
+<li><strong>Mutual exclusion:</strong> at most one thread holds the lock.</li>
+<li><strong>Progress:</strong> if the lock is free and threads want it, one of them gets it.</li>
+<li><strong>Bounded waiting (fairness):</strong> a waiting thread is not passed over forever.</li>
+</ul>
+<p>Locks can be built from ordinary loads and stores (Peterson's algorithm), but only with a full store-to-load fence on any machine that reorders a store after a later load, as x86 and Arm both do (see <a href="#/consistency">Memory Consistency Models in Hardware</a>). Every real lock is built instead on an atomic read-modify-write instruction, which reads a location and writes it with no other core's write in between:</p>
+<ul>
+<li><strong>x86-64:</strong> <code>xchg</code> with memory and any instruction with the <code>lock</code> prefix (<code>lock cmpxchg</code>, <code>lock xadd</code>). The core takes the line in the modified state and holds off snoops to it until the operation completes, and the instruction is a full fence: the store buffer drains first.</li>
+<li><strong>Arm64:</strong> load-exclusive and store-exclusive (<code>LDXR</code> and <code>STXR</code>), where the store fails and the loop retries if another core wrote the line in between. Armv8.1 added the LSE atomics (<code>CAS</code>, <code>SWP</code>, <code>LDADD</code>), single instructions that some implementations can execute at the shared cache or interconnect instead of pulling the line into the core.</li>
+<li><strong>RISC-V:</strong> load-reserved and store-conditional (<code>LR</code> and <code>SC</code>) and the atomic memory operations (<code>AMOSWAP</code>, <code>AMOADD</code>) of the A extension.</li>
+</ul>
+<p>Compare-and-swap is enough to build any lock and any lock-free structure. Each primitive is cheap when the line is already in the core's L1 in the modified state. It becomes expensive when the line lives in another core's cache, and that is the subject of the rest of this page (the states are in <a href="#/mesi">Cache Coherence and MESI</a>).</p>
+
+<h3 id="sec-spinlocks">Spinlocks and Coherence Traffic</h3>
+<p>A <strong>spinlock</strong> waits by looping until the lock is free. The simplest one, <strong>test-and-set</strong>, loops on an atomic exchange. Each exchange is a write, so each one takes the line in the modified state and invalidates every other copy. With several waiters, the lock's line moves from core to core on every iteration, and the holder's release has to win the line back from them. <strong>Test-and-test-and-set</strong> fixes the steady state by spinning on a plain load:</p>
+<pre><code>void lock(atomic_int *l) {
+    for (;;) {
+        if (!atomic_exchange_explicit(l, 1, memory_order_acquire))
+            return;                       /* was 0: we hold it */
+        while (atomic_load_explicit(l, memory_order_relaxed))
+            _mm_pause();                  /* spin on a shared copy in our own L1 */
+    }
+}
+
+void unlock(atomic_int *l) {
+    atomic_store_explicit(l, 0, memory_order_release);
+}</code></pre>
+<p>While the lock is held, every waiter hits in its own L1 on a shared copy, so spinning causes no traffic. The trouble is the release. The holder's store invalidates every copy, every waiter misses and reads the line again, all of them see 0, and all of them try the exchange. One wins, and the rest fail but still take the line in the modified state, one after another. A single handoff costs a burst of coherence transactions that grows with the number of waiters, all serialized on one line (Anderson, 1990).</p>
+<p>Three designs bound that burst:</p>
+<ul>
+<li><strong>Backoff:</strong> a waiter that fails waits a random, growing time before trying again. This cuts the traffic but leaves the lock idle while everyone is backing off.</li>
+<li><strong>Ticket lock:</strong> an atomic increment of <code>next_ticket</code> hands each arriving thread a number, and the thread spins until <code>now_serving</code> equals it. The release increments <code>now_serving</code>. It is FIFO, and only the next owner sees its number, but the release still invalidates every waiter's copy, and the next owner's re-read waits in line with all the others. Linux on x86 used ticket spinlocks from 2.6.25 to 4.1.</li>
+<li><strong>Queue lock (MCS):</strong> each waiter spins on a flag in its own node, in its own cache line, and the nodes form a queue. The lock word is just a pointer to the tail.</li>
+</ul>
+<pre><code>struct mcs_node {
+    struct mcs_node *_Atomic next;
+    atomic_int locked;
+};
+
+void mcs_lock(struct mcs_node *_Atomic *tail, struct mcs_node *me) {
+    atomic_store(&amp;me-&gt;next, NULL);
+    atomic_store(&amp;me-&gt;locked, 1);
+    struct mcs_node *prev = atomic_exchange(tail, me);   /* join the queue */
+    if (prev) {
+        atomic_store(&amp;prev-&gt;next, me);
+        while (atomic_load(&amp;me-&gt;locked))
+            _mm_pause();                  /* nobody else touches this line */
+    }
+}
+
+void mcs_unlock(struct mcs_node *_Atomic *tail, struct mcs_node *me) {
+    struct mcs_node *next = atomic_load(&amp;me-&gt;next);
+    if (!next) {
+        struct mcs_node *expect = me;
+        if (atomic_compare_exchange_strong(tail, &amp;expect, NULL))
+            return;                       /* no one was waiting */
+        while (!(next = atomic_load(&amp;me-&gt;next)))
+            ;                             /* a successor is still linking in */
+    }
+    atomic_store(&amp;next-&gt;locked, 0);      /* hand off to exactly one waiter */
+}</code></pre>
+<p>An MCS handoff costs two line transfers no matter how many threads wait: the releaser's store pulls the successor's flag line over, and the successor's next load pulls it back. Linux's <strong>qspinlock</strong> (x86 since 4.2) packs this into a 4-byte word: a locked byte, a pending bit, and a tail that names a CPU and one of its four per-CPU MCS nodes (one each for task, softirq, hardirq, and NMI context). The first waiter spins on the word itself with the pending bit set, and only the third and later contenders queue on MCS nodes, so the common case of light contention never touches a node.</p>
+<p>Two hardware details shape every spin loop:</p>
+<ul>
+<li><strong>Pause:</strong> x86's <code>pause</code> tells the core it is spinning. It avoids a memory-order machine clear when the line finally changes, saves power, and on an SMT core gives the sibling thread the execution resources. Its latency is about 140 cycles on Skylake server cores, up from about 10 on earlier ones, so a loop tuned in iterations behaves very differently across generations.</li>
+<li><strong>Wait for event:</strong> Arm64 spinners pair a load-exclusive with <code>WFE</code>, which sleeps the core until the monitored line is written. Recent x86 cores offer <code>UMONITOR</code> and <code>UMWAIT</code> for the same purpose.</li>
+</ul>
+
+<h3 id="sec-kernel-spinlocks">Spinlocks in the Kernel</h3>
+<p>The kernel uses spinlocks to protect data touched for short stretches, often from interrupt handlers, where sleeping is not allowed. Two rules follow from what can interrupt the holder:</p>
+<ul>
+<li><strong>Taking a spinlock disables preemption.</strong> If the holder were preempted, every other CPU that wants the lock would spin for the holder's whole time away. <code>spin_lock</code> raises the per-thread preemption count, which is also why the kernel may not reach a preemption point while holding a spinlock (see <a href="#/context-switch/preemption">Preemption Points</a>), and why sleeping while holding one is a bug ("scheduling while atomic").</li>
+<li><strong>Data shared with an interrupt handler needs interrupts disabled.</strong> If code holding the lock is interrupted on its own CPU and the handler tries to take the same lock, the handler spins forever: the holder cannot run again until the handler returns. <code>spin_lock_irqsave</code> disables local interrupts for the critical section, and <code>spin_lock_bh</code> does the same for softirqs.</li>
+</ul>
+<p>Linux checks these rules at runtime with <strong>lockdep</strong>, which records every lock class's context and reports a lock that is taken both in an interrupt handler and elsewhere with interrupts enabled, before it has ever deadlocked. Under PREEMPT_RT, merged into mainline in 6.12, most <code>spinlock_t</code> locks become sleeping locks with priority inheritance and interrupt handlers run in threads, so only <code>raw_spinlock_t</code> still spins. That trades some throughput for bounded latency.</p>
+<p>Virtualization adds one more problem: <strong>lock-holder preemption</strong>. The guest kernel disabled preemption, but the hypervisor can still deschedule the vCPU that holds the lock, and the other vCPUs spin for the rest of its host time slice. Intel's pause-loop exiting and AMD's pause filter count <code>pause</code> instructions and force a VM exit when a vCPU spins too long, and paravirtual qspinlocks let a waiting vCPU halt until the holder kicks it (see <a href="#/virtualization/vm-exits">VM Exits and Their Cost</a>).</p>
+
+<h3 id="sec-futex">Sleeping Locks and the Futex</h3>
+<p>Spinning wastes the waiter's core, which is fine for waits shorter than a context switch and wasteful for anything longer. A <strong>sleeping lock</strong> (mutex) blocks the waiter instead, but asking the kernel on every lock and unlock would cost a system call even when no one else wants the lock, which is almost always. The <strong>futex</strong> ("fast user-space mutex," Linux 2.6) splits the work: the lock word lives in user memory and the uncontended path is a single atomic instruction, and the kernel is involved only when a thread must sleep or wake one. It offers two basic operations on a 32-bit word:</p>
+<ul>
+<li><strong><code>FUTEX_WAIT(addr, val)</code>:</strong> sleep, but only if <code>*addr</code> still equals <code>val</code>. The kernel re-reads the word under the lock of the hash bucket that the address maps to, so a waker that changes the word and then calls <code>FUTEX_WAKE</code> cannot slip in between the check and the sleep. Without that check, the unlock could happen just before the waiter went to sleep, and the waiter would sleep forever (a <strong>lost wakeup</strong>).</li>
+<li><strong><code>FUTEX_WAKE(addr, n)</code>:</strong> wake up to <code>n</code> threads sleeping on <code>addr</code>.</li>
+</ul>
+<p>Drepper's mutex encodes three states in the word: 0 for unlocked, 1 for locked with no waiters, and 2 for locked with possible waiters. Only state 2 makes the unlock call into the kernel:</p>
+<pre><code>void mutex_lock(atomic_int *m) {
+    int c = 0;
+    if (atomic_compare_exchange_strong(m, &amp;c, 1))
+        return;                           /* fast path: 0 -&gt; 1, no system call */
+    if (c != 2)
+        c = atomic_exchange(m, 2);        /* announce a waiter */
+    while (c != 0) {
+        futex_wait(m, 2);                 /* sleep while the word is still 2 */
+        c = atomic_exchange(m, 2);
+    }
+}
+
+void mutex_unlock(atomic_int *m) {
+    if (atomic_fetch_sub(m, 1) != 1) {    /* it was 2: someone may be asleep */
+        atomic_store(m, 0);
+        futex_wake(m, 1);
+    }
+}</code></pre>
+<p>A thread that wakes sets the word back to 2, not 1, because it cannot know whether others are still asleep. The cost is an occasional wake call with no one to wake. glibc's <code>pthread_mutex_t</code>, condition variables, semaphores, and <code>pthread_join</code> are all built on futexes. The kernel keys a private futex (the default for process-local locks) by address space and virtual address, and a shared one by the backing page and offset, so two processes can share a lock in a <code>MAP_SHARED</code> region. Windows offers the same split through <code>WaitOnAddress</code> and <code>WakeByAddressSingle</code>, which its slim reader-writer locks use.</p>
+<p>Most mutexes also spin briefly before sleeping. The kernel's own <code>mutex</code> spins as long as the owner is running on another CPU, since the owner is then likely to release soon, and sleeps as soon as the owner is not running. glibc offers the same idea as <code>PTHREAD_MUTEX_ADAPTIVE_NP</code>.</p>
+
+<details class="ex"><summary>Worked example: what a handoff costs</summary>
+<p><strong>Question.</strong> 32 threads, each on its own core, loop forever doing 10 µs of private work and then a 400 ns critical section under one lock. Assume:</p>
+<ul>
+<li>A cache-line transfer between cores takes 60 ns.</li>
+<li>With an MCS lock, a handoff takes 2 line transfers.</li>
+<li>With a sleeping lock that hands the lock directly to the longest-sleeping waiter (no barging), every handoff under contention waits for the waiter to wake and be switched in, which takes 4 µs.</li>
+<li>The lock's throughput is bounded by one critical section plus one handoff per acquisition.</li>
+</ul>
+<p>Find each lock's maximum acquisition rate, whether 32 threads saturate it, and the fraction of each thread's time spent waiting.</p>
+<p><strong>Solution.</strong></p>
+<ol>
+<li><strong>Demand:</strong> without waiting, each thread acquires once per 10 + 0.4 = 10.4 µs, so 32 threads ask for 32 / 10.4 µs &asymp; <strong>3.08 million</strong> acquisitions per second.</li>
+<li><strong>MCS ceiling:</strong> a handoff is 2 &times; 60 = 120 ns, so each acquisition occupies the lock for 400 + 120 = 520 ns, and the ceiling is 1 / 520 ns &asymp; <strong>1.92 million</strong> per second. Demand exceeds it, so the lock is saturated.</li>
+<li><strong>MCS waiting:</strong> at the ceiling, each thread completes a loop every 32 &times; 0.52 µs = 16.64 µs, of which 10.4 µs is useful, so each thread waits 6.24 / 16.64 = <strong>37.5%</strong> of the time.</li>
+<li><strong>Sleeping-lock ceiling:</strong> each acquisition occupies the lock for 0.4 + 4 = 4.4 µs, so the ceiling is 1 / 4.4 µs &asymp; <strong>227,000</strong> per second, 8.5 times lower than MCS.</li>
+<li><strong>Sleeping-lock waiting:</strong> each loop takes 32 &times; 4.4 µs = 140.8 µs, so each thread waits (140.8 &minus; 10.4) / 140.8 &asymp; <strong>92.6%</strong> of the time.</li>
+</ol>
+<p>Once the lock is saturated, strict handoff to sleeping waiters puts a full wakeup into every handoff, and the threads form a <strong>lock convoy</strong>. That is why glibc's default mutex is not FIFO: a running thread that arrives while the woken one is still being scheduled may take the lock first (barging), which keeps the handoff near the cost of a line transfer at the price of fairness.</p>
+</details>
+
+<h3 id="sec-read-mostly">Read-Mostly Data: Seqlocks and RCU</h3>
+<p>Much kernel data is read constantly and changed rarely: routing tables, the directory-entry cache, the list of tasks, the current time. A reader-writer lock lets readers in together, but every reader still increments and decrements a shared count, so the count's line bounces between readers' cores even when no writer ever comes. Two designs remove writes from the read path entirely.</p>
+<p><strong>Seqlocks.</strong> The writer, serialized by a spinlock, increments a sequence count before and after its update, so the count is odd during a write. A reader samples the count, reads the data, and samples it again, retrying if the count was odd or changed:</p>
+<pre><code>do {
+    seq = read_seqbegin(&amp;tk_lock);     /* wait while odd, then acquire */
+    now = tk.xtime;                     /* may be torn, checked below */
+} while (read_seqretry(&amp;tk_lock, seq));</code></pre>
+<p>Readers never write a shared line, so they scale perfectly, but they may read a half-updated copy and must discard it. That rules out following pointers that the writer might free. Linux protects its timekeeping data this way, and the vDSO's <code>clock_gettime</code> reads the time in user mode with the same retry loop, with no system call.</p>
+<p><strong>Read-copy-update (RCU).</strong> Readers follow a pointer to the data with no lock at all. A writer never changes data in place: it copies the object, edits the copy, publishes the copy by storing the new pointer, waits until every reader that might still hold the old pointer has finished, and only then frees the old object:</p>
+<pre><code>/* reader */
+rcu_read_lock();
+struct route *r = rcu_dereference(tbl-&gt;slot[h]);
+send_to(r-&gt;gateway);
+rcu_read_unlock();
+
+/* writer, holding the table's spinlock */
+struct route *new = kmalloc(sizeof *new, GFP_KERNEL);
+*new = *old;
+new-&gt;gateway = gw;
+rcu_assign_pointer(tbl-&gt;slot[h], new);   /* release store: new is complete first */
+synchronize_rcu();                        /* wait for a grace period */
+kfree(old);</code></pre>
+<ul>
+<li><strong>Grace period:</strong> readers may not block inside a read-side section, so once every CPU has context-switched, gone idle, or run in user mode, no reader can still hold the old pointer. In a non-preemptible kernel, <code>rcu_read_lock</code> therefore compiles to almost nothing. A grace period takes milliseconds, so writers that cannot wait use <code>call_rcu</code> or <code>kfree_rcu</code> to free the object later.</li>
+<li><strong>The hardware dependency:</strong> <code>rcu_dereference</code> is an ordinary load. It relies on the CPU never reading through a pointer's target before the pointer itself (address-dependency ordering), which x86, Arm, POWER, and RISC-V all guarantee. Alpha did not, and needed a barrier there.</li>
+<li><strong>Beyond the kernel:</strong> user-space RCU (liburcu) and hazard pointers solve the same "when is it safe to free" problem, and both are in C++26.</li>
+</ul>
+
+<h3 id="sec-deadlock">Deadlock</h3>
+<p>A set of threads is <strong>deadlocked</strong> when each waits for a lock held by another in the set. Coffman, Elphick, and Shoshani (1971) showed it needs four conditions at once:</p>
+<ol>
+<li><strong>Mutual exclusion:</strong> a lock has one holder.</li>
+<li><strong>Hold and wait:</strong> a thread holds one lock while it waits for another.</li>
+<li><strong>No preemption:</strong> a lock can't be taken away from its holder.</li>
+<li><strong>Circular wait:</strong> the waits form a cycle.</li>
+</ol>
+<p>The classic case is two threads taking the same two locks in opposite orders:</p>
+<pre><code>/* thread 0 */                  /* thread 1 */
+lock(&amp;acct_a);                  lock(&amp;acct_b);
+lock(&amp;acct_b);  /* waits */     lock(&amp;acct_a);  /* waits */</code></pre>
+<p>Breaking any one condition prevents deadlock, and in practice the one broken is circular wait: every lock gets a place in a global order, and code takes locks only in that order, for example by address when two locks of the same type are involved. The Linux memory manager writes its order down in a comment at the top of <code>mm/rmap.c</code>, and lockdep enforces orders at runtime: it records each order in which two lock classes are ever taken and reports any new order that would close a cycle, even if the threads involved never actually collided. Breaking hold-and-wait with <code>trylock</code> (take the second lock if free, otherwise release the first and retry) works too, but two threads can then keep backing off in step forever, which is <strong>livelock</strong>. Single-lock deadlocks exist as well: a thread that takes a non-recursive mutex it already holds, or a spinlock its own interrupt handler wants, waits for itself.</p>
+
+<h3 id="sec-inversion">Priority Inversion</h3>
+<p>Locks interfere with priority scheduling. Suppose a low-priority thread L holds a lock that a high-priority thread H needs. H blocks, which is expected, since L will finish soon. But if a medium-priority thread M becomes runnable, it preempts L, and as long as M runs, L can't release the lock and H can't run. A thread that doesn't touch the lock at all has delayed the highest-priority thread for an unbounded time. That is <strong>priority inversion</strong>.</p>
+<p>It reset the Mars Pathfinder lander repeatedly in July 1997. A low-priority meteorological task held a VxWorks mutex protecting the lander's information bus, a medium-priority communications task ran long, and the high-priority bus-management task missed its deadline, which a watchdog treated as a fault and answered with a full system reset. The engineers reproduced it on a ground copy and uploaded a fix that turned on priority inheritance for that mutex.</p>
+<ul>
+<li><strong>Priority inheritance:</strong> while H waits, L runs at H's priority, so M can't preempt it. The boost passes along chains of locks and ends when L releases. On Linux, <code>PTHREAD_PRIO_INHERIT</code> mutexes use PI futexes (<code>FUTEX_LOCK_PI</code>), where the kernel tracks the owner through the futex word and boosts it, and the kernel's own <code>rt_mutex</code> does the same.</li>
+<li><strong>Priority ceiling:</strong> each lock has a ceiling equal to the highest priority of any thread that uses it, and a thread holding it runs at that ceiling (<code>PTHREAD_PRIO_PROTECT</code>). This needs the priorities known in advance but also prevents some deadlocks (Sha, Rajkumar, and Lehoczky, 1990).</li>
+</ul>
+<p>Ordinary time-sharing schedulers avoid the worst of it by accident: a fair scheduler eventually runs L anyway. Inversion becomes unbounded only under strict priorities, which is why it matters most in real-time systems.</p>
+
+<h3 id="sec-perf">Performance Trade-Offs</h3>
+<ul>
+<li><strong>Uncontended locks are cheap but not free.</strong> An atomic read-modify-write on a line already in the L1 costs roughly 10 to 20 cycles on recent x86 cores, mostly because it is a full fence and waits for the store buffer to drain. A lock and unlock per small operation still shows up in profiles.</li>
+<li><strong>Contended locks cost line transfers.</strong> Once threads compete, the instruction hardly matters and the time goes to moving the lock's line: tens of nanoseconds between cores of one socket and 100 to 200 ns across sockets. The data protected by the lock moves too, since each new owner misses on whatever the previous owner wrote. Keep read-mostly fields off the lock's line (see <a href="#/false-sharing">False Sharing and Cache-Line Isolation</a>).</li>
+<li><strong>Spin or sleep.</strong> Spinning wastes the waiter's core but hands off in nanoseconds, while sleeping frees the core but adds microseconds to every handoff. Spinning for as long as a block-and-wake would cost, then sleeping, never costs more than twice the best choice made in hindsight (Karlin, Li, Manasse, and Owicki, 1991). Adaptive mutexes apply a version of this rule.</li>
+<li><strong>Fair locks can be slow locks.</strong> FIFO handoff to a sleeping waiter turns every handoff into a wakeup (see the worked example), and ticket locks lose throughput badly when the holder's vCPU or thread is descheduled, since every later ticket must wait for it. Barging trades fairness for throughput.</li>
+<li><strong>Spinning inflates IPC.</strong> A spin loop retires loads and branches that hit in the L1 at a high IPC and does no work, so a contended run can show higher IPC and more instructions while finishing less. Measure multi-threaded workloads in work per second or time per operation, not IPC (Alameldeen and Wood, 2006).</li>
+<li><strong>For a simulator:</strong> syscall-emulation mode (gem5 SE) handles futex waits and wakes inside the simulator with little or none of the kernel's microseconds, so blocking looks almost free. User-level traces miss kernel lock contention altogether. If locks matter, use full-system simulation, and compare runs by completed work rather than instructions committed.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Section 5.5 (synchronization) · Herlihy and Shavit, <em>The Art of Multiprocessor Programming</em>, chapter 7 (spin locks and contention) · Anderson, "The Performance of Spin Lock Alternatives for Shared-Memory Multiprocessors," IEEE TPDS 1990 · Mellor-Crummey and Scott, "Algorithms for Scalable Synchronization on Shared-Memory Multiprocessors," ACM TOCS 1991 · Franke, Russell, and Kirkwood, "Fuss, Futexes and Furwocks," Ottawa Linux Symposium 2002 · Drepper, "Futexes Are Tricky," 2011 · McKenney, <em>Is Parallel Programming Hard, And, If So, What Can You Do About It?</em> (RCU and seqlocks) · Coffman, Elphick, and Shoshani, "System Deadlocks," ACM Computing Surveys 1971 · Sha, Rajkumar, and Lehoczky, "Priority Inheritance Protocols," IEEE Transactions on Computers 1990 · Karlin, Li, Manasse, and Owicki, "Empirical Studies of Competitive Spinning for a Shared-Memory Multiprocessor," SOSP 1991 · Alameldeen and Wood, "IPC Considered Harmful for Multiprocessor Workloads," IEEE Micro 2006 · Linux kernel documentation, "Lock types and their rules" and "Runtime locking correctness validator" · Arpaci-Dusseau and Arpaci-Dusseau, <em>Operating Systems: Three Easy Pieces</em>, Chapters 28&ndash;32</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Three threads use Drepper's three-state futex mutex from this page. The mutex word starts at 0. Thread A locks it. While A holds it, thread B calls <code>mutex_lock</code> and then thread C calls <code>mutex_lock</code>, and both go to sleep. A unlocks, B runs its critical section and unlocks, and then C runs its critical section and unlocks. No other thread touches the mutex, the kernel wakes sleepers in the order they went to sleep, and there are no spurious wakeups.</p><ol><li>Trace the mutex word through every step.</li><li>How many futex system calls are made in total, and which of them does no useful work?</li><li>How many system calls would a lock and unlock with no contention make?</li></ol>`,
+        a: `<ol><li><strong>A locks:</strong> the compare-and-swap turns 0 into 1. Word = 1, no system call.</li><li><strong>B locks:</strong> the compare-and-swap fails and returns c = 1. Since c &ne; 2, B exchanges in 2 and gets back 1, which is not 0, so it calls <code>futex_wait(m, 2)</code>. The word is 2, so B sleeps. Word = 2. <strong>System call 1.</strong></li><li><strong>C locks:</strong> the compare-and-swap fails and returns c = 2, so C skips the exchange and calls <code>futex_wait(m, 2)</code> and sleeps. Word = 2. <strong>System call 2.</strong></li><li><strong>A unlocks:</strong> <code>fetch_sub</code> returns 2 (word now 1), which is not 1, so A stores 0 and calls <code>futex_wake(m, 1)</code>, waking B. Word = 0. <strong>System call 3.</strong></li><li><strong>B wakes:</strong> it exchanges in 2 and gets back 0, so it holds the lock. Word = 2, even though only C is still waiting.</li><li><strong>B unlocks:</strong> <code>fetch_sub</code> returns 2, so B stores 0 and wakes C. Word = 0. <strong>System call 4.</strong></li><li><strong>C wakes:</strong> it exchanges in 2, gets back 0, and holds the lock. Word = 2, although nobody is left waiting.</li><li><strong>C unlocks:</strong> <code>fetch_sub</code> returns 2, so C stores 0 and calls <code>futex_wake</code>, which finds no sleeper. Word = 0. <strong>System call 5</strong>, the wasted one.</li><li><strong>Total:</strong> 5 futex calls, 2 waits and 3 wakes. The last wake is unnecessary because a woken thread can't tell whether others still sleep, so it always sets the word to 2. Tracking the exact number of waiters would need a second shared counter and more atomics on every path.</li><li><strong>No contention:</strong> one compare-and-swap to lock and one <code>fetch_sub</code> returning 1 to unlock, so <strong>0</strong> system calls. That is the case the design optimizes.</li></ol>`
+      },
+      {
+        q: `<p>On a server, putting a waiting thread to sleep and waking it again costs 3.2 µs of CPU time in all (two context switches and the futex calls). Lock waits in a service have two kinds: 70% of waits last 0.5 µs, and 30% last 40 µs. Count only the waiting thread's CPU time, and treat a wait as ending the instant the lock is released. Compare the expected CPU time per wait for:</p><ol><li>Always spinning.</li><li>Always sleeping immediately.</li><li>Spinning for up to 3.2 µs, then sleeping.</li><li>An oracle that knows each wait's length in advance.</li></ol><p>How far is the third strategy from the oracle, and what is its worst case?</p>`,
+        a: `<ol><li><strong>Always spin:</strong> 0.7 &times; 0.5 + 0.3 &times; 40 = 0.35 + 12 = <strong>12.35 µs</strong>.</li><li><strong>Always sleep:</strong> every wait costs the block and wake, <strong>3.2 µs</strong>, even the short ones.</li><li><strong>Spin, then sleep:</strong> a short wait ends after 0.5 µs of spinning. A long wait spins the full 3.2 µs and then sleeps for another 3.2 µs, 6.4 µs in all. Expected = 0.7 &times; 0.5 + 0.3 &times; 6.4 = 0.35 + 1.92 = <strong>2.27 µs</strong>.</li><li><strong>Oracle:</strong> spin on short waits (0.5 µs) and sleep at once on long ones (3.2 µs). Expected = 0.35 + 0.3 &times; 3.2 = 0.35 + 0.96 = <strong>1.31 µs</strong>.</li><li>The third strategy costs 2.27 / 1.31 &asymp; <strong>1.73 times</strong> the oracle here. Its worst case is a wait just longer than 3.2 µs: it spends 3.2 µs spinning and 3.2 µs sleeping, 6.4 µs, where the oracle would spend 3.2 µs, a ratio of <strong>2</strong>. No strategy that can't see the future does better than 2 in the worst case.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>On one 56-core Sapphire Rapids socket, a lock protects a 100 ns critical section. Compare a ticket lock and an MCS lock with 4 and with 56 threads, each on its own core and always waiting for the lock. Assume:</p><ul><li>A cache-line transfer between cores takes 70 ns, and transfers of the same line are served one at a time.</li><li>Ticket lock: the release's store takes one transfer and invalidates every waiter's copy. The waiters' re-reads are then served one at a time in random order, and the handoff completes when the next owner's re-read is served.</li><li>MCS lock: a handoff takes 2 transfers.</li><li>Throughput is one critical section plus one handoff per acquisition.</li></ul><p>Find each lock's acquisition rate in both cases and explain the difference.</p>`,
+        a: `<ol><li><strong>Ticket handoff with <em>N</em> waiters:</strong> 1 transfer for the release, then the next owner's re-read is equally likely to be any of positions 1 to <em>N</em>, so it waits (<em>N</em> + 1) / 2 transfers on average. Handoff = 1 + (<em>N</em> + 1) / 2 transfers.</li><li><strong>4 threads (3 waiters):</strong> 1 + 2 = 3 transfers = 210 ns, so the ticket lock runs at 1 / (100 + 210) ns &asymp; <strong>3.23 million</strong> per second. MCS: 2 &times; 70 = 140 ns, so 1 / 240 ns &asymp; <strong>4.17 million</strong> per second.</li><li><strong>56 threads (55 waiters):</strong> 1 + 28 = 29 transfers = 2,030 ns, so the ticket lock runs at 1 / 2,130 ns &asymp; <strong>469,000</strong> per second. MCS is unchanged at <strong>4.17 million</strong>.</li><li>The ticket lock's handoff grows linearly with the waiters because every waiter spins on the same line, and the release makes all of them re-read it, even though only one of them can use the news. MCS waiters spin on separate lines, so a release touches exactly one of them. At 56 threads the ticket lock is about 8.9 times slower, which is why Linux replaced ticket spinlocks with the MCS-based qspinlock.</li><li>Assumed and not modeled: the protected data's own misses, which add the same cost to both locks, and the pending-bit fast path qspinlock adds for light contention.</li></ol>`
+      },
+      {
+        q: `<p>A Linux system has one core. Three <code>SCHED_FIFO</code> threads share it: L at priority 10, M at priority 50, and H at priority 90. L takes a default (non-PI) <code>pthread_mutex_t</code> for a critical section that needs 30 µs more of CPU time. H then wakes and blocks on the mutex. Immediately afterward, M wakes with 200 ms of CPU-bound work that never touches the mutex. Real-time throttling is off. How long does H wait, and how does <code>PTHREAD_PRIO_INHERIT</code> change it?</p>`,
+        a: `<ol><li>When H blocks, L is the highest-priority runnable thread and resumes its critical section. Then M wakes at priority 50, above L's 10, and preempts L.</li><li>M runs its full 200 ms, since nothing higher is runnable: H is blocked on the mutex and L has lower priority. Only then does L finish its remaining 30 µs and unlock, which wakes H.</li><li>H waits about 200 ms + 30 µs &asymp; <strong>200 ms</strong>, almost all of it caused by a thread that never touched the mutex. That is priority inversion, the bug that reset Mars Pathfinder.</li><li><strong>With <code>PTHREAD_PRIO_INHERIT</code></strong>, glibc locks the mutex with a PI futex. When H blocks, the kernel boosts L to priority 90, so M's wakeup doesn't preempt L. L finishes in 30 µs and unlocks, the kernel drops L back to 10 and hands the mutex to H, and H waits about <strong>30 µs</strong> plus the switch.</li><li>On more cores the inversion needs more medium-priority threads, one busy thread per core that could otherwise run L, but it is the same bug.</li></ol>`
+      },
+      {
+        q: `<p>A Linux network driver keeps a statistics structure protected by a <code>spinlock_t</code>. Its <code>ioctl</code> path takes the lock with <code>spin_lock</code> to read the statistics, and its receive interrupt handler takes it with <code>spin_lock</code> to update them. The kernel is not PREEMPT_RT. Under heavy traffic, a CPU occasionally hangs with its interrupts disabled. Why, why does it never happen when the interrupt lands on a different CPU, and what is the fix?</p>`,
+        a: `<ol><li>The <code>ioctl</code> path takes the lock with interrupts still enabled. If the receive interrupt arrives on that same CPU while the lock is held, the handler runs on top of the <code>ioctl</code> code and spins on the lock.</li><li>The holder is the code the handler interrupted. It can't run again until the handler returns, and the handler can't return until the holder releases. The CPU spins forever, with interrupts disabled because it is inside a handler.</li><li>If the interrupt lands on a different CPU, the handler spins there while the holder keeps running on its own CPU, releases the lock, and lets the handler proceed. The deadlock needs both on one CPU.</li><li><strong>Fix:</strong> take the lock in the <code>ioctl</code> path with <code>spin_lock_irqsave</code> (and <code>spin_unlock_irqrestore</code>), so the interrupt can't arrive on that CPU during the critical section. The handler can keep plain <code>spin_lock</code>, since Linux runs hard interrupt handlers with local interrupts disabled.</li><li>lockdep would have reported it on the first run in which the lock was taken in both contexts, as an inconsistent lock state between hard-interrupt and interrupts-enabled use, without waiting for the race.</li></ol>`
+      },
+      {
+        q: `<p>A key-value server runs at 3.0 GHz with one thread per core. With 4 threads, it serves 2.0 million operations per second at an IPC of 1.1 per core. With 8 threads it serves only 1.6 million per second, yet its IPC per core rises to 1.6. Assume that with 4 threads the server's one global lock is almost never contended, and that the useful instructions per operation don't change. What fraction of the instructions at 8 threads do no useful work, and what happened? Which metric should the evaluation report instead?</p>`,
+        a: `<ol><li><strong>4 threads:</strong> 4 &times; 3.0 &times; 10<sup>9</sup> &times; 1.1 = 13.2 &times; 10<sup>9</sup> instructions per second, divided by 2.0 &times; 10<sup>6</sup> operations, is <strong>6,600</strong> instructions per operation. With no contention, all of them are useful.</li><li><strong>8 threads:</strong> 8 &times; 3.0 &times; 10<sup>9</sup> &times; 1.6 = 38.4 &times; 10<sup>9</sup> instructions per second, divided by 1.6 &times; 10<sup>6</sup>, is <strong>24,000</strong> instructions per operation.</li><li>Wasted: (24,000 &minus; 6,600) / 24,000 = <strong>72.5%</strong> of the instructions.</li><li>The global lock is now contended, and waiters spin. A spin loop is a load that hits in the L1, a compare, and a branch that predicts well, so it retires at a high IPC while doing nothing, and it raises the average IPC even as throughput falls.</li><li>Report operations per second, or cycles per operation, which goes from 3.0 &times; 10<sup>9</sup> &times; 4 / 2.0 &times; 10<sup>6</sup> = 6,000 to 3.0 &times; 10<sup>9</sup> &times; 8 / 1.6 &times; 10<sup>6</sup> = 15,000 cycles of core time per operation. Alameldeen and Wood make this point for simulation studies: IPC is not a valid comparison when threads can spin. Fixes on the software side are a <code>pause</code> in the spin loop, a queue or sleeping lock, or splitting the global lock.</li></ol>`
       }
     ]
   }
