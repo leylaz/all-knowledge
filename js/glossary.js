@@ -45,6 +45,8 @@ const GLOSSARY = {
   "demand paging": { def: "Mapping pages as not present and loading each one only when its first access faults.", page: "demand-paging/backing" },
   "precise exception": { def: "An exception taken so that every older instruction has completed and neither the faulting instruction nor any younger one has changed architectural state, so the handler can restart from one PC.", page: "exceptions/out-order-core" },
   "trap frame": { def: "The user thread's registers, PC, and status, saved on the kernel stack at every kernel entry (struct pt_regs on Linux).", page: "exceptions/trap-frame" },
+  "hypervisor": { def: "The software that owns the real CPUs, memory, and devices and runs guest operating systems in virtual machines. Also called a virtual machine monitor (VMM).", page: "virtualization/what-vm" },
+  "VM exit": { def: "A transfer from a running guest to the hypervisor, for an event the hypervisor asked to handle. It saves guest state, loads host state, and costs far more than a system call.", page: "virtualization/vm-exits" },
   "file descriptor": { def: "A small integer indexing the process's descriptor table. Each entry points at an open-file entry holding the offset, which fork and dup2 share.", page: "file-syscalls/descriptors" },
   "zombie": { def: "A process that has exited but not yet been reaped by its parent's wait. It keeps only its PID, exit status, and kernel task structure.", page: "process-syscalls/exit-wait" },
   "TSO": { def: "Total store order, x86's memory model: a load may pass an earlier store to a different address; nothing else is reordered.", page: "consistency/tso" },
