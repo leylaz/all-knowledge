@@ -175,15 +175,54 @@ section({
 <p>Because exceptions are taken in commit order, the oldest one always wins, even if a younger instruction detected its fault first. An interrupt has no faulting instruction, so the core chooses a boundary: it flushes everything uncommitted and saves the PC of the oldest uncommitted instruction as the resume point. Flushing keeps interrupt latency short but throws away the work in flight, which in a 512-entry ROB (Intel's Golden Cove) can be hundreds of instructions that are fetched again after the handler. See <a href="#/rob">Reorder buffer</a>.</p>
 
 <h3 id="sec-hardware-sequence">The Hardware Sequence</h3>
-<p>Once the exception is taken, the core runs a fixed sequence with no software involved. RISC-V shows it most plainly. For an exception taken from user mode into supervisor mode:</p>
+<p>Once the exception is taken, the core runs a fixed sequence with no software involved. RISC-V shows it most plainly. In an out-of-order core, all of it happens when the excepting instruction reaches the ROB head: the flush removes every younger instruction, the register writes below happen together, and the front end is redirected, so no instruction ever sees half of the change. No step writes memory, so the sequence itself can't fault. For an exception taken from user mode into supervisor mode:</p>
 <ol>
-<li><strong>Save the resume PC</strong> in <code>sepc</code>: the faulting instruction for a fault, the <code>ecall</code> itself for a system call, or the oldest uncommitted instruction for an interrupt.</li>
-<li><strong>Record the cause</strong> in <code>scause</code>, an interrupt bit plus a code (13 for a load page fault, 8 for an <code>ecall</code> from user mode), and the detail in <code>stval</code>: the faulting virtual address, or the bits of an illegal instruction.</li>
-<li><strong>Save the old mode and interrupt state</strong> in <code>sstatus</code>. SPP takes the previous privilege, SPIE takes the old interrupt-enable bit, and SIE is cleared, so the handler starts with interrupts off.</li>
-<li><strong>Raise privilege</strong> to supervisor mode.</li>
-<li><strong>Jump</strong> to the address in <code>stvec</code>, which the kernel set at boot. In vectored mode, interrupts go to the base plus 4 × the cause code instead.</li>
+<li><strong>Pick the target mode.</strong> By default every trap goes to machine mode. Machine-mode firmware (OpenSBI on Linux systems) sets bits in <code>medeleg</code> (one bit per exception code) and <code>mideleg</code> (one bit per interrupt) to hand chosen traps to supervisor mode instead. Linux has page faults, illegal instructions, breakpoints, and user <code>ecall</code>s delegated, so they reach the kernel directly and never pass through firmware. A delegated trap uses the <code>s</code>-prefixed registers below. An undelegated one runs the same steps with <code>mepc</code>, <code>mcause</code>, <code>mtval</code>, <code>mstatus</code>.MPP and MPIE, and <code>mtvec</code>.</li>
+<li><strong>Save the resume PC.</strong> The virtual address of the instruction to resume at is written into <code>sepc</code>:
+<ul>
+<li><strong>Fault:</strong> the faulting instruction itself, so returning re-executes it.</li>
+<li><strong>System call:</strong> the <code>ecall</code> itself, not the next instruction. The kernel adds 4 before returning.</li>
+<li><strong>Interrupt:</strong> the oldest uncommitted instruction, which hasn't run yet.</li>
+</ul></li>
+<li><strong>Record the cause.</strong> <code>scause</code> gets two fields:
+<ul>
+<li><strong>The top bit (bit 63 on RV64):</strong> 1 for an interrupt, 0 for a synchronous exception.</li>
+<li><strong>The exception code in the low bits:</strong> for exceptions, 2 for an illegal instruction, 8 for an <code>ecall</code> from user mode, and 12, 13, and 15 for instruction, load, and store page faults. For interrupts, 1 for a software interrupt (an IPI), 5 for the timer, and 9 for an external interrupt from the PLIC.</li>
+</ul>
+<code>stval</code> gets the detail the handler needs: the faulting virtual address for a page fault, access fault, or misaligned access, the instruction bits for an illegal instruction (or 0, which the spec allows), and 0 for an <code>ecall</code> or an interrupt.</li>
+<li><strong>Save the old mode and interrupt state.</strong> Three bits of <code>sstatus</code> change:
+<ul>
+<li><strong>SPP</strong> takes the mode the trap came from: 0 for user, 1 for supervisor. This is the only record of where to return, because software can't read the mode itself.</li>
+<li><strong>SPIE</strong> takes the old value of SIE.</li>
+<li><strong>SIE</strong> is cleared. In supervisor mode, SIE gates every supervisor interrupt, so the handler starts with interrupts masked. It must copy <code>sepc</code>, <code>scause</code>, and <code>stval</code> to memory before setting SIE again, because a nested trap would overwrite them. In user mode SIE is ignored and supervisor interrupts always get through, which is how the timer preempts user code.</li>
+</ul></li>
+<li><strong>Raise privilege to supervisor mode.</strong> The core holds the current mode in a hidden 2-bit register (0 user, 1 supervisor, 3 machine), and this step writes 1 into it. Every privilege check in the pipeline reads that register, so from the first handler instruction onward four things change:
+<ul>
+<li><strong>Supervisor CSRs become accessible.</strong> Bits 9:8 of a CSR's 12-bit address give the lowest mode allowed to access it. <code>sstatus</code> (0x100), <code>sepc</code> (0x141), <code>satp</code> (0x180), and the other supervisor CSRs have 01 there, so <code>csrr</code> and <code>csrw</code> on them no longer raise an illegal instruction exception.</li>
+<li><strong>Privileged instructions become legal:</strong> <code>sret</code>, <code>sfence.vma</code>, and <code>wfi</code>. Machine mode can still make <code>sret</code> and <code>wfi</code> trap through <code>mstatus</code>.TSR and TW, which a hypervisor uses.</li>
+<li><strong>The page permission check flips.</strong> The page table doesn't change, since <code>satp</code> still points at the same root, but the U bit of each PTE is now read the other way. Pages with U = 0, the kernel's, become accessible. Pages with U = 1, the user's, now fault on a load or store unless <code>sstatus</code>.SUM is set, and always fault on an instruction fetch. Linux keeps SUM clear except inside <code>copy_from_user</code> and <code>copy_to_user</code>, so a stray kernel dereference of a user pointer faults instead of reading whatever the user put there.</li>
+<li><strong>Interrupt gating changes:</strong> supervisor interrupts are now taken only while SIE is 1, and the previous step just cleared it.</li>
+</ul></li>
+<li><strong>Jump to the handler.</strong> <code>stvec</code>, which the kernel wrote at boot, holds a 4-byte-aligned BASE plus a 2-bit MODE in its low bits. The PC is set to:
+<ul>
+<li><strong>Direct mode (0):</strong> BASE, for every trap. Linux uses this, with BASE pointing at <code>handle_exception</code>, which dispatches on <code>scause</code> in software.</li>
+<li><strong>Vectored mode (1):</strong> BASE for synchronous exceptions, and BASE + 4 × the cause code for interrupts, so a timer interrupt (code 5) lands at BASE + 20.</li>
+</ul>
+Fetch restarts at that address in supervisor mode, translated through the same page table. The handler sits on a kernel page (U = 0, X = 1), so this fetch passes a check that the same fetch from user mode would fail.</li>
 </ol>
-<p>RISC-V saves no general registers and doesn't switch stacks. x86 and ARM do some of that in hardware:</p>
+<p>For example, a user program on an RV64 Linux system with Sv39 paging loads from a heap page it has never touched, so no PTE exists yet. The load is <code>ld a0, 8(a1)</code> at PC 0x1_0a3c, with a1 = 0x15_5556_1000. When the load reaches the ROB head, the core flushes and changes this state:</p>
+<div class="tbl"><table>
+<tr><th>State</th><th>Before (user code running)</th><th>After (first handler instruction)</th></tr>
+<tr><td>Mode</td><td>User (0)</td><td>Supervisor (1)</td></tr>
+<tr><td>PC</td><td>0x1_0a3c</td><td>0xffff_ffff_8000_3a40 (<code>handle_exception</code>, from <code>stvec</code>)</td></tr>
+<tr><td><code>sepc</code></td><td>Left over from the last trap</td><td>0x1_0a3c</td></tr>
+<tr><td><code>scause</code></td><td>Left over from the last trap</td><td>13 (bit 63 is 0: a load page fault)</td></tr>
+<tr><td><code>stval</code></td><td>Left over from the last trap</td><td>0x15_5556_1008</td></tr>
+<tr><td><code>sstatus</code> SPP, SPIE, SIE</td><td>0, 1, 1 (the last <code>sret</code> set them)</td><td>0, 1, 0</td></tr>
+<tr><td>a0, a1, sp, and the other general registers</td><td>User values</td><td>Unchanged</td></tr>
+<tr><td><code>satp</code></td><td>This process's page table</td><td>Unchanged</td></tr>
+</table></div>
+<p>The last two rows matter most: RISC-V saves no general registers and doesn't switch stacks, so the handler starts with the user's sp and has to find a kernel stack before it can save anything (see <a href="#/exceptions/trap-frame">The Handler and the Trap Frame</a>). x86 and ARM do some of that in hardware:</p>
 <div class="tbl"><table>
 <tr><th>Step</th><th>x86-64 (interrupt or exception from ring 3)</th><th>ARMv8-A (EL0 to EL1)</th><th>RISC-V (user to supervisor)</th></tr>
 <tr><td>Resume PC</td><td>Pushed on the kernel stack (RIP)</td><td>ELR_EL1</td><td><code>sepc</code></td></tr>
