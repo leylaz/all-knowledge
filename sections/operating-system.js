@@ -5,7 +5,7 @@
 section({
   id: "os",
   name: "Operating System",
-  cap: "Faults, traps, kernel entry, context switching, scheduling, demand paging, page replacement, copy-on-write, mmap, file and process system calls",
+  cap: "Privilege levels, faults, traps, kernel entry, context switching, scheduling, demand paging, page replacement, copy-on-write, mmap, file and process system calls",
   sections: [
     { id: "what-os", label: "What an Operating System Is" },
     { id: "what-it-does", label: "What It Does" },
@@ -133,6 +133,167 @@ section({
   }
 }, [
 {
+  id: "privilege-levels",
+  region: "os",
+  title: "Privilege Levels",
+  sections: [
+    { id: "why-levels", label: "Why Levels Exist" },
+    { id: "ladder", label: "The Ladder on Three ISAs" },
+    { id: "user", label: "User Level: Applications and Isolated Services" },
+    { id: "kernel", label: "Kernel Level: Sharing One Machine" },
+    { id: "hypervisor", label: "Hypervisor Level: Sharing Between Kernels" },
+    { id: "firmware", label: "Firmware Level: The Platform and the Secure World" },
+    { id: "unused-rings", label: "Rings 1 and 2" },
+    { id: "beyond-ladder", label: "Beyond the Ladder" },
+    { id: "cost", label: "The Cost of Crossing" }
+  ],
+  body: `
+<p>A privilege level is a few bits of core state that decide what the running code may do. Each level exists because some piece of software has to be protected from the code below it, and has to control something the code below it can't be trusted with. This page goes up the ladder and asks, for each level, what it protects and what runs there in practice. How a trap moves between levels is in <a href="#/exceptions/trap-target">Which Mode Handles the Trap</a>. Main sources: Hennessy and Patterson (chapter 2 on virtual machines and protection), the Intel SDM volume 3, the Arm Architecture Reference Manual for A-profile, the RISC-V privileged specification, and Swift et al., "Improving the Reliability of Commodity Operating Systems" (SOSP 2003).</p>
+
+<h3 id="sec-why-levels">Why Levels Exist</h3>
+<p>A level is useful only if the hardware enforces three things for it:</p>
+<ul>
+<li><strong>Instructions:</strong> some instructions fault below a given level, such as loading the page-table base, masking interrupts, or configuring the levels themselves.</li>
+<li><strong>Memory:</strong> page-table permissions, second-stage tables, and physical memory protection decide which addresses a level can reach.</li>
+<li><strong>Control transfer:</strong> code can enter a higher level only through a trap to an entry point that level chose, and it gets back only through a return instruction.</li>
+</ul>
+<p>Together these make a higher level's code and data safe from everything below it, which is what makes it possible to trust it with a shared resource. Every level up the ladder exists for the same reason: there is something more than one lower-level program shares, and someone has to arbitrate it. Processes share a machine, so the kernel arbitrates. Kernels share a machine in a cloud, so the hypervisor arbitrates. Everything shares the platform itself (power, flash, the boot chain, and on Arm the secure memory), so the firmware arbitrates.</p>
+
+<h3 id="sec-ladder">The Ladder on Three ISAs</h3>
+<div class="tbl"><table>
+<tr><th>Level</th><th>x86-64</th><th>Arm64</th><th>RISC-V</th><th>Typical software</th></tr>
+<tr><td>User</td><td>Ring 3</td><td>EL0</td><td>U</td><td>Applications, browser renderers, user-space drivers and file systems</td></tr>
+<tr><td>Kernel</td><td>Ring 0</td><td>EL1</td><td>S (VS for a guest)</td><td>Linux, Windows, XNU, a guest kernel</td></tr>
+<tr><td>Hypervisor</td><td>VMX root operation</td><td>EL2</td><td>HS (hypervisor extension)</td><td>KVM, Xen, Hyper-V, pKVM</td></tr>
+<tr><td>Firmware</td><td>System Management Mode</td><td>EL3</td><td>M</td><td>UEFI SMM handlers, Trusted Firmware-A, OpenSBI</td></tr>
+</table></div>
+<p>The hardware enforces the ladder, but software decides which rungs it uses. A phone without virtualization runs nothing at EL2, an embedded RISC-V microcontroller may have only M and U modes, and many x86 systems have no hypervisor at all. The levels below are described by what they are for, not by which ISA names them.</p>
+
+<h3 id="sec-user">User Level: Applications and Isolated Services</h3>
+<p>The user level is where code runs when nothing about it needs to be trusted. It can compute and touch its own memory, and everything else (files, the network, devices, and other processes) goes through a system call. That is the point: a bug or an attacker here can damage only the one process, and the kernel cleans up after it exits.</p>
+<p>Because user level is the safe place for a crash, systems keep moving code down to it:</p>
+<ul>
+<li><strong>Sandboxed parts of applications:</strong> Chrome runs each site's renderer in its own user process and further restricts it with seccomp-bpf, which filters the system calls it may make. A renderer exploit then still needs a second bug to escape.</li>
+<li><strong>Microkernel services:</strong> seL4, QNX, and MINIX 3 run drivers, file systems, and the network stack as user processes that talk through IPC. A crashed driver is restarted instead of taking the machine down.</li>
+<li><strong>User-space file systems:</strong> FUSE lets sshfs or a cloud-storage client be an ordinary program, with the kernel forwarding requests to it.</li>
+<li><strong>User-space drivers for speed:</strong> DPDK (network) and SPDK (storage) map a device's registers into a process through VFIO and poll it, so an I/O costs no system call and no interrupt. The IOMMU keeps the device's DMA inside that process's memory, which is what makes it safe to hand a device to user code.</li>
+</ul>
+
+<h3 id="sec-kernel">Kernel Level: Sharing One Machine</h3>
+<p>The kernel level exists to multiplex the machine between processes that don't trust each other. It is needed for exactly the operations that would let one process reach another:</p>
+<ul>
+<li><strong>Address translation:</strong> only the kernel writes page tables and the page-table base (CR3, TTBR0_EL1, <code>satp</code>). If user code could, it could map any physical page, including another process's.</li>
+<li><strong>Interrupts and the timer:</strong> only the kernel can mask interrupts and program the timer, which is what lets it take the core back from a process that never yields (see <a href="#/context-switch">Context Switching</a>).</li>
+<li><strong>Devices and DMA:</strong> a device that can DMA can write any physical address, so programming one is as powerful as writing page tables. Without an IOMMU it must stay in the kernel.</li>
+<li><strong>Naming and permissions:</strong> files, sockets, and process IDs are kernel objects, so the kernel can check every access against the caller's identity.</li>
+</ul>
+<p>The catch is that everything at kernel level is trusted equally, and a monolithic kernel puts a lot there. Linux runs every driver in ring 0, and drivers are most of its code. Swift et al. found that drivers caused 85% of recently reported Windows XP failures. Because a driver bug is a kernel bug, the trend has been to shrink what runs at this level: eBPF lets user programs load code into the kernel only after a verifier proves it safe, and Windows moved most of its display driver out of the kernel in Vista, so a GPU driver crash restarts the driver instead of the machine.</p>
+
+<h3 id="sec-hypervisor">Hypervisor Level: Sharing Between Kernels</h3>
+<p>A kernel assumes it owns the page tables, the interrupt controller, and physical memory. To run several kernels on one machine, something above them has to give each one the illusion and keep them apart. That is the hypervisor's first use (see <a href="#/virtualization">Virtualization</a>):</p>
+<ul>
+<li><strong>Cloud servers:</strong> AWS's Nitro hypervisor (based on KVM), Azure's Hyper-V, and Google's KVM split one server among tenants who must not see each other. The second-stage page table (EPT, Arm stage 2, RISC-V G-stage) lets each guest kernel write its own page tables freely, while the hypervisor alone decides which physical memory each guest can reach.</li>
+<li><strong>Consolidation and migration:</strong> a guest is a set of memory pages and register state, so it can be paused, snapshotted, and moved to another host while running.</li>
+</ul>
+<p>The second use matters more on clients and phones: the hypervisor protects parts of a single system from its own kernel. The kernel can't change second-stage permissions, so a hypervisor can keep memory away from a kernel even after an attacker takes the kernel over:</p>
+<ul>
+<li><strong>Windows virtualization-based security (VBS):</strong> Hyper-V runs the normal Windows kernel in Virtual Trust Level 0 and a small secure kernel in VTL 1. Credential Guard keeps password hashes and Kerberos tickets in a VTL 1 process, so an attacker with ring 0 in VTL 0 still can't read them. Hypervisor-protected code integrity (HVCI) uses the second-stage table to make kernel pages executable only after the secure kernel has checked their signature, so injected kernel code can't run.</li>
+<li><strong>Android pKVM:</strong> on recent Pixel phones, a small hypervisor at EL2 removes the Android kernel's access to the memory of protected VMs. Those VMs run sensitive work, such as Android's isolated compilation of system code, that stays private and unmodified even if the Android kernel is compromised.</li>
+</ul>
+
+<h3 id="sec-firmware">Firmware Level: The Platform and the Secure World</h3>
+<p>The firmware level is for code that has to work no matter which OS runs, or has to be trusted even when the OS and the hypervisor aren't. It boots the machine, and then stays resident for jobs that are specific to the board:</p>
+<ul>
+<li><strong>x86 System Management Mode:</strong>
+<ul>
+<li><strong>Protecting the firmware flash:</strong> the chipset can allow writes to the SPI flash only from SMM, so malware in ring 0 can't rewrite the firmware. UEFI variable writes go through an SMM handler for the same reason.</li>
+<li><strong>Platform events and errors:</strong> ACPI events from the board, and "firmware-first" handling of memory errors, where firmware logs and decodes a machine check before the OS sees it.</li>
+<li><strong>Legacy emulation:</strong> making a USB keyboard look like a PS/2 one to a boot loader or an old OS.</li>
+</ul></li>
+<li><strong>Arm EL3 (Trusted Firmware-A):</strong>
+<ul>
+<li><strong>Power control through PSCI:</strong> turning cores on and off and resetting the system, so one Linux image can boot on many boards.</li>
+<li><strong>The world switch:</strong> EL3 moves the core between the Non-secure world and the Secure world of TrustZone, whose memory the Non-secure world can't read at any level. A trusted OS there (OP-TEE, Trusty, or a vendor TEE) holds keys, matches fingerprints, and runs the Widevine L1 DRM path, so a fully compromised Android kernel still can't extract them.</li>
+</ul></li>
+<li><strong>RISC-V machine mode (OpenSBI):</strong>
+<ul>
+<li><strong>Services the kernel can't reach:</strong> the timer on cores without the Sstc extension, IPIs, starting and stopping harts, and system reset, through SBI calls.</li>
+<li><strong>Emulating what the hardware lacks:</strong> misaligned accesses and missing CSRs, so one kernel runs on cores that differ.</li>
+<li><strong>Enforcing isolation with PMP:</strong> machine mode is the only mode that programs physical memory protection, which is what the Keystone enclave framework builds on.</li>
+</ul></li>
+</ul>
+<p>The price of this level is that it is invisible to the OS. Time spent in SMM is stolen from whatever was running, and on most platforms every core enters SMM together, so a long SMI handler stalls the whole machine. Firmware is also hard to update and audit, and bugs in SMM handlers have been some of the most serious x86 vulnerabilities, because code at this level can read and write all memory.</p>
+
+<h3 id="sec-unused-rings">Rings 1 and 2</h3>
+<p>The ladder doesn't need every level the hardware offers. x86 inherited four rings from the idea in Multics, which had eight, but almost nothing uses rings 1 and 2:</p>
+<ul>
+<li><strong>Paging sees only two levels:</strong> a page is either user or supervisor, and code in rings 0, 1, and 2 all count as supervisor, so a ring-1 driver could still overwrite kernel memory.</li>
+<li><strong>Portability:</strong> most other ISAs had two levels below the hypervisor, and Linux and Windows run on many of them.</li>
+<li><strong>Every crossing costs a trap:</strong> a ring-1 driver would pay a privilege switch on each call into the ring-0 kernel.</li>
+</ul>
+<p>They did find uses. OS/2 ran device-access code in ring 2. Before VT-x, VMware's binary translator and 32-bit Xen paravirtualized guests ran the guest kernel in ring 1, so the hypervisor in ring 0 stayed protected from it. On x86-64 segment limits are gone, so 64-bit Xen guests run their kernels in ring 3 instead, and hardware virtualization later replaced these tricks.</p>
+
+<h3 id="sec-beyond-ladder">Beyond the Ladder</h3>
+<p>The ladder assumes each level trusts everything above it. Newer hardware breaks that assumption, because a cloud tenant doesn't want to trust the cloud's hypervisor:</p>
+<ul>
+<li><strong>Intel SGX:</strong> an enclave runs at user level, but its memory is encrypted and the core blocks the kernel, the hypervisor, and SMM from reading it. Intel has dropped it from client cores but kept it on Xeons.</li>
+<li><strong>Confidential VMs:</strong> AMD SEV-SNP, Intel TDX, and Arm CCA encrypt a guest's memory and check its integrity in hardware, so the hypervisor still schedules the guest but can't read or change its memory. Each adds a small trusted component the hypervisor can't touch: AMD's security processor, Intel's TDX module running in a new SEAM mode, and on Arm a Realm Management Monitor in a new Realm world.</li>
+<li><strong>Separate processors:</strong> the Intel Management Engine and AMD's Platform Security Processor are separate cores on the chip with their own firmware, sometimes called "ring −3". They are not a privilege level of the main core, but they can reach its memory.</li>
+</ul>
+<p>So "more privileged" now has two meanings: what a level controls (scheduling, memory allocation) and what it can see. Confidential computing gives the hypervisor the first without the second.</p>
+
+<h3 id="sec-cost">The Cost of Crossing</h3>
+<p>Each crossing flushes the pipeline and runs code with colder caches and predictors, and the cost grows with the distance:</p>
+<div class="tbl"><table>
+<tr><th>Crossing</th><th>Typical round trip</th><th>Main costs</th></tr>
+<tr><td>User to kernel (system call)</td><td>About 100 ns, several hundred with Meltdown mitigations on older cores</td><td>Pipeline flush, entry and exit code, page-table switch with KPTI</td></tr>
+<tr><td>Guest to hypervisor (VM exit)</td><td>About 1 µs, more if the host kernel or user-space emulator gets involved</td><td>Saving and loading the guest's state in the VMCS, the exit handler</td></tr>
+<tr><td>Non-secure to Secure world (Arm <code>smc</code> to a TEE)</td><td>A few µs</td><td>Saving the Non-secure context in EL3, the trusted OS's own entry</td></tr>
+<tr><td>Anything to SMM (SMI)</td><td>Tens to hundreds of µs, on every core at once</td><td>Saving all cores' state to SMRAM, rendezvous of all cores, the handler</td></tr>
+</table></div>
+<p>This is why every design tries to keep the common case on one level: the vDSO answers <code>clock_gettime</code> without entering the kernel, posted interrupts deliver a device interrupt to a guest without a VM exit, and the Sstc extension lets a RISC-V kernel program its own timer without an SBI call.</p>
+`,
+  practice: {
+    guided: [
+      {
+        q: `<p>An nginx worker on a 3.0 GHz Ice Lake server core makes 250,000 system calls per second. Each round trip costs 70 ns without kernel page-table isolation (KPTI) and 180 ns with it. What fraction of the core goes to crossing in each case?</p>`,
+        a: `<ol><li>Without KPTI: 250,000 × 70 ns = 17.5 ms per second, so <strong>1.75%</strong> of the core.</li><li>With KPTI: 250,000 × 180 ns = 45 ms per second, so <strong>4.5%</strong>.</li><li>KPTI costs 2.75 points of the core here. A worker that made ten times as many calls would lose a quarter of the core with KPTI, which is why servers batch calls (<code>io_uring</code>, <code>sendmmsg</code>) and why Ice Lake, which isn't vulnerable to Meltdown, runs without KPTI.</li></ol>`
+      },
+      {
+        q: `<p>A storage server reads from a Samsung PM1733 NVMe SSD at 1.5 million 4 KB reads per second. Through the kernel, each read costs one system call (200 ns) and one completion interrupt (600 ns of entry, handling, and exit). SPDK instead runs the driver in user space and polls the completion queue on one dedicated core. How many cores does the kernel path spend on crossing alone, and when is SPDK's choice worse?</p>`,
+        a: `<ol><li>Crossing cost per read = 200 + 600 = 800 ns.</li><li>At 1.5 × 10<sup>6</sup> reads per second, that is 1.5 × 10<sup>6</sup> × 800 ns = 1.2 s of CPU time per second, so <strong>1.2 cores</strong> spent only on entering and leaving the kernel.</li><li>SPDK spends <strong>exactly 1 core</strong>, always, because the polling loop runs whether or not I/O arrives.</li><li>At full load SPDK wins by 0.2 cores, and it also cuts latency because no interrupt is taken. At 10% load, the kernel path costs only 0.12 cores while SPDK still burns 1, so <strong>polling is worse at low or bursty load</strong>. That is why the kernel itself switches to polling only under high load (NAPI for networks, <code>io_uring</code>'s polled mode for storage).</li></ol>`
+      },
+      {
+        q: `<p>A motor controller on an x86 industrial PC runs a control loop every 100 µs. Reading MSR_SMI_COUNT twice, an hour apart, gives a difference of 3600, and an oscilloscope on a GPIO toggled by the loop shows each SMI stalls the core for 120 µs. SMIs arrive at random times relative to the loop. How many loop deadlines are missed per hour?</p>`,
+        a: `<ol><li>SMIs per second = 3600 / 3600 s = 1.</li><li>A loop iteration misses its deadline if its start time falls inside an SMI. Starts are 100 µs apart, so a 120 µs window at a random offset covers 120 / 100 = <strong>1.2 starts on average</strong>: always at least 1, and 2 when the window begins within the last 20 µs before a start, which happens 20% of the time.</li><li>Missed deadlines per hour = 3600 × 1.2 = <strong>4320</strong>.</li><li>The OS can't mask an SMI or see it, so the fix is in firmware: disable the SMI sources the board doesn't need (legacy USB emulation is a common one), or pick a platform whose vendor certifies short SMIs for real-time use.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>x86 has four rings, but Linux and Windows use only rings 0 and 3. Why, and what does that cost a design that wants to isolate drivers from the core kernel?</p>`,
+        a: `<ul><li><strong>Paging distinguishes only two levels.</strong> Code in rings 0, 1, and 2 all count as supervisor, so a driver in ring 1 could still write kernel pages, and the extra ring buys no memory isolation.</li><li><strong>Portability.</strong> The same kernels run on ISAs with two levels below the hypervisor, so their design assumes two.</li><li><strong>The cost for driver isolation:</strong> a kernel that wants it has to move drivers all the way to ring 3, as microkernels do, and give each its own address space. Every driver call then becomes an IPC with two privilege crossings and an address-space switch. Alternatives that avoid the switch are software isolation (eBPF's verifier) or hardware domains inside ring 0, such as Intel's protection keys for supervisor pages (PKS).</li></ul>`
+      },
+      {
+        q: `<p>Windows HVCI checks the signature of kernel code in a secure kernel that runs under Hyper-V, rather than in the Windows kernel itself. An attacker already has arbitrary read and write in the Windows kernel. Why does the hypervisor-based check still stop them from running injected code?</p>`,
+        a: `<ul><li><strong>Ring 0 controls the guest page tables, not the second-stage table.</strong> The attacker can mark a page executable in the Windows kernel's own page table, but the core also checks the second-stage (EPT) permissions, which only the hypervisor writes.</li><li><strong>The secure kernel decides those permissions.</strong> A page becomes executable in the second-stage table only after the secure kernel in VTL 1 has verified its signature, and writable and executable are never granted together.</li><li><strong>VTL 1's memory is outside VTL 0's reach.</strong> The attacker can't patch the secure kernel or its policy, because the hypervisor doesn't map that memory into VTL 0 at all.</li><li><strong>What remains:</strong> the attacker can still corrupt kernel data and reuse existing signed code, so HVCI raises the bar rather than ending kernel exploitation.</li></ul>`
+      },
+      {
+        q: `<p>On a RISC-V core without the Sstc extension, Linux programs its next timer tick with an SBI call. Trace one timer tick from the kernel setting the deadline to the kernel's handler running, counting the crossings into machine mode. What does Sstc change, and how does Arm avoid the problem?</p>`,
+        a: `<ol><li><strong>Set the deadline:</strong> the kernel runs <code>ecall</code> (SBI set_timer). It traps to machine mode (crossing 1), OpenSBI writes <code>mtimecmp</code>, clears any pending supervisor timer interrupt, and returns with <code>mret</code>.</li><li><strong>The deadline passes:</strong> the machine timer interrupt fires. It isn't delegated, so it traps to machine mode (crossing 2). OpenSBI masks it and sets STIP, the supervisor timer interrupt pending bit, then returns.</li><li><strong>The kernel's handler runs:</strong> the pending supervisor timer interrupt is delegated, so the core traps into supervisor mode and the kernel handles the tick.</li></ol><p>That is <strong>2 machine-mode round trips per tick</strong>. Sstc adds a <code>stimecmp</code> CSR that supervisor mode writes directly, and the comparison raises the supervisor timer interrupt itself, so the tick needs no machine mode at all. Arm had this from the start: the generic timer's compare registers, such as CNTV_CVAL_EL0, which EL1 can always write, let the kernel set its own deadline, and the interrupt goes through the GIC straight to EL1.</p>`
+      },
+      {
+        q: `<p>A cached-file <code>read</code> on a monolithic kernel costs one system call round trip. On a microkernel where the file system is a user-level server, count the privilege crossings and address-space switches for the same read, and name two techniques that keep microkernels competitive.</p>`,
+        a: `<ul><li><strong>Monolithic:</strong> 2 crossings (enter and exit the kernel), no address-space switch.</li><li><strong>Microkernel:</strong> the application's IPC send enters the kernel (1), the kernel switches to the file server's address space and returns into it (2), the server's reply enters the kernel (3), and the kernel switches back and returns to the application (4). That is <strong>4 crossings and 2 address-space switches</strong>, plus the server's work.</li><li><strong>Fast IPC paths:</strong> seL4 and L4 pass short messages in registers and switch directly to the receiver without going through the scheduler, so one IPC costs a few hundred cycles.</li><li><strong>Tagged TLBs:</strong> address-space IDs (PCID on x86, ASID on Arm and RISC-V) mean the switches don't flush the TLB, so the server's and application's translations survive.</li><li><strong>Shared memory for data:</strong> the file contents go through a page mapped into both, so only the request and reply travel by IPC.</li></ul>`
+      },
+      {
+        q: `<p>Why does an SMI usually stop every core, not just the one that received it, and why can't the kernel mask SMIs the way it masks device interrupts?</p>`,
+        a: `<ul><li><strong>Every core stops so the handler sees a quiet machine.</strong> SMM handlers change platform state, such as flash, memory-controller settings, and error registers, that other cores could be using. If one core sat in SMM while others ran the OS, the OS could see half-updated hardware, or an attacker on another core could change memory the handler is about to trust. Firmware therefore broadcasts the SMI and waits until all cores have entered SMM before it runs the handler.</li><li><strong>The kernel can't mask SMIs by design.</strong> The SMI is a separate pin and message type that IF, the APIC's task priority, and every other OS-visible mask ignore. Its purpose is for firmware to keep control of the platform, such as protecting the flash and handling hardware errors, even against a compromised kernel, so letting the kernel mask it would defeat that.</li><li><strong>Consequence for performance work:</strong> SMI time looks like the core silently ran slower. On Intel cores MSR_SMI_COUNT, shown by <code>turbostat</code>, is the way to see it.</li></ul>`
+      }
+    ]
+  }
+},
+
+{
   id: "exceptions",
   region: "os",
   title: "Faults, Traps, Interrupts, and System Calls",
@@ -164,7 +325,7 @@ section({
 <li><strong>Which instructions run:</strong> writing the page-table base (CR3, TTBR0_EL1, <code>satp</code>), masking interrupts, accessing devices, and returning from an exception all fault in user mode.</li>
 <li><strong>Which pages are reachable:</strong> every page-table entry has a user/supervisor bit, so kernel memory can stay mapped in every address space and still fault on a user access (see <a href="#/virtual-memory/pages-page-tables">Pages and Page Tables</a>).</li>
 </ul>
-<p>x86 has rings 0–3 (kernel in 0, user in 3). ARM has exception levels EL0 (user), EL1 (kernel), EL2 (hypervisor), and EL3 (secure monitor). RISC-V has user, supervisor, and machine modes. No instruction raises privilege directly. Privilege goes up only through an exception entry, which always lands on a handler the kernel installed, and comes down only through an exception-return instruction.</p>
+<p>x86 has rings 0–3 (kernel in 0, user in 3). ARM has exception levels EL0 (user), EL1 (kernel), EL2 (hypervisor), and EL3 (secure monitor). RISC-V has user, supervisor, and machine modes. No instruction raises privilege directly. Privilege goes up only through an exception entry, which always lands on a handler the kernel installed, and comes down only through an exception-return instruction. What each level is used for is in <a href="#/privilege-levels">Privilege Levels</a>.</p>
 
 <h3 id="sec-out-order-core">Making the Exception Precise</h3>
 <p>Hennessy and Patterson call an exception <strong>precise</strong> if the core stops so that every instruction before the faulting one has completed, and neither the faulting instruction nor anything after it has changed architectural state. The handler can then fix the cause and restart from one PC as if nothing had happened. An out-of-order core finishes instructions out of order, so it gets this property from the reorder buffer:</p>
