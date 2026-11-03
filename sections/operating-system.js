@@ -433,7 +433,7 @@ section({
 <ol>
 <li><strong>Read the gate.</strong> Every exception and interrupt arrives with a <strong>vector</strong>, an 8-bit number from 0 to 255 that identifies the event. The core uses it to index the IDT, an array in kernel memory whose 16-byte entries, called <strong>gates</strong>, each describe how to enter the handler for one vector: the handler's address, the code segment it runs in, and which stack to use. The core finds the table through the IDTR, a 10-byte register with two fields:
 <ul>
-<li><strong>Base (64 bits):</strong> the table's linear address, so the core reads gates through paging like any other kernel data.</li>
+<li><strong>Base (64 bits):</strong> the table's linear (virtual) address, so the core translates it through the TLB and page tables like any other kernel load. The IDT page itself is never swapped out: a gate the core cannot read would fault during delivery and escalate to a triple fault.</li>
 <li><strong>Limit (16 bits):</strong> the table's size in bytes minus 1. Linux fills all 256 vectors, so its limit is 256 × 16 − 1 = 0xFFF.</li>
 </ul>
 Each core has its own IDTR, which the kernel loads with the privileged <code>lidt</code>, and Linux points every core at the same table. User code can read it with <code>sidt</code> unless UMIP (CR4 bit 11) is set, and Linux sets UMIP where the core supports it so user code can't learn where the table is. The gate for vector \\(v\\) sits at IDTR.base + 16 × \\(v\\), and if any of its 16 bytes lie past the limit, the core raises #GP instead of reading past the end of the table. A page fault, for example, is vector 14, so the core reads the gate 224 bytes into the table.
