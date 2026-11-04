@@ -7,7 +7,7 @@ section({
   name: "Virtual Memory",
   cap: "Address translation, TLBs, page walks, and virtualization",
   body: `
-<p>Every load, store, and instruction fetch uses a virtual address, and the hardware must translate it before the access can finish. These pages follow that translation from the page table through the TLBs and the page walker, and then through the second layer of translation that a virtual machine adds. What the OS does with the page tables (filling them on demand, evicting pages, mapping files) is in <a href="#/r/os">Operating System</a>.</p>`,
+<p>Every load, store, and instruction fetch uses a virtual address, and the hardware must translate it before the access can finish. These pages follow that translation from the page table through the TLBs and the page walker, and then through the second layer of translation that a virtual machine adds. What the OS does with the page tables (filling them on demand, evicting pages, mapping files) is in <a href="#/r/osmem">OS Memory Management</a>.</p>`,
   practice: {
     guided: [
       {

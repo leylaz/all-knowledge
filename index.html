@@ -70,8 +70,10 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "coh coh coh icx icx icx"
     "proc proc proc proc proc proc"
     "perf perf perf stall stall stall"; }
+.floor[data-tab="os"] { grid-template-areas:
+    "os os os task task task"
+    "osmem osmem osmem io io io"; }
 .floor[data-tab="sw"] { grid-template-areas:
-    "os os os os os os"
     "comp comp comp conc conc conc"; }
 .floor[data-tab="chip"] { grid-template-areas:
     "fab fab fab circ circ circ"
@@ -593,7 +595,10 @@ window.MathJax = {
 <script src="sections/real-processors.js"></script>
 <script src="sections/performance-analysis.js"></script>
 <script src="sections/stalls-bottlenecks.js"></script>
-<script src="sections/operating-system.js"></script>
+<script src="sections/kernel-entry.js"></script>
+<script src="sections/processes-and-threads.js"></script>
+<script src="sections/os-memory-management.js"></script>
+<script src="sections/files-and-io.js"></script>
 <script src="sections/compilers.js"></script>
 <script src="sections/c-concurrency.js"></script>
 <script src="sections/fabrication.js"></script>
