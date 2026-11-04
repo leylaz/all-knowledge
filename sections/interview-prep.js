@@ -2626,7 +2626,11 @@ Q(`<p>Rename reports “store queue full” as its top stall reason, but stores 
 </ul>`, "medium") +
 Q(`<p>Top-Down says a workload is 30% “bad speculation.” You fix the worst branches and the run gets 6% faster, not the 30% you hoped. Why do Top-Down fractions not predict speedup, even when the fix fully removes its category?</p>`,
 `<ul>
-<li><strong>Slots are not time.</strong> Top-Down counts issue slots, not cycles of critical path. A lost slot in a cycle where other slots were used, or where the back end would have stalled anyway, is not a lost cycle.</li>
+<li><strong>Slots are not time.</strong> Top-Down counts issue slots, not cycles of critical path. An issue slot is room for one µop at the rename/allocate stage (Intel’s “issue”, where µops pass from the front end to the back end), so a run has width × cycles slots: 4,000 for 1,000 cycles on a 4-wide Skylake. Each slot is classed as retiring, bad speculation, front-end bound, or back-end bound. A lost slot is not a lost cycle in two cases:
+<ul>
+<li><strong>The cycle was partly used:</strong> 3 of 4 slots filled counts as a quarter-cycle lost, but the machine still made progress, and the back end often couldn’t sustain 4 per cycle anyway.</li>
+<li><strong>The back end would have stalled anyway:</strong> a bubble just before the ROB fills behind a DRAM miss only delays the fill, and the core still waits for the miss.</li>
+</ul></li>
 <li><strong>Overlap:</strong> mispredicts that happened during a memory stall show up as bad-speculation slots, but the stall would have taken the same time. Removing the mispredicts leaves the stall.</li>
 <li><strong>The next bottleneck:</strong> with fewer flushes, the window fills further and hits memory or core limits. The slots move from “bad speculation” to “back-end bound” instead of to “retiring.” Amdahl’s law applies with the new limit.</li>
 <li><strong>The fix wasn’t free:</strong> branchless code adds instructions and puts selects on the dependence chain, so some of the gain is spent on more retiring work and longer chains.</li>
