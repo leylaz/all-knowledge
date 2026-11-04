@@ -17,6 +17,7 @@ async function checkPrivate() {
     await loadDbSecFlags();
     await loadDbSolved();
     await loadDbAnswers();
+    await loadDbTodos();
     window.claude.use("sample").then(s => { SAMPLE = s; if (s) addGradeButtons(); })
       .catch(e => console.error("Claude feedback is unavailable:", e));
     try {
@@ -115,7 +116,7 @@ function sideNav(curId, curSec) {
       return `${tab ? `<p class="tab-label">${tab.name}</p>` : ""}<div class="grp">
       <a class="rg ${isCurR && !curSec ? "cur" : ""}" href="#/r/${r.id}">${r.name}</a>
       ${isCurR ? subFor(r, "r/" + r.id) : ""}
-      <ul>${r.id === "intv" ? `<li><a class="${curId === "drill" ? "cur" : ""}" href="#/drill">Random Drill</a></li>` : ""}${visibleNotes().filter(n => n.region === r.id).map(n =>
+      <ul>${r.id === "intv" ? `<li><a class="${curId === "drill" ? "cur" : ""}" href="#/drill">Random Drill</a></li><li><a class="${curId === "todo" ? "cur" : ""}" href="#/todo">To-Do List</a></li>` : ""}${visibleNotes().filter(n => n.region === r.id).map(n =>
         `<li><a class="${curId === n.id && !curSec ? "cur" : ""}" href="#/${n.id}">${n.title}</a>${curId === n.id ? subFor(n, n.id) : ""}</li>`).join("")}</ul>
     </div>${r.id === "intv" ? `<div class="grp">
       <a class="rg ${curId === "review" && !curSec ? "cur" : ""}" href="#/review">Review</a>
@@ -803,6 +804,68 @@ function renderReview() {
   app.querySelectorAll(".rev-item .sec-note-text").forEach(input => { input.value = (secFlag(input.dataset.key) || {}).note || ""; });
 }
 
+/* ---------- The to-do list ----------
+   A plain list for interview prep. Like flags, the owner's items live in the
+   private db and everyone else's in this browser. Done items move to their
+   own list below until cleared. */
+const TODO_KEY = "intv-todos";
+let TODOS = [], TODO_SAVE = Promise.resolve();
+try { TODOS = JSON.parse(localStorage.getItem(TODO_KEY) || "[]"); } catch (e) { TODOS = []; }
+if (!Array.isArray(TODOS)) TODOS = [];
+const todoDoc = () => PRIVATE_DB.doc("data/users/" + PRIVATE_UID + "/" + TODO_KEY);
+async function loadDbTodos() {
+  try {
+    const snap = await todoDoc().get();
+    const t = snap.exists ? (snap.data() || {}).todos : null;
+    TODOS = Array.isArray(t) ? t.slice() : [];
+  } catch (e) { console.error("To-do list failed to load; using this browser's copy:", e); }
+}
+function saveTodos() {
+  const copy = TODOS.map(t => Object.assign({}, t));
+  if (PRIVATE_OK) {
+    TODO_SAVE = TODO_SAVE.then(() => todoDoc().set({ todos: copy })).catch(e => console.error("Saving the to-do list failed:", e));
+    return;
+  }
+  try { localStorage.setItem(TODO_KEY, JSON.stringify(copy)); } catch (e) {}
+}
+const todoItem = t => `<li class="todo-item${t.done ? " done" : ""}" data-id="${esc(t.id)}">
+  <input type="checkbox" class="todo-check" aria-label="Done"${t.done ? " checked" : ""}>
+  <input type="text" class="todo-text" aria-label="To-do item" value="${esc(t.text).replace(/"/g, "&quot;")}">
+  <button type="button" class="todo-del" aria-label="Delete this item">✕</button></li>`;
+function renderTodo() {
+  const open = TODOS.filter(t => !t.done), done = TODOS.filter(t => t.done);
+  layout("todo", null, `
+    <p class="region"><a href="#/r/intv" style="text-decoration:none">Interview Prep</a></p>
+    <h1>To-Do List</h1>
+    <p class="flag-note">${open.length} open, ${done.length} done. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."}</p>
+    <form class="todo-add" id="todoForm">
+      <input type="text" name="text" class="todo-text" aria-label="New to-do item" placeholder="Add a to-do item" autocomplete="off">
+      <button type="submit" class="chip-zoom">Add</button>
+    </form>
+    <ul class="todo-list">${open.map(todoItem).join("") || '<li class="todo-empty">Nothing to do yet.</li>'}</ul>
+    ${done.length ? `<p class="rev-page">Done</p><ul class="todo-list">${done.map(todoItem).join("")}</ul>
+    <button type="button" class="chip-zoom" id="todoClear">Clear done</button>` : ""}`);
+  const form = document.getElementById("todoForm");
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    const text = form.text.value.trim();
+    if (!text) return;
+    TODOS.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text, done: false });
+    saveTodos(); renderTodo();
+    document.querySelector("#todoForm .todo-text").focus();
+  });
+  const find = el => TODOS.find(t => t.id === el.closest(".todo-item").dataset.id);
+  app.querySelectorAll(".todo-check").forEach(c => c.addEventListener("change", () => { find(c).done = c.checked; saveTodos(); renderTodo(); }));
+  app.querySelectorAll(".todo-item .todo-text").forEach(i => i.addEventListener("change", () => {
+    const t = find(i), text = i.value.trim();
+    if (text) t.text = text; else TODOS.splice(TODOS.indexOf(t), 1);
+    saveTodos(); if (!text) renderTodo();
+  }));
+  app.querySelectorAll(".todo-del").forEach(b => b.addEventListener("click", () => { TODOS.splice(TODOS.indexOf(find(b)), 1); saveTodos(); renderTodo(); }));
+  const clear = document.getElementById("todoClear");
+  if (clear) clear.addEventListener("click", () => { TODOS = TODOS.filter(t => !t.done); saveTodos(); renderTodo(); });
+}
+
 function renderRegion(r, sec) {
   const notes = visibleNotes().filter(n => n.region === r.id);
   layout("r/" + r.id, sec, `
@@ -811,7 +874,7 @@ function renderRegion(r, sec) {
     ${tocHTML(r, "r/" + r.id)}
     <ul class="sublist">${notes.map(n => `<li><a href="#/${n.id}">${n.title}</a></li>`).join("")}</ul>
     ${r.id === "pipe" && typeof pipelineSVG === "function" ? pipelineSVG() : ""}
-    ${r.id === "intv" ? `<p class="flag-note"><a href="#/review/questions">★ Flagged Questions</a> (<span id="flagCount">${FLAGS.length}</span>) · <a href="#/drill">Random Drill</a></p>` : ""}
+    ${r.id === "intv" ? `<p class="flag-note"><a href="#/review/questions">★ Flagged Questions</a> (<span id="flagCount">${FLAGS.length}</span>) · <a href="#/drill">Random Drill</a> · <a href="#/todo">To-Do List</a></p>` : ""}
     ${r.private ? '<div id="privbody"><p>Loading…</p></div>' : `<div class="body">${r.body}</div>${practiceHTML(r.practice)}`}`);
 }
 
@@ -926,6 +989,7 @@ function route() {
   if (parts[0] && parts[0] !== "t") q.value = "";
   if (parts[0] === "review") { renderReview(); goToSection(parts[1]); return; }
   if (parts[0] === "flagged") { renderReview(); goToSection("questions"); return; }
+  if (parts[0] === "todo") { renderTodo(); window.scrollTo(0, 0); return; }
   if (parts[0] === "drill") { renderDrill(); window.scrollTo(0, 0); return; }
   if (parts[0] === "r") {
     const r = REGIONS.find(x => x.id === parts[1]);

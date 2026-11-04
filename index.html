@@ -70,8 +70,10 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "coh coh coh icx icx icx"
     "proc proc proc proc proc proc"
     "perf perf perf stall stall stall"; }
+.floor[data-tab="os"] { grid-template-areas:
+    "os os os task task task"
+    "osmem osmem osmem io io io"; }
 .floor[data-tab="sw"] { grid-template-areas:
-    "os os os os os os"
     "comp comp comp conc conc conc"; }
 .floor[data-tab="chip"] { grid-template-areas:
     "fab fab fab circ circ circ"
@@ -239,6 +241,17 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .rev-page a { color: inherit; }
 .rev-item { border-top: 1px solid var(--rule); padding: 10px 0 2px; }
 .rev-title { margin: 0 0 2px; font-family: var(--sans); font-weight: 600; }
+.todo-add { display: flex; gap: 8px; margin: 0 0 16px; font-family: var(--sans); }
+.todo-list { list-style: none; padding: 0; margin: 0 0 16px; font-family: var(--sans); }
+.todo-item { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--rule); padding: 6px 0; }
+.todo-item.done .todo-text { color: var(--muted); text-decoration: line-through; }
+.todo-empty { color: var(--muted); }
+.todo-text { flex: 1; min-width: 0; font: inherit; font-size: .95rem; color: var(--ink); background: var(--paper); border: 1px solid transparent; border-radius: 4px; padding: 4px 8px; }
+.todo-add .todo-text, .todo-text:hover { border-color: var(--rule); }
+.todo-text:focus { border-color: var(--trace); outline: 2px solid var(--trace-soft); outline-offset: 0; }
+.todo-check { width: 1.05rem; height: 1.05rem; accent-color: var(--pad); }
+.todo-del { font: inherit; font-size: .8rem; color: var(--muted); background: none; border: 1px solid transparent; border-radius: 4px; padding: 2px 7px; cursor: pointer; }
+.todo-del:hover { color: var(--pad); border-color: var(--pad); }
 .rev-desc { margin: 0 0 6px; color: var(--muted); font-size: .92rem; }
 .side-flag { color: var(--pad); font-size: .85em; }
 .solve-btn { display: block; margin: 8px 0 0 auto; font: inherit; font-family: var(--sans); font-size: .78rem; font-weight: 600; color: var(--muted); background: none; border: 1px solid var(--rule); border-radius: 10px; padding: 1px 9px; cursor: pointer; }
@@ -582,7 +595,10 @@ window.MathJax = {
 <script src="sections/real-processors.js"></script>
 <script src="sections/performance-analysis.js"></script>
 <script src="sections/stalls-bottlenecks.js"></script>
-<script src="sections/operating-system.js"></script>
+<script src="sections/kernel-entry.js"></script>
+<script src="sections/processes-and-threads.js"></script>
+<script src="sections/os-memory-management.js"></script>
+<script src="sections/files-and-io.js"></script>
 <script src="sections/compilers.js"></script>
 <script src="sections/c-concurrency.js"></script>
 <script src="sections/fabrication.js"></script>
