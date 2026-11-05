@@ -654,7 +654,7 @@ a: `<p>The loop follows the rules literally, retiring before dispatching in each
 <li>512 entries, 4 wide: 536,852 cycles, so almost all of the gain came from the ROB, not the width</li>
 <li>1,200 entries, 4 wide: 250,300 cycles, full width</li>
 </ul>
-<p>Little’s law gives the last line: to sustain 4 instructions per cycle while each waits up to 300 cycles, about 4 × 300 = 1,200 must be in flight. Below that, throughput scales roughly with ROB size divided by miss latency, which is why memory-bound code gains from a bigger window long after extra width stops helping.</p>`
+<p>Little’s law gives the last line: to sustain 4 instructions per cycle while each waits up to 300 cycles, about 4 instructions/cycle × 300 cycles = 1,200 instructions must be in flight. Below that, throughput scales roughly with ROB size divided by miss latency, which is why memory-bound code gains from a bigger window long after extra width stops helping.</p>`
 });
 
 C("intv-sched", "ready", {
@@ -780,7 +780,7 @@ tests: String.raw`int main(void) {
 }`,
 a: `<p>Insertion is one row write: the new entry is younger than everything valid, so its row is the valid vector. Removal clears its column in every row (in hardware, one bit-line). Selection is the elegant part: entry <em>i</em> is the oldest ready entry exactly when <code>older[i] &amp; ready</code> is zero. Hardware computes that AND-reduction for all rows in parallel, so picking the oldest of 64 costs a few gate delays regardless of how entries are scattered.</p>
 <p>For <em>n</em> ports, repeat with the winner masked off. Hardware does this either as a cascade (slower) or by giving each port its own subset of entries, and real schedulers often only enforce oldest-first approximately for the second and later picks.</p>
-<p>The alternative, keeping entries compacted in age order (shifting on every issue), burns power moving entries and limits size, which is why age matrices appear in large schedulers. The cost is N² bits: 64 × 64 = 4,096 bits for this queue.</p>`
+<p>The alternative, keeping entries compacted in age order (shifting on every issue), burns power moving entries and limits size, which is why age matrices appear in large schedulers. The cost is N² bits: 64 entries × 64 entries = 4,096 bits for this queue.</p>`
 });
 
 C("intv-sched", "trace", {
@@ -1569,7 +1569,7 @@ a: `<p>Keep one record per line: when its fill completes and how many requests i
 <ul>
 <li>Two MSHRs and three lines: the third miss waits until cycle 100 for a free MSHR, so it finishes at 200.</li>
 <li>Four requests to one line with 2 targets: two merge into the fill at 100. The third finds the MSHR full, waits for the fill, and hits at 104. The fourth issues a cycle later and hits at 105.</li>
-<li>The 16-line stream is the MLP lesson. One MSHR serializes the misses (16 × 100 = 1,600 cycles). Four overlap four at a time, and the last finishes at 403. Sixteen overlap them all, and the last one finishes at 15 + 100 = 115.</li>
+<li>The 16-line stream is the MLP lesson. One MSHR serializes the misses (16 misses × 100 cycles = 1,600 cycles). Four overlap four at a time, and the last finishes at cycle 403. Sixteen overlap them all, and the last one finishes at cycle 15 + 100 cycles = cycle 115.</li>
 </ul>
 <p>Little’s law sets the MSHR count you need: bandwidth = outstanding misses × 64 B ÷ latency. Sustaining 64 B per cycle at 100 cycles of latency needs 100 misses in flight, which is why L2 and L3 caches and memory controllers have many more miss buffers than the L1D’s 16 to 24 fill buffers.</p>`
 });
@@ -2895,7 +2895,7 @@ int main(void) {
     return REPORT();
 }`,
 a: `<p>The model is a sum: a base term at full width plus one penalty per miss interval. The only state needed is where the current group of overlapping loads started. A load within one ROB’s worth of instructions after that load was already in the window when the first miss stalled retirement, so its latency hides under the first one. A load further away can’t have been in the window, so it opens a new group and pays the full latency. This is the main reason ROB size matters for memory-bound code.</p>
-<p>In the example, with a 512-entry ROB, the load at 1,300 overlaps the one at 1,000, the load at 1,600 opens a group that 1,900 joins, and 2,112 is exactly 512 instructions after 1,600, so it opens another. With the load at 9,000 that is four groups, 4 × 350 = 1,400 cycles. With 224 entries, loads 300 instructions apart never overlap, and only 2,112 joins the group opened at 1,900: five groups, 1,750 cycles.</p>
+<p>In the example, with a 512-entry ROB, the load at instruction 1,300 overlaps the one at 1,000, the load at 1,600 opens a group that 1,900 joins, and 2,112 is exactly 512 instructions after 1,600, so it opens another. With the load at 9,000 that is four groups, 4 groups × 350 cycles = 1,400 cycles. With 224 entries, loads 300 instructions apart never overlap, and only 2,112 joins the group opened at 1,900: five groups, 5 × 350 cycles = 1,750 cycles.</p>
 <p>The value of an interval model in an interview: it explains a CPI stack in a few lines, and it says what each fix buys. Halving branch mispredictions saves the branch component, a bigger ROB merges memory groups, and a wider core shrinks only the base. Its known weaknesses are worth naming too: it ignores dependences between misses (pointer chasing never overlaps), bandwidth limits, and partial overlap.</p>`
 });
 
@@ -2973,7 +2973,7 @@ int main(void) {
     return REPORT();
 }`,
 a: `<p>Everything is measured in issue slots, 4 per cycle on Skylake. Front-end bound counts slots the front end left empty while the back end could have taken uops. Bad speculation counts uops issued but never retired, plus the slots lost while the machine recovered from a mispredict (4 per recovery cycle). Retiring is useful work. Backend bound is the remainder.</p>
-<p>Check the first case by hand: 4 × 10 billion = 40 billion slots. Front end 4/40 = 10%. Bad speculation (13 − 12 + 0.4)/40 = 3.5%. Retiring 12/40 = 30%. Backend bound is the remaining 56.5%, so the next step is level 2 (memory bound versus core bound) for the back end.</p>
+<p>Check the first case by hand: 4 slots/cycle × 10 billion cycles = 40 billion slots. Front end 4 billion slots / 40 billion slots = 10%. Bad speculation (13 − 12 + 0.4) billion slots / 40 billion slots = 3.5%. Retiring 12 billion slots / 40 billion slots = 30%. Backend bound is the remaining 56.5%, so the next step is level 2 (memory bound versus core bound) for the back end.</p>
 <p>The clamp-and-renormalize step matters in practice: with counter multiplexing, the events are sampled over different intervals, and a raw negative Backend Bound or a sum above 100% will confuse anyone reading the report. Newer Intel cores (Ice Lake and later) have dedicated <code>TOPDOWN</code> slot counters that avoid most of this, and use a different slot width per core, so don’t hard-code 4 outside Skylake-era parts.</p>`
 });
 
@@ -3143,7 +3143,7 @@ tests: String.raw`int main(void) {
     return REPORT();
 }`,
 a: `<p>The structure of any cycle-level model: state in delay lines, and a fixed order of phases within a cycle. A delay line of <code>L</code> + 1 slots indexed by cycle modulo its size holds what arrives in each future cycle. The order of the four phases is the spec. Swap consume and arrive and every item can be consumed in its arrival cycle, which removes a cycle from the round trip and changes every number.</p>
-<p>The result to remember: a credit makes a round trip of 2<code>L</code> + 1 cycles here, so the link runs at full rate only if <code>B</code> ≥ 2<code>L</code> + 1. Below that, throughput is <code>B</code> / (2<code>L</code> + 1): with <code>L</code> = 4 and <code>B</code> = 4, the sender sends a burst of 4 every 9 cycles. Item 99 is sent in cycle 24 × 9 + 3 = 219 and consumed 5 cycles later, so the run takes 225 cycles. This is the same bandwidth-delay product that sizes NoC router buffers and PCIe flow-control credits.</p>
+<p>The result to remember: a credit makes a round trip of 2<code>L</code> + 1 cycles here, so the link runs at full rate only if <code>B</code> ≥ 2<code>L</code> + 1. Below that, throughput is <code>B</code> / (2<code>L</code> + 1): with <code>L</code> = 4 and <code>B</code> = 4, the sender sends a burst of 4 items every 9 cycles. Item 99 is in burst 24, so it is sent in cycle 24 × 9 + 3 = 219 and consumed 5 cycles later, so the run takes 225 cycles. This is the same bandwidth-delay product that sizes NoC router buffers and PCIe flow-control credits.</p>
 <p>When the receiver is the bottleneck (every 2nd cycle), buffer size stops mattering once it covers the round trip at the receiver’s rate. The 6-item case with <code>B</code> = 2 is worth tracing by hand: the consume times land on 6, 8, 16, 18, 26, 28, because each credit’s trip is stretched to the next even cycle.</p>`
 });
 
