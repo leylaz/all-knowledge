@@ -22,6 +22,7 @@ section({
 <li><a href="#/workloads">Types of workloads</a> and <a href="#/spec-cpu">SPEC CPU benchmarks</a>: what to run, and what each workload stresses.</li>
 <li><a href="#/ipc-spec">IPC and simulation methodology</a>: CPI stacks, summarizing results, simulation hygiene, and model correlation.</li>
 <li><a href="#/perf-analytical">Analytical performance models</a>: first-order CPI stacks, interval analysis, and the roofline, worked on paper.</li>
+<li><a href="#/perf-roofline">The roofline model for CPUs</a>: building the roofs, ceilings, a roof per cache level, and measuring a kernel's point.</li>
 <li><a href="#/perf-validation">Validating a performance model</a>: kinds of error, microbenchmarks, error metrics, and a correlation process.</li>
 <li><a href="#/perf-power">Power and energy modeling</a>: where power goes, event-based energy models, and voltage and frequency.</li>
 </ul>`,
@@ -393,7 +394,7 @@ for (int z = 0; z &lt; NZ; z++)
 <h3 id="sec-roofline">The Roofline Model</h3>
 <p>For loops limited by arithmetic or memory bandwidth, the roofline model (Williams, Waterman, and Patterson, 2009) bounds attainable throughput by the lower of two ceilings:</p>
 <div class="math">\\[ \\text{Attainable FLOP/s} = \\min(\\text{Peak FLOP/s}, \\; AI \\times BW) \\]</div>
-<p>Arithmetic intensity AI is FLOPs per byte moved from the memory level in question. Plotted on log-log axes, the bandwidth line rises until it meets the flat compute ceiling at the <strong>ridge point</strong>, Peak / BW. Kernels left of the ridge are memory-bound, right of it compute-bound. Extra ceilings model lower roofs: no FMA, no SIMD, L2 or L3 bandwidth instead of DRAM.</p>
+<p>Arithmetic intensity AI is FLOPs per byte moved from the memory level in question. Plotted on log-log axes, the bandwidth line rises until it meets the flat compute ceiling at the <strong>ridge point</strong>, Peak / BW. Kernels left of the ridge are memory-bound, right of it compute-bound. <a href="#/perf-roofline">The Roofline Model for CPUs</a> builds the roofs for a real server, adds lower ceilings and a roof for each cache level, and shows how to measure where a kernel sits.</p>
 <p>Example, a Ryzen 9 7950X (16 Zen 4 cores): each core does two 256-bit FMAs per cycle, 16 double-precision FLOPs, so about 1.2 TFLOP/s at an all-core clock near 4.8 GHz. Two DDR5-6000 channels give 96 GB/s. The ridge is near 13 FLOP/byte. A <code>daxpy</code> (y = a·x + y) does 2 FLOPs per 24 bytes (two loads, one store): AI ≈ 0.083, so it is capped at about 8 GFLOP/s from DRAM, under 1% of peak.</p>
 
 <h3 id="sec-limits">Where They Break</h3>
@@ -415,6 +416,166 @@ for (int z = 0; z &lt; NZ; z++)
       {
         q: `<p>Your interval model predicts that doubling the ROB from 256 to 512 entries gains 3% IPC on a database workload. Cycle-level simulation says 15%. What could the interval model be missing?</p>`,
         a: `<p>Most likely the overlap term. If the model computes miss overlap from a fixed window or from average miss distance, it misses the distribution: on databases, many long misses sit 256 to 512 instructions apart, so a 512-entry window merges them while a 256-entry one doesn't. Recompute the groups from the actual distance between consecutive long misses at each window size. Other candidates: mispredicted branches that depend on misses resolve only after the miss, and a larger window lets the core find and overlap more of those misses before the flush; the larger window can also expose more prefetch-triggering accesses earlier. And check the simulator: a 512-entry ROB with unchanged load queue, store queue, and register file would hit those limits first, so if the simulation scaled them too, the comparison isn't like for like.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "perf-roofline",
+  region: "perf",
+  title: "The Roofline Model for CPUs",
+  sections: [
+    { id: "build", label: "Building the Roofs" },
+    { id: "ceilings", label: "Ceilings Below the Roof" },
+    { id: "hierarchy", label: "A Roof for Each Cache Level" },
+    { id: "kernels", label: "Where Common Kernels Sit" },
+    { id: "measure", label: "Measuring a Kernel's Point" },
+    { id: "moving", label: "Moving a Kernel on the Plot" },
+    { id: "limits", label: "What the Roofline Can't See" }
+  ],
+  body: `
+<p>The roofline (Williams, Waterman, and Patterson, 2009) bounds a loop's throughput by the lower of two limits: how fast the core can compute and how fast memory can feed it. <a href="#/perf-analytical/roofline">Analytical Performance Models</a> gives the formula. This page builds the roofs for a real server, adds the lower ceilings that real code hits, gives each cache level its own roof, and shows how to measure where a kernel sits.</p>
+<div class="math">\\[ P = \\min(P_{peak}, \\; AI \\times BW), \\qquad AI = \\frac{\\text{FLOPs}}{\\text{bytes moved at the chosen level}} \\]</div>
+
+<h3 id="sec-build">Building the Roofs</h3>
+<p>Running example: an Intel Xeon Platinum 8480+ (Sapphire Rapids, 56 Golden Cove cores, 8 channels of DDR5-4800).</p>
+<ul>
+<li><strong>Compute roof:</strong> each core has two 512-bit FMA units. One 512-bit FMA does 8 double-precision multiplies and 8 adds, so a core peaks at 2 × 8 × 2 = 32 FLOP per cycle. Heavy AVX-512 code runs well below the 3.0 GHz all-core turbo. At an assumed 2.0 GHz that is 64 GFLOP/s per core and about 3.6 TFLOP/s per socket.</li>
+<li><strong>Memory roof:</strong> 8 channels × 8 bytes × 4.8 GT/s = 307.2 GB/s in theory. STREAM Triad reaches roughly 240 GB/s. Use the measured number, because no real access stream reaches the theoretical one.</li>
+<li><strong>Ridge point:</strong> 3,584 / 240 ≈ 15 FLOP per byte. A kernel needs about 15 FLOPs for every byte it brings from DRAM before the FMA units become the limit. With the theoretical bandwidth the ridge would be 11.7, which flatters every memory-bound kernel.</li>
+</ul>
+<p>Measure both roofs with microbenchmarks rather than datasheets: STREAM or <code>likwid-bench</code> for bandwidth, a dense FMA loop or the Empirical Roofline Toolkit (ERT) for FLOP/s. The measured roofs already include the effects of the clock under load, DRAM refresh, and read-write turnaround.</p>
+
+<h3 id="sec-ceilings">Ceilings Below the Roof</h3>
+<p>The roof assumes the code uses every FLOP the core offers. Code that doesn't sits under a lower <strong>ceiling</strong>, and the gap names the missing optimization. For one Sapphire Rapids core at 2.0 GHz:</p>
+<div class="tbl"><table>
+<tr><th>Ceiling</th><th>FLOP per cycle</th><th>GFLOP/s per core</th><th>What breaks it</th></tr>
+<tr><td>AVX-512 with FMA (peak)</td><td>32</td><td>64</td><td>Nothing</td></tr>
+<tr><td>AVX-512 without FMA, or AVX2 with FMA</td><td>16</td><td>32</td><td>Separate multiplies and adds, or 256-bit vectors</td></tr>
+<tr><td>Scalar with FMA</td><td>4</td><td>8</td><td>No vectorization</td></tr>
+<tr><td>One dependence chain</td><td>4</td><td>8</td><td>A reduction with a single accumulator</td></tr>
+</table></div>
+<ul>
+<li><strong>Instruction-level parallelism:</strong> an FMA takes 4 cycles on Golden Cove, so a loop whose FMAs form one chain (<code>s += x[i] * y[i]</code> with one vector accumulator) issues one FMA every 4 cycles instead of two per cycle. Little's law gives the fix: latency × throughput = 4 × 2 = 8 independent accumulators.</li>
+<li><strong>Clock licenses:</strong> scalar and AVX2 code runs at a higher clock than AVX-512 code, so the lower ceilings sit somewhat higher than this table shows. Measure each ceiling at the clock the code actually runs at.</li>
+<li><strong>Bandwidth ceilings:</strong> a single thread can't reach the socket's 240 GB/s. Its bandwidth is bounded by Little's law on the misses it can keep in flight. Golden Cove's L2 tracks 48 outstanding misses, and DRAM latency is about 115 ns, so one core sustains at most 48 × 64 B / 115 ns ≈ 27 GB/s. Roughly 9 cores saturate the socket. Remote NUMA memory and a single-channel DIMM population give lower bandwidth ceilings too.</li>
+</ul>
+
+<h3 id="sec-hierarchy">A Roof for Each Cache Level</h3>
+<p>DRAM is only one place data can come from. Each cache level has its own bandwidth and so its own diagonal roof. Per Golden Cove core at 2.0 GHz:</p>
+<ul>
+<li><strong>L1:</strong> two 64-byte loads per cycle, 128 B/cycle = 256 GB/s. Ridge 32 / 128 = 0.25 FLOP/byte.</li>
+<li><strong>L2 to L1:</strong> one 64-byte line per cycle, 128 GB/s. Ridge 0.5.</li>
+<li><strong>DRAM, one core's share with all 56 running:</strong> 240 / 56 ≈ 4.3 GB/s. Ridge about 15.</li>
+</ul>
+<div class="tbl"><svg viewBox="0 0 680 410" role="img" aria-label="Roofline for one Sapphire Rapids core at 2.0 GHz on log-log axes. The x axis is arithmetic intensity from 1/32 to 32 FLOP per byte. The y axis is GFLOP/s per core from 1/16 to 128. The compute roof is flat at 64 GFLOP/s. Lower dashed ceilings sit at 32 GFLOP/s for no FMA or AVX2 and 8 GFLOP/s for scalar code. Three parallel diagonal bandwidth roofs rise from the left: L1 at 256 GB/s meets the peak at 0.25 FLOP per byte, L2 at 128 GB/s meets it at 0.5, and the DRAM share of 4.3 GB/s meets it at about 15. STREAM Triad, SpMV, and a 7-point stencil sit on the DRAM roof at intensities between 1/16 and 1/3. DGEMM sits on the flat roof at an intensity of about 24." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<g style="stroke:var(--rule);stroke-width:1">
+<line x1="186" y1="30" x2="186" y2="360"/><line x1="302" y1="30" x2="302" y2="360"/><line x1="418" y1="30" x2="418" y2="360"/><line x1="534" y1="30" x2="534" y2="360"/><line x1="650" y1="30" x2="650" y2="360"/>
+<line x1="70" y1="60" x2="650" y2="60"/><line x1="70" y1="120" x2="650" y2="120"/><line x1="70" y1="180" x2="650" y2="180"/><line x1="70" y1="240" x2="650" y2="240"/><line x1="70" y1="300" x2="650" y2="300"/>
+</g>
+<g style="stroke:var(--muted);stroke-width:1.5"><line x1="70" y1="30" x2="70" y2="360"/><line x1="70" y1="360" x2="650" y2="360"/></g>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle">
+<text x="70" y="376">1/32</text><text x="186" y="376">1/8</text><text x="302" y="376">1/2</text><text x="418" y="376">2</text><text x="534" y="376">8</text><text x="650" y="376">32</text>
+</g>
+<g style="fill:var(--muted);font-size:11px" text-anchor="end">
+<text x="62" y="364">1/16</text><text x="62" y="304">1/4</text><text x="62" y="244">1</text><text x="62" y="184">4</text><text x="62" y="124">16</text><text x="62" y="64">64</text>
+</g>
+<text x="360" y="400" text-anchor="middle" style="fill:var(--muted);font-size:12px">arithmetic intensity, FLOP per byte (log scale)</text>
+<text transform="rotate(-90 18 195)" x="18" y="195" text-anchor="middle" style="fill:var(--muted);font-size:12px">GFLOP/s per core (log scale)</text>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:5 4"><line x1="186" y1="90" x2="650" y2="90"/><line x1="70" y1="150" x2="650" y2="150"/></g>
+<line x1="586" y1="60" x2="586" y2="360" style="stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3"/>
+<polyline points="70,150 244,60" style="fill:none;stroke:var(--muted);stroke-width:2.5"/>
+<polyline points="70,180 302,60" style="fill:none;stroke:var(--pad);stroke-width:2.5"/>
+<polyline points="70,327 586,60" style="fill:none;stroke:var(--trace);stroke-width:2.5"/>
+<line x1="244" y1="60" x2="650" y2="60" style="stroke:var(--ink);stroke-width:2.5"/>
+<g style="fill:var(--ink);font-size:11px">
+<text x="320" y="54">AVX-512 FMA peak, 64 GFLOP/s</text><text x="310" y="84">no FMA or AVX2, 32 GFLOP/s</text><text x="250" y="144">scalar FMA, 8 GFLOP/s</text>
+</g>
+<text x="586" y="352" text-anchor="middle" style="fill:var(--muted);font-size:11px">DRAM ridge ≈ 15</text>
+<g style="stroke-width:2.5"><line x1="80" y1="200" x2="100" y2="200" style="stroke:var(--muted)"/><line x1="80" y1="216" x2="100" y2="216" style="stroke:var(--pad)"/><line x1="80" y1="232" x2="100" y2="232" style="stroke:var(--trace)"/></g>
+<g style="fill:var(--ink);font-size:11px"><text x="106" y="204">L1 load, 256 GB/s</text><text x="106" y="220">L2 to L1, 128 GB/s</text><text x="106" y="236">DRAM share, 4.3 GB/s</text></g>
+<g style="fill:var(--ink)"><circle cx="128" cy="297" r="4.5"/><circle cx="210" cy="255" r="4.5"/><circle cx="268" cy="224.5" r="4.5"/><circle cx="626" cy="60" r="4.5"/></g>
+<g style="fill:var(--ink);font-size:11px"><text x="136" y="314">STREAM Triad</text><text x="218" y="272">SpMV</text><text x="276" y="241">7-point stencil</text><text x="646" y="78" text-anchor="end">DGEMM</text></g>
+</svg></div>
+<p>The three diagonals are parallel because every roof has slope 1 on log-log axes. The wide gap between the L2 and DRAM roofs is why cache blocking pays: a kernel at an intensity of 1 FLOP per byte is capped at 4.3 GFLOP/s per core from DRAM but can reach the 64 GFLOP/s peak once its working set lives in L2.</p>
+<p>Two variants put kernels on this plot differently:</p>
+<ul>
+<li><strong>Hierarchical roofline</strong> (the Berkeley form, also used for GPUs on <a href="#/gpu-models/roofline">Analytical Models and Simulators</a>): measure the bytes at each level separately, so one kernel gets one point per level, each against its own roof. The level whose point sits closest to its roof is the bound.</li>
+<li><strong>Cache-aware roofline</strong> (Ilic, Pratas, and Sousa, 2014, used by Intel Advisor): count bytes once, at the core, as every load and store instruction. A kernel then has one intensity that doesn't change with cache size, and its height shows which level it is effectively running from: above the DRAM roof but under the L2 roof means it is getting data from L2 or L3.</li>
+</ul>
+
+<h3 id="sec-kernels">Where Common Kernels Sit</h3>
+<p>Intensities for double precision, counting DRAM bytes on a cache that allocates on a write miss (a store miss first reads the line, then writes it back later):</p>
+<div class="tbl"><table>
+<tr><th>Kernel</th><th>FLOPs and bytes per element</th><th>DRAM AI</th><th>Bound at 240 GB/s</th></tr>
+<tr><td>STREAM Triad, <code>a[i] = b[i] + s * c[i]</code></td><td>2 FLOPs, 16 B loaded + 8 B stored + 8 B write-allocate read = 32 B</td><td>0.0625</td><td>15 GFLOP/s</td></tr>
+<tr><td>SpMV in CSR, per nonzero</td><td>2 FLOPs, 8 B value + 4 B column index, plus 8 B of <code>x</code> if it misses</td><td>0.10 to 0.17</td><td>24 to 40 GFLOP/s</td></tr>
+<tr><td>3D 7-point stencil, out of place</td><td>8 FLOPs, 8 B read + 8 B written + 8 B write-allocate, if the planes it touches stay in cache</td><td>0.33</td><td>80 GFLOP/s</td></tr>
+<tr><td>DGEMM, blocked with b × b tiles</td><td>2b³ FLOPs per 16b² bytes streamed</td><td>b / 8</td><td>Compute-bound once b &gt; 120</td></tr>
+</table></div>
+<p>Everything except DGEMM sits far left of the 15 FLOP/byte ridge, under 3% of the socket's 3.6 TFLOP/s. That is the normal case for scientific and data-processing code, and it is why memory bandwidth per core is a headline server specification.</p>
+
+<h3 id="sec-measure">Measuring a Kernel's Point</h3>
+<ol>
+<li><strong>Count by hand first.</strong> The hand count is the ideal: every byte read once. It is the target the measurement is compared against.</li>
+<li><strong>FLOPs from counters.</strong> On Intel, <code>FP_ARITH_INST_RETIRED</code> has one event per width (scalar, 128-bit, 256-bit, and 512-bit packed double). Weight them 1, 2, 4, and 8. FMAs already count twice. Masked AVX-512 instructions count their full width, so masked remainder loops overcount slightly. AMD Zen cores count retired FLOPs directly with <code>FP_RET_SSE_AVX_OPS</code>.</li>
+<li><strong>Bytes from the memory controller.</strong> Uncore CAS counts (<code>UNC_M_CAS_COUNT.RD</code> and <code>.WR</code>) × 64 B give real DRAM traffic, including prefetches, write-allocate reads, and writebacks. Core-side events (L1 or L2 misses) undercount it.</li>
+<li><strong>Time from the same run,</strong> so FLOPs / time is the point's height. <code>likwid-perfctr</code> (the <code>MEM_DP</code> group) and Intel Advisor report all three.</li>
+</ol>
+<p>The ratio of hand-counted to measured intensity is diagnostic. Measured below hand count means wasted bytes: write-allocate reads, prefetcher overfetch, conflict or capacity misses, or a whole 64-byte line fetched for one 8-byte gather.</p>
+
+<h3 id="sec-moving">Moving a Kernel on the Plot</h3>
+<ul>
+<li><strong>Move right (raise intensity):</strong>
+  <ul>
+  <li>Cache blocking or tiling, so data is reused while it is in cache (DGEMM's b / 8).</li>
+  <li>Loop fusion, so an intermediate array stays in registers instead of making a round trip to DRAM.</li>
+  <li>Non-temporal (streaming) stores, which skip the write-allocate read: Triad goes from 32 to 24 bytes, a 33% higher bound.</li>
+  <li>Temporal blocking for stencils: several time steps per pass over the grid.</li>
+  <li>Smaller types (FP32, BF16, 16-bit indices). This also changes the compute roof, so redraw it.</li>
+  </ul></li>
+<li><strong>Move up toward a higher ceiling:</strong> vectorize, use FMA, and split reductions across enough accumulators to cover the FMA latency.</li>
+<li><strong>Raise the bandwidth ceiling:</strong> run enough threads to cover Little's law, place memory on the local NUMA node, and populate every memory channel.</li>
+</ul>
+<p>The plot says which of these can matter. Vectorizing a kernel that sits on the DRAM roof does nothing until its intensity rises past the point where the vector ceiling binds.</p>
+
+<h3 id="sec-limits">What the Roofline Can't See</h3>
+<ul>
+<li><strong>Latency-bound code:</strong> pointer chasing, hash lookups, and tree walks have little memory-level parallelism. They sit far below both roofs, and the gap is explained by <a href="#/perf-analytical/interval">interval analysis</a> or a top-down breakdown, not by bandwidth.</li>
+<li><strong>Non-FLOP work:</strong> integer, branch-heavy, and shuffle-heavy code has no meaningful FLOP count. An instruction roofline (instructions per second against instructions per byte) keeps the idea.</li>
+<li><strong>Front end and speculation:</strong> instruction cache misses and branch mispredictions lower achieved throughput without moving the roofs (see <a href="#/perf-bounds/bounds">Stalls by Pipeline Stage</a>).</li>
+<li><strong>Overlap:</strong> the model assumes compute and memory transfer overlap completely, time = max(FLOPs / peak, bytes / BW). Without overlap, time is the sum, so a kernel exactly at the ridge can run at half the roofline value.</li>
+<li><strong>Bandwidth under load:</strong> latency rises sharply as bandwidth nears the roof (see <a href="#/icx-memory">Memory Interfaces</a>), which is part of why STREAM stops near 80% of theoretical.</li>
+</ul>
+<p class="refs">References: Williams, Waterman, and Patterson, "Roofline: An Insightful Visual Performance Model for Multicore Architectures," CACM 2009 · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 4 (the roofline model) · Ilic, Pratas, and Sousa, "Cache-aware Roofline Model: Upgrading the Loft," IEEE Computer Architecture Letters 2014 · Yang, Kurth, and Williams, "Hierarchical Roofline Analysis for GPUs," CCPE 2020 · McCalpin, "Memory Bandwidth and Machine Balance in Current High Performance Computers," IEEE TCCA Newsletter 1995 · Intel, <em>Intel 64 and IA-32 Architectures Optimization Reference Manual</em> (Golden Cove) · Treibig, Hager, and Wellein, "LIKWID: A Lightweight Performance-Oriented Tool Suite for x86 Multicore Environments," PSTI 2010</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>An NVIDIA Grace CPU has 72 Neoverse V2 cores. Each core has four 128-bit FMA pipes. Assume a 3.0 GHz all-core clock and 450 GB/s of measured STREAM bandwidth from its LPDDR5X. A loop computes <code>a[i] = b[i] * c[i] + d[i]</code> in double precision over arrays far larger than the caches, using all cores. Find the peak FLOP/s and the ridge point, the loop's arithmetic intensity and roofline bound with write-allocate, and the bound when the core's write streaming mode avoids the write-allocate read for full-line stores. What fraction of peak is that?</p>`,
+        a: `<ol><li>Per core: 4 pipes × 2 doubles per 128-bit vector × 2 FLOPs per FMA = 16 FLOP per cycle. At 3.0 GHz that is 48 GFLOP/s, and 72 cores give <strong>3,456 GFLOP/s</strong>.</li><li>Ridge: 3,456 / 450 ≈ <strong>7.7 FLOP per byte</strong>.</li><li>Per element: one FMA = 2 FLOPs. Bytes: three 8-byte loads (24 B) + one 8-byte store + one 8-byte write-allocate read = 40 B. AI = 2 / 40 = 0.05, so the bound is 0.05 × 450 = <strong>22.5 GFLOP/s</strong>.</li><li>Without the write-allocate read: 32 B, AI = 0.0625, bound 0.0625 × 450 ≈ <strong>28.1 GFLOP/s</strong>, 25% faster.</li><li>Fraction of peak: 28.1 / 3,456 ≈ <strong>0.8%</strong>. The loop is deep in memory-bound territory, so vectorization or FMA changes nothing. Only fewer bytes help.</li></ol>`
+      },
+      {
+        q: `<p>A Zen 4 core runs a dot product of two 1,000-element double arrays that are already in its 32 KB L1. Zen 4 has two 256-bit FMA pipes with a 4-cycle FMA latency and can load two 256-bit vectors per cycle from L1. The compiler emits one vector accumulator. Find the FLOPs per cycle with one accumulator, the L1 bandwidth bound, and the number of accumulators needed to reach that bound. Is the compute peak reachable?</p>`,
+        a: `<ol><li>One accumulator: each FMA depends on the previous one, so one 256-bit FMA issues every 4 cycles. That is 4 doubles × 2 FLOPs / 4 cycles = <strong>2 FLOP per cycle</strong>.</li><li>L1 bound: each FMA needs one vector of <code>x</code> and one of <code>y</code>, 2 × 32 B = 64 B, for 8 FLOPs, so AI = 8 / 64 = 0.125 FLOP per byte. Two 32-byte loads per cycle is 64 B per cycle, so the bound is 0.125 × 64 = <strong>8 FLOP per cycle</strong>, one FMA per cycle.</li><li>Accumulators: to issue one FMA per cycle with a 4-cycle latency, Little's law needs 4 × 1 = <strong>4 independent accumulators</strong>, summed at the end. That is a 4× speedup.</li><li>Compute peak: 2 pipes × 4 doubles × 2 = 16 FLOP per cycle. It is <strong>not reachable</strong>: the loads cap the loop at half of it, so 8 accumulators would not help.</li></ol>`
+      },
+      {
+        q: `<p>An AMD EPYC 9654 has 96 Zen 4 cores, each doing 16 double-precision FLOPs per cycle, and a 1 MB L2 per core. Assume a 3.0 GHz all-core clock and 370 GB/s of measured bandwidth from its 12 channels of DDR5-4800. DGEMM is blocked so that each b × b tile of C stays in cache while a b × n panel of A and an n × b panel of B stream from DRAM, each element read once per tile. Derive the DRAM arithmetic intensity as a function of b, find the smallest b that makes DGEMM compute-bound, and check whether the C tile fits in L2.</p>`,
+        a: `<ol><li>One C tile over the full k dimension does b × b × n multiply-adds = 2b²n FLOPs.</li><li>It streams 2bn doubles from A and B, which is 16bn bytes. The C tile's own traffic is read and written once, negligible for large n.</li><li>AI = 2b²n / 16bn = <strong>b / 8 FLOP per byte</strong>.</li><li>Peak: 96 × 16 × 3.0 GHz = 4,608 GFLOP/s. Ridge: 4,608 / 370 ≈ 12.5 FLOP per byte.</li><li>Compute-bound when b / 8 ≥ 12.5, so <strong>b ≥ 100</strong>.</li><li>The C tile is 100 × 100 × 8 B = 80 KB, well inside the 1 MB L2, so the blocking is feasible. Production BLAS libraries use larger tiles, so they also clear the roofs of the cache levels the panels stream through.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A 3D stencil does 8 FLOPs per 20 bytes of DRAM traffic. It runs on an AWS Graviton4: 96 Neoverse V2 cores, each doing 16 double-precision FLOPs per cycle at 2.8 GHz, with 430 GB/s of measured socket bandwidth. A single thread can sustain at most 28 GB/s because of the misses it can keep in flight. Assume threads share bandwidth evenly and memory latency doesn't rise with load. What speedup does going from 1 to 96 threads give? Would a 32-core part with the same memory system be any slower? At what intensity would the 96-core part start to pull ahead?</p>`,
+        a: `<p>The intensity is 8 / 20 = 0.4 FLOP per byte. One core peaks at 16 × 2.8 = 44.8 GFLOP/s. One thread is bounded by min(44.8, 0.4 × 28) = 11.2 GFLOP/s, so it is bandwidth-bound by its own memory-level parallelism. With n threads the bandwidth is min(28n, 430) GB/s, which saturates at 430 / 28 ≈ 15.4 threads. Beyond that, the socket gives 0.4 × 430 = 172 GFLOP/s, so 96 threads are about <strong>15.4× faster</strong> than one, and the last 80 threads add nothing.</p><p>A 32-core part peaks at 32 × 44.8 = 1,433.6 GFLOP/s, and its bandwidth also saturates at 430 GB/s, so it also delivers <strong>172 GFLOP/s</strong>. It is no slower.</p><p>The two parts differ only once the 32-core part becomes compute-bound: at 1,433.6 / 430 ≈ <strong>3.3 FLOP per byte</strong>. That is about 8× the stencil's intensity, more than temporal blocking usually achieves for a 7-point stencil. Below 3.3, buy bandwidth, not cores. If the assumptions fail, the picture gets worse for the bigger part: loaded latency rises near saturation, so per-thread bandwidth falls and adding threads can even slow the kernel down.</p>`
+      },
+      {
+        q: `<p>In your simulator you grow the per-core L2 from 1 MB to 2 MB and rerun a 3D stencil whose working planes didn't fit in the old L2 but fit in the new one. It runs 30% faster. Describe how its point moves on a DRAM roofline and on a cache-aware roofline, and whether any roof moves. Assume the L2's bandwidth and latency don't change.</p>`,
+        a: `<p>No roof moves. Cache capacity doesn't change peak FLOP/s or any level's bandwidth, and the question fixes L2 bandwidth and latency.</p><p>On the DRAM roofline (bytes counted at the memory controller), the point moves <strong>right and up</strong>. Planes that were refetched from DRAM now hit in L2, so DRAM bytes per FLOP fall and the intensity rises. If the kernel was on the DRAM roof before, it slides up along the diagonal. If the 30% speedup is smaller than the intensity gain, the point now sits below the roof, so a different limit has taken over, often the L2 or L3 roof or a ceiling.</p><p>On the cache-aware roofline (bytes counted at the core as load and store instructions), the intensity is a property of the instruction stream and doesn't change, so the point moves <strong>straight up</strong>. It rises from near the L3 roof toward the L2 roof, which shows directly that the kernel now runs out of L2. The two views agree: the DRAM roofline says it moves fewer bytes from memory, and the cache-aware one says which level now feeds it.</p>`
+      },
+      {
+        q: `<p>A hand count says a double-precision CSR SpMV should have a DRAM intensity of 2 / 12 ≈ 0.167 FLOP per byte, assuming every access to the vector <code>x</code> hits in cache. Counters (FLOPs from the core, bytes from memory-controller CAS counts × 64 B) say 0.09, and the measured GFLOP/s sits right on the DRAM roof at that intensity. The matrix is far larger than the caches, lines are 64 bytes, and the run is alone on one socket. Is the kernel well optimized? Where do the extra bytes come from, and what would you try?</p>`,
+        a: `<p>It is using the memory system well, since it sits on the roof, but it moves too many bytes. Being on the roof at the wrong intensity means the fix is fewer bytes, not more parallelism or vectorization.</p><p>The measured intensity means 2 / 0.09 ≈ 22.2 bytes per nonzero against the 12 expected, about 10.2 extra bytes. The most likely source is <code>x</code>. Its accesses follow the column indices, so they are irregular, and a miss costs a whole 64-byte line, not 8 bytes. 10.2 / 64 ≈ 16% of <code>x</code> accesses missing to DRAM would explain all of it. Other candidates, each checkable:</p><ul><li>Prefetcher overfetch on the irregular <code>x</code> stream (adjacent-line prefetch pulls a second line).</li><li>Write-allocate reads on <code>y</code>, which matter only if rows have few nonzeros.</li><li>Row-pointer traffic, which is also significant only for very short rows.</li></ul><p>Masked FLOP counting would push the measured intensity up, not down, so it isn't the cause. To fix it, reorder the matrix (reverse Cuthill-McKee or a graph partitioner) so column indices cluster and lines of <code>x</code> get reused, or block the columns so each block's slice of <code>x</code> fits in L2. Also compress the indices or values (16-bit column deltas, FP32 values where accuracy allows). Then re-measure: success is the intensity moving toward 0.167 while the point stays on the roof.</p>`
       }
     ]
   }
