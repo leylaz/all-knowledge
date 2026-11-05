@@ -13,7 +13,7 @@ const err = (where, msg) => errors.push(`${where}: ${msg}`);
 
 /* ---------- Load the site data the way the browser does ---------- */
 const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
+const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]).filter(s => !/^https?:/.test(s));
 for (const s of scripts) if (!fs.existsSync(path.join(ROOT, s))) err("index.html", `script ${s} does not exist`);
 for (const dir of ["js", "sections", "coding"])
   for (const f of fs.readdirSync(path.join(ROOT, dir)))

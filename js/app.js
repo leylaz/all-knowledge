@@ -1,25 +1,65 @@
 /* Rendering, routing, and search. No note content lives here. */
+/* ---------- Sign-in (Firebase) ----------
+   Signed in with Google, flags, solved marks, answers, and the to-do list
+   live in Firestore under data/users/<uid>/ (only that uid can read or
+   write there), so they follow you between devices. Signed out, they stay
+   in this browser. Signing in copies this browser's data into the account,
+   then clears it here. The config isn't secret; the Firestore rules are
+   what protect the data. */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAZgRvsFcWA-HmhCqtRtG1rGaVUEvErZsc",
+  authDomain: "all-knowledge-8bbf0.firebaseapp.com",
+  projectId: "all-knowledge-8bbf0",
+  storageBucket: "all-knowledge-8bbf0.firebasestorage.app",
+  messagingSenderId: "502581062125",
+  appId: "1:502581062125:web:6f7cdbb0fc19d1f9621fe4"
+};
 let PRIVATE_OK = false, PRIVATE_UID = null, PRIVATE_DB = null;
-async function checkOwner() {
-  try {
-    if (!window.claude || !window.claude.use) return;
-    const user = await window.claude.use("user");
-    if (!user) return;
-    const owner = await user.isOwner();
-    const uid = await user.id();
-    if (!owner || !uid) return;
-    const db = await window.claude.use("db");
-    if (!db) return;
-    PRIVATE_UID = uid; PRIVATE_DB = db; PRIVATE_OK = true;
-    await loadDbFlags();
-    await loadDbSecFlags();
-    await loadDbSolved();
-    await loadDbAnswers();
-    await loadDbTodos();
-    window.claude.use("sample").then(s => { SAMPLE = s; if (s) addGradeButtons(); })
-      .catch(e => console.error("Claude feedback is unavailable:", e));
-  } catch (e) { console.error("Owner check failed; saving in this browser only:", e); }
-  finally { if (typeof route === "function") route(); }
+function initAuth() {
+  const btn = document.getElementById("authBtn");
+  if (!btn) return;
+  if (!window.firebase) { btn.hidden = true; console.error("Firebase didn't load; saving in this browser only."); return; }
+  firebase.initializeApp(FIREBASE_CONFIG);
+  const auth = firebase.auth();
+  btn.addEventListener("click", () => {
+    if (auth.currentUser) auth.signOut().then(() => location.reload());
+    else auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e => console.error("Sign-in failed:", e));
+  });
+  auth.onAuthStateChanged(async user => {
+    btn.textContent = user ? "Sign out" : "Sign in";
+    btn.title = user ? "Signed in as " + (user.email || "you") : "Sign in to save across devices";
+    if (!user || PRIVATE_OK) return;
+    PRIVATE_UID = user.uid; PRIVATE_DB = firebase.firestore();
+    try { await flagDoc().get(); }
+    catch (e) { console.error("Can't reach your saved data; saving in this browser only:", e); return; }
+    const local = { flags: FLAGS.slice(), sec: SEC_FLAGS.slice(), solved: Object.assign({}, SOLVED), answers: Object.assign({}, ANSWERS), todos: TODOS.slice() };
+    await Promise.all([loadDbFlags(), loadDbSecFlags(), loadDbSolved(), loadDbAnswers(), loadDbTodos()]);
+    PRIVATE_OK = true;
+    try { await mergeLocal(local); }
+    catch (e) { console.error("Copying this browser's data into your account failed; it stays here:", e); }
+    route();
+  });
+}
+/* Adds items saved in this browser that the account doesn't have yet. */
+async function mergeLocal(local) {
+  const add = (cur, old, key) => {
+    const have = new Set(cur.map(x => x[key])), extra = old.filter(x => !have.has(x[key]));
+    cur.push(...extra);
+    return extra.length;
+  };
+  const writes = [];
+  if (add(FLAGS, local.flags, "snip")) writes.push(flagDoc().set({ flags: FLAGS.map(f => Object.assign({}, f)) }));
+  if (add(SEC_FLAGS, local.sec, "key")) writes.push(secFlagDoc().set({ flags: SEC_FLAGS.map(f => Object.assign({}, f)) }));
+  if (add(TODOS, local.todos, "id")) writes.push(todoDoc().set({ todos: TODOS.map(t => Object.assign({}, t)) }));
+  const newSolved = Object.keys(local.solved).filter(k => !SOLVED[k]);
+  if (newSolved.length) { newSolved.forEach(k => { SOLVED[k] = local.solved[k]; }); writes.push(solvedDoc().set({ solved: Object.assign({}, SOLVED) })); }
+  for (const [snip, v] of Object.entries(local.answers)) {
+    if (ANSWERS[snip] || !v || (!v.text && !v.fb)) continue;
+    ANSWERS[snip] = Object.assign({ snip }, v);
+    writes.push(ansCol().doc(ansId(snip)).set(Object.assign({}, ANSWERS[snip])));
+  }
+  await Promise.all(writes);
+  for (const k of [FLAG_KEY, SEC_FLAG_KEY, SOLVED_KEY, ANS_KEY, TODO_KEY]) try { localStorage.removeItem(k); } catch (e) {}
 }
 
 /* ---------- Math (MathJax, loaded async from index.html) ---------- */
@@ -988,4 +1028,4 @@ q.addEventListener("input", () => {
 window.addEventListener("hashchange", route);
 if (typeof initThemeToggle === "function") initThemeToggle();
 route();
-checkOwner();
+initAuth();
