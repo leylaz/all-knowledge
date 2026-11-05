@@ -389,6 +389,70 @@ One instruction cache miss:
 <p><strong>Why per iteration.</strong> These are throughput bounds, so they need work that repeats: a steady state where start-up costs (cold caches, an untrained predictor, pipeline fill) are spread over many repetitions, and where iteration i + 1 overlaps iteration i the way the max assumes. A hot loop is the natural unit, its per-iteration counts are exact, and in most compute code it's where the time goes (the 90/10 rule, Hennessy &amp; Patterson, Ch. 1). Code with no hot loop keeps the same bounds with a different unit. For server-style code whose time is spread over thousands of functions (databases, browsers, compilers), count per instruction or per 1,000 instructions, \\( \\text{CPI} \\approx \\max_k B_k + \\sum_j \\text{MPKI}_j \\, P_j / 1000 \\), or per request or transaction. That's where the instruction cache, ITLB, and BTB rows below dominate: Google's warehouse-scale profiling (Kanev et al., ISCA 2015) found front-end stalls take a large share of cycles for exactly this reason. Code that runs once has no steady state; its critical path and warm-up set the time, and these bounds don't apply.</p>
 <p>Try it: the calculator below takes the main bound from each table that follows and adds the serialized penalties. Change one number at a time and watch which row becomes the bottleneck.</p>
 <div class="calc" data-calc="bounds"></div>
+<p>The three examples below each show one kind of bound winning. The worked example after them combines all three.</p>
+<details class="ex"><summary>Example 1: a bandwidth bound (N / W) on Apple M1 Firestorm</summary>
+<p><strong>Question.</strong> A single-precision SAXPY, <code>y[i] += a * x[i]</code>, runs on an Apple M1 performance core (Firestorm, 3.2 GHz), vectorized with 128-bit NEON and unrolled by 4 vectors. Both arrays are 4,096 floats (16 KB each), so they fit in the 128 KB L1 data cache. <code>v31</code> holds <code>a</code> in all four lanes. How many cycles per iteration, and what binds?</p>
+<pre><code>loop:
+  ldr   q4, [x1]  ...  ldr q7, [x1, #48]     ; 4 loads of x
+  ldr   q0, [x2]  ...  ldr q3, [x2, #48]     ; 4 loads of y
+  fmla  v0.4s, v4.4s, v31.4s  ...  (4 FMAs) ; y += a * x
+  str   q0, [x2]  ...  str q3, [x2, #48]     ; 4 stores of y
+  add   x1, x1, #64
+  add   x2, x2, #64
+  subs  x5, x5, #16
+  b.ne  loop</code></pre>
+<p><strong>The machine</strong> (AnandTech's and Dougall Johnson's Firestorm measurements):</p><ul><li>Decode 8 instructions per cycle</li><li>6 integer ALUs</li><li>4 FP/SIMD pipes, all able to do FMA</li><li>4 load/store pipes: at most 3 loads and at most 2 stores per cycle, 4 memory operations in total</li></ul>
+<p><strong>Step 1: count.</strong> 20 instructions, 8 loads, 4 stores, 12 memory operations, 4 FMAs, 3 integer adds, and 1 branch.</p>
+<p><strong>Step 2: the bounds.</strong></p>
+<div class="tbl"><table>
+<tr><th>Bound</th><th>Formula</th><th>Cycles/iteration</th></tr>
+<tr><td>Decode</td><td>20 / 8</td><td>2.50</td></tr>
+<tr><td>Integer ALUs</td><td>3 / 6</td><td>0.50</td></tr>
+<tr><td>FMA pipes</td><td>4 / 4</td><td>1.00</td></tr>
+<tr><td>Load pipes</td><td>8 / 3</td><td>2.67</td></tr>
+<tr><td>Store pipes</td><td>4 / 2</td><td>2.00</td></tr>
+<tr><td><strong>All memory pipes</strong></td><td>12 / 4</td><td><strong>3.00</strong></td></tr>
+<tr><td>Loop-carried chains</td><td><code>x1</code>, <code>x2</code>, <code>x5</code>, 1 add each</td><td>1.00</td></tr>
+</table></div>
+<p>There's no loop-carried chain through <code>y</code>: each iteration reads and writes a different 64 B. T ≈ 3 cycles per 16 floats, 32 FLOPs / 3 cycles ≈ 10.7 FLOPs per cycle, about 33% of the 32 FLOPs per cycle peak.</p>
+<p><strong>The lesson.</strong> No single port class binds. Loads alone allow 2.67 cycles and stores alone 2.0, but they share 4 pipes, and the shared limit, 12 / 4, wins. A bandwidth bound has to be computed for every group of units that shares a limit, not only for each unit. More unrolling doesn't help (the ratio of memory operations to FLOPs stays the same), and neither do longer FMA chains. Only fewer memory operations per FLOP would, which SAXPY can't offer.</p>
+</details>
+<details class="ex"><summary>Example 2: a capacity bound (Little's law) on Intel Golden Cove</summary>
+<p><strong>Question.</strong> A hash-join probe on an Intel Core i9-12900K performance core (Golden Cove, 4.9 GHz) reads a precomputed index array sequentially and does one lookup per index into a 1 GB table: <code>sum += table[idx[i]]</code>. The indices are random, so every table access misses to DRAM, and no hardware prefetcher can predict it. The table is mapped with 1 GB pages, so TLB misses are negligible. DRAM latency is about 90 ns. The loop is 5 micro-ops per iteration: 2 loads, the add, the index increment, and a fused compare-and-branch. How many cycles per lookup?</p>
+<p><strong>The machine</strong> (Intel's optimization manual and Chips and Cheese):</p><ul><li>Allocate 6 micro-ops per cycle</li><li>512-entry ROB, 192-entry load buffer</li><li>16 L1 fill buffers (outstanding L1 misses)</li><li>48 outstanding L2 misses</li></ul>
+<p><strong>Step 1: residency.</strong> 90 ns × 4.9 GHz ≈ 440 cycles per miss.</p>
+<p><strong>Step 2: the bounds.</strong> The iterations are independent: <code>sum</code> carries a 1-cycle add chain, and each table load depends only on its own index load, which hits in L1.</p>
+<div class="tbl"><table>
+<tr><th>Bound</th><th>Formula</th><th>Cycles/iteration</th></tr>
+<tr><td>Allocate width</td><td>5 / 6</td><td>0.83</td></tr>
+<tr><td>Loop-carried <code>sum</code></td><td>1 add</td><td>1.00</td></tr>
+<tr><td>ROB</td><td>5 × 440 / 512</td><td>4.30</td></tr>
+<tr><td>Load buffer</td><td>2 × 440 / 192</td><td>4.58</td></tr>
+<tr><td><strong>L1 fill buffers</strong></td><td>1 × 440 / 16</td><td><strong>27.5</strong></td></tr>
+<tr><td>DRAM bandwidth</td><td>64 B at about 70 GB/s</td><td>about 4.5</td></tr>
+</table></div>
+<p>T ≈ 27.5 cycles per lookup, about 5.6 ns. That pulls only 64 B / 5.6 ns ≈ 11 GB/s, a sixth of DDR5's bandwidth. The memory system isn't busy, the core just can't ask for more at once: 16 misses in flight, each held for 440 cycles.</p>
+<p><strong>The lesson.</strong> A capacity bound is E × R / C, so only two things help:</p><ul><li>Shorter residency: a table that fits in the 30 MB L3 (about 70 cycles) gives 70 / 16 ≈ 4.4 cycles per lookup, at which point the load buffer and ROB bounds are close behind</li><li>More entries: more fill buffers, which is why each Intel generation has added them (10 on Skylake, 12 on Sunny Cove, 16 on Golden Cove)</li></ul><p>A wider core does nothing, since allocate is already at 0.83 cycles.</p>
+</details>
+<details class="ex"><summary>Example 3: a latency bound (dependency) on Intel Golden Cove</summary>
+<p><strong>Question.</strong> On the same Golden Cove core, a loop sums a field over a linked list. Each node is 16 B: <code>next</code> at offset 0, <code>val</code> at offset 8. How many cycles per node when the whole list fits in the 48 KB L1, and when it's spread over 1 MB (L2 resident)? What would help?</p>
+<pre><code>loop:
+  add   rax, [rdi + 8]     ; sum += node->val
+  mov   rdi, [rdi]         ; node = node->next
+  test  rdi, rdi
+  jnz   loop               ; fuses with test</code></pre>
+<p><strong>The machine:</strong></p><ul><li>L1 load-to-use about 5 cycles</li><li>L2 load-to-use about 15 cycles</li><li>Allocate 6 micro-ops per cycle, 3 load ports</li></ul>
+<p><strong>Step 1: the chains.</strong> Two values are loop-carried:</p><ul><li><code>rax</code>: one add per iteration, 1 cycle</li><li><code>rdi</code>: the load of <code>next</code> needs the previous <code>rdi</code>, and produces the next one, so the chain is one full load latency per node</li></ul>
+<p><strong>Step 2: the bounds.</strong></p>
+<div class="tbl"><table>
+<tr><th>Bound</th><th>Formula</th><th>L1 resident</th><th>L2 resident</th></tr>
+<tr><td>Allocate width</td><td>3 / 6</td><td>0.50</td><td>0.50</td></tr>
+<tr><td>Load ports</td><td>2 / 3</td><td>0.67</td><td>0.67</td></tr>
+<tr><td><strong>Loop-carried <code>rdi</code></strong></td><td>L<sub>load</sub></td><td><strong>5</strong></td><td><strong>15</strong></td></tr>
+</table></div>
+<p>T ≈ 5 cycles per node from L1 and 15 from L2. The capacity bounds are small too: only one miss is ever outstanding, because the next address isn't known until the current load returns.</p>
+<p><strong>The lesson.</strong> A latency bound ignores width and window size: a core twice as wide, or with twice the fill buffers, runs this loop at the same speed. Only two things help:</p><ul><li>Shorter latency: keep the list in L1, or allocate nodes contiguously so the hardware prefetcher brings in the next one before it's needed (this hides the miss, though the 5-cycle L1 chain stays)</li><li>A different dependency: walk 4 independent lists (or 4 segments of one) in the same loop, which gives 4 chains in flight and about 15 / 4 ≈ 3.75 cycles per node from L2, or store the values in an array so there's no chain at all</li></ul>
+</details>
 <details class="ex"><summary>Worked example (interview level): bounding a dot product on Zen 3</summary>
 <p><strong>Question.</strong> "Here is a double-precision dot product, vectorized with AVX2, on an AMD Zen 3 core (Ryzen 9 5950X at 4.5 GHz). The arrays are 1,024 doubles each (8 KB each, so both fit in the 32 KB L1). How many cycles per iteration, what's the bottleneck, and how close to peak FLOP/s can it get? Then tell me what changes if the arrays are 16,384 doubles each (128 KB each) and don't fit in L1."</p>
 <pre><code>loop:
