@@ -414,7 +414,18 @@ One instruction cache miss:
 <tr><td><strong>All memory pipes</strong></td><td>12 / 4</td><td><strong>3.00</strong></td></tr>
 <tr><td>Loop-carried chains</td><td><code>x1</code>, <code>x2</code>, <code>x5</code>, 1 add each</td><td>1.00</td></tr>
 </table></div>
-<p>There's no loop-carried chain through <code>y</code>: each iteration reads and writes a different 64 B. T ≈ 3 cycles per 16 floats, 32 FLOPs / 3 cycles ≈ 10.7 FLOPs per cycle, about 33% of the 32 FLOPs per cycle peak.</p>
+<p>There's no loop-carried chain through <code>y</code>: each iteration reads and writes a different 64 B. So T ≈ 3 cycles per iteration.</p>
+<p><strong>Step 3: turn T into a rate.</strong> T is time per iteration. Dividing by what one iteration does turns it into a rate, and what you divide by decides what the rate tells you:</p>
+<ul>
+<li><strong>By the binding resource's items:</strong> 12 memory operations / 3 cycles = 4 per cycle, 100% of the 4 memory pipes. That's true by definition, since the binding resource always runs at 100% in this model. It confirms which bound wins, and tells you nothing more.</li>
+<li><strong>By the useful work:</strong> one iteration updates 4 vectors × 4 lanes = 16 elements of <code>y</code>, each one FMA, a multiply and an add, so 32 FLOPs. 32 FLOPs / 3 cycles ≈ 10.7 FLOPs per cycle, about 33% of the 4 pipes × 4 lanes × 2 = 32 FLOPs per cycle peak.</li>
+</ul>
+<p>The useful work is the better unit, for three reasons:</p>
+<ol>
+<li>It's what the program exists to do. SAXPY updates <code>y</code>, and memory instructions are a cost of doing it, not the goal.</li>
+<li>It doesn't change with how the loop is written. <code>ldp</code>, wider vectors (SVE, AVX-512), or more unrolling all change the number of memory instructions, but every version does 1 FMA (2 FLOPs) per element. That's why loop versions are compared in cycles per element, here 3 / 16 ≈ 0.19.</li>
+<li>It connects to the roofline model. Each element moves 12 B (load <code>x</code>, load <code>y</code>, store <code>y</code>), so an iteration moves 192 B for 32 FLOPs, an arithmetic intensity of about 0.17 FLOPs per byte. That low intensity is why the kernel can't get near FMA peak.</li>
+</ol>
 <p><strong>The lesson.</strong> No single port class binds. Loads alone allow 2.67 cycles and stores alone 2.0, but they share 4 pipes, and the shared limit, 12 / 4, wins. A bandwidth bound has to be computed for every group of units that shares a limit, not only for each unit. More unrolling doesn't help (the ratio of memory operations to FLOPs stays the same), and neither do longer FMA chains. Only fewer memory operations per FLOP would, which SAXPY can't offer.</p>
 </details>
 <details class="ex"><summary>Example 2: a capacity bound (Little's law) on Intel Golden Cove</summary>
