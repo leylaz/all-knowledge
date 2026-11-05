@@ -23,7 +23,11 @@ function initAuth() {
   const auth = firebase.auth();
   btn.addEventListener("click", () => {
     if (auth.currentUser) auth.signOut().then(() => location.reload());
-    else auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e => console.error("Sign-in failed:", e));
+    else auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e => {
+      console.error("Sign-in failed:", e);
+      /* Shown on the page, since a failed popup otherwise looks like nothing happened. */
+      if (e && e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") alert("Sign-in failed: " + (e.code || e.message || e));
+    });
   });
   auth.onAuthStateChanged(async user => {
     btn.textContent = user ? "Sign out" : "Sign in";
@@ -31,7 +35,7 @@ function initAuth() {
     if (!user || PRIVATE_OK) return;
     PRIVATE_UID = user.uid; PRIVATE_DB = firebase.firestore();
     try { await flagDoc().get(); }
-    catch (e) { console.error("Can't reach your saved data; saving in this browser only:", e); return; }
+    catch (e) { console.error("Can't reach your saved data; saving in this browser only:", e); alert("Signed in, but your saved data can't be reached (" + (e.code || e.message || e) + "). Saving in this browser only."); return; }
     const local = { flags: FLAGS.slice(), sec: SEC_FLAGS.slice(), solved: Object.assign({}, SOLVED), answers: Object.assign({}, ANSWERS), todos: TODOS.slice() };
     await Promise.all([loadDbFlags(), loadDbSecFlags(), loadDbSolved(), loadDbAnswers(), loadDbTodos()]);
     PRIVATE_OK = true;
