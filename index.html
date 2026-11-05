@@ -70,6 +70,10 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "coh coh coh icx icx icx"
     "proc proc proc proc proc proc"
     "perf perf perf stall stall stall"; }
+.floor[data-tab="gpu"] { grid-template-areas:
+    "gk gk gk gsm gsm gsm"
+    "gwarp gwarp gwarp gmem gmem gmem"
+    "gai gai gai gperf gperf gperf"; }
 .floor[data-tab="os"] { grid-template-areas:
     "os os os task task task"
     "osmem osmem osmem io io io"; }
@@ -584,7 +588,7 @@ window.MathJax = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-<script src="js/site.js?v=5447237a"></script>
+<script src="js/site.js?v=c0d283f1"></script>
 <script src="sections/instruction-sets.js?v=f24c74e3"></script>
 <script src="sections/pipeline-stages.js?v=e204b34c"></script>
 <script src="sections/front-end.js?v=ca728824"></script>
@@ -595,9 +599,15 @@ window.MathJax = {
 <script src="sections/virtual-memory.js?v=c3ed77f9"></script>
 <script src="sections/cache-coherence.js?v=da0cf609"></script>
 <script src="sections/interconnects.js?v=f9da33f2"></script>
-<script src="sections/real-processors.js?v=84ecb017"></script>
+<script src="sections/real-processors.js?v=b5499a0e"></script>
 <script src="sections/performance-analysis.js?v=e3fb612c"></script>
 <script src="sections/stalls-bottlenecks.js?v=c223d952"></script>
+<script src="sections/gpu-kernels.js?v=b4a79930"></script>
+<script src="sections/cuda-cores-sm.js?v=d1687303"></script>
+<script src="sections/warps-simt.js?v=31255544"></script>
+<script src="sections/gpu-memory-system.js?v=b0257e4c"></script>
+<script src="sections/gpus-ai-workloads.js?v=bab6596f"></script>
+<script src="sections/gpu-performance-modeling.js?v=779c5cbf"></script>
 <script src="sections/kernel-entry.js?v=dd780b8e"></script>
 <script src="sections/processes-and-threads.js?v=3f6aa2fd"></script>
 <script src="sections/os-memory-management.js?v=e358c1fa"></script>
@@ -614,7 +624,7 @@ window.MathJax = {
 <script src="sections/interview-prep.js?v=e88aca1f"></script>
 <script src="sections/todo-list.js?v=f09abaa7"></script>
 <script src="js/diagrams.js?v=b0224fd2"></script>
-<script src="js/glossary.js?v=02ec4dfb"></script>
+<script src="js/glossary.js?v=76bb48ab"></script>
 <script src="js/calc.js?v=b7da799f"></script>
 <script src="js/trace.js?v=dee93611"></script>
 <script src="js/theme.js?v=1763bf15"></script>

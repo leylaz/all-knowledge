@@ -71,5 +71,9 @@ const GLOSSARY = {
   "memory-level parallelism": { def: "The average number of cache misses outstanding at once. Higher MLP hides more of the memory latency.", page: "latency-tolerance" },
   "Little's law": { def: "Average occupancy = throughput × average time in the system. Sizes queues: entries needed = rate × residency.", page: "perf-bounds/bounds" },
   "register pressure": { def: "The number of values live at the same point in a program. When it exceeds the registers available, the allocator spills.", page: "comp-regalloc/liveness" },
-  "red zone": { def: "The 128 bytes below rsp that a System V x86-64 leaf function may use without moving rsp.", page: "comp-regalloc/frames" }
+  "red zone": { def: "The 128 bytes below rsp that a System V x86-64 leaf function may use without moving rsp.", page: "comp-regalloc/frames" },
+  "warp": { def: "32 GPU threads that issue one instruction together on one SM sub-partition, with an active mask for threads that are switched off.", page: "warp-sched" },
+  "SIMT": { def: "Single instruction, multiple threads: SIMD hardware programmed as independent threads, with the hardware managing masks for divergent branches.", page: "warp-divergence" },
+  "SIMD efficiency": { def: "Active lanes per issued warp instruction divided by 32. Divergence and partly full warps lower it.", page: "warp-divergence/efficiency" },
+  "bank conflict": { def: "Several threads of a warp hitting different words in the same shared-memory bank, which splits the access into one pass per word.", page: "gpu-smem/conflicts" }
 };
