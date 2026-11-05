@@ -2,7 +2,7 @@
 /* Repo checks: run `node tools/check.js` before every commit.
    Loads js/site.js, every sections/ file, and js/diagrams.js in the order
    index.html lists them, then checks links, anchors, practice problems,
-   private placeholders, and the home-page tabs and grids. Exits 1 on any error. */
+   and the home-page tabs and grids. Exits 1 on any error. */
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -50,7 +50,6 @@ const regionById = new Map(REGIONS.map(r => [r.id, r]));
 /* ---------- Anchors: every sections entry needs id="sec-<id>" in the body ---------- */
 const secIds = page => new Set([...(page.sections || []).filter(s => !s.group).map(s => s.id), ...(page.practice ? ["practice"] : [])]);
 function checkAnchors(where, page) {
-  if (page.private) return;
   for (const s of (page.sections || []).filter(s => !s.group))
     if (!(page.body || "").includes(`id="sec-${s.id}"`)) err(where, `section "${s.id}" has no id="sec-${s.id}" in the body`);
 }
@@ -58,7 +57,7 @@ REGIONS.forEach(r => checkAnchors("r/" + r.id, r));
 NOTES.forEach(n => checkAnchors(n.id, n));
 
 /* ---------- Interview pages: both tabs hold questions ---------- */
-for (const n of NOTES.filter(n => n.region === "intv" && !n.private))
+for (const n of NOTES.filter(n => n.region === "intv"))
   for (const [t, name] of [["c", "Conceptual"], ["m", "Math"]])
     if (!(n.body || "").includes(`data-qid="${n.id}-${t}1"`)) err(n.id, `the ${name} tab has no questions`);
 
@@ -75,7 +74,7 @@ CODING.forEach((c, i) => {
   if (!["medium", "hard"].includes(c.lvl)) err(where, `level must be medium or hard, not "${c.lvl}"`);
   for (const k of ["q", "a", "impl", "skel", "sol"]) if (!c[k]) err(where, `missing ${k}`);
 });
-for (const n of NOTES.filter(n => n.region === "intv" && !n.private && n.id !== "intv"))
+for (const n of NOTES.filter(n => n.region === "intv" && n.id !== "intv"))
   if (!CODING.some(c => c.page === n.id)) err(n.id, "has no coding problems in coding/interview.js");
 
 /* ---------- Links ---------- */
@@ -87,7 +86,7 @@ function checkHref(where, href) {
   if (parts[0] === "r") { page = regionById.get(parts[1]); parts.shift(); }
   else page = byId.get(parts[0]);
   if (!page) return err(where, `link ${href} points to no page`);
-  if (parts[1] && !page.private && !secIds(page).has(parts[1])) err(where, `link ${href} points to no section`);
+  if (parts[1] && !secIds(page).has(parts[1])) err(where, `link ${href} points to no section`);
 }
 const hrefsIn = s => [...String(s).matchAll(/href="(#[^"]*)"/g)].map(m => m[1]);
 const practiceText = p => JSON.stringify(p || "");
@@ -114,18 +113,11 @@ for (const p of [...REGIONS.map(r => ["r/" + r.id, r]), ...NOTES.map(n => [n.id,
 /* ---------- Practice problems ---------- */
 for (const p of [...REGIONS.map(r => ["r/" + r.id, r]), ...NOTES.map(n => [n.id, n])]) {
   const [where, page] = p;
-  if (page.private || page.region === "intv" || where === "r/intv") continue;
+  if (page.region === "intv" || where === "r/intv") continue;
   const pr = page.practice;
   if (!pr || !(pr.guided || []).length || !(pr.interview || []).length) err(where, "needs Guided and Interview Level practice problems");
   else for (const x of [...pr.guided, ...pr.interview]) if (!x.q || !x.a) err(where, "a practice problem is missing its question or answer");
 }
-
-/* ---------- Private placeholders ---------- */
-for (const r of REGIONS.filter(r => r.private))
-  if (r.name !== "Private Section" || r.cap || r.body) err("sections/private.js", `region ${r.id} holds more than a placeholder`);
-for (const n of NOTES.filter(n => n.private))
-  if (n.title !== "Private Page" || n.body || (n.sections || []).length || Object.keys(n.practice || {}).length)
-    err("sections/private.js", `page ${n.id} holds more than a placeholder`);
 
 /* ---------- Home-page tabs and grids: every region sits in one tab and has a cell in its grid ---------- */
 const TABS = ctx.TABS || [];

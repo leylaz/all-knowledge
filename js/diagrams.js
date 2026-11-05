@@ -304,7 +304,7 @@ const STACK_LAYERS = [
 
 function stackTargetExists(href) {
   const [a, b] = href.split("/");
-  return a === "r" ? REGIONS.some(r => r.id === b && !r.private) : NOTES.some(n => n.id === a && !n.private);
+  return a === "r" ? REGIONS.some(r => r.id === b) : NOTES.some(n => n.id === a);
 }
 
 function stackHTML() {

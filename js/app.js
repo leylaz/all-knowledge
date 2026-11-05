@@ -1,8 +1,6 @@
-/* Rendering, routing, search, and private pages. No note content lives here. */
-let PRIVATE_CHECKED = false, PRIVATE_OK = false, PRIVATE_UID = null, PRIVATE_DB = null;
-function visibleNotes() { return NOTES.filter(n => !n.private || PRIVATE_OK); }
-function visibleRegions() { return REGIONS.filter(r => !r.private || PRIVATE_OK); }
-async function checkPrivate() {
+/* Rendering, routing, and search. No note content lives here. */
+let PRIVATE_OK = false, PRIVATE_UID = null, PRIVATE_DB = null;
+async function checkOwner() {
   try {
     if (!window.claude || !window.claude.use) return;
     const user = await window.claude.use("user");
@@ -20,34 +18,8 @@ async function checkPrivate() {
     await loadDbTodos();
     window.claude.use("sample").then(s => { SAMPLE = s; if (s) addGradeButtons(); })
       .catch(e => console.error("Claude feedback is unavailable:", e));
-    try {
-      const meta = await db.doc("data/users/" + uid + "/p-meta").get();
-      const m = meta.exists ? (meta.data() || {}) : {};
-      for (const r of REGIONS) if (m.regions && m.regions[r.id]) Object.assign(r, m.regions[r.id]);
-      for (const n of NOTES) if (m.notes && m.notes[n.id]) Object.assign(n, m.notes[n.id]);
-    } catch (e) { console.error("Private titles failed to load; keeping placeholders:", e); }
-  } catch (e) { console.error("Private access check failed; showing public pages only:", e); }
-  finally { PRIVATE_CHECKED = true; if (typeof route === "function") route(); }
-}
-async function loadPrivate(n, sec, hashKey) {
-  const box = document.getElementById("privbody");
-  if (!box || !PRIVATE_CHECKED) return;
-  if (!PRIVATE_OK) { box.innerHTML = "<p>This page is private.</p>"; return; }
-  try {
-    const snap = await PRIVATE_DB.doc("data/users/" + PRIVATE_UID + "/" + n.id).get();
-    if (location.hash.replace(/^#\/?/, "").split("/").slice(0, hashKey ? 2 : 1).join("/") !== (hashKey || n.id)) return;
-    const el = document.getElementById("privbody");
-    if (!el) return;
-    if (!snap.exists) { el.innerHTML = "<p>No content has been saved for this page yet.</p>"; return; }
-    const d = snap.data() || {};
-    el.innerHTML = '<div class="body">' + (d.body || "") + "</div>" + practiceHTML(d.practice);
-    typesetMath();
-    if (sec) goToSection(sec);
-  } catch (e) {
-    console.error("Private page " + n.id + " failed to load:", e);
-    const el = document.getElementById("privbody");
-    if (el) el.innerHTML = "<p>This page couldn't be loaded.</p>";
-  }
+  } catch (e) { console.error("Owner check failed; saving in this browser only:", e); }
+  finally { if (typeof route === "function") route(); }
 }
 
 /* ---------- Math (MathJax, loaded async from index.html) ---------- */
@@ -83,11 +55,11 @@ function renderHome(tab = TABS[0]) {
     ${tab.id === "arch" && typeof floorplanSVG === "function" ? floorplanSVG() : ""}
     ${tab.id === "chip" && typeof stackHTML === "function" ? stackHTML() : ""}
     <div class="die"><div class="floor" data-tab="${tab.id}">
-      ${visibleRegions().filter(r => tab.regions.includes(r.id)).map(r => `
+      ${REGIONS.filter(r => tab.regions.includes(r.id)).map(r => `
         <section class="block" style="grid-area:${r.id}" data-region="${r.id}">
           <h2><a href="#/r/${r.id}">${r.name}</a></h2>
           <p class="cap">${r.cap}</p>
-          <ul>${visibleNotes().filter(n => n.region === r.id).map(n =>
+          <ul>${NOTES.filter(n => n.region === r.id).map(n =>
             `<li data-id="${n.id}"><a href="#/${n.id}">${n.title}</a></li>`).join("")}</ul>
         </section>`).join("")}
     </div></div>
@@ -110,13 +82,13 @@ function sideNav(curId, curSec) {
   };
   return `<nav class="side" id="side" aria-label="All sections">
     <a class="home" href="#/">All Knowledge</a>
-    ${visibleRegions().map(r => {
+    ${REGIONS.map(r => {
       const tab = TABS.find(t => t.regions[0] === r.id);
       const isCurR = curId === "r/" + r.id;
       return `${tab ? `<p class="tab-label">${tab.name}</p>` : ""}<div class="grp">
       <a class="rg ${isCurR && !curSec ? "cur" : ""}" href="#/r/${r.id}">${r.name}</a>
       ${isCurR ? subFor(r, "r/" + r.id) : ""}
-      <ul>${r.id === "intv" ? `<li><a class="${curId === "drill" ? "cur" : ""}" href="#/drill">Random Drill</a></li><li><a class="${curId === "todo" ? "cur" : ""}" href="#/todo">To-Do List</a></li>` : ""}${visibleNotes().filter(n => n.region === r.id).map(n =>
+      <ul>${r.id === "intv" ? `<li><a class="${curId === "drill" ? "cur" : ""}" href="#/drill">Random Drill</a></li><li><a class="${curId === "todo" ? "cur" : ""}" href="#/todo">To-Do List</a></li>` : ""}${NOTES.filter(n => n.region === r.id).map(n =>
         `<li><a class="${curId === n.id && !curSec ? "cur" : ""}" href="#/${n.id}">${n.title}</a>${curId === n.id ? subFor(n, n.id) : ""}</li>`).join("")}</ul>
     </div>${r.id === "intv" ? `<div class="grp">
       <a class="rg ${curId === "review" && !curSec ? "cur" : ""}" href="#/review">Review</a>
@@ -280,7 +252,7 @@ function flagIndex() {
   if (FLAG_INDEX) return FLAG_INDEX;
   FLAG_INDEX = [];
   const t = document.createElement("template");
-  for (const n of visibleNotes().filter(x => x.region === "intv" && !x.private)) {
+  for (const n of NOTES.filter(x => x.region === "intv")) {
     t.innerHTML = n.body;
     t.content.querySelectorAll(".prob[data-qid]").forEach(card =>
       FLAG_INDEX.push({ note: n, snip: cardSnip(card), html: card.outerHTML }));
@@ -320,7 +292,7 @@ const secFlag = key => SEC_FLAGS.find(f => f.key === key);
 /* The page a layout id names, if its subsections can be flagged. */
 function flaggablePage(curId) {
   const page = curId.startsWith("r/") ? REGIONS.find(r => "r/" + r.id === curId) : NOTES.find(n => n.id === curId);
-  return page && !page.private && page.id !== "intv" && page.region !== "intv" ? page : null;
+  return page && page.id !== "intv" && page.region !== "intv" ? page : null;
 }
 function headText(h) {
   const c = h.cloneNode(true);
@@ -704,8 +676,8 @@ function drillPool() {
     for (const [list, label] of [[p.guided || [], "Walk through the solution"], [p.interview || [], "Show solution"]])
       for (const x of list) add(base, title, region, `<div class="prob"><div class="q">${x.q}</div><details><summary>${label}</summary><div class="a">${x.a}</div></details></div>`, "");
   };
-  for (const r of visibleRegions().filter(r => !r.private)) fromPractice("r/" + r.id, r.name, r.id, r.practice);
-  for (const n of visibleNotes().filter(n => !n.private)) fromPractice(n.id, n.title, n.region, n.practice);
+  for (const r of REGIONS) fromPractice("r/" + r.id, r.name, r.id, r.practice);
+  for (const n of NOTES) fromPractice(n.id, n.title, n.region, n.practice);
   for (const c of flagIndex()) {
     const lvl = (c.html.match(/class="lvl (easy|medium|hard)"/) || [])[1] || "";
     add(c.note.id, c.note.title, "intv", c.html, lvl);
@@ -716,7 +688,7 @@ function drillPool() {
 let DRILL = { region: "", level: "", unsolved: true };
 function renderDrill() {
   const pool = drillPool();
-  const regions = visibleRegions().filter(r => pool.some(c => c.region === r.id));
+  const regions = REGIONS.filter(r => pool.some(c => c.region === r.id));
   const pick = pool.filter(c => (!DRILL.region || c.region === DRILL.region) && (!DRILL.level || c.level === DRILL.level) && !(DRILL.unsolved && SOLVED[c.snip]));
   const c = pick[Math.floor(Math.random() * pick.length)];
   const opt = (v, label, cur) => `<option value="${v}"${v === cur ? " selected" : ""}>${label}</option>`;
@@ -759,9 +731,9 @@ const revItem = (key, title, desc) => `<div class="rev-item">
 function renderReview() {
   const idx = searchIndex();
   const order = [];
-  for (const r of visibleRegions().filter(r => !r.private)) {
+  for (const r of REGIONS) {
     order.push({ base: "r/" + r.id, title: r.name });
-    for (const n of visibleNotes().filter(n => n.region === r.id && !n.private)) order.push({ base: n.id, title: n.title });
+    for (const n of NOTES.filter(n => n.region === r.id)) order.push({ base: n.id, title: n.title });
   }
   const keys = new Set(SEC_FLAGS.map(f => f.key)), found = new Set();
   let subs = "";
@@ -779,7 +751,7 @@ function renderReview() {
   const cidx = flagIndex();
   const flagged = new Set(FLAGS.map(f => f.snip)), foundQ = new Set();
   let qs = "";
-  for (const n of visibleNotes().filter(x => x.region === "intv")) {
+  for (const n of NOTES.filter(x => x.region === "intv")) {
     const cards = cidx.filter(c => c.note === n && flagged.has(c.snip));
     if (!cards.length) continue;
     cards.forEach(c => foundQ.add(c.snip));
@@ -867,7 +839,7 @@ function renderTodo() {
 }
 
 function renderRegion(r, sec) {
-  const notes = visibleNotes().filter(n => n.region === r.id);
+  const notes = NOTES.filter(n => n.region === r.id);
   layout("r/" + r.id, sec, `
     <p class="region">Section Overview</p>
     <h1>${r.name}</h1>
@@ -875,18 +847,18 @@ function renderRegion(r, sec) {
     <ul class="sublist">${notes.map(n => `<li><a href="#/${n.id}">${n.title}</a></li>`).join("")}</ul>
     ${r.id === "pipe" && typeof pipelineSVG === "function" ? pipelineSVG() : ""}
     ${r.id === "intv" ? `<p class="flag-note"><a href="#/review/questions">★ Flagged Questions</a> (<span id="flagCount">${FLAGS.length}</span>) · <a href="#/drill">Random Drill</a> · <a href="#/todo">To-Do List</a></p>` : ""}
-    ${r.private ? '<div id="privbody"><p>Loading…</p></div>' : `<div class="body">${r.body}</div>${practiceHTML(r.practice)}`}`);
+    <div class="body">${r.body}</div>${practiceHTML(r.practice)}`);
 }
 
 function renderNote(n, sec) {
   const region = REGIONS.find(r => r.id === n.region);
-  const vis = visibleNotes(); const i = vis.indexOf(n), prev = vis[i - 1], next = vis[i + 1];
+  const i = NOTES.indexOf(n), prev = NOTES[i - 1], next = NOTES[i + 1];
   layout(n.id, sec, `
     <p class="region"><a href="#/r/${region.id}" style="text-decoration:none">${region.name}</a></p>
     <h1>${n.title}</h1>
     ${n.book ? '<p class="bookref">' + n.book + '</p>' : ''}
     ${tocHTML(n, n.id)}
-    ${n.private ? '<div id="privbody"><p>Loading…</p></div>' : '<div class="body">' + n.body + '</div>' + practiceHTML(n.practice)}
+    <div class="body">${n.body}</div>${practiceHTML(n.practice)}
     <nav class="pager">
       ${prev ? `<a href="#/${prev.id}"><small>Previous</small>${prev.title}</a>` : ""}
       ${next ? `<a class="next" href="#/${next.id}"><small>Next</small>${next.title}</a>` : ""}
@@ -921,8 +893,8 @@ const plain = s => strip(s).replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").repla
 function searchIndex() {
   if (SEARCH_INDEX) return SEARCH_INDEX;
   SEARCH_INDEX = [];
-  const pages = [...visibleRegions().filter(r => !r.private).map(r => ({ base: "r/" + r.id, title: r.name, p: r })),
-    ...visibleNotes().filter(x => !x.private).map(x => ({ base: x.id, title: x.title, p: x }))];
+  const pages = [...REGIONS.map(r => ({ base: "r/" + r.id, title: r.name, p: r })),
+    ...NOTES.map(x => ({ base: x.id, title: x.title, p: x }))];
   for (const { base, title, p: n } of pages) {
     const labels = new Map((n.sections || []).map(s => [s.id, s.label]));
     const parts = (n.body || "").split(/(?=<h3 id="sec-)/);
@@ -993,11 +965,10 @@ function route() {
   if (parts[0] === "drill") { renderDrill(); window.scrollTo(0, 0); return; }
   if (parts[0] === "r") {
     const r = REGIONS.find(x => x.id === parts[1]);
-    if (r && r.private) { renderRegion(r, parts[2]); window.scrollTo(0, 0); loadPrivate({ id: r.doc }, parts[2], "r/" + r.id); return; }
     if (r) { renderRegion(r, parts[2]); goToSection(parts[2]); return; }
   }
   const n = NOTES.find(x => x.id === parts[0]);
-  if (n) { renderNote(n, parts[1]); if (n.private) { window.scrollTo(0, 0); loadPrivate(n, parts[1]); } else goToSection(parts[1]); return; }
+  if (n) { renderNote(n, parts[1]); goToSection(parts[1]); return; }
   const tab = parts[0] === "t" && TABS.find(t => t.id === parts[1]);
   renderHome(tab || TABS[0]);
   window.scrollTo(0, 0);
@@ -1017,4 +988,4 @@ q.addEventListener("input", () => {
 window.addEventListener("hashchange", route);
 if (typeof initThemeToggle === "function") initThemeToggle();
 route();
-checkPrivate();
+checkOwner();
