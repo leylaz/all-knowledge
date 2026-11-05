@@ -13,8 +13,13 @@ const err = (where, msg) => errors.push(`${where}: ${msg}`);
 
 /* ---------- Load the site data the way the browser does ---------- */
 const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]).filter(s => !/^https?:/.test(s));
-for (const s of scripts) if (!fs.existsSync(path.join(ROOT, s))) err("index.html", `script ${s} does not exist`);
+const tags = [...html.matchAll(/<script src="([^"?]+)(?:\?v=([^"]*))?"><\/script>/g)].filter(m => !/^https?:/.test(m[1]));
+const scripts = tags.map(m => m[1]);
+const { stamp } = require("./stamp.js");
+for (const [, s, v] of tags) {
+  if (!fs.existsSync(path.join(ROOT, s))) err("index.html", `script ${s} does not exist`);
+  else if (v !== stamp(s)) err("index.html", `script ${s} has a stale cache stamp, run node tools/stamp.js`);
+}
 for (const dir of ["js", "sections", "coding"])
   for (const f of fs.readdirSync(path.join(ROOT, dir)))
     if (f.endsWith(".js") && !scripts.includes(`${dir}/${f}`)) err("index.html", `${dir}/${f} is never loaded`);
