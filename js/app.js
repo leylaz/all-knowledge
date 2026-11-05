@@ -180,7 +180,7 @@ function layout(curId, curSec, inner) {
 
 /* ---------- Glossary hover cards (terms in js/glossary.js) ----------
    Wraps the first use of each term on a page; skips code, links,
-   headings, and math. */
+   headings, and math (including inline TeX in plain text). */
 const GL_SKIP = "a, code, pre, h1, h2, h3, h4, th, summary, sup, sub, .qn, .math, .eq, mjx-container, svg, .gl, .calc, .trace, .ex";
 let GL_RE = null;
 function decorateGlossary(curId) {
@@ -196,9 +196,11 @@ function decorateGlossary(curId) {
   });
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
+  /* Blank out inline TeX so a term inside \( \) or \[ \] stays unwrapped for MathJax. */
+  const unmath = s => s.replace(/\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g, x => " ".repeat(x.length));
   for (let t of nodes) {
     let m;
-    while (t && (m = t.data.match(GL_RE))) {
+    while (t && (m = unmath(t.data).match(GL_RE))) {
       const term = m[1];
       if (used.has(term)) { t = t.splitText(m.index + term.length); continue; }
       used.add(term);
