@@ -113,7 +113,7 @@ for (const p of [...REGIONS.map(r => ["r/" + r.id, r]), ...NOTES.map(n => [n.id,
 /* ---------- Practice problems ---------- */
 for (const p of [...REGIONS.map(r => ["r/" + r.id, r]), ...NOTES.map(n => [n.id, n])]) {
   const [where, page] = p;
-  if (page.region === "intv" || where === "r/intv") continue;
+  if (page.region === "intv" || where === "r/intv" || where === "r/todo") continue;
   const pr = page.practice;
   if (!pr || !(pr.guided || []).length || !(pr.interview || []).length) err(where, "needs Guided and Interview Level practice problems");
   else for (const x of [...pr.guided, ...pr.interview]) if (!x.q || !x.a) err(where, "a practice problem is missing its question or answer");

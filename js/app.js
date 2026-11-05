@@ -88,7 +88,7 @@ function sideNav(curId, curSec) {
       return `${tab ? `<p class="tab-label">${tab.name}</p>` : ""}<div class="grp">
       <a class="rg ${isCurR && !curSec ? "cur" : ""}" href="#/r/${r.id}">${r.name}</a>
       ${isCurR ? subFor(r, "r/" + r.id) : ""}
-      <ul>${r.id === "intv" ? `<li><a class="${curId === "drill" ? "cur" : ""}" href="#/drill">Random Drill</a></li><li><a class="${curId === "todo" ? "cur" : ""}" href="#/todo">To-Do List</a></li>` : ""}${NOTES.filter(n => n.region === r.id).map(n =>
+      <ul>${r.id === "intv" ? `<li><a class="${curId === "drill" ? "cur" : ""}" href="#/drill">Random Drill</a></li>` : ""}${NOTES.filter(n => n.region === r.id).map(n =>
         `<li><a class="${curId === n.id && !curSec ? "cur" : ""}" href="#/${n.id}">${n.title}</a>${curId === n.id ? subFor(n, n.id) : ""}</li>`).join("")}</ul>
     </div>${r.id === "intv" ? `<div class="grp">
       <a class="rg ${curId === "review" && !curSec ? "cur" : ""}" href="#/review">Review</a>
@@ -777,9 +777,9 @@ function renderReview() {
 }
 
 /* ---------- The to-do list ----------
-   A plain list for interview prep. Like flags, the owner's items live in the
-   private db and everyone else's in this browser. Done items move to their
-   own list below until cleared. */
+   Its own section in the Interview Prep tab, at #/r/todo. Like flags, the
+   owner's items live in the private db and everyone else's in this browser.
+   Done items move to their own list below until cleared. */
 const TODO_KEY = "intv-todos";
 let TODOS = [], TODO_SAVE = Promise.resolve();
 try { TODOS = JSON.parse(localStorage.getItem(TODO_KEY) || "[]"); } catch (e) { TODOS = []; }
@@ -806,8 +806,8 @@ const todoItem = t => `<li class="todo-item${t.done ? " done" : ""}" data-id="${
   <button type="button" class="todo-del" aria-label="Delete this item">✕</button></li>`;
 function renderTodo() {
   const open = TODOS.filter(t => !t.done), done = TODOS.filter(t => t.done);
-  layout("todo", null, `
-    <p class="region"><a href="#/r/intv" style="text-decoration:none">Interview Prep</a></p>
+  layout("r/todo", null, `
+    <p class="region">Section Overview</p>
     <h1>To-Do List</h1>
     <p class="flag-note">${open.length} open, ${done.length} done. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."}</p>
     <form class="todo-add" id="todoForm">
@@ -846,7 +846,7 @@ function renderRegion(r, sec) {
     ${tocHTML(r, "r/" + r.id)}
     <ul class="sublist">${notes.map(n => `<li><a href="#/${n.id}">${n.title}</a></li>`).join("")}</ul>
     ${r.id === "pipe" && typeof pipelineSVG === "function" ? pipelineSVG() : ""}
-    ${r.id === "intv" ? `<p class="flag-note"><a href="#/review/questions">★ Flagged Questions</a> (<span id="flagCount">${FLAGS.length}</span>) · <a href="#/drill">Random Drill</a> · <a href="#/todo">To-Do List</a></p>` : ""}
+    ${r.id === "intv" ? `<p class="flag-note"><a href="#/review/questions">★ Flagged Questions</a> (<span id="flagCount">${FLAGS.length}</span>) · <a href="#/drill">Random Drill</a></p>` : ""}
     <div class="body">${r.body}</div>${practiceHTML(r.practice)}`);
 }
 
@@ -961,7 +961,7 @@ function route() {
   if (parts[0] && parts[0] !== "t") q.value = "";
   if (parts[0] === "review") { renderReview(); goToSection(parts[1]); return; }
   if (parts[0] === "flagged") { renderReview(); goToSection("questions"); return; }
-  if (parts[0] === "todo") { renderTodo(); window.scrollTo(0, 0); return; }
+  if (parts[0] === "todo" || (parts[0] === "r" && parts[1] === "todo")) { renderTodo(); window.scrollTo(0, 0); return; }
   if (parts[0] === "drill") { renderDrill(); window.scrollTo(0, 0); return; }
   if (parts[0] === "r") {
     const r = REGIONS.find(x => x.id === parts[1]);
