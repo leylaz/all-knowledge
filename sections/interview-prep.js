@@ -2552,19 +2552,20 @@ Q(`<p>A loop has one independent DRAM miss per iteration. A colleague sized the 
 <p>What binds is the largest E × R / C over all the structures, with the residency R worked out for each. Fixes: fewer instructions that depend on the miss, a larger scheduler, or a queue that holds ops that aren’t ready outside the scheduler, as Zen 5’s floating-point non-scheduling queue does.</p>`, "hard") +
 M(`<p>A join loop on a Golden Cove-class core at 5 GHz has one independent DRAM miss per iteration (80 ns, so 400 cycles). Per iteration: 14 µops, 3 loads (one misses), 1 store, 10 µops that write an integer register, and 6 µops that depend on the missing load. The core has 6-wide rename, a 512-entry ROB, a 97-entry scheduler, 280 integer physical registers (16 architectural), a 192-entry load queue, a 114-entry store queue, and 16 L1 fill buffers. Bound each structure, find the bottleneck, and say whether doubling the scheduler helps.</p>`,
 `<ol>
-<li>A miss is always at the ROB head, so retire-ordered entries stay about 400 cycles. Scheduler entries stay that long only for the 6 dependents.</li>
-<li>Bounds in cycles per iteration:
+<li>Residency: a miss is always at the ROB head, so retire-ordered entries stay about 400 cycles. In the scheduler, only the 6 µops that depend on the miss stay that long. The other 8 µops per iteration are independent and issue within a few cycles, so they barely count.</li>
+<li>Each bound is (entries used per iteration × cycles each entry is held) / entries available, in cycles per iteration:
 <ul>
-<li>Fill buffers: 1 × 400 / 16 = <strong>25.0</strong></li>
-<li>Scheduler: 6 × 400 / 97 ≈ <strong>24.7</strong></li>
-<li>Integer registers: 10 × 400 / (280 − 16) ≈ 15.2</li>
-<li>ROB: 14 × 400 / 512 ≈ 10.9</li>
-<li>Load queue: 3 × 400 / 192 ≈ 6.3</li>
-<li>Store queue: 1 × (400 + drain) / 114 ≈ 3.5 or a little more</li>
-<li>Rename: 14 / 6 ≈ 2.3</li>
+<li>Fill buffers: 1 miss/iteration × 400 cycles / 16 buffers = <strong>25.0 cycles/iteration</strong></li>
+<li>Scheduler: 6 dependent µops/iteration × 400 cycles / 97 entries ≈ <strong>24.7 cycles/iteration</strong>. The 6 here is the 6 dependent µops, not the 6-wide rename.</li>
+<li>Integer registers: 10 writing µops/iteration × 400 cycles / (280 − 16) registers ≈ 15.2 cycles/iteration. The 16 architectural registers always hold their committed values in 16 physical registers, which can’t be freed, so only 264 registers are left for in-flight results.</li>
+<li>ROB: 14 µops/iteration × 400 cycles / 512 entries ≈ 10.9 cycles/iteration</li>
+<li>Load queue: 3 loads/iteration × 400 cycles / 192 entries ≈ 6.3 cycles/iteration</li>
+<li>Store queue: 1 store/iteration × (400 cycles + drain) / 114 entries ≈ 3.5 cycles/iteration or a little more</li>
+<li>Rename: 14 µops/iteration / 6 µops/cycle ≈ 2.3 cycles/iteration</li>
 </ul></li>
-<li>The fill buffers bind at <strong>25 cycles</strong>, with the scheduler just behind. Check: at 25 cycles per iteration the ROB holds 14 × 400 / 25 = 224 entries, under 512, and the scheduler 6 × 400 / 25 = 96, just under 97.</li>
-<li>Doubling the scheduler gains <strong>nothing</strong>, because the fill buffers still bind at 25. Doubling the fill buffers alone moves the bound to the scheduler at 24.7, about 1%. Only growing both together gets anywhere: 32 fill buffers and a 194-entry scheduler give the register file’s 15.2, a 1.6× speedup. The structures are balanced, which is how a good design looks.</li>
+<li>Why 25 cycles and not 400 cycles: each miss still takes 400 cycles, but misses from different iterations overlap. 16 buffers each held for 400 cycles finish 16 misses every 400 cycles, one every 25 cycles, so about 16 iterations are in flight at once and each one still takes over 400 cycles from start to end. The bound is a throughput, not a latency (Little’s law). With 20 misses per iteration it would be 20 misses × 400 cycles / 16 buffers = 500 cycles/iteration, not 800 cycles. 800 cycles would only happen if iterations couldn’t overlap, so each one waited for a round of 16 misses and then a round of 4.</li>
+<li>The fill buffers bind at <strong>25 cycles/iteration</strong>, with the scheduler just behind. Check: at 25 cycles/iteration the ROB holds 14 µops × 400 cycles / 25 cycles = 224 entries, under 512 entries, and the scheduler 6 µops × 400 cycles / 25 cycles = 96 entries, just under 97 entries.</li>
+<li>Doubling the scheduler gains <strong>nothing</strong>, because the fill buffers still bind at 25 cycles/iteration. Doubling the fill buffers alone moves the bound to the scheduler at 24.7 cycles/iteration, about 1% faster. Only growing both together gets anywhere: 32 fill buffers and a 194-entry scheduler give the register file’s 15.2 cycles/iteration, a 1.6× speedup. The structures are balanced, which is how a good design looks.</li>
 </ol>`, "hard") +
 Q(`<p>What is the difference between latency-bound and throughput-bound code? Give one example of each and one measurement that tells them apart.</p>`,
 `<p><strong>Latency-bound:</strong> the time is set by a chain of dependent operations, each waiting for the previous result. Adding execution units or width doesn’t help, and only shorter latencies do. Examples: a linked-list traversal (each load’s address comes from the previous load), or a running sum of floating-point values in one accumulator.</p>
