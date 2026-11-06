@@ -88,7 +88,7 @@ ${window.INTV_CODING_HELP || ""}
 <h3 id="sec-order">Study Order</h3>
 <ol>
 <li><strong>Fundamentals:</strong> <a href="#/intv-pipeline">Pipeline Flow and Width</a>, <a href="#/intv-renaming">Renaming and Dependences</a>, <a href="#/intv-rob">The ROB and Retirement</a>, <a href="#/intv-sched">Scheduling and Execution</a>, <a href="#/intv-arith">Arithmetic and Floating Point</a>, <a href="#/intv-isa">Instruction Sets and Encoding</a>.</li>
-<li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-fe">Front End and Fetch</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-mem">Caches, TLBs and DRAM</a>, <a href="#/intv-coh">Coherence and Consistency</a>, <a href="#/intv-icx">Interconnects, Links and Memory Interfaces</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>, <a href="#/intv-proc">Reasoning About Real Processors</a>.</li>
+<li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-fe">Front End and Fetch</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-mem">Caches, TLBs and DRAM</a>, <a href="#/intv-coh">Coherence and Consistency</a>, <a href="#/intv-icx">Interconnects, Links and Memory Interfaces</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>, <a href="#/intv-proc">Reasoning About Real Processors</a>, <a href="#/intv-bench">Workloads, Benchmarks and the Roofline</a>.</li>
 <li><strong>Systems programming:</strong> <a href="#/intv-conc">Concurrency and Parallelism</a>, <a href="#/intv-alloc">Memory Allocation and the C Library</a>, <a href="#/intv-vm">Virtual Memory and the OS Boundary</a>. Expect to write code for these in an interview.</li>
 <li><strong>Your own experience:</strong> <a href="#/intv-sim">Building a Performance Model in C</a>, <a href="#/intv-design">Open-Ended Design Problems</a>. Connect every answer here to a decision or bug from your own simulator.</li>
 </ol>
@@ -2879,6 +2879,153 @@ M(`<p>By Little’s law, how many bytes must be in flight for one Zen 5 core, fo
 <li>The H100 SM uses many warps each issuing wide loads, plus TMA copies that put kilobytes in flight from one instruction.</li>
 </ul>
 <p>For a model, this is the number to check first: if the modeled structures can’t hold the bytes in flight, the model can’t reach the bandwidth, whatever the DRAM model says.</p>`, "hard"),
+},
+{
+  id: "intv-bench",
+  title: "Workloads, Benchmarks and the Roofline",
+  body: `
+<p>Background: <a href="#/r/perf">Performance Analysis</a>, especially <a href="#/workloads">Types of Workloads</a>, <a href="#/spec-cpu">SPEC CPU Benchmarks</a>, <a href="#/perf-roofline">The Roofline Model for CPUs</a>, and <a href="#/ipc-spec">IPC and Simulation Methodology</a>. Sampling, validation, and power are on <a href="#/intv-sim">Building a Performance Model in C</a>, and CPI stacks on <a href="#/intv-diag">Diagnosing Bottlenecks</a>.</p>
+<h3 id="sec-workloads">Workloads and Scaling Laws</h3>` +
+Q(`<p>For each SPEC CPU 2017 benchmark, name its likely main bottleneck and one counter that would confirm it: 505.mcf, 548.exchange2, 519.lbm, and 502.gcc.</p>`,
+`<p>Each of the four stresses a different part of the core, which is why they are useful together.</p>
+<ul>
+<li><strong>505.mcf</strong> (network flow): memory latency from pointer chasing. Confirm with high L2 and LLC miss rates per 1,000 instructions together with a low number of outstanding misses per cycle, meaning the misses are dependent rather than overlapped.</li>
+<li><strong>548.exchange2</strong> (puzzle solver): the core itself, with a small footprint that fits in L1. Confirm with high IPC, near-zero cache misses, and Top-Down’s retiring and core-bound categories dominating.</li>
+<li><strong>519.lbm</strong> (fluid dynamics): DRAM bandwidth from streaming over large arrays. Confirm with DRAM bandwidth near the sustainable peak while running many copies, and performance that tracks memory bandwidth rather than frequency.</li>
+<li><strong>502.gcc</strong> (compiler): the front end and branches, from a large code footprint and irregular control flow. Confirm with L1I and op cache misses, BTB misses, and branch mispredictions per 1,000 instructions, and a large front-end-bound share.</li>
+</ul>`, "easy") +
+Q(`<p>A simulation code is 95% parallel by time on one core, so Amdahl’s law caps its speedup at 20 times. Yet in production it scales almost linearly to 128 cores. Reconcile the two.</p>`,
+`<p>Amdahl’s law assumes a fixed problem size, and production runs grow the problem with the machine, which is Gustafson’s law.</p>
+<ul>
+<li>With a fixed problem, the 5% serial part is fixed time, and adding cores shrinks only the other 95%, so speedup approaches 1 / 0.05 = 20.</li>
+<li>In production, users run bigger meshes or more time steps on more cores, keeping the run time about the same. The serial part (setup, I/O, a global reduction) grows slowly or not at all, while the parallel work grows with the core count. The serial fraction of the bigger run is far below 5%, so scaled speedup is nearly linear.</li>
+</ul>
+<p>Both laws are right about different questions: Amdahl answers “how much faster is this job,” Gustafson “how much more work in the same time.” SPECspeed asks the first, SPECrate the second. When quoting scaling, always say which: strong scaling (fixed size) or weak scaling (size grows with cores).</p>`, "medium") +
+Q(`<p>You are evaluating a new server core and your team proposes SPEC CPU 2017 as the workload suite. What will that suite miss about datacenter workloads, and what would you add?</p>`,
+`<p>SPEC CPU will miss the front end, the shared-infrastructure code, and the system effects that dominate datacenter workloads, so it would steer design toward the back end and away from where server cycles go.</p>
+<ul>
+<li><strong>Instruction footprint:</strong> SPEC programs mostly have small hot code. Google’s fleet-wide profiling (Kanev et al., ISCA 2015) found front-end stalls in 15 to 30% of cycles, from code footprints far larger than the L1I and BTB. SPEC would undervalue a larger BTB, op cache, or L2 instruction prefetching.</li>
+<li><strong>The datacenter tax:</strong> the same study found that common library code (RPC, serialization, compression, memory allocation, hashing) takes nearly 30% of cycles. These short, branchy routines appear in every service but in no SPEC benchmark.</li>
+<li><strong>System behavior:</strong> SPEC runs mostly in user mode with little I/O. Servers spend significant time in the kernel and networking stack, context switch often, and share cores with other tenants, so caches and predictors are often cold.</li>
+<li><strong>Tail latency:</strong> services are judged by p99 latency at a load level, not by average throughput.</li>
+</ul>
+<p>Add traces or binaries of representative services (a web search leaf, a key-value store, a database, a JIT runtime), microbenchmarks for the tax routines, and tools that replay instruction footprints. Keep SPEC for comparability and for the compute-heavy parts of the mix.</p>`, "hard") +
+M(`<p>A new memory-system feature makes a program’s memory-bound phase 1.5 times faster but costs a 3% slowdown everywhere else, from a longer L2 hit latency. The memory-bound phase is 40% of the original run time. What is the overall speedup? How large must the memory-bound share be for the feature to pay off at all?</p><p class="given">Assume the phases don’t overlap and the 3% slowdown applies to the whole non-memory-bound phase.</p>`,
+`<ol>
+<li><strong>New time:</strong> 0.4 × T / 1.5 + 0.6 × T × 1.03 = 0.267 T + 0.618 T = 0.885 T.</li>
+<li><strong>Speedup:</strong> T / 0.885 T ≈ <strong>1.13×</strong>.</li>
+<li><strong>Break-even share f:</strong> f / 1.5 + (1 − f) × 1.03 = 1. That is 0.667 f + 1.03 − 1.03 f = 1, so 0.363 f = 0.03 and f ≈ <strong>8.3%</strong>.</li>
+</ol>
+<p>Below about 8% memory-bound time, the feature makes the program slower. A suite average hides this: compute-bound programs with little memory time all lose about 3%. Report the distribution, not just the mean.</p>`, "medium") +
+M(`<p>A parallel job has a serial part that takes 2% of its single-core run time. The parallel part is memory-bandwidth-bound and stops speeding up beyond 24 cores, because 24 cores already saturate the socket’s DRAM bandwidth. What is the speedup on 24 and on 64 cores, by plain Amdahl’s law and with the bandwidth cap? How many cores does plain Amdahl’s law need to match the capped speedup at 64 cores?</p><p class="given">Assume the parallel part speeds up linearly up to 24 cores and not at all beyond, and the serial part doesn’t change with core count.</p>`,
+`<ol>
+<li><strong>Plain Amdahl, 24 cores:</strong> 1 / (0.02 + 0.98 / 24) = 1 / (0.02 + 0.0408) = 1 / 0.0608 ≈ <strong>16.4×</strong>.</li>
+<li><strong>Plain Amdahl, 64 cores:</strong> 1 / (0.02 + 0.98 / 64) = 1 / (0.02 + 0.0153) = 1 / 0.0353 ≈ <strong>28.3×</strong>.</li>
+<li><strong>With the cap, 24 cores:</strong> unchanged, 16.4×.</li>
+<li><strong>With the cap, 64 cores:</strong> the parallel part still runs at its 24-core speed: 1 / (0.02 + 0.98 / 24) ≈ <strong>16.4×</strong>. The extra 40 cores add nothing.</li>
+<li><strong>Matching cores:</strong> plain Amdahl reaches 16.4× at 24 cores, so the capped 64-core machine performs like an uncapped 24-core one.</li>
+</ol>
+<p>Parallel efficiency at 64 cores is 16.4 / 64 ≈ 26%, against 28.3 / 64 ≈ 44% by Amdahl alone. For a bandwidth-bound job, the useful core count is set by bandwidth per core, not by the serial fraction, and the remaining cores are better spent on another job with different needs.</p>`, "hard") +
+`<h3 id="sec-spec">SPEC CPU and Benchmarking</h3>` +
+Q(`<p>Chip A has 64 cores at a high all-core frequency with 8 memory channels. Chip B has 96 slightly slower cores with 12 memory channels. Predict which wins SPECrate 2017 Floating Point and which wins SPECspeed 2017 Integer, and explain what each suite rewards.</p>`,
+`<p>B likely wins SPECrate floating point, and A likely wins SPECspeed integer, because the two suites reward different things.</p>
+<ul>
+<li><strong>SPECrate:</strong> runs N independent single-threaded copies at once, usually one per hardware thread, and scores N × reference time / time for all copies to finish. It rewards total throughput: core count, all-core frequency, shared L3 capacity, and above all memory bandwidth, since copies of benchmarks such as 519.lbm and 549.fotonik3d compete for DRAM. B has 50% more cores and 50% more channels, so the bandwidth per core is about the same and B runs 50% more copies.</li>
+<li><strong>SPECspeed integer:</strong> runs one copy at a time, and the integer benchmarks are essentially single-threaded. It rewards single-thread latency: frequency, IPC, branch prediction, and cache latency. A’s faster cores win, and B’s extra cores sit idle.</li>
+</ul>
+<p>The trap is quoting one suite’s result as “performance.” A cloud buyer packing many VMs cares about SPECrate, and a user with one latency-critical job cares about SPECspeed.</p>`, "medium") +
+Q(`<p>SPEC summarizes a suite as the geometric mean of per-benchmark ratios against a reference machine. Why the geometric mean and not the arithmetic mean? What is its weakness, and what happened with 462.libquantum in SPEC CPU 2006?</p>`,
+`<p>The geometric mean is used because it makes the comparison between two machines independent of the reference machine, and its weakness is that one wildly improved benchmark lifts the whole score.</p>
+<ul>
+<li><strong>Reference independence:</strong> the ratio of two machines’ geometric means equals the geometric mean of their per-benchmark ratios to each other, so the reference times cancel. With an arithmetic mean of ratios, changing the reference machine can change which machine wins.</li>
+<li><strong>Weakness:</strong> each benchmark counts equally in log space, so a 10× gain on one benchmark of 10 raises the score by 10<sup>1/10</sup> ≈ 1.26×, a 26% gain from one program. It also doesn’t correspond to any real workload’s time, unlike a weighted arithmetic mean of times.</li>
+<li><strong>libquantum:</strong> compilers learned to transform its hot loops, including automatic parallelization and data-layout changes, producing ratios many times larger than on other benchmarks. Those gains inflated SPECint 2006 scores without reflecting general-purpose performance, and SPEC dropped it from CPU 2017.</li>
+</ul>
+<p>When reading results, look at per-benchmark ratios and ask which ones moved. When reporting your own model’s gains, show the distribution, and say if one benchmark drives the mean.</p>`, "hard") +
+Q(`<p>To save simulation time, a colleague runs SPEC benchmarks with the train input instead of ref. When is that acceptable, how would you check, and why does SPEC keep the two separate in the first place?</p>`,
+`<p>Train is acceptable only for benchmarks where it has been shown to behave like ref on the metrics the study depends on.</p>
+<ul>
+<li><strong>Why it can differ:</strong> train inputs are smaller, so working sets may fit in caches that ref overflows, and inputs can exercise different code paths, giving different branch behavior and instruction footprints. A cache study run on train can show no benefit from a larger L2 that ref would show.</li>
+<li><strong>How to check:</strong> run both inputs on real hardware or a fast functional model and compare the metrics that matter: MPKI at each cache level, branch MPKI, instruction footprint, memory footprint, and the phase structure (for example, SimPoint clusters). Accept train per benchmark, not for the whole suite.</li>
+<li><strong>Why SPEC separates them:</strong> train is the profiling input for feedback-directed optimization in peak builds. Training on one input and scoring on another keeps the compiler from tuning code layout and branch hints to the exact input being scored.</li>
+</ul>
+<p>The usual better answer to simulation cost is sampling ref (SimPoints or statistical sampling) rather than substituting a smaller input.</p>`, "medium") +
+Q(`<p>A vendor publishes a SPECrate 2017 Integer result for a 2-socket, 128-core server run with 256 copies (2 threads per core). You need single-core performance for a model calibration and divide the per-benchmark ratios by 256. What’s wrong with that number?</p>`,
+`<p>Dividing by the copy count gives the average throughput of one hardware thread under full-chip contention, which is not single-core performance.</p>
+<ul>
+<li><strong>SMT:</strong> each copy shares a core with a sibling, so the result per copy is about half a core’s throughput plus the SMT gain, not one core’s.</li>
+<li><strong>Frequency:</strong> with every core busy, the chip runs at its all-core frequency, which can be much lower than the frequency a single active core reaches.</li>
+<li><strong>Shared resources:</strong> each copy gets 1/256 of the L3 and memory bandwidth. Bandwidth-heavy benchmarks run far slower per copy than alone, and the slowdown varies by benchmark, so even the ranking of benchmarks changes.</li>
+<li><strong>Run rules:</strong> the per-benchmark time covers from the first copy starting to the last finishing, so stragglers lower the ratio.</li>
+</ul>
+<p>For single-core calibration, use SPECspeed results, a SPECrate run with 1 copy, or your own runs with one copy and the frequency fixed.</p>`, "medium") +
+M(`<p>A 64-core server runs a SPECrate test with 1 copy and with 64 copies on three benchmarks:</p>
+<ul>
+<li><strong>Benchmark A:</strong> reference time 1,600 s. 1 copy finishes in 200 s, and 64 copies in 380 s.</li>
+<li><strong>Benchmark B:</strong> reference time 1,000 s. 1 copy finishes in 125 s, and 64 copies in 130 s.</li>
+<li><strong>Benchmark C:</strong> reference time 2,000 s. 1 copy finishes in 400 s, and 64 copies in 410 s.</li>
+</ul>
+<p>Compute each benchmark’s ratio and the suite’s geometric mean for both runs. How well does each benchmark and the suite scale, and what does the geometric mean hide?</p><p class="given">A SPECrate ratio is copies × reference time / time for all copies to finish.</p>`,
+`<ol>
+<li><strong>1-copy ratios:</strong> A 1,600 s / 200 s = 8.0. B 1,000 s / 125 s = 8.0. C 2,000 s / 400 s = 5.0. Geometric mean = (8.0 × 8.0 × 5.0)<sup>1/3</sup> = 320<sup>1/3</sup> ≈ <strong>6.84</strong>.</li>
+<li><strong>64-copy ratios:</strong> A 64 copies × 1,600 s / 380 s ≈ 269.5. B 64 copies × 1,000 s / 130 s ≈ 492.3. C 64 copies × 2,000 s / 410 s ≈ 312.2.</li>
+<li><strong>64-copy geometric mean:</strong> (269.5 × 492.3 × 312.2)<sup>1/3</sup> ≈ (4.14 × 10<sup>7</sup>)<sup>1/3</sup> ≈ <strong>346</strong>.</li>
+<li><strong>Scaling per benchmark:</strong> A 269.5 / 8.0 ≈ 33.7 of 64 copies, 53% efficient. B 492.3 / 8.0 ≈ 61.5, 96%. C 312.2 / 5.0 ≈ 62.4, 98%.</li>
+<li><strong>Suite scaling:</strong> 346 / 6.84 ≈ 50.6 of 64, 79%.</li>
+</ol>
+<p>The suite’s 79% hides that two benchmarks scale almost perfectly and one barely passes half. A’s copies slow from 200 s to 380 s together, the signature of a shared resource, most likely DRAM bandwidth. Confirm with DRAM bandwidth counters during the 64-copy run, and by running 8, 16, and 32 copies to find where A’s time starts to rise.</p>`, "hard") +
+`<h3 id="sec-roofline">The Roofline for CPUs</h3>` +
+Q(`<p>On a roofline plot, what sets the two roofs, what does the ridge point mean, and why won’t a kernel to the left of the ridge get faster from wider vector units?</p>`,
+`<p>The roofs are the machine’s peak compute rate (flat) and its peak memory bandwidth (the slope, attainable FLOPS = bandwidth × arithmetic intensity), and the ridge is where they meet.</p>
+<ul>
+<li><strong>Arithmetic intensity:</strong> FLOPs per byte moved from the memory level the roof describes, usually DRAM.</li>
+<li><strong>Ridge point:</strong> peak FLOPS / peak bandwidth, the minimum intensity at which a kernel can reach peak compute. Kernels to its left are memory bound, kernels to its right compute bound.</li>
+<li><strong>Left of the ridge:</strong> the kernel’s rate is set by how fast bytes arrive. Wider vectors raise the flat roof but don’t change the slope, so the kernel doesn’t move. To speed it up, raise the intensity (blocking, fusing loops, smaller data types) or the bandwidth.</li>
+</ul>`, "easy") +
+Q(`<p>A streaming kernel reaches only 25% of the DRAM bandwidth roof on one socket, with all cores running. List the ceilings that could explain it and how you would tell them apart.</p>`,
+`<p>A kernel far below the bandwidth roof is usually limited by concurrency, by wasted bytes, or by where the data lives, and each has a distinct signature.</p>
+<ul>
+<li><strong>Too little memory-level parallelism:</strong> dependent or irregular accesses that prefetchers can’t predict keep too few misses in flight. Signature: low average outstanding misses per core, and bandwidth that rises with more threads per core.</li>
+<li><strong>NUMA placement:</strong> data allocated on one node by the initializing thread forces most cores to read remotely. Signature: remote-access counters high and one node’s memory controllers busy while the other’s idle. First-touch initialization in parallel fixes it.</li>
+<li><strong>Wasted bytes:</strong> strided or gather access uses a few bytes of each 64-byte line, so DRAM moves far more than the kernel counts. Signature: the DRAM bytes measured greatly exceed the bytes the algorithm needs.</li>
+<li><strong>TLB misses:</strong> large strides over 4 KB pages cause page walks on most accesses. Signature: high page-walk cycles, cured by huge pages.</li>
+<li><strong>Write-allocate and mixed traffic:</strong> each store first reads its line, and reads and writes interleaved cost DRAM bus turnarounds, so a store-heavy kernel can’t reach a read-only roof. Signature: measured read bytes above what the loads need.</li>
+</ul>
+<p>Measure the actual roof first, with a STREAM-like kernel on the same configuration, because the vendor peak is rarely reachable.</p>`, "hard") +
+Q(`<p>You place a kernel on the roofline from hardware counters: FLOPs from the FP instruction counters, bytes from the memory-controller counters, and time from the run. Name the ways each measurement can mislead, and how to correct them.</p>`,
+`<p>Each of the three measurements has its own traps, and all of them move the point in ways that can reverse the diagnosis.</p>
+<ul>
+<li><strong>FLOPs:</strong> Intel’s FP arithmetic counters count instructions by width, so FLOPs = sum of counts × lanes, with FMA instructions counted twice (the hardware increments by 2). Masked AVX-512 lanes still count as full width, which overstates FLOPs in masked or remainder loops. Some cores have no FLOP counters at all. Cross-check against the algorithm’s count.</li>
+<li><strong>Bytes:</strong> memory-controller counters see the whole socket, including other processes, prefetches that were never used, and write-allocate reads. That is the right number for “bytes DRAM moved,” but it isn’t the algorithm’s intensity, and the difference is itself a finding. Also make sure counters cover every controller on every socket.</li>
+<li><strong>Time:</strong> include only the kernel’s region, at a known frequency. Turbo or power limits change the compute roof during the run, so use the measured frequency for the roof.</li>
+<li><strong>Which roof:</strong> the intensity must use bytes at the same level as the roof. A kernel that is memory bound at DRAM can still be limited by L2 or L1 bandwidth, so plot one point per level (the hierarchical roofline).</li>
+</ul>`, "hard") +
+Q(`<p>Cache blocking a matrix multiply moves its point far to the right on a DRAM roofline but barely moves it on an L1 roofline. Explain why, and what limits a well-blocked kernel once it is compute bound at DRAM.</p>`,
+`<p>Blocking changes how often data is reloaded from DRAM, not how often the inner loop touches L1, so it raises DRAM intensity but not L1 intensity.</p>
+<ul>
+<li><strong>DRAM:</strong> unblocked, each element of B is reloaded from DRAM for every row of A, so DRAM bytes grow with n<sup>3</sup>, like FLOPs, and intensity stays a small constant. Blocked with b × b tiles, each tile loaded from DRAM is reused b times, so DRAM bytes grow with n<sup>3</sup> / b and intensity grows with b.</li>
+<li><strong>L1:</strong> the inner loop still loads operands from L1 for each FMA unless they are held in registers. L1 intensity is set by register blocking, the micro-kernel that keeps a small block of C in registers and reuses each loaded A and B value several times.</li>
+</ul>
+<p>Once DRAM intensity is past the ridge, the limits are the in-core ceilings: L1 load bandwidth versus FMA rate, enough independent accumulators to cover FMA latency (pipes × latency in flight), and instruction overhead such as address arithmetic and loop control. Optimized BLAS libraries reach 80 to 90% of peak by register blocking plus cache blocking at every level.</p>`, "hard") +
+M(`<p>A 16-core desktop has 32 FP64 FLOPs/cycle per core at 5.0 GHz and two channels of DDR5-5600. Place two kernels on its DRAM roofline: (1) STREAM triad, <code>a[i] = b[i] + s * c[i]</code> on doubles, with ordinary stores and then with non-temporal stores, and (2) a 27-point stencil that does 30 FLOPs per grid point and, with perfect cache reuse, reads each point once and writes each result once. How many time steps must temporal blocking fuse for the stencil to reach the ridge?</p><p class="given">Assume ordinary stores cause a write-allocate read of each line, non-temporal stores don’t, the arrays are far larger than the caches, and temporal blocking over k steps adds no extra traffic or FLOPs.</p>`,
+`<ol>
+<li><strong>Roofs:</strong> peak = 16 cores × 32 FLOPs/cycle × 5.0 × 10<sup>9</sup> cycles/s = 2.56 TFLOPS. Bandwidth = 2 channels × 5,600 × 10<sup>6</sup> transfers/s × 8 bytes/transfer = 89.6 GB/s. Ridge = 2,560 GFLOPS / 89.6 GB/s ≈ 28.6 FLOPs/byte.</li>
+<li><strong>Triad, ordinary stores:</strong> 2 FLOPs/element. Bytes: 8 bytes (b) + 8 bytes (c) + 8 bytes (a’s write-allocate read) + 8 bytes (a’s write) = 32 bytes/element. Intensity = 2 FLOPs / 32 bytes = 0.0625 FLOPs/byte. Attainable = 0.0625 FLOPs/byte × 89.6 GB/s = <strong>5.6 GFLOPS</strong>, 0.2% of peak.</li>
+<li><strong>Triad, non-temporal stores:</strong> 24 bytes/element, intensity 2 FLOPs / 24 bytes ≈ 0.0833 FLOPs/byte. Attainable ≈ 0.0833 FLOPs/byte × 89.6 GB/s ≈ <strong>7.5 GFLOPS</strong>, a third more from removing the write-allocate read.</li>
+<li><strong>Stencil, one step:</strong> bytes = 8 bytes (read) + 8 bytes (write-allocate read) + 8 bytes (write) = 24 bytes/point. Intensity = 30 FLOPs / 24 bytes = 1.25 FLOPs/byte. Attainable = 1.25 FLOPs/byte × 89.6 GB/s = <strong>112 GFLOPS</strong>, 4.4% of peak.</li>
+<li><strong>Temporal blocking:</strong> fusing k steps does k × 30 FLOPs per 24 bytes, so intensity = 1.25 k FLOPs/byte. Reaching the ridge needs 1.25 k ≥ 28.6, so k ≥ 22.9: <strong>23 time steps</strong>.</li>
+</ol>
+<p>Even a stencil that does a lot of arithmetic per point is deeply memory bound on a CPU, and fusing 23 steps without extra traffic is unrealistic, since the halo regions grow with k. In practice, temporal blocking gets a few times closer to the ridge, which is still a large gain.</p>`, "hard") +
+M(`<p>One Zen 5 core runs a double-precision dot product, <code>sum += x[i] * y[i]</code>, vectorized with 512-bit FMAs. The core can do 2 FMA instructions per cycle with 4-cycle latency, load 2 × 64 bytes/cycle from L1, refill 64 bytes/cycle from L2, and gets 30 GB/s from DRAM alone, all at 5.0 GHz. What does the kernel attain when its vectors sit in L1, in L2, and in DRAM? How many independent accumulators does it need to reach the L1 roof?</p><p class="given">Assume each 512-bit FMA does 16 FLOPs on 8 elements of each vector, nothing but the stated limits applies, and each accumulator is a separate 512-bit register updated by one FMA per iteration of its chain.</p>`,
+`<ol>
+<li><strong>Intensity:</strong> each element pair does 2 FLOPs on 8 bytes + 8 bytes = 16 bytes, so 2 FLOPs / 16 bytes = 0.125 FLOPs/byte at every level, since nothing is reused.</li>
+<li><strong>Compute roof:</strong> 2 FMAs/cycle × 16 FLOPs/FMA × 5.0 × 10<sup>9</sup> cycles/s = 160 GFLOPS.</li>
+<li><strong>L1:</strong> 128 bytes/cycle × 5.0 × 10<sup>9</sup> cycles/s = 640 GB/s, × 0.125 FLOPs/byte = <strong>80 GFLOPS</strong>, half of peak. That is 1 FMA per cycle, fed by 2 loads per cycle.</li>
+<li><strong>L2:</strong> 64 bytes/cycle × 5.0 × 10<sup>9</sup> cycles/s = 320 GB/s, × 0.125 FLOPs/byte = <strong>40 GFLOPS</strong>.</li>
+<li><strong>DRAM:</strong> 30 GB/s × 0.125 FLOPs/byte = <strong>3.75 GFLOPS</strong>, 2.3% of peak.</li>
+<li><strong>Accumulators:</strong> one accumulator chain allows one FMA per 4 cycles, 16 FLOPs / 4 cycles = 4 FLOPs/cycle = 20 GFLOPS. The L1 roof needs 80 GFLOPS / 20 GFLOPS per chain = <strong>4 accumulators</strong>, which keep 4 FMAs in flight at 1 FMA per cycle. Reaching the compute roof would take 2 pipes × 4 cycles = 8 chains, but the loads can’t feed it.</li>
+</ol>
+<p>With a single accumulator, as a naive loop compiled without fast-math produces (floating-point addition isn’t associative, so the compiler won’t reorder it), the kernel runs at 20 GFLOPS in L1: an in-core ceiling 4 times below the L1 roof, invisible on a DRAM-only roofline.</p>`, "hard"),
 },
 {
   id: "intv-conc",

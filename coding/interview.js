@@ -2889,6 +2889,151 @@ a: `<p>Each level is a small fully associative LRU array with a timestamp per li
 <p>That is the modeling error from the Conceptual tab in executable form: a model of Zen 5 with a fill-on-miss L3 gets both capacity and streaming behavior wrong. A full model would also keep a line in the L3 on a hit when other cores share it, and track the L2s’ contents with shadow tags.</p>`
 });
 
+C("intv-bench", "spec", {
+lvl: "medium",
+q: `<p>Write the scoring arithmetic SPEC CPU uses. <code>ratio()</code> takes a benchmark’s reference time, the times of its 2 or 3 timed runs, and the number of copies, and returns copies × reference time / selected time. The selected time is the median of 3 runs, or the slower of 2 runs. <code>geomean()</code> returns the geometric mean of <code>n</code> positive values, computed so that a suite of large ratios can’t overflow.</p>`,
+head: String.raw`#include <stdio.h>
+#include <math.h>`,
+todo: String.raw`double ratio(double tref, const double *runs, int nruns, int copies) {
+    /* TODO */
+    return 0;
+}
+
+double geomean(const double *x, int n) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`double ratio(double tref, const double *runs, int nruns, int copies) {
+    double t;
+    if (nruns == 2) {
+        t = runs[0] > runs[1] ? runs[0] : runs[1];          /* the slower run */
+    } else {                                               /* median of 3 */
+        double a = runs[0], b = runs[1], c = runs[2];
+        if ((a >= b && a <= c) || (a <= b && a >= c)) t = a;
+        else if ((b >= a && b <= c) || (b <= a && b >= c)) t = b;
+        else t = c;
+    }
+    return copies * tref / t;
+}
+
+double geomean(const double *x, int n) {
+    double s = 0;
+    for (int i = 0; i < n; i++) s += log(x[i]);             /* sum of logs, not a product */
+    return exp(s / n);
+}`,
+tests: String.raw`static int near(double a, double b) { return fabs(a - b) <= 1e-3 * fabs(b); }
+
+int main(void) {
+    double r3[] = { 250, 260, 255 }, r3b[] = { 260, 250, 255 }, r2[] = { 250, 260 };
+    CHECK(near(ratio(1000, r3, 3, 1), 1000.0 / 255), "median of 3: got %f", ratio(1000, r3, 3, 1));
+    CHECK(near(ratio(1000, r3b, 3, 1), 1000.0 / 255), "median of 3, other order: got %f", ratio(1000, r3b, 3, 1));
+    CHECK(near(ratio(1000, r2, 2, 1), 1000.0 / 260), "slower of 2: got %f", ratio(1000, r2, 2, 1));
+
+    double ra[] = { 380, 380, 380 };
+    CHECK(near(ratio(1600, ra, 3, 64), 269.47), "64 copies: got %f", ratio(1600, ra, 3, 64));
+
+    double one[] = { 8, 8, 5 };
+    CHECK(near(geomean(one, 3), 6.8399), "geomean of 8, 8, 5: got %f", geomean(one, 3));
+    double many[] = { 269.47, 492.31, 312.20 };
+    CHECK(near(geomean(many, 3), 345.99), "geomean of rate ratios: got %f", geomean(many, 3));
+
+    double big[40];
+    for (int i = 0; i < 40; i++) big[i] = 1e10;
+    CHECK(near(geomean(big, 40), 1e10), "no overflow: got %g", geomean(big, 40));
+
+    /* Changing the reference machine doesn't change the comparison. */
+    double tA[] = { 100, 200, 50 }, tB[] = { 80, 250, 40 };
+    double ref1[] = { 1000, 1000, 1000 }, ref2[] = { 300, 5000, 90 };
+    double a1[3], b1[3], a2[3], b2[3];
+    for (int i = 0; i < 3; i++) {
+        a1[i] = ref1[i] / tA[i]; b1[i] = ref1[i] / tB[i];
+        a2[i] = ref2[i] / tA[i]; b2[i] = ref2[i] / tB[i];
+    }
+    double c1 = geomean(b1, 3) / geomean(a1, 3), c2 = geomean(b2, 3) / geomean(a2, 3);
+    CHECK(near(c1, c2) && near(c1, 1.0772), "B vs A: %f with one reference, %f with another, expected 1.0772", c1, c2);
+    return REPORT();
+}`,
+a: `<p>The selected time is the median of 3 runs, which ignores one outlier in either direction, or the slower of 2, which is the conservative choice when no median exists. The rate formula multiplies by the copy count, because all copies did useful work during the measured time.</p>
+<p>The geometric mean is computed as the exponential of the mean of the logs. Multiplying 40 ratios of 10<sup>10</sup> directly would overflow a double (10<sup>400</sup>), while the sum of logs stays small.</p>
+<p>The last test shows why SPEC uses the geometric mean: machine B beats A by (1.25 × 0.8 × 1.25)<sup>1/3</sup> ≈ 1.08 with either set of reference times, because each reference time appears in both machines’ ratios and cancels. An arithmetic mean of ratios would let the reference machine change the answer.</p>`
+});
+
+C("intv-bench", "roofline", {
+lvl: "hard",
+q: `<p>Measure a kernel’s DRAM arithmetic intensity the way a cache-aware model would: simulate its memory accesses through a cache. Write <code>mm_misses()</code>, which runs <code>C += A × B</code> on <code>n</code> × <code>n</code> row-major double matrices through a fully associative LRU cache of <code>cap</code> 64-byte lines, and returns the number of misses:</p>
+<ul>
+<li>A starts at byte address 0, B at 8<em>n</em><sup>2</sup>, and C at 16<em>n</em><sup>2</sup>.</li>
+<li>Loop order: tiles <code>ii</code>, <code>jj</code>, <code>kk</code> (each stepping by <code>bs</code>), then <code>i</code>, <code>j</code>, <code>k</code> within the tiles. <code>bs</code> = <code>n</code> is the plain i-j-k loop, and <code>bs</code> divides <code>n</code>.</li>
+<li>Each innermost iteration accesses A[i][k], B[k][j], C[i][j] (read), and C[i][j] (write), in that order. Writes allocate like reads, and each access, hit or miss, makes its line the most recently used.</li>
+</ul>
+<p>The tests turn misses into an intensity: 2<em>n</em><sup>3</sup> FLOPs / (misses × 64 bytes).</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdlib.h>`,
+todo: String.raw`long mm_misses(int n, int bs, int cap) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`/* Fully associative LRU: line tag and last-use time per slot. */
+static long *tags, *used, clock_, misses;
+static int cap_, fill;
+
+static void touch(long addr) {
+    long line = addr / 64;
+    int lru = 0;
+    clock_++;
+    for (int i = 0; i < fill; i++) {
+        if (tags[i] == line) { used[i] = clock_; return; }
+        if (used[i] < used[lru]) lru = i;
+    }
+    misses++;
+    int slot = fill < cap_ ? fill++ : lru;
+    tags[slot] = line;
+    used[slot] = clock_;
+}
+
+long mm_misses(int n, int bs, int cap) {
+    long nn = (long)n * n;
+    tags = malloc(sizeof(long) * cap);
+    used = malloc(sizeof(long) * cap);
+    cap_ = cap; fill = 0; clock_ = 0; misses = 0;
+    for (int ii = 0; ii < n; ii += bs)
+      for (int jj = 0; jj < n; jj += bs)
+        for (int kk = 0; kk < n; kk += bs)
+          for (int i = ii; i < ii + bs; i++)
+            for (int j = jj; j < jj + bs; j++)
+              for (int k = kk; k < kk + bs; k++) {
+                  touch(8 * ((long)i * n + k));               /* A[i][k] */
+                  touch(8 * (nn + (long)k * n + j));          /* B[k][j] */
+                  touch(8 * (2 * nn + (long)i * n + j));      /* C[i][j] read */
+                  touch(8 * (2 * nn + (long)i * n + j));      /* C[i][j] write */
+              }
+    free(tags);
+    free(used);
+    return misses;
+}`,
+tests: String.raw`static void expect(const char *name, int n, int bs, int cap, long want) {
+    long got = mm_misses(n, bs, cap);
+    CHECK(got == want, "%s: got %ld misses, expected %ld", name, got, want);
+}
+
+int main(void) {
+    expect("n = 16, everything fits: compulsory misses only", 16, 16, 96, 96);
+    expect("n = 16, a 1-line cache: 3 misses per iteration", 16, 16, 1, 12288);
+    expect("n = 16, 2 x 2 tiles in a 1-line cache", 16, 2, 1, 12288);
+    expect("n = 32, 64 lines, unblocked", 32, 32, 64, 4352);
+    expect("n = 32, 64 lines, 8 x 8 tiles", 32, 8, 64, 1152);
+
+    double ai_u = 2.0 * 32 * 32 * 32 / (4352 * 64.0);
+    double ai_b = 2.0 * 32 * 32 * 32 / (1152 * 64.0);
+    printf("n = 32 in 4 KB: %.3f FLOPs/byte unblocked, %.3f with 8 x 8 tiles\n", ai_u, ai_b);
+    CHECK(ai_b > 3 * ai_u, "blocking should raise intensity more than 3x: %.3f vs %.3f", ai_b, ai_u);
+    return REPORT();
+}`,
+a: `<p>The cache is an array of line tags with a last-use time each. Every access scans for its line, refreshes the time on a hit, and on a miss fills a free slot or evicts the least recently used one. The loop nest just generates the four addresses per iteration.</p>
+<p>The hand-checkable tests pin the model down. With room for everything, only the first touch of each line misses: 3 matrices × 16 × 16 doubles × 8 bytes / 64 bytes = 96 lines. With a single line, A, B, and the C read each evict the previous line, and only the C write (same line as its read) hits: 3 × 16<sup>3</sup> = 12,288 misses, whatever the tiling.</p>
+<p>For n = 32 in a 4 KB cache, the unblocked loop reloads B’s columns for every row of C, 4,352 misses, an intensity of 65,536 FLOPs / (4,352 × 64 bytes) ≈ 0.24 FLOPs/byte. With 8 × 8 tiles, the three tiles in use need 3 × 8 rows × 1 line = 24 lines, which fit, so each tile is reused before eviction: 1,152 misses, ≈ 0.89 FLOPs/byte, 3.8 times higher. That is the rightward move on the DRAM roofline from the Conceptual tab, measured rather than estimated. Real tools such as cache-aware roofline profilers do the same with hardware counters or a cache simulator, and the tile size that maximizes intensity depends on the cache, which is why BLAS libraries tune it per machine.</p>`
+});
+
 C("intv-conc", "locks", {
 lvl: "medium",
 threads: true,
