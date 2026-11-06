@@ -138,29 +138,144 @@ section({
   region: "coh",
   title: "Directory-Based Coherence",
   sections: [
-    { id: "flows", label: "Flows" },
+    { id: "why", label: "Why Snooping Stops Scaling" },
+    { id: "nodes", label: "Home, Local, and Remote Nodes" },
+    { id: "states", label: "Directory States" },
+    { id: "messages", label: "The Protocol Messages" },
+    { id: "machines", label: "The Two State Machines" },
+    { id: "flows", label: "Flows: 4-Hop and 3-Hop" },
     { id: "sharer-tracking", label: "Sharer Tracking" },
-    { id: "hard-part", label: "The Hard Part" }
+    { id: "on-chip", label: "Directories on One Chip" },
+    { id: "hard-part", label: "Making It Work on a Real Network" },
+    { id: "model", label: "What to Model" }
   ],
   body: `
-<p>A directory at each line's home node tracks state and sharers so requests go point to point.</p>
-<h3 id="sec-flows">Flows</h3>
-<p><strong>Read miss:</strong> the home forwards to an owner in M, which sends data and downgrades. <strong>Write miss:</strong> the home invalidates sharers and tells the requester how many acks to expect.</p>
+<p>A directory keeps, for every memory block, a record of which caches hold it and in what state. A miss goes to that record instead of to every cache, so coherence becomes a set of point-to-point messages. The structure of this page follows Hennessy &amp; Patterson's Chapter 5 (distributed shared memory and directory-based coherence), with the implementation details from their Appendix I and from Sorin, Hill, and Wood's primer.</p>
+
+<h3 id="sec-why">Why Snooping Stops Scaling</h3>
+<p>A snooping protocol needs every miss to reach every cache, and in a fixed order. That costs in three ways as core count grows:</p>
+<ul>
+<li><strong>Bandwidth:</strong> each miss becomes N probes, so probe traffic grows as N × (miss rate per core) × N, roughly with the square of the core count.</li>
+<li><strong>Tag bandwidth:</strong> every cache must look up every probe, even though almost all of them miss. The lookups compete with the core's own accesses.</li>
+<li><strong>Ordering:</strong> a bus or ring orders broadcasts for free. A mesh doesn't, and building a global order on one costs latency.</li>
+</ul>
+<p>Once memory is distributed across nodes (each with its own controller and DRAM), a broadcast medium is no longer natural anyway. Hennessy &amp; Patterson call this <strong>distributed shared memory (DSM)</strong>: one address space, physically split across nodes, with nonuniform access times. The directory is distributed the same way as the memory.</p>
+
+<h3 id="sec-nodes">Home, Local, and Remote Nodes</h3>
+<p>Every block has a fixed <strong>home node</strong>, chosen from its physical address, that holds both its memory and its directory entry. Hennessy &amp; Patterson name three roles for a transaction:</p>
+<ul>
+<li><strong>Local node:</strong> where the request starts (the core that missed).</li>
+<li><strong>Home node:</strong> where the block's memory and directory entry live.</li>
+<li><strong>Remote node:</strong> a node that holds a copy of the block, shared or exclusive.</li>
+</ul>
+<p>One node can play more than one role: when the local node is also the home, the request to the directory never leaves the node. The home serializes all requests to its blocks, which is what gives the protocol a single order of writes per location without a broadcast.</p>
+
+<h3 id="sec-states">Directory States</h3>
+<p>The directory entry tracks the block's global state plus the set of caches that hold it:</p>
+<ul>
+<li><strong>Uncached:</strong> no cache has a copy. Memory is up to date.</li>
+<li><strong>Shared:</strong> one or more caches have read-only copies. Memory is up to date.</li>
+<li><strong>Modified (exclusive):</strong> exactly one cache has the block and may have written it. Memory may be stale, and that cache is the <strong>owner</strong>.</li>
+</ul>
+<p>The <strong>sharers</strong> set is typically a bit vector with one bit per node. In Modified, it names the owner. The directory's states describe the whole system, while each cache keeps its own MSI (or MESI) state for its own copy. The two views agree only when no transaction is in flight.</p>
+
+<h3 id="sec-messages">The Protocol Messages</h3>
+<p>Hennessy &amp; Patterson's basic protocol uses these messages (P is the requesting node, A the address, D the data):</p>
+<div class="tbl"><table>
+<tr><th>Message</th><th>From</th><th>To</th><th>Contents</th><th>Meaning</th></tr>
+<tr><td>Read miss</td><td>Local cache</td><td>Home directory</td><td>P, A</td><td>P missed on a read of A. Send the data and add P as a sharer.</td></tr>
+<tr><td>Write miss</td><td>Local cache</td><td>Home directory</td><td>P, A</td><td>P missed on a write to A. Send the data and make P the exclusive owner.</td></tr>
+<tr><td>Invalidate</td><td>Local cache</td><td>Home directory</td><td>A</td><td>P holds A shared and wants to write it. Invalidate all other copies.</td></tr>
+<tr><td>Invalidate</td><td>Home directory</td><td>Remote cache</td><td>A</td><td>Invalidate the shared copy of A.</td></tr>
+<tr><td>Fetch</td><td>Home directory</td><td>Remote cache</td><td>A</td><td>Send block A back to the home and drop to Shared.</td></tr>
+<tr><td>Fetch/invalidate</td><td>Home directory</td><td>Remote cache</td><td>A</td><td>Send block A back to the home and invalidate it.</td></tr>
+<tr><td>Data value reply</td><td>Home directory</td><td>Local cache</td><td>D</td><td>The data, from the home's memory.</td></tr>
+<tr><td>Data write-back</td><td>Remote cache</td><td>Home directory</td><td>A, D</td><td>The block's data, sent on a fetch or on eviction of a dirty block.</td></tr>
+</table></div>
+<p>Messages fall into classes. The first three are <strong>requests</strong> from a cache to the home. Invalidate, fetch, and fetch/invalidate are <strong>forwarded requests</strong> from the home to other caches. The data value reply and the data write-back are <strong>replies</strong> that carry data. Real protocols add acknowledgments (invalidation acks, write-back acks) and negative acknowledgments, and they put each class on its own virtual network (see <a href="#/icx-noc/protocol-deadlock">Protocol Deadlock and Virtual Networks</a>).</p>
+
+<h3 id="sec-machines">The Two State Machines</h3>
+<p>Each cache runs the usual MSI machine, but its bus actions become messages to the home:</p>
+<ul>
+<li><strong>Invalid:</strong> a read sends a read miss and goes to Shared. A write sends a write miss and goes to Modified.</li>
+<li><strong>Shared:</strong> a read hits. A write sends an invalidate (or a write miss) to the home and goes to Modified. An invalidate from the home sends the copy to Invalid.</li>
+<li><strong>Modified:</strong> reads and writes hit. A fetch sends a data write-back and drops to Shared. A fetch/invalidate sends a data write-back and goes to Invalid. Evicting the block sends a data write-back.</li>
+</ul>
+<p>The directory runs a second machine per block, driven by messages:</p>
+<div class="tbl"><table>
+<tr><th>Directory state</th><th>Read miss from P</th><th>Write miss from P</th><th>Data write-back from the owner</th></tr>
+<tr><td>Uncached</td><td><ul><li>Data value reply</li><li>Sharers = {P}</li><li>→ Shared</li></ul></td><td><ul><li>Data value reply</li><li>Sharers = {P}</li><li>→ Modified</li></ul></td><td>Can't happen</td></tr>
+<tr><td>Shared</td><td><ul><li>Data value reply</li><li>Sharers += {P}</li></ul></td><td><ul><li>Invalidate every sharer</li><li>Data value reply</li><li>Sharers = {P}</li><li>→ Modified</li></ul></td><td>Can't happen</td></tr>
+<tr><td>Modified</td><td><ul><li>Fetch to the owner</li><li>Owner's write-back updates memory</li><li>Data value reply to P</li><li>Sharers = {owner, P}</li><li>→ Shared</li></ul></td><td><ul><li>Fetch/invalidate to the owner</li><li>Data value reply to P</li><li>Sharers = {P}</li><li>Stays Modified</li></ul></td><td><ul><li>Memory updated</li><li>Sharers = {}</li><li>→ Uncached</li></ul></td></tr>
+</table></div>
+<p>Hennessy &amp; Patterson simplify on purpose: they treat each transaction as atomic (the home finishes one before starting the next for that block) and leave out acknowledgments. The last two sections of this page cover what that hides.</p>
+
+<h3 id="sec-flows">Flows: 4-Hop and 3-Hop</h3>
+<p>The number of serial network traversals on a miss sets most of its latency:</p>
+<ul>
+<li><strong>2 hops (clean miss):</strong> local → home, home → local with data from memory or a home-side cache slice.</li>
+<li><strong>4 hops (dirty miss, basic protocol):</strong> local → home (read miss), home → owner (fetch), owner → home (data write-back), home → local (data value reply). Memory is updated on the way through.</li>
+<li><strong>3 hops (dirty miss with forwarding):</strong> local → home, home → owner (forwarded request), owner → local (data, directly). The owner also tells the home it's done, off the critical path. Almost every modern protocol does this. It's CHI's direct cache transfer (see <a href="#/icx-coherent/chi-flow">A CHI Read, Step by Step</a>).</li>
+<li><strong>Write miss to a shared block:</strong> the home sends invalidations to every sharer and, in protocols with acks, tells the requester how many acks to expect. The sharers ack the requester directly, and the write completes at the last ack.</li>
+</ul>
+<p>Three-hop flows save latency but create races, because the requester can now get messages about the block from two different senders. That's the subject of <a href="#/coh-transient">Transient States and Protocol Races</a>.</p>
+
 <h3 id="sec-sharer-tracking">Sharer Tracking</h3>
-<ul><li>Full bit vectors cost a bit per core per line</li><li>Limited pointers and coarse vectors trade precision for space</li><li>Sparse directories evict entries and force invalidations</li></ul>
-<h3 id="sec-hard-part">The Hard Part</h3>
-<p>Transient states: messages race, so real protocols need many intermediate states.</p>`,
+<p>A full bit vector costs one bit per node per block, which grows linearly with node count for every block in memory. The alternatives trade precision for space:</p>
+<ul>
+<li><strong>Limited pointers (Dir<sub>i</sub>):</strong> store i node IDs of log<sub>2</sub>N bits each. Most blocks have few sharers, so a handful of pointers covers almost all of them. On overflow, broadcast (Dir<sub>i</sub>B), refuse a new sharer by invalidating one (Dir<sub>i</sub>NB), or fall back to a coarse vector.</li>
+<li><strong>Coarse vectors:</strong> one bit per group of nodes. An invalidation goes to the whole group, so some messages reach caches that don't hold the block.</li>
+<li><strong>Sparse directories:</strong> only blocks that are actually cached need an entry, so the directory becomes a set-associative cache of entries, sized to the total private-cache capacity rather than to memory. Evicting an entry forces invalidations of every copy it tracked.</li>
+<li><strong>Directory in memory plus a directory cache:</strong> multi-socket servers keep a few state bits per line in DRAM (Intel stores them in spare ECC bits) and cache the hot entries on chip, so most lookups don't need a DRAM read.</li>
+</ul>
+
+<h3 id="sec-on-chip">Directories on One Chip</h3>
+<p>Inside one multicore, the "node" is a tile: a core with its private caches, plus a slice of the shared last-level cache. Hennessy &amp; Patterson's Section 5.2 notes that a banked, shared L3 can hold the directory for its bank, and that's how real chips work:</p>
+<ul>
+<li><strong>Address-sliced home:</strong> a hash of the physical address picks the LLC slice, and that slice's controller is the block's home and directory. Intel calls it the caching and home agent (CHA) on its mesh server chips. Arm's CMN mesh calls it the fully coherent home node (HN-F).</li>
+<li><strong>Inclusive LLC as the directory:</strong> per-core valid bits on each LLC tag are a full bit vector, free of extra tag storage. Intel's ring-based client chips do this.</li>
+<li><strong>Snoop filter beside a non-inclusive LLC:</strong> a sparse directory that tracks only the private caches' contents (see <a href="#/moesi/filters">Snoop Filters and Inclusion</a>).</li>
+<li><strong>Two levels:</strong> AMD's chiplet processors keep shadow tags in each CCX's L3 for the cores it serves, plus a probe filter at the memory side for coherence between chiplets and sockets.</li>
+</ul>
+<p>Hennessy &amp; Patterson's Section 5.8 compares commercial multicores along these lines: how cores, LLC slices, and the coherence point are connected (ring, mesh, or crossbar), and how the cost of a miss to a remote slice or socket grows with distance.</p>
+
+<h3 id="sec-hard-part">Making It Work on a Real Network</h3>
+<p>Hennessy &amp; Patterson's Appendix I lists what the atomic-transaction model hides once messages travel over a real network with finite buffers:</p>
+<ul>
+<li><strong>Transactions aren't atomic.</strong> While the home waits for an owner's write-back, more requests for the same block arrive. The home must mark the entry busy and either queue them or send a negative acknowledgment (NAK) so the requester retries. Queuing is fair but needs buffer space. NAKs need none but can starve a requester and waste bandwidth under contention. Arm's CHI uses a variant: a retry response plus a credit that guarantees the retry a slot.</li>
+<li><strong>Messages race.</strong> A requester can see an invalidation for a block whose data hasn't arrived yet, or an owner can receive a forwarded request for a block it's evicting. Each case needs a transient state (see <a href="#/coh-transient/races">Races</a>).</li>
+<li><strong>Writes need acknowledgments.</strong> To give sequential consistency (or even TSO), a write can't be considered done until every invalidation has been acknowledged.</li>
+<li><strong>Buffers can deadlock.</strong> If requests fill the buffers that replies also need, a node waiting for a reply can never receive it. The fix is to give requests and replies separate networks (physical or virtual), and to guarantee that replies are always accepted, since a reply never generates a new message that could block.</li>
+</ul>
+
+<h3 id="sec-model">What to Model</h3>
+<ul>
+<li>The home slice for each address (the hash), and the hop distance from requester to home to owner on the actual topology.</li>
+<li>2-hop, 3-hop, and 4-hop flows with their own latencies, not a single "remote hit" number.</li>
+<li>A busy state per directory entry, so concurrent requests to one block queue or retry.</li>
+<li>Directory capacity, if sparse, and the invalidations its evictions cause.</li>
+<li>Invalidation fan-out: a write to a widely shared block waits for the slowest ack.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 6th ed., Sections 5.2, 5.4, and 5.8, and Appendix I · Sorin, Hill, and Wood, <em>A Primer on Memory Consistency and Cache Coherence</em>, 2nd ed. (2020), Chapter 8 · Agarwal, Simoni, Hennessy, and Horowitz, "An Evaluation of Directory Schemes for Cache Coherence," ISCA 1988 · Laudon and Lenoski, "The SGI Origin: A ccNUMA Highly Scalable Server," ISCA 1997</p>`,
   practice: {
     guided: [
       {
         q: `<p>16 cores with a full bit-vector directory. Core 0 has a write miss to a line shared by cores 2, 5, and 9. Trace the messages.</p>`,
         a: `<ol><li>Core 0 → home: GetM (1 message).</li><li>Home → cores 2, 5, 9: Invalidate (3).</li><li>Home → core 0: data plus "expect 3 acks" (1).</li><li>Cores 2, 5, 9 → core 0: InvAck (3).</li><li>Core 0 completes after all 3 acks: <strong>8 messages</strong>. The home updates its entry to owner = core 0, state M.</li></ol>`
+      },
+      {
+        q: `<p>On a mesh server chip, core 3 has a read miss on a block whose home is the LLC slice on tile 10, and core 21 holds the block in Modified. Each one-way message between these tiles takes 6 ns. The home's directory lookup takes 4 ns, the owner's L2 read takes 4 ns, and in the basic protocol the home takes 2 ns to turn the owner's write-back into the data value reply. Compute the miss latency with the basic 4-hop protocol and with 3-hop forwarding, and count the messages in each.</p>`,
+        a: `<ol><li><strong>4-hop:</strong> read miss to the home (6 ns) + lookup (4 ns) + fetch to core 21 (6 ns) + L2 read (4 ns) + data write-back to the home (6 ns) + home handling (2 ns) + data value reply to core 3 (6 ns) = <strong>34 ns</strong>. Messages: read miss, fetch, data write-back, data value reply = 4 messages, all on the critical path.</li><li><strong>3-hop:</strong> request to the home (6 ns) + lookup (4 ns) + forwarded request to core 21 (6 ns) + L2 read (4 ns) + data straight to core 3 (6 ns) = <strong>26 ns</strong>.</li><li>Messages in the 3-hop flow: request, forwarded request, data to core 3, and a data copy to the home (core 21 drops to Shared, so the home's copy must be updated) = 4 messages, but only 3 on the critical path.</li><li>Saving: 34 ns − 26 ns = 8 ns, or 8 ns / 34 ns ≈ <strong>24%</strong> of the miss, with the same number of messages.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>64 cores, a 32 MB LLC with 64-byte lines, and a full bit-vector directory entry per line. What's the storage overhead, and how would you reduce it?</p>`,
         a: `<p>Lines: 32 MB / 64 B = 512K. Each needs 64 sharer bits: 512K × 64 bits = 4 MB, or <strong>12.5%</strong> of the data array (plus state bits). Reduce it with limited-pointer entries (track a few sharers, broadcast on overflow), coarse vectors (one bit per core cluster), or a sparse directory that tracks only lines actually cached in private caches.</p>`
+      },
+      {
+        q: `<p>A request reaches a block's home while the directory entry is busy, waiting for the owner's write-back from an earlier request. Compare two policies: NAK the new request so the requester retries, or queue it at the home. Discuss correctness, buffer cost, and behavior under heavy contention, and say what a performance model must include for each.</p><p class="given">Assume a 48-core chip in which each core can have up to 16 outstanding misses, requests and replies travel on separate virtual networks, and replies are always accepted.</p>`,
+        a: `<p>Both are correct as long as replies can't be blocked by requests, which the separate virtual networks guarantee. They differ in cost and fairness.</p><ul><li><strong>NAK and retry:</strong> the home needs no buffer for waiting requests, because a NAK is a reply and always drains. Under contention, though, retries burn request and reply bandwidth, and a requester can lose the race every time and starve. Real designs add backoff, or (like CHI) a credit that reserves a slot for the retry.</li><li><strong>Queue at the home:</strong> requests are served in arrival order with no extra traffic, so it's fair. The worst case needs a slot for every request that could be outstanding: 48 cores × 16 misses/core = 768 requests, at one home, if they all hit the same hot block. Designs size the queue for the common case and back-pressure the request network when it fills, which is safe only because replies have their own network.</li></ul><p>A model of NAKs needs the retry delay, the backoff policy, and the extra messages counted against network bandwidth. A model of queuing needs the per-entry busy state, the queue depth, and the back-pressure into the network once it fills. Either way, a model that treats every transaction as atomic charges a hot block's requests the uncontended latency and misses the serialization at the home, which is the dominant cost for contended locks.</p>`
       }
     ]
   }
