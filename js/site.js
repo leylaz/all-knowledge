@@ -15,6 +15,6 @@ const TABS = [
   { id: "os", name: "Operating System", regions: ["os", "task", "osmem", "io"] },
   { id: "sw", name: "Systems Software", regions: ["comp", "conc"] },
   { id: "chip", name: "Chip Design and Verification", regions: ["fab", "circ", "eda", "verif"] },
-  { id: "ai", name: "AI", regions: ["gen", "llm"] },
+  { id: "ai", name: "AI", regions: ["gen", "llm", "aisys"] },
   { id: "intv", name: "Interview Prep", regions: ["intv", "todo"] }
 ];
