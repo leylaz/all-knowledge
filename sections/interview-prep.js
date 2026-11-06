@@ -87,7 +87,7 @@ ${window.INTV_CODING_HELP || ""}
 
 <h3 id="sec-order">Study Order</h3>
 <ol>
-<li><strong>Fundamentals:</strong> <a href="#/intv-pipeline">Pipeline Flow and Width</a>, <a href="#/intv-renaming">Renaming and Dependences</a>, <a href="#/intv-rob">The ROB and Retirement</a>, <a href="#/intv-sched">Scheduling and Execution</a>, <a href="#/intv-arith">Arithmetic and Floating Point</a>.</li>
+<li><strong>Fundamentals:</strong> <a href="#/intv-pipeline">Pipeline Flow and Width</a>, <a href="#/intv-renaming">Renaming and Dependences</a>, <a href="#/intv-rob">The ROB and Retirement</a>, <a href="#/intv-sched">Scheduling and Execution</a>, <a href="#/intv-arith">Arithmetic and Floating Point</a>, <a href="#/intv-isa">Instruction Sets and Encoding</a>.</li>
 <li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-fe">Front End and Fetch</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-mem">Caches, TLBs and DRAM</a>, <a href="#/intv-coh">Coherence and Consistency</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>.</li>
 <li><strong>Systems programming:</strong> <a href="#/intv-conc">Concurrency and Parallelism</a>, <a href="#/intv-alloc">Memory Allocation and the C Library</a>, <a href="#/intv-vm">Virtual Memory and the OS Boundary</a>. Expect to write code for these in an interview.</li>
 <li><strong>Your own experience:</strong> <a href="#/intv-sim">Building a Performance Model in C</a>, <a href="#/intv-design">Open-Ended Design Problems</a>. Connect every answer here to a decision or bug from your own simulator.</li>
@@ -1273,6 +1273,165 @@ Q(`<p>Your model treats every 256-bit vector instruction as one class: latency 4
 <li><strong>Memory side:</strong> 32-byte loads that cross a cache line cost two accesses, gathers expand into many uops and loads, and masked stores have their own costs.</li>
 </ul>
 <p>Fix: model per-operation latency and port sets from the vendor’s tables or measurements, add domain bypass delays, and treat frequency effects in a separate time model. Validate with microbenchmarks for each class before trusting kernel-level results.</p>`, "hard"),
+},
+{
+  id: "intv-isa",
+  title: "Instruction Sets and Encoding",
+  body: `
+<p>Background: <a href="#/r/isa">Instruction Set Architecture</a>, <a href="#/isa-defines">What an ISA Defines</a>, <a href="#/isa-encoding">Instruction Encoding</a>, and <a href="#/isa-x86">x86-64 Instructions to Know</a>. x86 code is in Intel syntax.</p>
+<h3 id="sec-contract">The ISA Contract</h3>` +
+Q(`<p>Sort these into architectural (part of the ISA contract) and microarchitectural (free to change between implementations), and name one that sits in between: the number of general-purpose registers, the ROB size, the memory-ordering model, the cache line size, the branch predictor, the supported page sizes, and the latency of a multiply.</p>`,
+`<p>The test is whether a correct program could break if the property changed between two chips that implement the same ISA.</p>
+<ul>
+<li><strong>Architectural:</strong> the number of general-purpose registers (the encoding names them), the memory-ordering model (correct multithreaded code relies on it), and the supported page sizes (the OS builds page tables in that format).</li>
+<li><strong>Microarchitectural:</strong> the ROB size, the branch predictor, and multiply latency. They change performance, never results.</li>
+<li><strong>In between:</strong> the cache line size. No x86 or Arm program’s result depends on it, but software can see it (x86 reports the <code>CLFLUSH</code> line size through <code>CPUID</code>, Arm through <code>CTR_EL0</code>) and relies on it for performance, for example padding to avoid false sharing. Changing it would keep programs correct but silently undo their tuning.</li>
+</ul>
+<p>Timing in general is the same kind of leak: the ISA promises results, not cycles, which is why timing side channels fall outside the contract.</p>`, "easy") +
+Q(`<p>A hot loop keeps six double-precision accumulators in XMM registers and calls a small function in another library on every iteration, so the call can’t be inlined. The same C source is built for x86-64 Linux (System V ABI) and for x86-64 Windows. Which build pays more for the call, and why is this an ABI question rather than an ISA question?</p><p class="given">Assume the callee uses only XMM0 to XMM3, and the accumulators are 128-bit or narrower values.</p>`,
+`<p>The Linux build pays more, because the System V ABI makes every XMM register caller-saved, while the Windows x64 ABI makes XMM6 to XMM15 callee-saved.</p>
+<ul>
+<li><strong>Linux:</strong> the caller can’t keep the six accumulators in registers across the call, so it stores all six before the call and reloads them after: 6 stores and 6 loads per iteration, and each accumulator’s loop-carried chain now runs through store-to-load forwarding.</li>
+<li><strong>Windows:</strong> the compiler keeps the accumulators in XMM6 to XMM11. The callee only saves the callee-saved registers it touches, and it touches none of them, so the call costs nothing extra.</li>
+</ul>
+<p>It’s an ABI question because the ISA gives both systems the same 16 XMM registers and the same instructions. The ABI is a software convention layered on top: which registers survive calls, how arguments are passed, and how the stack is laid out. Two operating systems on the same ISA can choose differently. If the accumulators were 256-bit YMM values, Windows would spill them too, because its callee-saved rule covers only the low 128 bits.</p>`, "medium") +
+Q(`<p>RISC-V defines integer division by zero to return all ones as the quotient and the dividend as the remainder, with no trap. x86 raises a divide-error exception. What does each choice cost the hardware of an out-of-order core, and why might the RISC-V designers have accepted the odd result?</p>`,
+`<p>The trapping choice forces every divide to be treated as an instruction that might fault, while the RISC-V choice makes divide an ordinary arithmetic op.</p>
+<ul>
+<li><strong>x86:</strong> a divide that faults must raise a precise exception at retirement, so its ROB entry carries a fault flag and the pipeline must be able to flush and redirect to the handler from it. That’s machinery the core needs for loads anyway, but it also means a divide by zero on a mispredicted path must be suppressed and only a committed one may trap.</li>
+<li><strong>RISC-V:</strong> no divide can fault, so the divider never needs an exception path and nothing about it has to be held back until retirement.</li>
+</ul>
+<p>The designers accepted the odd result because a language that wants a trap can add one branch before the divide, and that branch is almost always correctly predicted. Languages that don’t want a trap pay nothing. The specific values are chosen to fall out of the natural restoring-division hardware, so the divider doesn’t need a special case either. The same reasoning made RISC-V drop integer overflow flags.</p>`, "medium") +
+Q(`<p>A REP MOVSB copying 1 MB takes a page fault halfway through, on the destination. x86 requires precise exceptions. How can a single instruction that has already written 500 KB be precise, and what does the architecture let the hardware relax inside the instruction?</p>`,
+`<p>It can be precise because the architecture defines the instruction’s progress as visible state: RSI, RDI, and RCX are updated as the copy proceeds, and the instruction is restartable.</p>
+<ul>
+<li>When the fault is taken, RIP still points at the REP MOVSB, RCX holds the bytes left, and RSI and RDI point at the next bytes. The handler maps the page, returns, and the instruction resumes where it stopped. The state is exactly the state after some whole number of iterations, which is all precision requires.</li>
+<li>Interrupts work the same way: the core may stop between iterations to take one, so a long copy doesn’t delay interrupts by milliseconds.</li>
+</ul>
+<p>What’s relaxed: under fast-string operation (the Intel SDM’s term), the stores within one string instruction may become visible to other processors out of order with respect to each other. That lets the hardware move whole cache lines at a time, without read-for-ownership for lines it will overwrite entirely, and without honoring TSO between the individual byte stores. Ordering is restored at the instruction’s boundaries. For a model, this means REP MOVSB isn’t just N byte moves: it is a microcoded loop with its own startup cost (tens of cycles), line-sized internal steps, and a fault and interrupt check at each step.</p>`, "hard") +
+Q(`<p>x86 promises total store order (TSO), and Arm promises a weaker model. Even for a single-threaded program, an out-of-order x86 core does extra work that an Arm core can skip. What is the work, and when does it cost performance?</p><p class="given">Assume both cores execute loads out of order and speculatively.</p>`,
+`<p>The extra work is enforcing load-to-load order: TSO requires loads to appear to execute in program order, so the x86 core must catch the case where another core’s store could expose that it didn’t.</p>
+<ul>
+<li>The core still executes a younger load before an older one, because waiting would cost too much memory-level parallelism. But it records every executed, not-yet-retired load in the load queue and watches for coherence invalidations and evictions of those lines.</li>
+<li>If a line read by a speculatively early load is invalidated before the load retires, another core may have written it in between, so the core squashes from that load and re-executes. Intel calls it a memory-ordering machine clear.</li>
+<li>Arm only needs this for loads to the same address. Different-address loads may legally be reordered, so an invalidation needs no squash.</li>
+</ul>
+<p>Single-threaded code pays nothing in the common case, because no other core writes its lines. It pays when lines it reads are invalidated anyway: false sharing with another thread, a line written by a device or another process, and hyperthread siblings, where loads must also respect the sibling’s stores. The cost shows up as machine clears, each a full flush at least as expensive as a branch mispredict. The other cost is area and power on every load, for the snoop check against the load queue, which is why TSO shapes load-queue design.</p>`, "hard") +
+M(`<p>A benchmark is compiled for x86-64 and for AArch64 from the same source and runs on two cores:</p>
+<ul>
+<li><strong>x86-64 core at 5.0 GHz:</strong> 2.10 billion instructions, which decode into 2.31 billion macro-ops, at an IPC of 2.4 instructions/cycle.</li>
+<li><strong>AArch64 core at 3.4 GHz:</strong> 2.52 billion instructions, each one op, at an IPC of 3.1 instructions/cycle.</li>
+</ul>
+<p>Which core runs the benchmark faster, and by how much? What IPC would the AArch64 core need to tie? Compare the ops each core completes per cycle, and say what is wrong with comparing IPC across ISAs.</p>`,
+`<ol>
+<li><strong>x86-64 time:</strong> 2.10 × 10<sup>9</sup> instructions / (2.4 instructions/cycle × 5.0 × 10<sup>9</sup> cycles/s) = 2.10 × 10<sup>9</sup> instructions / 1.2 × 10<sup>10</sup> instructions/s = 0.175 s.</li>
+<li><strong>AArch64 time:</strong> 2.52 × 10<sup>9</sup> instructions / (3.1 instructions/cycle × 3.4 × 10<sup>9</sup> cycles/s) = 2.52 × 10<sup>9</sup> instructions / 1.054 × 10<sup>10</sup> instructions/s ≈ 0.239 s.</li>
+<li><strong>Result:</strong> the x86-64 core is faster by 0.239 s / 0.175 s ≈ <strong>1.37×</strong>, even though its IPC is 23% lower.</li>
+<li><strong>IPC to tie:</strong> 2.52 × 10<sup>9</sup> instructions / (0.175 s × 3.4 × 10<sup>9</sup> cycles/s) = 2.52 × 10<sup>9</sup> instructions / 5.95 × 10<sup>8</sup> cycles ≈ <strong>4.24 instructions/cycle</strong>.</li>
+<li><strong>Ops per cycle:</strong> x86-64 completes 2.31 × 10<sup>9</sup> macro-ops / (0.175 s × 5.0 × 10<sup>9</sup> cycles/s) = 2.31 × 10<sup>9</sup> macro-ops / 8.75 × 10<sup>8</sup> cycles = 2.64 macro-ops/cycle. AArch64 completes 3.1 ops/cycle. Even in ops, the AArch64 core does more per cycle. It loses on frequency, by 5.0 GHz / 3.4 GHz ≈ 1.47×.</li>
+</ol>
+<p>IPC across ISAs compares different units: the AArch64 build needs 20% more instructions for the same work (2.52 / 2.10 = 1.2), because x86 folds loads into arithmetic and uses longer immediates. The Iron Law only compares fairly when instruction count, CPI, and cycle time are taken together, so compare time, or work per second in a common unit such as benchmark iterations.</p>`, "hard") +
+`<h3 id="sec-encoding">Encoding and Decode</h3>` +
+Q(`<p>In RISC-V, the register fields rs1, rs2, and rd sit at the same bit positions in every instruction format that has them, even though that forces the immediate bits into scrambled positions. Why is that the right trade?</p>`,
+`<p>Fixed register fields let the core start reading registers and checking dependences before it knows what the instruction is.</p>
+<ul>
+<li>Register-file reads (in an in-order core) or rename-table lookups (in an out-of-order core) can start in parallel with opcode decode, because the index bits are always in the same place. If the fields moved by format, decode would have to finish first, adding a stage or lengthening the cycle.</li>
+<li>The cost lands on the immediates, which only need some extra wiring: the sign bit is always bit 31, and each immediate bit comes from one of very few positions across formats, so the multiplexers stay small. Wiring is cheap, critical-path latency is not.</li>
+</ul>`, "easy") +
+Q(`<p>The RISC-V C extension adds 16-bit encodings of common instructions and lets 32-bit instructions start on any 2-byte boundary. Code shrinks by about 25%. What does this cost the front end of a wide core?</p>`,
+`<p>It costs the front end the guarantees that made fixed-length fetch and decode simple.</p>
+<ul>
+<li><strong>Finding boundaries:</strong> a 32-byte fetch block holds 8 to 16 instructions, and each 16-bit parcel’s role depends on the parcels before it. The check is cheap (the low 2 bits say 16 or 32 bits), but it is a serial dependence across the block, like a small version of x86 length decoding.</li>
+<li><strong>Straddling:</strong> a 32-bit instruction can cross a fetch-block, cache-line, or page boundary. The fetch unit must stitch the halves together across cycles, and a page-crossing instruction can take an instruction fetch fault on its second half.</li>
+<li><strong>Branch targets and predictor indexing</strong> move to 2-byte granularity, so BTB tags and offsets need an extra bit and more slots per block may hold branches.</li>
+<li><strong>Decode width:</strong> to sustain the same instructions per cycle, the decoder must be able to place an instruction at any of 16 parcel positions instead of 8 word positions.</li>
+</ul>
+<p>The benefit is a smaller instruction footprint, so fewer L1I and op cache misses. For small embedded cores that’s clearly worth it. For wide server cores it is debated, and in 2023 Qualcomm proposed dropping C from the RISC-V application profiles for this reason.</p>`, "medium") +
+Q(`<p>Intel cores decode <code>add rax, [rbx]</code> into one fused-domain uop that splits into a load and an add for execution. What is gained by fusing it, and which pipeline structures count it as one entry and which as two?</p>`,
+`<p>Micro-fusion lets one x86 instruction occupy one slot in the in-order, width-limited part of the pipeline while still executing as two operations.</p>
+<ul>
+<li><strong>Counted as one:</strong> decode, the uop queue, rename and allocation width, and the ROB. A loop of register-memory adds therefore uses half the front-end and retirement bandwidth that separate load and add uops would.</li>
+<li><strong>Counted as two:</strong> the scheduler (the load and the add wait and issue separately, from different ports), the execution ports, and the load queue (one entry, for the load).</li>
+</ul>
+<p>Some addressing modes break fusion. On several Intel generations, an indexed address combined with certain operations un-laminates at rename, turning back into two fused-domain uops. A model that counts instructions instead of fused uops at rename gets these wrong, which is why rename width in models should be in fused uops.</p>`, "medium") +
+Q(`<p>AArch64 dropped several features of 32-bit Arm: the PC as a general-purpose register, conditional execution of most instructions, and load and store multiple (LDM/STM). For each, explain what it cost an out-of-order implementation.</p>`,
+`<p>Each feature made individual instructions harder to rename, schedule, or recover, so dropping them simplified the core more than it hurt code.</p>
+<ul>
+<li><strong>PC as a register:</strong> any instruction that wrote R15, such as an add or a load, was a branch. The front end couldn’t tell from the opcode class which instructions redirect fetch, so every one needed branch-recovery support, and predicting them was hard.</li>
+<li><strong>Conditional execution:</strong> a predicated instruction reads the flags and, when the condition is false, keeps the old destination value. So it has one more source (the flags) and depends on the old destination register, like a partial write. Renaming must give it the old value as an input, which lengthens dependence chains through code that never executes. AArch64 keeps only conditional select (CSEL) and similar ops, where the merge is explicit.</li>
+<li><strong>LDM/STM:</strong> one instruction with up to 16 destinations or sources has a variable number of uops, so it is cracked by microcode or a sequencer. It also may fault partway through, which complicates precise exceptions. AArch64 kept LDP/STP, which moves exactly two registers, so the uop count is fixed.</li>
+</ul>`, "hard") +
+M(`<p>A program’s hot code is 9,000 x86-64 instructions averaging 4.1 bytes. Built for AArch64 it needs 1.12 times as many instructions, all 4 bytes. Built for RV64GC it needs 1.15 times as many, of which 60% are 2-byte compressed and 40% are 4-byte. The compilers also align 700 hot branch targets (function entries and loop heads) to 16-byte boundaries, padding with NOPs. Which builds fit in a 32 KB L1I, before and after the padding? What else decides whether the code really fits?</p><p class="given">Assume that before alignment, each target’s offset within its 16-byte block is uniformly distributed over the positions its ISA allows: any byte for x86-64, multiples of 4 bytes for AArch64, and multiples of 2 bytes for RV64GC.</p>`,
+`<ol>
+<li><strong>x86-64 code:</strong> 9,000 instructions × 4.1 bytes/instruction = 36,900 bytes.</li>
+<li><strong>AArch64 code:</strong> 9,000 instructions × 1.12 = 10,080 instructions × 4 bytes/instruction = 40,320 bytes.</li>
+<li><strong>RV64GC code:</strong> 9,000 instructions × 1.15 = 10,350 instructions. Average size = 0.6 × 2 bytes + 0.4 × 4 bytes = 2.8 bytes/instruction. 10,350 instructions × 2.8 bytes/instruction = 28,980 bytes.</li>
+<li><strong>Before padding:</strong> the L1I holds 32 × 1,024 bytes = 32,768 bytes. Only RV64GC fits.</li>
+<li><strong>Average padding per target:</strong> the padding is 16 bytes minus the offset, or 0 when the offset is 0, which averages the same as the offset over a uniform distribution.
+<ul>
+<li>x86-64: offsets 0 to 15 bytes, average 7.5 bytes.</li>
+<li>AArch64: offsets 0, 4, 8, or 12 bytes, average 6 bytes.</li>
+<li>RV64GC: offsets 0, 2, …, 14 bytes, average 7 bytes.</li>
+</ul></li>
+<li><strong>After padding:</strong>
+<ul>
+<li>x86-64: 36,900 bytes + 700 targets × 7.5 bytes/target = 42,150 bytes.</li>
+<li>AArch64: 40,320 bytes + 700 targets × 6 bytes/target = 44,520 bytes.</li>
+<li>RV64GC: 28,980 bytes + 700 targets × 7 bytes/target = 33,880 bytes, which is 1,112 bytes over.</li>
+</ul></li>
+</ol>
+<p><strong>None fits after alignment.</strong> Padding adds 10 to 17% here, enough to push RV64GC over. Whether code really fits also depends on line granularity (hot code scattered among cold code fills lines that are only partly hot), conflict misses in an 8-way cache, the op cache (which holds decoded ops and is often what matters on x86), and next-line and FDIP prefetching, which can hide a footprint slightly over capacity. The fix for the alignment cost is profile-guided layout, which packs hot blocks together so fewer targets need padding.</p>`, "hard") +
+M(`<p>A front end fetches a 32-byte block per cycle. In x86-64 code with an average instruction length of 4.25 bytes, the decoder finds instruction boundaries by placing a length decoder at every byte offset and then chaining the results. How many instructions does a block hold on average, and what fraction of the length decoders produce a used result? If instead the L1I stores one predecode bit per byte marking instruction starts, how much storage does that add to a 32 KB L1I? Compare with AArch64 and with RISC-V with the C extension.</p>`,
+`<ol>
+<li><strong>Instructions per block:</strong> 32 bytes / 4.25 bytes/instruction ≈ 7.53 instructions.</li>
+<li><strong>Useful length decoders:</strong> 7.53 instructions / 32 length decoders ≈ 23.5%. The other 76.5% decode lengths at offsets that turn out to be the middle of an instruction. That waste is the price of finding all boundaries in one cycle rather than serially.</li>
+<li><strong>Predecode storage:</strong> 32 × 1,024 bytes × 1 bit/byte = 32,768 bits = 4,096 bytes, 12.5% on top of the 32 KB data array. The marker bits are computed once when a line is filled, so the decoder reads boundaries directly afterwards.</li>
+<li><strong>AArch64:</strong> boundaries are every 4 bytes, so a block holds exactly 8 instructions and needs no length logic or predecode bits.</li>
+<li><strong>RISC-V C:</strong> a block holds 16 two-byte parcels, and the low 2 bits of each parcel say whether it starts a 16-bit or 32-bit instruction. Finding boundaries still chains across the parcels, but each step reads 2 bits instead of decoding prefixes, opcode, ModRM, and SIB.</li>
+</ol>
+<p>This is the core of the x86 decode tax: power and area spent on boundaries, and the reason x86 cores lean on an op cache that stores already-decoded ops.</p>`, "medium") +
+`<h3 id="sec-x86">Reading x86-64 for Performance</h3>` +
+Q(`<p>This loop converts integers to double and sums their square roots. It runs at about 21 cycles per iteration, although the square-root unit can start a new operation every 6 cycles:</p><pre><code>loop:
+cvtsi2sd xmm0, rax
+sqrtsd   xmm0, xmm0
+addsd    xmm1, xmm0
+add      rax, 1
+cmp      rax, rdx
+jne      loop</code></pre><p>Explain the 21 cycles, give two fixes, and say what the ISA designers did differently for 32-bit integer registers in x86-64. Then explain why <code>xor eax, eax</code> is the idiom for zeroing a register rather than <code>mov eax, 0</code>.</p><p class="given">Assume a Skylake core with a 5-cycle <code>cvtsi2sd</code>, a 16-cycle <code>sqrtsd</code> that accepts a new operation every 6 cycles, and a 4-cycle <code>addsd</code>.</p>`,
+`<p>The loop is slow because of a false dependence that the ISA builds into SSE scalar instructions: <code>cvtsi2sd xmm0, rax</code> writes only the low 64 bits of XMM0 and keeps the upper 64 bits, so it reads the old XMM0.</p>
+<ul>
+<li>The old XMM0 is the previous iteration’s square root. So each conversion waits for the last <code>sqrtsd</code>, and the chain per iteration is 5 cycles (convert) + 16 cycles (square root) = 21 cycles.</li>
+<li>Without that dependence, the conversions are independent, the only loop-carried chain is the 4-cycle <code>addsd</code>, and the square-root unit’s 6-cycle rate becomes the limit: 6 cycles per iteration, 3.5 times faster.</li>
+</ul>
+<p>Fixes:</p>
+<ol>
+<li>Zero the destination first with <code>xorps xmm0, xmm0</code> (or <code>pxor</code>). The rename stage recognizes this as a zero idiom that doesn’t depend on the old value, so the chain is broken. Compilers insert exactly this before <code>cvtsi2sd</code>.</li>
+<li>With AVX, use the three-operand form <code>vcvtsi2sd xmm0, xmm2, rax</code>, where the upper bits come from XMM2, a register that isn’t on any chain (ideally zeroed once outside the loop).</li>
+</ol>
+<p>For general-purpose registers, x86-64 made 32-bit writes zero the upper 32 bits instead of keeping them, so a 32-bit write never depends on the old value. 8-bit and 16-bit writes kept the old merge behavior for compatibility and still carry this kind of dependence.</p>
+<p><code>xor eax, eax</code> is the zeroing idiom because rename recognizes it: it doesn’t depend on the old EAX, writes zero without using an execution port, and encodes in 2 bytes instead of 5. The one reason to use <code>mov eax, 0</code> is that it doesn’t touch the flags, so it can sit between a <code>cmp</code> and the <code>jcc</code> or <code>setcc</code> that reads them.</p>`, "hard") +
+Q(`<p>On Skylake, <code>cmovl</code>, <code>cmove</code>, and <code>cmovb</code> each decode to 1 uop, but <code>cmovbe</code> and <code>cmova</code> decode to 2. Explain this from how the core renames flags. Then explain why compilers once avoided <code>inc</code> and <code>dec</code> in favor of <code>add</code> and <code>sub</code>.</p>`,
+`<p>The core renames the flags as separate groups, so an instruction that reads flags from two groups needs two sources, and on Skylake that means an extra uop.</p>
+<ul>
+<li>Skylake keeps CF in one renamed group and the other arithmetic flags (SF, ZF, OF, PF, AF) in another, so that instructions writing only some flags don’t have to merge with the rest.</li>
+<li><code>cmovl</code> reads SF and OF, <code>cmove</code> reads ZF, and <code>cmovb</code> reads CF: each reads one group. <code>cmovbe</code> means “CF = 1 or ZF = 1”, and <code>cmova</code> its inverse, so they read both groups. Together with the two data sources, that is more inputs than one Skylake uop can take, so they become 2 uops.</li>
+</ul>
+<p><code>inc</code> and <code>dec</code> update every arithmetic flag except CF, which is a partial-flags write. On older cores such as Core 2 and Nehalem, an instruction that then read CF together with the other flags stalled for several cycles. Sandy Bridge reduced it to a merge uop, and with split flag groups the write costs nothing unless something reads both groups. So <code>add rax, 1</code> was the safe default for generic tuning. The CF-preserving behavior is useful in multi-precision loops, where <code>inc</code> of a counter must not disturb the carry that <code>adc</code> chains through.</p>`, "hard") +
+M(`<p>A Skylake core runs a loop of AVX instructions averaging 6.5 bytes each. Ops come from the op cache (DSB) 70% of the time and from the legacy decoders (MITE) 30% of the time. What is the best sustainable IPC? What fraction of instructions must come from the op cache to reach 3.8 instructions/cycle?</p><p class="given">Assume each instruction is one fused uop, rename and allocation take 4 uops/cycle, the DSB can deliver more than 4 uops/cycle, the legacy path is limited only by its 16 bytes/cycle predecode, switching between the paths costs nothing, and nothing else in the core limits throughput.</p>`,
+`<ol>
+<li><strong>Op cache rate:</strong> limited by rename, 4 instructions/cycle, so 0.25 cycles/instruction.</li>
+<li><strong>Legacy rate:</strong> 16 bytes/cycle / 6.5 bytes/instruction ≈ 2.46 instructions/cycle, so 6.5 bytes/instruction / 16 bytes/cycle = 0.406 cycles/instruction. The 4 decoders can handle 4 instructions/cycle, so predecode is the limit.</li>
+<li><strong>Mix:</strong> per 1,000 instructions, 700 instructions × 0.25 cycles/instruction + 300 instructions × 0.406 cycles/instruction = 175 cycles + 121.9 cycles = 296.9 cycles. IPC = 1,000 instructions / 296.9 cycles ≈ <strong>3.37 instructions/cycle</strong>.</li>
+<li><strong>Required op cache fraction f:</strong> the cycles per instruction must be 1 / 3.8 instructions/cycle = 0.263 cycles/instruction. Solve f × 0.25 cycles/instruction + (1 − f) × 0.406 cycles/instruction = 0.263 cycles/instruction: 0.406 − 0.156 f = 0.263, so f = 0.143 / 0.156 ≈ <strong>0.92</strong>.</li>
+</ol>
+<p>So 30% of instructions from the legacy path cost 16% of throughput, and reaching within 5% of the rename limit takes about 92% op cache coverage. Long encodings make it worse, because the legacy path is limited in bytes. In practice switching paths costs a few cycles too, so the real numbers are lower. The counters to check are <code>IDQ.DSB_UOPS</code> and <code>IDQ.MITE_UOPS</code>.</p>`, "hard") +
+M(`<p>An integer loop keeps 20 values live across its body: pointers, counters, and 5 running accumulators, each updated once per iteration. Built for AArch64 it is 30 instructions per iteration with every value in a register. x86-64 has 16 general-purpose registers and RSP is reserved, so the compiler spills the 5 accumulators to the stack. How many cycles per iteration does each version take on a 6-wide core, if the x86-64 build (1) uses a separate load and store around each accumulator update, or (2) uses a memory-destination add such as <code>add [rsp+16], rax</code>?</p><p class="given">Assume the AArch64 build is also 30 instructions on x86-64 when nothing is spilled, and that every instruction is one fused-domain uop except a memory-destination add, which is 2. Assume a 6 uops/cycle rename limit, a 1-cycle add, a 5-cycle store-to-load forwarding latency with no memory renaming, and enough ports and loads per cycle that only rename width and dependence chains limit throughput.</p>`,
+`<ol>
+<li><strong>AArch64, or x86-64 with enough registers:</strong> width bound = 30 uops / 6 uops/cycle = 5 cycles/iteration. Each accumulator’s chain is one 1-cycle add per iteration, so the width bound wins: 5 cycles/iteration.</li>
+<li><strong>Spill version (1):</strong> each of the 5 accumulators adds one load and one store: 30 uops + 5 accumulators × 2 uops = 40 uops. Width bound = 40 uops / 6 uops/cycle ≈ 6.67 cycles/iteration. Chain per accumulator: 5-cycle forward + 1-cycle add = 6 cycles/iteration. The width bound wins: <strong>6.67 cycles/iteration, 1.33× slower</strong>.</li>
+<li><strong>Memory-destination version (2):</strong> each of the 5 register adds becomes a 2-uop memory-destination add: 30 uops + 5 accumulators × 1 extra uop = 35 uops. Width bound = 35 uops / 6 uops/cycle ≈ 5.83 cycles/iteration. The chain is still 5-cycle forward + 1-cycle add = 6 cycles/iteration, which now wins: <strong>6 cycles/iteration, 1.2× slower</strong>.</li>
+</ol>
+<p>The register count is an ISA property with a direct performance cost: the spill costs 20 to 33% here, and version 2 is now latency bound, so a core with faster forwarding or memory renaming (which Zen 2 did for stack accesses) would recover much of it. This is the motivation for Intel’s APX extension, which doubles the general-purpose registers to 32. Intel reported about 10% fewer loads and over 20% fewer stores in compiled code.</p>`, "hard"),
 },
 {
   id: "intv-branch",

@@ -1028,6 +1028,254 @@ a: `<p>Split each operand into 32-bit halves, so <em>a</em> × <em>b</em> = <em>
 <p>Hardware does the same decomposition at a finer grain: a Booth-encoded partial-product array reduced by a Wallace or Dadda tree, then one carry-propagate add. That is why a 64-bit multiply has 3 to 4 cycles of latency but is fully pipelined.</p>`
 });
 
+C("intv-isa", "encoding", {
+lvl: "medium",
+q: `<p>A RISC-V decoder (or the front end of a RISC-V model) must pull the immediate out of each instruction. Write <code>rv_imm()</code>, which returns the sign-extended immediate of a 32-bit RV32I instruction, chosen by the opcode in bits 6 to 0:</p>
+<ul>
+<li><strong>I-type</strong> (OP-IMM 0x13, LOAD 0x03, JALR 0x67): imm[11:0] = insn[31:20].</li>
+<li><strong>S-type</strong> (STORE 0x23): imm[11:5] = insn[31:25], imm[4:0] = insn[11:7].</li>
+<li><strong>B-type</strong> (BRANCH 0x63): imm[12] = insn[31], imm[11] = insn[7], imm[10:5] = insn[30:25], imm[4:1] = insn[11:8], imm[0] = 0.</li>
+<li><strong>U-type</strong> (LUI 0x37, AUIPC 0x17): imm[31:12] = insn[31:12], imm[11:0] = 0.</li>
+<li><strong>J-type</strong> (JAL 0x6F): imm[20] = insn[31], imm[19:12] = insn[19:12], imm[11] = insn[20], imm[10:1] = insn[30:21], imm[0] = 0.</li>
+<li>Any other opcode has no immediate: return 0.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>`,
+todo: String.raw`int32_t rv_imm(uint32_t insn) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`/* Sign-extend the low bits of v: move the sign bit to bit 31, then shift
+   back arithmetically. */
+static int32_t sext(uint32_t v, int bits) {
+    return (int32_t)(v << (32 - bits)) >> (32 - bits);
+}
+
+int32_t rv_imm(uint32_t insn) {
+    uint32_t u;
+    switch (insn & 0x7F) {
+    case 0x13: case 0x03: case 0x67:                  /* I-type */
+        return sext(insn >> 20, 12);
+    case 0x23:                                        /* S-type */
+        u = ((insn >> 25) << 5) | ((insn >> 7) & 0x1F);
+        return sext(u, 12);
+    case 0x63:                                        /* B-type */
+        u = ((insn >> 31) << 12) | (((insn >> 7) & 1) << 11)
+          | (((insn >> 25) & 0x3F) << 5) | (((insn >> 8) & 0xF) << 1);
+        return sext(u, 13);
+    case 0x37: case 0x17:                             /* U-type */
+        return (int32_t)(insn & 0xFFFFF000u);
+    case 0x6F:                                        /* J-type */
+        u = ((insn >> 31) << 20) | (((insn >> 12) & 0xFF) << 12)
+          | (((insn >> 20) & 1) << 11) | (((insn >> 21) & 0x3FF) << 1);
+        return sext(u, 21);
+    default:
+        return 0;
+    }
+}`,
+tests: String.raw`static void expect(const char *name, uint32_t insn, int32_t want) {
+    int32_t got = rv_imm(insn);
+    CHECK(got == want, "%s (0x%08X): got %d, expected %d", name, (unsigned)insn, (int)got, (int)want);
+}
+
+int main(void) {
+    expect("addi x1, x0, -1", 0xFFF00093, -1);
+    expect("lw x5, 8(x2)", 0x00812283, 8);
+    expect("jalr x0, 0(x1)", 0x00008067, 0);
+    expect("sw x5, -4(x2)", 0xFE512E23, -4);
+    expect("beq x1, x2, +16", 0x00208863, 16);
+    expect("beq x0, x0, +2048 (imm[11] sits in bit 7)", 0x000000E3, 2048);
+    expect("bne x0, x0, -4096", 0x80001063, -4096);
+    expect("lui x10, 0x12345", 0x12345537, 0x12345000);
+    expect("auipc x1, 0xFFFFF", 0xFFFFF097, -4096);
+    expect("jal x1, +2048 (imm[11] sits in bit 20)", 0x001000EF, 2048);
+    expect("jal x0, -2", 0xFFFFF06F, -2);
+    expect("jal x1, +0x12346", 0x346120EF, 0x12346);
+    expect("add x3, x1, x2 has no immediate", 0x002081B3, 0);
+    return REPORT();
+}`,
+a: `<p>Each format is a fixed rearrangement of bits, so the decoder is pure wiring: gather the fields into place, then sign-extend from the top bit of the immediate. The <code>sext()</code> helper does that by shifting the sign bit up to bit 31 and arithmetically back down.</p>
+<p>The scrambled B and J layouts keep three properties that matter in hardware:</p>
+<ul>
+<li>The sign bit is always instruction bit 31, so sign extension can start before the format is known.</li>
+<li>Register fields never move, so register reads start in parallel with decode.</li>
+<li>Most immediate bits sit in the same instruction bit across formats (imm[10:5] is always insn[30:25]), so each immediate bit needs a multiplexer over only two or three sources.</li>
+</ul>
+<p>The tests aim at the bits that move: B-type’s imm[11] in bit 7 and J-type’s imm[11] in bit 20, which a straight-line field copy gets wrong.</p>`
+});
+
+C("intv-isa", "x86", {
+lvl: "hard",
+q: `<p>Before an x86 core can decode several instructions per cycle, it has to find where each one starts. Write <code>x86_len()</code>, which returns the length in bytes of the 64-bit-mode instruction at <code>p</code>, for this subset:</p>
+<ul>
+<li><strong>Legacy prefixes:</strong> 0x66 (16-bit operand size), 0x67, 0xF0, 0xF2, 0xF3, in any number and order.</li>
+<li><strong>REX:</strong> 0x40 to 0x4F. Bit 3 is REX.W (64-bit operand size). A REX byte only counts if it comes right before the opcode: one followed by another prefix is ignored.</li>
+<li><strong>ModRM only:</strong> 0x01, 0x03, 0x29, 0x2B, 0x31, 0x33, 0x39, 0x3B, 0x85, 0x89, 0x8B, 0x8D, and the two-byte opcodes 0x0F 0x1F, 0x0F 0xAF, 0x0F 0xB6, 0x0F 0xB7.</li>
+<li><strong>ModRM + imm8:</strong> 0x83. <strong>ModRM + imm32:</strong> 0x81, 0xC7.</li>
+<li><strong>imm32 only:</strong> 0x05, 0x2D, 0x3D. For these and 0x81 and 0xC7, the immediate is 2 bytes instead when 0x66 is present and REX.W is not.</li>
+<li><strong>0xB8 to 0xBF:</strong> imm64 with REX.W, else imm16 with 0x66, else imm32.</li>
+<li><strong>rel8:</strong> 0x70 to 0x7F, 0xEB. <strong>rel32:</strong> 0xE8, 0xE9, and 0x0F 0x80 to 0x0F 0x8F, regardless of prefixes.</li>
+<li><strong>No operands:</strong> 0x50 to 0x5F, 0x90, 0xC3, 0xCC.</li>
+<li><strong>ModRM:</strong> mod = 3 adds nothing more. Otherwise rm = 4 adds a SIB byte, and if mod = 0 and the SIB base is 5, a 4-byte displacement. mod = 0 with rm = 5 adds a 4-byte displacement (RIP-relative). mod = 1 adds 1 displacement byte, and mod = 2 adds 4. The 0x67 prefix doesn’t change this layout in 64-bit mode.</li>
+</ul>
+<p>Return −1 for any other opcode, if the instruction would run past the <code>n</code> bytes available, or if it is longer than the architectural limit of 15 bytes. Then write <code>mark_starts()</code>, which decodes from byte 0, sets <code>start[i]</code> to 1 at each instruction start and 0 elsewhere, and returns the number of instructions, stopping at the first byte it can’t decode.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>`,
+todo: String.raw`int x86_len(const uint8_t *p, int n) {
+    /* TODO */
+    return 0;
+}
+
+int mark_starts(const uint8_t *p, int n, uint8_t *start) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`int x86_len(const uint8_t *p, int n) {
+    int i = 0, opsize16 = 0, rexw = 0;
+
+    /* Prefixes. A legacy prefix after a REX cancels it. */
+    for (;; i++) {
+        if (i >= n || i >= 15) return -1;
+        uint8_t b = p[i];
+        if (b == 0x66) { opsize16 = 1; rexw = 0; }
+        else if (b == 0x67 || b == 0xF0 || b == 0xF2 || b == 0xF3) rexw = 0;
+        else if ((b & 0xF0) == 0x40) rexw = (b >> 3) & 1;
+        else break;
+    }
+
+    uint8_t op = p[i++];
+    int modrm = 0, imm = 0;
+    int z = (opsize16 && !rexw) ? 2 : 4;              /* imm16 or imm32 */
+
+    if (op == 0x0F) {
+        if (i >= n) return -1;
+        uint8_t op2 = p[i++];
+        if (op2 >= 0x80 && op2 <= 0x8F) imm = 4;
+        else if (op2 == 0x1F || op2 == 0xAF || op2 == 0xB6 || op2 == 0xB7) modrm = 1;
+        else return -1;
+    } else if (op == 0x01 || op == 0x03 || op == 0x29 || op == 0x2B || op == 0x31 ||
+               op == 0x33 || op == 0x39 || op == 0x3B || op == 0x85 || op == 0x89 ||
+               op == 0x8B || op == 0x8D) {
+        modrm = 1;
+    } else if (op == 0x83) {
+        modrm = 1; imm = 1;
+    } else if (op == 0x81 || op == 0xC7) {
+        modrm = 1; imm = z;
+    } else if (op == 0x05 || op == 0x2D || op == 0x3D) {
+        imm = z;
+    } else if (op >= 0xB8 && op <= 0xBF) {
+        imm = rexw ? 8 : z;
+    } else if ((op >= 0x70 && op <= 0x7F) || op == 0xEB) {
+        imm = 1;
+    } else if (op == 0xE8 || op == 0xE9) {
+        imm = 4;
+    } else if (!((op >= 0x50 && op <= 0x5F) || op == 0x90 || op == 0xC3 || op == 0xCC)) {
+        return -1;
+    }
+
+    if (modrm) {
+        if (i >= n) return -1;
+        uint8_t m = p[i++];
+        int mod = m >> 6, rm = m & 7;
+        if (mod != 3) {
+            if (rm == 4) {                            /* SIB follows */
+                if (i >= n) return -1;
+                uint8_t sib = p[i++];
+                if (mod == 0 && (sib & 7) == 5) i += 4;
+            } else if (mod == 0 && rm == 5) {
+                i += 4;                               /* RIP + disp32 */
+            }
+            if (mod == 1) i += 1;
+            else if (mod == 2) i += 4;
+        }
+    }
+    i += imm;
+    return (i > n || i > 15) ? -1 : i;
+}
+
+int mark_starts(const uint8_t *p, int n, uint8_t *start) {
+    int count = 0;
+    for (int i = 0; i < n; i++) start[i] = 0;
+    for (int i = 0; i < n; ) {
+        int len = x86_len(p + i, n - i);
+        if (len < 0) break;
+        start[i] = 1;
+        count++;
+        i += len;
+    }
+    return count;
+}`,
+tests: String.raw`static void expect(const char *name, const uint8_t *b, int n, int want) {
+    int got = x86_len(b, n);
+    CHECK(got == want, "%s: got %d, expected %d", name, got, want);
+}
+#define T(name, want, ...) do { static const uint8_t b_[] = { __VA_ARGS__ }; \
+    expect(name, b_, (int)sizeof b_, want); } while (0)
+
+int main(void) {
+    T("push rbp", 1, 0x55);
+    T("mov rbp, rsp", 3, 0x48, 0x89, 0xE5);
+    T("sub rsp, 0x20", 4, 0x48, 0x83, 0xEC, 0x20);
+    T("mov eax, [rbp-4]", 3, 0x8B, 0x45, 0xFC);
+    T("mov eax, [rsp]", 3, 0x8B, 0x04, 0x24);
+    T("mov eax, [0x12345678] (SIB, no base)", 7, 0x8B, 0x04, 0x25, 0x78, 0x56, 0x34, 0x12);
+    T("mov eax, [rip+0x10]", 6, 0x8B, 0x05, 0x10, 0x00, 0x00, 0x00);
+    T("mov eax, [rsp+0x100]", 7, 0x8B, 0x84, 0x24, 0x00, 0x01, 0x00, 0x00);
+    T("mov eax, 1", 5, 0xB8, 0x01, 0x00, 0x00, 0x00);
+    T("mov ax, 0x1234", 4, 0x66, 0xB8, 0x34, 0x12);
+    T("movabs rax, imm64", 10, 0x48, 0xB8, 1, 2, 3, 4, 5, 6, 7, 8);
+    T("0x66 then REX.W: REX.W wins", 11, 0x66, 0x48, 0xB8, 1, 2, 3, 4, 5, 6, 7, 8);
+    T("REX.W then 0x66: REX ignored", 5, 0x48, 0x66, 0xB8, 0x34, 0x12);
+    T("two REX bytes: the last counts", 7, 0x48, 0x40, 0xB8, 1, 2, 3, 4);
+    T("mov dword [rbp-8], 1", 7, 0xC7, 0x45, 0xF8, 0x01, 0x00, 0x00, 0x00);
+    T("mov word [rbp-8], 1", 6, 0x66, 0xC7, 0x45, 0xF8, 0x01, 0x00);
+    T("add rsp, 0x100", 7, 0x48, 0x81, 0xC4, 0x00, 0x01, 0x00, 0x00);
+    T("cmp eax, imm32", 5, 0x3D, 1, 2, 3, 4);
+    T("cmp ax, imm16", 4, 0x66, 0x3D, 1, 2);
+    T("je rel8", 2, 0x74, 0x05);
+    T("je rel32", 6, 0x0F, 0x84, 0x10, 0x00, 0x00, 0x00);
+    T("call rel32", 5, 0xE8, 0x00, 0x00, 0x00, 0x00);
+    T("movzx eax, byte [rdx+rcx]", 4, 0x0F, 0xB6, 0x04, 0x0A);
+    T("5-byte NOP", 5, 0x0F, 0x1F, 0x44, 0x00, 0x00);
+    T("7-byte NOP", 7, 0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00);
+    T("9-byte NOP", 9, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00);
+    T("lock add [eax], ecx (0x67 makes the address 32-bit)", 4, 0xF0, 0x67, 0x01, 0x08);
+    T("rep ret", 2, 0xF3, 0xC3);
+    T("truncated mov eax, imm32", -1, 0xB8, 0x01, 0x02);
+    T("truncated before SIB", -1, 0x8B, 0x04);
+    T("EVEX prefix is not in the subset", -1, 0x62, 0xF1, 0x7C, 0x48, 0x58, 0xC1);
+
+    uint8_t pre[16];
+    for (int k = 0; k < 16; k++) pre[k] = 0x66;
+    pre[14] = 0x90;
+    expect("14 prefixes + NOP = 15 bytes", pre, 15, 15);
+    pre[14] = 0x66; pre[15] = 0x90;
+    expect("15 prefixes + NOP = 16 bytes", pre, 16, -1);
+
+    static const uint8_t fn[] = { 0x55, 0x48, 0x89, 0xE5, 0x48, 0x83, 0xEC, 0x20,
+                                  0x8B, 0x45, 0xFC, 0xC3 };
+    uint8_t start[sizeof fn];
+    int count = mark_starts(fn, (int)sizeof fn, start);
+    CHECK(count == 5, "prologue: got %d instructions, expected 5", count);
+    static const uint8_t want[] = { 1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1 };
+    for (int i = 0; i < (int)sizeof fn; i++)
+        CHECK(start[i] == want[i], "prologue: start[%d] = %d, expected %d", i, start[i], want[i]);
+    static const uint8_t bad[] = { 0x90, 0x62, 0x90 };
+    uint8_t s2[3];
+    count = mark_starts(bad, 3, s2);
+    CHECK(count == 1 && s2[0] == 1 && s2[1] == 0 && s2[2] == 0,
+          "stops at an unknown opcode: got count %d, marks %d %d %d", count, s2[0], s2[1], s2[2]);
+    return REPORT();
+}`,
+a: `<p>Length decoding is a short chain of dependent questions: how many prefixes, which opcode, does it have a ModRM, does the ModRM call for a SIB and a displacement, and how big is the immediate, which depends on the prefixes seen at the start. The solution walks that chain once. The details that trip people up:</p>
+<ul>
+<li><strong>Prefix interactions:</strong> REX.W overrides 0x66 for the immediate size, and a REX that isn’t last is ignored. The prefix loop resets REX.W whenever a legacy prefix follows it.</li>
+<li><strong>The two ModRM escapes:</strong> rm = 4 means a SIB byte follows, and SIB base 5 with mod 0 means “no base, disp32”. mod 0 with rm = 5 means RIP-relative. Both are easy to miss and change the length by 4 bytes.</li>
+<li><strong>The 15-byte limit</strong> applies to redundant prefixes too.</li>
+</ul>
+<p>Hardware can’t afford this serial walk for several instructions per cycle. A decoder runs this logic speculatively at every byte offset of the fetch block and keeps only the results that chain from the first instruction, or computes the start marks once when a line is filled and stores them as predecode bits next to the L1I. <code>mark_starts()</code> computes exactly those bits. The Math tab works out what both approaches cost.</p>`
+});
+
 C("intv-branch", "predictors", {
 lvl: "hard",
 q: `<p>Implement a gshare predictor and measure it on synthetic branch patterns.</p>
