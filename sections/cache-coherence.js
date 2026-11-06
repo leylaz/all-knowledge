@@ -208,7 +208,7 @@ section({
 <tr><td>Shared</td><td><ul><li>Data value reply</li><li>Sharers += {P}</li></ul></td><td><ul><li>Invalidate every sharer</li><li>Data value reply</li><li>Sharers = {P}</li><li>→ Modified</li></ul></td><td>Can't happen</td></tr>
 <tr><td>Modified</td><td><ul><li>Fetch to the owner</li><li>Owner's write-back updates memory</li><li>Data value reply to P</li><li>Sharers = {owner, P}</li><li>→ Shared</li></ul></td><td><ul><li>Fetch/invalidate to the owner</li><li>Data value reply to P</li><li>Sharers = {P}</li><li>Stays Modified</li></ul></td><td><ul><li>Memory updated</li><li>Sharers = {}</li><li>→ Uncached</li></ul></td></tr>
 </table></div>
-<p>Hennessy &amp; Patterson simplify on purpose: they treat each transaction as atomic (the home finishes one before starting the next for that block) and leave out acknowledgments. The last two sections of this page cover what that hides.</p>
+<p>Hennessy &amp; Patterson simplify on purpose: they treat each transaction as atomic (the home finishes one before starting the next for that block) and leave out acknowledgments. The full directory-side table, with acknowledgments, explicit evictions, and its transient state, is on <a href="#/coh-dir-ctrl">Inside the Directory Controller</a>. The last two sections of this page cover what that hides.</p>
 
 <h3 id="sec-flows">Flows: 4-Hop and 3-Hop</h3>
 <p>The number of serial network traversals on a miss sets most of its latency:</p>
@@ -218,6 +218,87 @@ section({
 <li><strong>3 hops (dirty miss with forwarding):</strong> local → home, home → owner (forwarded request), owner → local (data, directly). The owner also tells the home it's done, off the critical path. Almost every modern protocol does this. It's CHI's direct cache transfer (see <a href="#/icx-coherent/chi-flow">A CHI Read, Step by Step</a>).</li>
 <li><strong>Write miss to a shared block:</strong> the home sends invalidations to every sharer and, in protocols with acks, tells the requester how many acks to expect. The sharers ack the requester directly, and the write completes at the last ack.</li>
 </ul>
+<div class="tbl"><svg viewBox="0 0 680 470" role="img" aria-label="A 4 by 4 mesh of tiles. The requester, core 12, sits at the bottom left, the home slice 3 at the top right, and the owner, core 10, at row 2, column 2. Message 1, the request, goes 3 hops east and 3 hops north to the home. Message 2, the forwarded request, goes 1 hop west and 2 hops south to the owner. Message 3, the data, goes 2 hops west and 1 hop south straight to the requester. A dashed message from the owner back to the home updates the directory off the critical path. The critical path is 6 + 3 + 3 = 12 hops, against 6 + 3 + 3 + 6 = 18 hops if the data went back through the home." style="width:100%;min-width:520px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="16" style="fill:var(--ink);font-size:13px;font-weight:600">A 3-hop read miss on a 4 × 4 mesh with XY routing</text>
+<rect x="40" y="40" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="44" y="52" style="fill:var(--muted);font-size:9px">tile 0</text>
+<rect x="140" y="40" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="144" y="52" style="fill:var(--muted);font-size:9px">tile 1</text>
+<rect x="240" y="40" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="244" y="52" style="fill:var(--muted);font-size:9px">tile 2</text>
+<rect x="340" y="40" width="70" height="70" rx="4" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="344" y="52" style="fill:var(--muted);font-size:9px">tile 3</text>
+<text x="375.0" y="81.0" text-anchor="middle" style="fill:var(--ink);font-size:16px;font-weight:700">H</text>
+<rect x="40" y="140" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="44" y="152" style="fill:var(--muted);font-size:9px">tile 4</text>
+<rect x="140" y="140" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="144" y="152" style="fill:var(--muted);font-size:9px">tile 5</text>
+<rect x="240" y="140" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="244" y="152" style="fill:var(--muted);font-size:9px">tile 6</text>
+<rect x="340" y="140" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="344" y="152" style="fill:var(--muted);font-size:9px">tile 7</text>
+<rect x="40" y="240" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="44" y="252" style="fill:var(--muted);font-size:9px">tile 8</text>
+<rect x="140" y="240" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="144" y="252" style="fill:var(--muted);font-size:9px">tile 9</text>
+<rect x="240" y="240" width="70" height="70" rx="4" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="244" y="252" style="fill:var(--muted);font-size:9px">tile 10</text>
+<text x="275.0" y="281.0" text-anchor="middle" style="fill:var(--ink);font-size:16px;font-weight:700">O</text>
+<rect x="340" y="240" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="344" y="252" style="fill:var(--muted);font-size:9px">tile 11</text>
+<rect x="40" y="340" width="70" height="70" rx="4" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="44" y="352" style="fill:var(--muted);font-size:9px">tile 12</text>
+<text x="75.0" y="381.0" text-anchor="middle" style="fill:var(--ink);font-size:16px;font-weight:700">R</text>
+<rect x="140" y="340" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="144" y="352" style="fill:var(--muted);font-size:9px">tile 13</text>
+<rect x="240" y="340" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="244" y="352" style="fill:var(--muted);font-size:9px">tile 14</text>
+<rect x="340" y="340" width="70" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="344" y="352" style="fill:var(--muted);font-size:9px">tile 15</text>
+<line x1="110" y1="75.0" x2="140" y2="75.0" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="210" y1="75.0" x2="240" y2="75.0" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="310" y1="75.0" x2="340" y2="75.0" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="110" y1="175.0" x2="140" y2="175.0" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="210" y1="175.0" x2="240" y2="175.0" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="310" y1="175.0" x2="340" y2="175.0" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="110" y1="275.0" x2="140" y2="275.0" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="210" y1="275.0" x2="240" y2="275.0" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="310" y1="275.0" x2="340" y2="275.0" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="110" y1="375.0" x2="140" y2="375.0" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="210" y1="375.0" x2="240" y2="375.0" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="310" y1="375.0" x2="340" y2="375.0" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="75.0" y1="110" x2="75.0" y2="140" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="75.0" y1="210" x2="75.0" y2="240" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="75.0" y1="310" x2="75.0" y2="340" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="175.0" y1="110" x2="175.0" y2="140" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="175.0" y1="210" x2="175.0" y2="240" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="175.0" y1="310" x2="175.0" y2="340" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="275.0" y1="110" x2="275.0" y2="140" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="275.0" y1="210" x2="275.0" y2="240" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="275.0" y1="310" x2="275.0" y2="340" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="375.0" y1="110" x2="375.0" y2="140" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="375.0" y1="210" x2="375.0" y2="240" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="375.0" y1="310" x2="375.0" y2="340" style="stroke:var(--rule);stroke-width:2"/>
+<defs><marker id="arrMesh3hop" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--redirect)"/></marker></defs>
+<path d="M63.0,363.0 L363.0,363.0 L363.0,63.0" marker-end="url(#arrMesh3hop)" style="fill:none;stroke:var(--redirect);stroke-width:2.2"/>
+<circle cx="175" cy="343" r="10" style="fill:var(--redirect)"/><text x="175" y="347" text-anchor="middle" style="fill:var(--paper);font-size:11px;font-weight:700">1</text>
+<path d="M385.0,85.0 L285.0,85.0 L285.0,285.0" marker-end="url(#arrMesh3hop)" style="fill:none;stroke:var(--redirect);stroke-width:2.2"/>
+<circle cx="290" cy="85" r="10" style="fill:var(--redirect)"/><text x="290" y="89" text-anchor="middle" style="fill:var(--paper);font-size:11px;font-weight:700">2</text>
+<path d="M275.0,275.0 L75.0,275.0 L75.0,375.0" marker-end="url(#arrMesh3hop)" style="fill:none;stroke:var(--redirect);stroke-width:2.2"/>
+<circle cx="175" cy="275" r="10" style="fill:var(--redirect)"/><text x="175" y="279" text-anchor="middle" style="fill:var(--paper);font-size:11px;font-weight:700">3</text>
+<path d="M297.0,297.0 L397.0,297.0 L397.0,97.0" marker-end="url(#arrMesh3hop)" style="fill:none;stroke:var(--redirect);stroke-width:2.2;stroke-dasharray:5 4"/>
+<g style="fill:var(--ink);font-size:11px">
+<circle cx="460" cy="66" r="8" style="fill:var(--redirect)"/><text x="460" y="70" text-anchor="middle" style="fill:var(--paper);font-size:10px;font-weight:700">1</text>
+<text x="474" y="70">Request R → H: 3 + 3 = 6 hops</text>
+<circle cx="460" cy="92" r="8" style="fill:var(--redirect)"/><text x="460" y="96" text-anchor="middle" style="fill:var(--paper);font-size:10px;font-weight:700">2</text>
+<text x="474" y="96">Forward H → O: 1 + 2 = 3 hops</text>
+<circle cx="460" cy="118" r="8" style="fill:var(--redirect)"/><text x="460" y="122" text-anchor="middle" style="fill:var(--paper);font-size:10px;font-weight:700">3</text>
+<text x="474" y="122">Data O → R: 2 + 1 = 3 hops</text>
+<text x="474" y="148">Dashed: O notifies H, off the critical path</text>
+</g>
+<g style="fill:var(--ink);font-size:11px"><text x="460" y="200">Critical path: 6 + 3 + 3 = 12 hops</text><text x="460" y="218">Through the home (4-hop):</text><text x="460" y="234">6 + 3 + 3 + 6 = 18 hops</text></g>
+<g style="fill:var(--muted);font-size:11px"><text x="460" y="270">R = Requester (core 12)</text><text x="460" y="288">H = Home (LLC slice 3)</text><text x="460" y="306">O = Owner (core 10)</text></g>
+</svg></div>
 <p>Three-hop flows save latency but create races, because the requester can now get messages about the block from two different senders. That's the subject of <a href="#/coh-transient">Transient States and Protocol Races</a>.</p>
 
 <h3 id="sec-sharer-tracking">Sharer Tracking</h3>
@@ -351,6 +432,99 @@ section({
     ]
   }
 },
+
+{
+  id: "coh-dir-ctrl",
+  region: "coh",
+  title: "Inside the Directory Controller",
+  sections: [
+    { id: "events", label: "What the Directory Sees" },
+    { id: "table", label: "The Directory's Protocol Table" },
+    { id: "sd", label: "Why the Directory Waits for Data" },
+    { id: "puts", label: "Explicit Evictions: PutS and PutM" },
+    { id: "stalls", label: "Stalling vs. Non-Stalling Directories" },
+    { id: "states", label: "Adding E and O" },
+    { id: "model", label: "What to Model" }
+  ],
+  body: `
+<p><a href="#/coh-transient">Transient States and Protocol Races</a> follows the cache side of a directory protocol. This page covers the other half: the directory controller at the home, which has its own stable and transient states and its own table of events and actions. It follows the baseline MSI directory protocol in Chapter 8 of Sorin, Hill, and Wood's primer, which is more complete than Hennessy &amp; Patterson's version (see <a href="#/directory/machines">The Two State Machines</a>) because it includes acknowledgments, explicit evictions, and races.</p>
+
+<h3 id="sec-events">What the Directory Sees</h3>
+<p>The protocol uses three virtual networks: requests from caches to the directory, forwarded requests from the directory to caches, and responses (see <a href="#/icx-noc/protocol-deadlock">Protocol Deadlock and Virtual Networks</a>). The directory receives:</p>
+<ul>
+<li><strong>GetS and GetM:</strong> read and write requests.</li>
+<li><strong>PutS:</strong> a sharer is evicting its copy. The directory distinguishes <strong>PutS-NotLast</strong> from <strong>PutS-Last</strong>, depending on whether the requester is the last sharer.</li>
+<li><strong>PutM:</strong> an owner is evicting a dirty block, with the data. It is either <strong>from the owner</strong> or <strong>from a non-owner</strong>, which happens when ownership moved while the PutM was in flight.</li>
+<li><strong>Data:</strong> a copy of the block from an owner that was asked to share it.</li>
+</ul>
+<p>It sends data and Put-Acks to requesters, and forwarded requests (Fwd-GetS, Fwd-GetM, Inv) to caches. In this protocol, Put-Acks travel on the forwarded-request network, so they stay ordered with the directory's other messages to the same cache.</p>
+
+<h3 id="sec-table">The Directory's Protocol Table</h3>
+<p>Each cell is an action, then the next state if it changes. "Req" is the requester.</p>
+<div class="tbl"><table>
+<tr><th>State</th><th>GetS</th><th>GetM</th><th>PutS-NotLast</th><th>PutS-Last</th><th>PutM from owner</th><th>PutM from non-owner</th><th>Data</th></tr>
+<tr><td>I</td><td><ul><li>Send data to Req</li><li>Add Req to sharers</li><li>→ S</li></ul></td><td><ul><li>Send data to Req</li><li>Owner = Req</li><li>→ M</li></ul></td><td>Send Put-Ack</td><td>Send Put-Ack</td><td>Can't happen</td><td>Send Put-Ack</td><td>Can't happen</td></tr>
+<tr><td>S</td><td><ul><li>Send data to Req</li><li>Add Req to sharers</li></ul></td><td><ul><li>Send data to Req with the ack count</li><li>Send Inv to sharers</li><li>Clear sharers</li><li>Owner = Req</li><li>→ M</li></ul></td><td><ul><li>Remove Req from sharers</li><li>Send Put-Ack</li></ul></td><td><ul><li>Remove Req from sharers</li><li>Send Put-Ack</li><li>→ I</li></ul></td><td>Can't happen</td><td><ul><li>Remove Req from sharers</li><li>Send Put-Ack</li></ul></td><td>Can't happen</td></tr>
+<tr><td>M</td><td><ul><li>Send Fwd-GetS to owner</li><li>Add Req and owner to sharers</li><li>Clear owner</li><li>→ S<sup>D</sup></li></ul></td><td><ul><li>Send Fwd-GetM to owner</li><li>Owner = Req</li></ul></td><td>Send Put-Ack</td><td>Send Put-Ack</td><td><ul><li>Copy data to memory</li><li>Clear owner</li><li>Send Put-Ack</li><li>→ I</li></ul></td><td>Send Put-Ack</td><td>Can't happen</td></tr>
+<tr><td>S<sup>D</sup></td><td>Stall</td><td>Stall</td><td><ul><li>Remove Req from sharers</li><li>Send Put-Ack</li></ul></td><td><ul><li>Remove Req from sharers</li><li>Send Put-Ack</li></ul></td><td>Can't happen</td><td><ul><li>Remove Req from sharers</li><li>Send Put-Ack</li></ul></td><td><ul><li>Copy data to memory</li><li>→ S</li></ul></td></tr>
+</table></div>
+<p>Two details carry most of the protocol's correctness:</p>
+<ul>
+<li><strong>The ack count:</strong> on a GetM in S, the data tells the requester how many Inv-Acks to wait for (the sharers, minus the requester if it is one). The sharers ack the requester directly, so the directory moves to M at once and never collects acks itself.</li>
+<li><strong>Ownership moves at once:</strong> on a GetM in M, the directory records the new owner as soon as it sends the Fwd-GetM. The old owner hands the data straight to the new one.</li>
+</ul>
+
+<h3 id="sec-sd">Why the Directory Waits for Data</h3>
+<p>On a GetS in M, the owner must give up exclusive ownership and memory must get a fresh copy, because S means memory is up to date. The directory sends Fwd-GetS, and the owner sends data both to the requester and to the directory. Until that data reaches the directory, memory is stale. If another GetS arrived in that window and the directory answered from memory, it would send stale data. So the directory waits in S<sup>D</sup> ("going to S, waiting for data") and stalls GetS and GetM until the data arrives. Puts don't need memory's data, so they're handled even in S<sup>D</sup>.</p>
+<p>That's the directory's only transient state in this protocol. It stays small because the requester collects its own acks, and because forwarded requests make the owner, not the directory, responsible for supplying data.</p>
+
+<h3 id="sec-puts">Explicit Evictions: PutS and PutM</h3>
+<p>Hennessy &amp; Patterson's protocol evicts shared blocks silently. Sorin, Hill, and Wood's baseline sends a PutS and waits for a Put-Ack instead:</p>
+<ul>
+<li><strong>Silent PutS:</strong> no traffic on eviction, but the sharer list goes stale. A later write sends invalidations to caches that no longer hold the block, and a sparse directory can't free entries for blocks no one caches.</li>
+<li><strong>Explicit PutS:</strong> two messages per clean eviction, but the sharer list is exact, so later invalidations go only to real sharers, and a sparse directory frees the entry when the last sharer leaves (PutS-Last).</li>
+<li><strong>PutM from a non-owner:</strong> the cache sent PutM, but before it arrived the directory handled another core's GetM and forwarded it to this cache, which sent the data to the new owner. The PutM is now stale: the directory acks it and changes nothing, and the evicting cache, in II<sup>A</sup>, goes to I.</li>
+</ul>
+
+<h3 id="sec-stalls">Stalling vs. Non-Stalling Directories</h3>
+<p>Stalling in S<sup>D</sup> is simple, but a stalled request at the head of the directory's request queue blocks every request behind it, including ones for other blocks. Ways around it:</p>
+<ul>
+<li><strong>Per-block queues or a side buffer:</strong> move the stalled request aside so others proceed. Costs buffer space and bookkeeping.</li>
+<li><strong>NAK and retry:</strong> reject the request and let the requester retry later. No buffering, but retries waste bandwidth and can starve a requester.</li>
+<li><strong>Non-stalling states:</strong> Sorin, Hill, and Wood also show a directory that processes the second request immediately and adds more transient states to track both. More states, less blocking.</li>
+</ul>
+<p>The primer also shows how to drop the assumption that the forwarded-request network keeps messages in order between each pair of nodes, which adaptive routing would break. The cost, again, is more transient states at the caches.</p>
+
+<h3 id="sec-states">Adding E and O</h3>
+<ul>
+<li><strong>E (MESI):</strong> a GetS to a block in I can grant E. The directory must record an owner, as for M, because the E holder can write silently, and the directory can't tell E from M. A later request is forwarded to the holder, which answers with data whether it is clean or dirty. Evicting an E block needs a PutE (without data) so the directory knows the owner is gone.</li>
+<li><strong>O (MOSI or MOESI):</strong> a GetS to a block in M forwards to the owner, which keeps the block in O and keeps supplying data. Memory isn't updated, so S<sup>D</sup> isn't needed for that transition. The directory now tracks an owner and sharers at the same time, and a GetM must collect acks from the sharers and data from the owner.</li>
+</ul>
+
+<h3 id="sec-model">What to Model</h3>
+<ul>
+<li>The directory's busy states, such as S<sup>D</sup>, and what happens to requests that arrive during them: stall in queue order, side buffer, or NAK.</li>
+<li>Head-of-line blocking at the directory's request queue, which a per-line model misses.</li>
+<li>PutS traffic, or the stale sharers and extra invalidations without it.</li>
+<li>Whether the requester or the directory collects invalidation acks. It changes which node is on the critical path.</li>
+</ul>
+<p class="refs">References: Sorin, Hill, and Wood, <em>A Primer on Memory Consistency and Cache Coherence</em>, 2nd ed. (2020), Chapter 8 · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 6th ed., Section 5.4 and Appendix I</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Using the table on this page, the directory holds block B in M with owner C1. C2 sends GetS, and immediately afterward C3 sends GetM, which reaches the directory while it's in S<sup>D</sup>. Trace the directory's states and every message until both requests complete, and count the messages.</p>`,
+        a: `<ol><li>C2's GetS arrives in M: the directory sends Fwd-GetS to C1, records sharers {C1, C2}, clears the owner, and goes to S<sup>D</sup>.</li><li>C3's GetM arrives in S<sup>D</sup>: <strong>stall</strong>. It waits at the head of the request queue.</li><li>C1, in M, receives Fwd-GetS: it sends data to C2 and to the directory, and goes to S.</li><li>C2, in IS<sup>D</sup>, receives the data and goes to S. Its load completes.</li><li>The directory receives the data: it copies it to memory and goes to S.</li><li>Now it handles C3's GetM in S: it sends data to C3 with an ack count of 2 (sharers C1 and C2), sends Inv to C1 and C2, clears the sharers, records owner C3, and goes to M.</li><li>C1 and C2 receive Inv, go to I, and each send an Inv-Ack to C3.</li><li>C3, in IM<sup>AD</sup>, receives the data (2 acks expected) and then both acks, and goes to M.</li><li>Messages: GetS (1) + Fwd-GetS (1) + data to C2 and to the directory (2) + GetM (1) + data to C3 (1) + Inv (2) + Inv-Ack (2) = <strong>10 messages</strong>.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A 32-core chip with a sparse directory is choosing between silent and explicit (PutS) evictions of clean shared blocks. Each core evicts 4 million S blocks per second. Writes that hit a shared block occur 1.5 million times per second chip-wide, and with silent evictions, each such write finds 2 stale sharers on average in addition to the real ones. Compare the message traffic of the two policies, and say what else should decide the choice.</p><p class="given">Assume an explicit PutS costs 2 messages (PutS and Put-Ack), each invalidation of a stale sharer costs 2 messages (Inv and Inv-Ack), and with explicit PutS there are no stale sharers.</p>`,
+        a: `<ol><li>Explicit: 32 cores × 4 × 10<sup>6</sup> evictions/s × 2 messages = <strong>256 million messages/s</strong>.</li><li>Silent: 1.5 × 10<sup>6</sup> writes/s × 2 stale sharers × 2 messages = <strong>6 million messages/s</strong>.</li><li>On traffic alone, silent eviction wins by about 256 / 6 ≈ 43×.</li></ol><p>But traffic isn't the only cost:</p><ul><li><strong>Directory capacity:</strong> with silent evictions, a sparse directory keeps entries for blocks that no cache holds any more. They take space from live blocks, and evicting them sends useless invalidations. If the directory is tight, those evictions back-invalidate live lines, which costs misses.</li><li><strong>Write latency:</strong> a write waits for the slowest ack, and stale sharers add acks from caches that may be far away.</li><li><strong>Middle ground:</strong> some designs send a notification only when the evicted block is the last copy in a cluster, or only from caches that are inclusive of their cores, to keep the directory accurate at a fraction of the traffic.</li></ul><p>Measure directory occupancy and the rate of back-invalidations in a model with each policy before deciding. The traffic numbers favor silent eviction, but an undersized directory can reverse that.</p>`
+      }
+    ]
+  }
+},
+
 
 {
   id: "consistency",
