@@ -2574,6 +2574,156 @@ a: `<p>The graph has one node per channel and an edge wherever a packet holding 
 <p>An acyclic graph is sufficient for deadlock freedom, but not necessary for adaptive routing: Duato's theory allows cycles as long as an acyclic escape subnetwork is always reachable.</p>`
 });
 
+C("intv-icx", "protocol", {
+lvl: "medium",
+q: `<p>Model the read-response path of an AXI interconnect. Request <em>i</em> (in issue order) has ID <code>id[i]</code>, and its data is ready at the target in cycle <code>ready[i]</code>. Write <code>deliver()</code>, which fills <code>out[i]</code> with the cycle response <em>i</em> reaches the manager, under these rules:</p>
+<ul>
+<li>A response can be delivered in cycle <em>t</em> only if <em>t</em> ≥ <code>ready[i]</code> and every earlier request with the same ID was delivered in an earlier cycle (AXI’s same-ID ordering).</li>
+<li>The read data channel carries at most one response per cycle. Among the eligible responses, the oldest (lowest <em>i</em>) goes first.</li>
+</ul>
+<p>Return the cycle of the last delivery, or −1 if <code>n</code> is 0. Then the tests compare one ID for everything against one ID per request.</p>`,
+head: String.raw`#include <stdio.h>`,
+todo: String.raw`int deliver(int n, const int *id, const int *ready, int *out) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`int deliver(int n, const int *id, const int *ready, int *out) {
+    if (n == 0) return -1;
+    int done = 0, last = -1, t = ready[0];
+    for (int i = 0; i < n; i++) {
+        out[i] = -1;
+        if (ready[i] < t) t = ready[i];          /* nothing can go earlier */
+    }
+    for (; done < n; t++) {
+        for (int i = 0; i < n; i++) {
+            if (out[i] >= 0 || ready[i] > t) continue;
+            int blocked = 0;                     /* older same-ID response pending? */
+            for (int j = 0; j < i; j++)
+                if (id[j] == id[i] && (out[j] < 0 || out[j] >= t)) { blocked = 1; break; }
+            if (blocked) continue;
+            out[i] = t;
+            last = t;
+            done++;
+            break;                               /* one response per cycle */
+        }
+    }
+    return last;
+}`,
+tests: String.raw`static void run(const char *name, int n, const int *id, const int *ready,
+                const int *want, int want_last) {
+    int out[16];
+    int last = deliver(n, id, ready, out);
+    CHECK(last == want_last, "%s: last delivery in cycle %d, expected %d", name, last, want_last);
+    for (int i = 0; i < n; i++)
+        CHECK(out[i] == want[i], "%s: response %d in cycle %d, expected %d", name, i, out[i], want[i]);
+}
+
+int main(void) {
+    /* A slow DRAM read issued first, then two fast SRAM reads. */
+    int ready[] = { 10, 3, 4 };
+    int same[] = { 0, 0, 0 }, diff[] = { 0, 1, 2 };
+    run("one ID: fast reads wait behind the slow one", 3, same, ready, (int[]){ 10, 11, 12 }, 12);
+    run("three IDs: fast reads return early", 3, diff, ready, (int[]){ 10, 3, 4 }, 10);
+
+    int id2[] = { 0, 0, 1, 1 }, ready2[] = { 8, 2, 5, 5 };
+    run("two IDs, two reads each", 4, id2, ready2, (int[]){ 8, 9, 5, 6 }, 9);
+
+    int id3[] = { 0, 1, 2, 3 }, ready3[] = { 4, 4, 4, 4 };
+    run("all ready at once: one per cycle, oldest first", 4, id3, ready3, (int[]){ 4, 5, 6, 7 }, 7);
+
+    int id4[] = { 5, 7, 5, 7, 5 }, ready4[] = { 6, 1, 2, 9, 3 };
+    run("interleaved IDs", 5, id4, ready4, (int[]){ 6, 1, 7, 9, 8 }, 9);
+
+    int out[1];
+    CHECK(deliver(0, id3, ready3, out) == -1, "no requests: expected -1");
+    return REPORT();
+}`,
+a: `<p>The model steps through cycles and, in each, delivers the oldest response that is ready and not blocked by an older pending response with the same ID. The check is “delivered in an earlier cycle” rather than “delivered”, which also keeps two same-ID responses out of the same cycle.</p>
+<p>The first two tests show why IDs matter: with one ID, two SRAM reads ready in cycles 3 and 4 wait until cycles 11 and 12 behind a DRAM read, and with separate IDs they return in cycles 3 and 4, 8 cycles earlier. In the interleaved test, ID 5’s third read is ready in cycle 3 but must wait for its first read (cycle 6), and then loses cycle 7 to its own second read, so it goes in cycle 8.</p>
+<p>A real interconnect does this with a reorder buffer or per-ID tracking tables. In a model, the same rule decides whether an out-of-order memory controller’s gains reach the core at all.</p>`
+});
+
+C("intv-icx", "flow", {
+lvl: "hard",
+q: `<p>Simulate credit-based flow control on one router-to-router link shared by <code>nvc</code> virtual channels. Virtual channel <em>v</em> has <code>flits[v]</code> flits waiting upstream, and <code>depth</code> buffer slots downstream, so it starts with <code>depth</code> credits. Write <code>sim_link()</code>, which returns the cycle in which the last flit leaves the downstream router, or −1 if there are no flits. Each cycle <em>t</em>, starting at 0:</p>
+<ol>
+<li>Credits due in cycle <em>t</em> become usable in cycle <em>t</em>.</li>
+<li>The link sends at most one flit. It picks a virtual channel round-robin: it checks the channel after the one that sent last (channel 0 first, at the start) and takes the first that has a flit waiting and a credit. Sending spends a credit.</li>
+<li>A flit sent in cycle <em>t</em> arrives in cycle <em>t</em> + 1, leaves the downstream router in cycle <em>t</em> + 1 + <code>pipe</code>, and its credit is usable upstream in cycle <em>t</em> + 1 + <code>pipe</code> + <code>credit_delay</code>.</li>
+</ol>`,
+head: String.raw`#include <stdio.h>`,
+todo: String.raw`int sim_link(int nvc, const int *flits, int depth, int pipe, int credit_delay) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`#define MAX_VC 8
+#define MAX_T 4096
+
+int sim_link(int nvc, const int *flits, int depth, int pipe, int credit_delay) {
+    int left[MAX_VC], credits[MAX_VC], total = 0;
+    static int due[MAX_T][MAX_VC];             /* credits that return in cycle t */
+    for (int t = 0; t < MAX_T; t++)
+        for (int v = 0; v < nvc; v++) due[t][v] = 0;
+    for (int v = 0; v < nvc; v++) {
+        left[v] = flits[v];
+        credits[v] = depth;
+        total += flits[v];
+    }
+    if (total == 0) return -1;
+
+    int rr = nvc - 1, last_leave = -1, rt = 1 + pipe + credit_delay;
+    for (int t = 0; total > 0 && t < MAX_T; t++) {
+        for (int v = 0; v < nvc; v++) credits[v] += due[t][v];
+        for (int k = 1; k <= nvc; k++) {
+            int v = (rr + k) % nvc;
+            if (left[v] > 0 && credits[v] > 0) {
+                credits[v]--;
+                left[v]--;
+                total--;
+                rr = v;
+                last_leave = t + 1 + pipe;
+                if (t + rt < MAX_T) due[t + rt][v]++;
+                break;
+            }
+        }
+    }
+    return last_leave;
+}`,
+tests: String.raw`static void expect(const char *name, int nvc, const int *flits, int depth, int pipe,
+                   int cd, int want) {
+    int got = sim_link(nvc, flits, depth, pipe, cd);
+    CHECK(got == want, "%s: last flit leaves in cycle %d, expected %d", name, got, want);
+}
+
+int main(void) {
+    /* Round trip = 1 (link) + 3 (router) + 2 (credit) = 6 cycles. */
+    int twelve[] = { 12 };
+    expect("1 VC, 4 slots: 4 flits per 6 cycles", 1, twelve, 4, 3, 2, 19);
+    expect("1 VC, 6 slots: full rate", 1, twelve, 6, 3, 2, 15);
+    expect("1 VC, 8 slots: no faster than 6", 1, twelve, 8, 3, 2, 15);
+    expect("1 VC, 1 slot: one flit per round trip", 1, twelve, 1, 3, 2, 70);
+    expect("1 VC, 3 slots: half rate", 1, twelve, 3, 3, 2, 24);
+
+    int six_six[] = { 6, 6 };
+    expect("2 VCs x 3 slots fill the link", 2, six_six, 3, 3, 2, 15);
+    int nine_three[] = { 9, 3 };
+    expect("2 VCs, one runs dry: the other is capped at 3 per 6", 2, nine_three, 3, 3, 2, 20);
+
+    int five[] = { 5 };
+    expect("zero-delay router and credit: 1 slot is enough", 1, five, 1, 0, 0, 5);
+    int none[] = { 0, 0 };
+    expect("no flits", 2, none, 4, 3, 2, -1);
+    return REPORT();
+}`,
+a: `<p>The simulator keeps a credit counter per virtual channel and a table of credits due back in future cycles. Each cycle it adds the credits due, then sends one flit from the next eligible channel in round-robin order and schedules that flit’s credit to return one round trip later (1 + <code>pipe</code> + <code>credit_delay</code> cycles).</p>
+<p>The tests trace the rule that a channel’s throughput is min(1, depth / round trip):</p>
+<ul>
+<li>With a 6-cycle round trip, 4 slots send flits in cycles 0 to 3, 6 to 9, and 12 to 15, so the last leaves in cycle 15 + 1 + 3 = 19. 6 slots send in every cycle 0 to 11 (leaving in cycle 15), and 8 slots can’t do better.</li>
+<li>Two channels with 3 slots each fill the link together (2 × 3 / 6 = 1 flit/cycle), but when one runs dry after 3 flits, the other is back to 3 flits per 6 cycles: its sends are in cycles 0, 2, 4, 6, 8, 10, 12, 14, and 16.</li>
+</ul>
+<p>This is the buffer-sizing trade-off from the Math tab in executable form, and the core of a flit-level network model: add more links, routing, and switch allocation, and the same credit bookkeeping carries over.</p>`
+});
+
 C("intv-conc", "locks", {
 lvl: "medium",
 threads: true,

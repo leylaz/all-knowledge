@@ -88,7 +88,7 @@ ${window.INTV_CODING_HELP || ""}
 <h3 id="sec-order">Study Order</h3>
 <ol>
 <li><strong>Fundamentals:</strong> <a href="#/intv-pipeline">Pipeline Flow and Width</a>, <a href="#/intv-renaming">Renaming and Dependences</a>, <a href="#/intv-rob">The ROB and Retirement</a>, <a href="#/intv-sched">Scheduling and Execution</a>, <a href="#/intv-arith">Arithmetic and Floating Point</a>, <a href="#/intv-isa">Instruction Sets and Encoding</a>.</li>
-<li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-fe">Front End and Fetch</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-mem">Caches, TLBs and DRAM</a>, <a href="#/intv-coh">Coherence and Consistency</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>.</li>
+<li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-fe">Front End and Fetch</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-mem">Caches, TLBs and DRAM</a>, <a href="#/intv-coh">Coherence and Consistency</a>, <a href="#/intv-icx">Interconnects, Links and Memory Interfaces</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>.</li>
 <li><strong>Systems programming:</strong> <a href="#/intv-conc">Concurrency and Parallelism</a>, <a href="#/intv-alloc">Memory Allocation and the C Library</a>, <a href="#/intv-vm">Virtual Memory and the OS Boundary</a>. Expect to write code for these in an interview.</li>
 <li><strong>Your own experience:</strong> <a href="#/intv-sim">Building a Performance Model in C</a>, <a href="#/intv-design">Open-Ended Design Problems</a>. Connect every answer here to a decision or bug from your own simulator.</li>
 </ol>
@@ -2595,6 +2595,150 @@ Q(`<p>32 threads each increment one shared 64-bit counter with <code>lock xadd</
 <p>The locked instruction also acts as a full barrier on x86, so each thread’s own pipeline stalls around it, but the line transfer dominates.</p>
 <p><strong>Per-thread counters:</strong> each thread increments its own counter, in its own cache line (padded to 64 bytes, or 128 on cores whose prefetchers fetch line pairs). The line stays in M in that core’s L1, so each increment is an ordinary L1 hit, a few cycles. Reading the total sums all counters, which costs one line transfer per thread but happens rarely.</p>
 <p>The trade-off is that the sum is not a single atomic snapshot: it may mix values from slightly different moments. That is fine for statistics and reference counts that are only checked against zero rarely, and not fine where every increment must be totally ordered. Linux’s per-CPU counters and many allocators use this pattern.</p>`, "medium"),
+},
+{
+  id: "intv-icx",
+  title: "Interconnects, Links and Memory Interfaces",
+  body: `
+<p>Background: <a href="#/r/icx">Interconnects and Protocols</a>, especially <a href="#/icx-onchip">On-Chip Buses</a>, <a href="#/icx-coherent">Coherent Interconnects</a>, <a href="#/icx-noc">On-Chip Networks</a>, <a href="#/icx-fabrics">Coherent Fabrics in Server Chips</a>, <a href="#/icx-links">Chip-to-Chip Links</a>, and <a href="#/icx-memory">Memory Interfaces</a>. Routing deadlock and directory traffic are on <a href="#/intv-coh">Coherence and Consistency</a>.</p>
+<h3 id="sec-protocol">On-Chip Protocols</h3>` +
+Q(`<p>In AXI, a sender may not wait for READY before raising VALID, but a receiver may wait for VALID before raising READY. Why is the rule asymmetric, and what goes wrong if both sides wait?</p>`,
+`<p>The rule is asymmetric so that at least one side always moves first, which rules out a handshake deadlock.</p>
+<ul>
+<li>If both sides waited for the other, a sender holding data would wait for READY, the receiver would wait for VALID, and neither would ever assert its signal. Nothing is broken electrically, the transfer just never happens.</li>
+<li>Fixing the sender’s side (VALID can’t depend on READY) also prevents a combinational loop through the two signals, where VALID depends on READY and READY on VALID within one cycle.</li>
+<li>The sender must also hold VALID and the data steady until the transfer, so the receiver can take its time without the request vanishing.</li>
+</ul>
+<p>The receiver gets the freedom because it is the side that knows whether it has buffer space. It can hold READY low as back-pressure for as long as it needs.</p>`, "easy") +
+Q(`<p>Your SoC model returns AXI read responses strictly in the order the requests were issued, for every manager. Real hardware returns responses with different IDs out of order. Which results will the model get wrong, and in which direction?</p>`,
+`<p>The model will be pessimistic for any manager that issues requests with several IDs to targets with different latencies, because it adds head-of-line blocking that the hardware doesn’t have.</p>
+<ul>
+<li>A DMA engine that reads from DRAM and from an on-chip SRAM with different IDs gets every SRAM response stuck behind any slow DRAM response issued before it. Latency for the fast target becomes the slow target’s latency.</li>
+<li>The DRAM controller reorders requests to hit open rows (FR-FCFS). With strict in-order return, a row hit that finishes first still waits for an older row miss, so the model loses part of the controller’s gain.</li>
+<li>Bandwidth suffers too: if the manager has a limit on outstanding transactions, blocked completed responses still hold their slots.</li>
+</ul>
+<p>It is accurate for managers that use a single ID, since AXI requires same-ID responses in order. CPU clusters usually use many IDs, so a model that ignores IDs mostly underestimates memory-level parallelism. The Coding tab models per-ID ordering.</p>`, "medium") +
+Q(`<p>In Arm’s CHI, a home node that has no room for a new request doesn’t stall the request channel. It answers with RetryAck, and later sends the requester a credit (PCrdGrant) that lets it resend with guaranteed acceptance. Why not simply apply back-pressure on the request channel, and what problem does the credit solve that a plain retry wouldn’t?</p>`,
+`<p>CHI retries instead of back-pressuring so that one full home never blocks the shared request channel, and it uses credits so that retried requesters can’t starve.</p>
+<ul>
+<li><strong>Back-pressure blocks others:</strong> the request channel is shared by traffic to many homes. If a full home stopped accepting, requests to other, idle homes queued behind its requests would stall too, which is head-of-line blocking across the whole fabric. In the worst case it also contributes to protocol deadlock, if the stalled requests sit in buffers that responses or snoops need.</li>
+<li><strong>Retry alone can starve:</strong> with a plain retry, a requester resends whenever it likes, and the home accepts whichever request finds space first. An unlucky requester can lose that race indefinitely, and blind resending wastes bandwidth.</li>
+<li><strong>The credit fixes both:</strong> the home grants a protocol credit only when it has reserved space, so the resent request is guaranteed to be accepted, and the home chooses who gets the next credit, so it can grant fairly by class or age.</li>
+</ul>
+<p>For a model, this means a request’s latency at a busy home includes a retry round trip plus the wait for the credit, not just queueing time. A model that applies back-pressure instead gets both the latency distribution and the cross-home interference wrong.</p>`, "hard") +
+M(`<p>A DMA engine reads a large buffer over a 128-bit AXI port at 1 GHz. Each read is a 64-byte burst, and the round trip from address to last data beat is 200 ns. How many reads must be outstanding to reach the port’s peak bandwidth? What bandwidth does it get if the target supports only 16 outstanding reads? What if the bursts are 256 bytes instead?</p><p class="given">Assume the read data channel is the only bottleneck besides the outstanding-read limit, and the 200 ns round trip doesn’t depend on the burst size.</p>`,
+`<ol>
+<li><strong>Peak bandwidth:</strong> 16 bytes/cycle × 1 × 10<sup>9</sup> cycles/s = 16 GB/s.</li>
+<li><strong>Bytes in flight needed (Little’s law):</strong> 16 GB/s × 200 ns = 3,200 bytes. 3,200 bytes / 64 bytes/read = <strong>50 reads outstanding</strong>.</li>
+<li><strong>With 16 outstanding:</strong> 16 reads × 64 bytes/read / 200 ns = 1,024 bytes / 200 ns = <strong>5.12 GB/s</strong>, 32% of peak.</li>
+<li><strong>With 256-byte bursts:</strong> 16 reads × 256 bytes/read / 200 ns = 4,096 bytes / 200 ns = 20.48 GB/s, above the 16 GB/s peak, so the port runs at <strong>16 GB/s</strong>. It needs only 3,200 bytes / 256 bytes/read = 12.5, so 13 reads outstanding.</li>
+</ol>
+<p>Longer bursts carry more bytes per outstanding-transaction slot, which is why DMA engines use them. The cost is that a long burst occupies the data channel for 16 beats, delaying other managers’ short, latency-sensitive reads behind it.</p>`, "hard") +
+`<h3 id="sec-flow">Flow Control and Routers</h3>` +
+Q(`<p>On-chip networks almost always use credit-based flow control rather than on/off (stop/go) signals. Compare the two: what does each need in buffer space, and what do they cost in wires?</p>`,
+`<p>Credits need the fewest buffers for full throughput, while on/off signaling needs extra slack to cover the delay of its stop signal.</p>
+<ul>
+<li><strong>Credits:</strong> the sender counts free downstream slots and never sends without one, so no flit is ever dropped and no slack is needed. Full throughput needs buffers equal to the credit round trip in cycles. The cost is a credit return path per virtual channel and a counter at the sender.</li>
+<li><strong>On/off:</strong> the receiver raises “stop” when its buffer passes a threshold. Flits already in flight when it does must still fit, so the threshold must leave room for a round trip’s worth of flits, and restarting needs another round trip of buffered flits to avoid a bubble. That roughly doubles the buffering for the same throughput. The signal is just one wire, though.</li>
+</ul>
+<p>On chip, buffers are the expensive part of a router (they dominate its area and much of its power), and wires are comparatively cheap, so credits win. Off-chip links, where wires are precious, have their own trade-offs: PCIe also uses credits, but at a much coarser granularity.</p>`, "medium") +
+Q(`<p>Virtual channels were introduced to avoid deadlock, but they also raise throughput on networks that are already deadlock-free. Explain the throughput mechanism. Why do designs stop at a few virtual channels per port instead of using 16?</p>`,
+`<p>Virtual channels raise throughput by removing head-of-line blocking: a blocked packet no longer holds the physical link idle.</p>
+<ul>
+<li>With one buffer queue per input, a packet whose next hop is congested blocks every packet behind it, even those headed to free outputs. The link into this router then sits idle, and the blockage spreads backward.</li>
+<li>With several virtual channels, each with its own small queue, a packet in another channel can use the link and the switch while the blocked one waits. Measured throughput near saturation rises substantially going from 1 to 2 to 4 channels.</li>
+</ul>
+<p>The returns shrink and the costs grow:</p>
+<ul>
+<li>Each channel needs its own buffers, at least a credit round trip deep to run at full rate alone, so buffer area grows linearly with the count.</li>
+<li>The virtual-channel and switch allocators grow with ports × channels and sit on the router’s critical path, so many channels can add a pipeline stage to every hop, raising latency at all loads.</li>
+<li>Past a few channels, the blocking left is real congestion at outputs, which more channels can’t fix.</li>
+</ul>
+<p>In practice, the count is set by deadlock needs (virtual networks × escape channels) plus one or two for throughput.</p>`, "hard") +
+Q(`<p>Your mesh model charges a fixed 2 cycles per hop plus serialization. When is that accurate, and how does it fail as load rises? What would you add to it?</p>`,
+`<p>The fixed per-hop charge is accurate at low load, where routers use their fast paths, and increasingly optimistic as load approaches saturation.</p>
+<ul>
+<li><strong>Low load:</strong> a modern router uses lookahead routing and speculative switch allocation, so an uncontended flit spends 1 or 2 cycles per router plus a link cycle. A fixed charge captures that well.</li>
+<li><strong>Rising load:</strong> speculation fails more often, flits wait for virtual channels, switch slots, and credits, and queues form. Waiting time grows without bound as load nears saturation, and it is concentrated on the central links under XY routing. A fixed charge misses all of it, so it predicts no penalty for memory-bandwidth-heavy or sharing-heavy runs exactly where the network matters.</li>
+</ul>
+<p>Additions, in increasing cost:</p>
+<ol>
+<li>A load-dependent term per link, for example a queueing approximation driven by measured link utilization.</li>
+<li>Model link occupancy: each link carries one flit per cycle, so packets contend for it.</li>
+<li>A flit-level router model with buffers, credits, and allocators, used to calibrate the cheaper versions.</li>
+</ol>`, "medium") +
+M(`<p>A mesh router link carries one 16-byte flit per cycle. A credit takes 1 cycle to travel back upstream and 1 cycle to be processed there, a flit takes 1 cycle on the link, and a flit spends 3 cycles in the downstream router before its buffer slot is freed. Each virtual channel has 4 buffer slots. What is the most one virtual channel can carry, in flits per cycle? How long does a 5-flit data packet take to cross the link alone on one virtual channel, and how much buffering would let it go at full rate? With 5 ports and 4 virtual channels per port, what does the full-rate buffering cost per router?</p><p class="given">Assume the downstream router forwards every flit without further delay, and count a packet’s time from its first flit leaving until its last flit leaves.</p>`,
+`<ol>
+<li><strong>Credit round trip:</strong> 1 cycle (flit link) + 3 cycles (downstream router) + 1 cycle (credit link) + 1 cycle (credit processing) = 6 cycles before a slot can be reused.</li>
+<li><strong>Per-VC throughput:</strong> 4 slots / 6 cycles ≈ <strong>0.67 flits/cycle</strong>.</li>
+<li><strong>5-flit packet:</strong> flits 0 to 3 leave in cycles 0 to 3, using all 4 credits. The credit for flit 0 is usable in cycle 6, so flit 4 leaves in cycle 6, and the packet occupies cycles 0 to 6: <strong>7 cycles</strong> instead of 5. Slots needed for full rate: 6, one per cycle of the round trip.</li>
+<li><strong>Cost at 6 slots:</strong> 5 ports × 4 VCs/port × 6 flits/VC × 16 bytes/flit = 1,920 bytes of buffer per router, against 5 ports × 4 VCs/port × 4 flits/VC × 16 bytes/flit = 1,280 bytes now, 50% more.</li>
+</ol>
+<p>Whether it’s worth it depends on traffic: with several virtual channels active on a link, 4 × 0.67 = 2.7 flits/cycle of potential demand already exceeds the link’s 1 flit/cycle, so shallow buffers only hurt when one channel carries most of the traffic, as with long data responses in their own virtual network. A common compromise is deeper buffers only in the data network.</p>`, "medium") +
+`<h3 id="sec-fabric">Server Fabrics and Chiplets</h3>` +
+Q(`<p>Why do AMD EPYC and other recent server CPUs use chiplets instead of one large die, and what does a chiplet design cost in performance?</p>`,
+`<p>Chiplets win on cost and flexibility, and pay in latency and energy for traffic that crosses dies.</p>
+<ul>
+<li><strong>Yield:</strong> defects scale with area, so a few small dies yield far more good silicon than one large die. A defective small die wastes little.</li>
+<li><strong>Reuse and mixing processes:</strong> AMD builds desktop and server parts from the same core chiplet (CCD) and puts the I/O die, whose analog circuits shrink poorly, on an older, cheaper process.</li>
+<li><strong>Reach:</strong> a product can exceed the reticle limit on total silicon.</li>
+</ul>
+<p>The costs: any traffic between dies, such as an L3 miss going to memory, a cache line shared between cores on different CCDs, or a coherence probe, crosses package links. They add tens of nanoseconds, have less bandwidth than on-die wires, and cost more energy per bit. The L3 is also split per CCD, so a thread can’t use another CCD’s L3 capacity. Performance becomes topology dependent, which the scheduler and NUMA settings have to manage.</p>`, "easy") +
+Q(`<p>A benchmark runs pairs of threads that exchange small messages through shared cache lines. On a 32-core Intel mesh part, per-pair throughput barely changes with where the OS places the threads. On a 32-core AMD EPYC part with four 8-core CCDs, it varies by about 4 times from run to run, and pinning each pair to one CCD makes it faster than anything the Intel part achieves. Explain both behaviors, and say what a model of each fabric must capture.</p><p class="given">Assume the OS spreads threads across the AMD part’s CCDs to balance load, so a pair’s two threads may or may not share a CCD, and that nothing else runs on either machine.</p>`,
+`<p>On AMD, latency depends on whether the two threads share a CCD, so placement decides throughput. On the Intel mesh, it depends on where each line’s home is, which placement doesn’t control.</p>
+<ul>
+<li><strong>AMD:</strong> a pair on one CCD exchanges lines through that CCD’s L3, at roughly 20 ns per transfer. A pair split across CCDs sends every transfer through the I/O die, at roughly 4 to 5 times that. Which case a run gets depends on where the OS happened to put each thread, so throughput is bimodal from run to run. Pinning puts every pair in the fast case.</li>
+<li><strong>Intel mesh:</strong> each line’s home slice is chosen by an address hash spread over all tiles, so even two neighboring cores exchange lines through a home that can be anywhere on the mesh. Latency is moderate and nearly the same for any pair, so placement barely matters. But no placement reaches the AMD same-CCD case, because the trip to the home is always there.</li>
+</ul>
+<p>A model of the AMD part needs two latency levels (within the CCD and across the I/O die) and the actual thread placement. A uniform average predicts the middle of the two modes, a result no run actually shows. A model of the mesh needs the address hash or a uniform distribution of homes, the hop latency, and the mesh clock, and it can mostly ignore placement except under sub-NUMA clustering.</p>`, "hard") +
+Q(`<p>Turning on sub-NUMA clustering (SNC on Intel, NPS on AMD) splits each socket into several NUMA domains. Give one workload that gets faster and one that gets slower, and explain the mechanisms.</p>`,
+`<p>SNC trades shorter average distances for smaller per-domain resources, so it helps NUMA-aware code with local data and hurts code whose data or threads span domains.</p>
+<ul>
+<li><strong>Faster:</strong> an MPI or process-per-domain workload that allocates its own memory. Each address’s home and memory controller are now in the requesting cores’ part of the chip, so L3 hits and DRAM accesses travel fewer hops, and there is less traffic across the middle of the mesh. Latency drops by a few nanoseconds per access.</li>
+<li><strong>Slower:</strong> one large shared-memory process, such as an in-memory database whose threads touch a common heap. Half or more of its accesses now go to remote domains, paying the cross-domain hop. Each domain’s memory bandwidth is only its share of the channels, so a thread whose data the OS placed in one domain can’t use the whole socket’s bandwidth. And on Intel, lines from a domain’s memory are cached only in that domain’s L3 slices, so the L3 capacity available to any one address range shrinks.</li>
+</ul>
+<p>Before recommending it, check whether the application is NUMA-aware (allocates from where it runs) and whether its working set fits in a domain’s share of the L3.</p>`, "hard") +
+M(`<p>A producer thread sends 16-byte messages to a consumer through a ring buffer, 4 messages per 64-byte line. For each line, the consumer pulls the data line from the producer’s cache, and the producer then pulls the consumer’s head-index line to learn the slot is free. A cache-to-cache transfer takes 18 ns when both threads share a CCD and 85 ns across CCDs. What message rate does each placement sustain? How do the rates change if the consumer updates its head index once per 4 lines instead of once per line?</p><p class="given">Assume the two transfers per update are serialized and nothing else limits the rate: the work per message is negligible and the producer never waits on anything else.</p>`,
+`<ol>
+<li><strong>Per line, same CCD:</strong> 2 transfers × 18 ns/transfer = 36 ns per 4 messages, so 9 ns/message, about <strong>111 million messages/s</strong>.</li>
+<li><strong>Per line, across CCDs:</strong> 2 transfers × 85 ns/transfer = 170 ns per 4 messages, so 42.5 ns/message, about <strong>23.5 million messages/s</strong>, 4.7 times slower.</li>
+<li><strong>Batched head updates, same CCD:</strong> per 4 lines: 4 data transfers + 1 index transfer = 5 transfers × 18 ns/transfer = 90 ns per 16 messages, so 5.6 ns/message, about <strong>178 million messages/s</strong>.</li>
+<li><strong>Batched head updates, across CCDs:</strong> 5 transfers × 85 ns/transfer = 425 ns per 16 messages, so 26.6 ns/message, about <strong>37.6 million messages/s</strong>.</li>
+</ol>
+<p>Batching raises the cross-CCD rate by 60% (23.5 to 37.6 million/s) but can’t erase placement: the cross-CCD rate stays 4.7 times lower because every transfer pays the higher latency. The data transfers could overlap if the consumer prefetched the next line early, which would cut the cross-CCD cost much further. That’s why the assumption that transfers are serialized matters.</p>`, "hard") +
+`<h3 id="sec-links">Off-Chip Links and Memory</h3>` +
+Q(`<p>A cloud provider adds CXL Type 3 memory expanders to its servers. Accesses to them take roughly as long as a remote-socket access, about twice local DRAM latency. Which workloads tolerate this memory, which don’t, and how should the OS place pages?</p>`,
+`<p>Workloads tolerate CXL memory when the pages placed there are cold or bandwidth-tolerant, and suffer when latency-critical hot data lands there.</p>
+<ul>
+<li><strong>Tolerant:</strong> large in-memory caches and databases with a small hot set and a long cold tail, VMs that allocate far more than they touch, and streaming or prefetchable access patterns where the latency overlaps.</li>
+<li><strong>Intolerant:</strong> pointer chasing and other dependent-load code with a large hot working set, such as graph traversal or an index lookup, where each extra 100 ns of latency adds directly to runtime.</li>
+</ul>
+<p>Placement: treat CXL as a slower tier. Keep hot pages in local DRAM and demote cold ones, using page access tracking (accessed bits or hardware hints) and promoting pages that become hot, as Linux’s memory tiering does. For bandwidth-bound workloads, interleaving pages across both tiers in proportion to bandwidth adds the CXL link’s bandwidth to DRAM’s, which the Math tab works out. The model needs the tier latency and bandwidth, and the page placement policy, since the policy decides the result more than the hardware.</p>`, "medium") +
+Q(`<p>Intel’s Xeon Max puts 64 GB of HBM on the package next to DDR5. A colleague expects every memory-bound workload to speed up when it runs from HBM. Explain why some don’t, and some get slower.</p>`,
+`<p>HBM raises bandwidth, not latency, so only workloads with enough memory-level parallelism to use the bandwidth gain.</p>
+<ul>
+<li><strong>Bandwidth needs parallelism:</strong> by Little’s law, bandwidth = bytes in flight / latency. A workload that keeps few misses outstanding, such as a few threads or dependent loads, can’t reach even DDR5’s bandwidth, so more peak bandwidth does nothing for it.</li>
+<li><strong>Latency is no better:</strong> HBM’s DRAM cells and timings are similar to DDR’s, and on Xeon Max the measured idle latency from HBM is somewhat higher than from DDR5. Latency-bound code, like pointer chasing, gets slightly slower.</li>
+<li><strong>Capacity:</strong> 64 GB is small for a server. In cache mode (HBM caching DDR), workloads that miss in the HBM cache pay the HBM lookup and then DDR, and in flat mode, data that doesn’t fit spills to DDR.</li>
+</ul>
+<p>The workloads that gain are many-threaded, streaming, or otherwise high-MLP codes, such as stencils, sparse solvers, and AI inference with large weights, which can keep enough requests in flight. The Math tab puts numbers on this.</p>`, "hard") +
+M(`<p>A server has 8 channels of DDR5-4800 at 110 ns loaded latency, plus CXL memory on a PCIe Gen5 x16 link that delivers 63 GB/s of reads at 210 ns. A read-only, bandwidth-bound scan interleaves its pages between the two. What bandwidth does it get with a 50/50 split, and with the split that maximizes bandwidth? What is the average latency at the best split, and what does that mean for a latency-bound workload placed the same way?</p><p class="given">Assume DDR5 delivers its full peak bandwidth, and each tier serves its share of the bytes independently, so the scan finishes when the slower tier finishes its share.</p>`,
+`<ol>
+<li><strong>DDR5 peak:</strong> 8 channels × 4,800 × 10<sup>6</sup> transfers/s × 8 bytes/transfer = 307.2 GB/s.</li>
+<li><strong>50/50 split:</strong> each tier serves half the bytes. CXL takes longer: total bandwidth = 63 GB/s / 0.5 = <strong>126 GB/s</strong>, less than half of DDR5 alone.</li>
+<li><strong>Best split:</strong> both tiers finish together when each tier’s share is proportional to its bandwidth. CXL share = 63 GB/s / (307.2 GB/s + 63 GB/s) = 63 / 370.2 ≈ 17%. Total = <strong>370.2 GB/s</strong>, 20% more than DDR5 alone.</li>
+<li><strong>Average latency at the best split:</strong> 0.83 × 110 ns + 0.17 × 210 ns = 91.3 ns + 35.7 ns = <strong>127 ns</strong>, 15% above local DDR5.</li>
+</ol>
+<p>The same placement is wrong for a latency-bound workload: it gains nothing from extra bandwidth and pays 15% more latency on average (and 91% more on the 17% of accesses that go to CXL). Bandwidth-weighted interleave is right only for bandwidth-bound data. The naive 50/50 split is the trap: it is much worse than not using CXL at all.</p>`, "hard") +
+M(`<p>A 56-core server has HBM at 130 ns loaded latency with 1 TB/s peak, and DDR5 with 8 channels of DDR5-4800 at 110 ns. Each core sustains at most 32 outstanding L2 misses of 64 bytes. What bandwidth can 8 threads (one per core) get from each memory? What can all 56 cores get from each? Which workloads should run from HBM?</p><p class="given">Assume bandwidth is limited by outstanding misses (Little’s law) or the memory’s peak, whichever is lower, and loaded latency stays as given.</p>`,
+`<ol>
+<li><strong>Bytes in flight per core:</strong> 32 misses × 64 bytes/miss = 2,048 bytes.</li>
+<li><strong>8 threads, HBM:</strong> 8 cores × 2,048 bytes / 130 ns = 16,384 bytes / 130 ns ≈ <strong>126 GB/s</strong>.</li>
+<li><strong>8 threads, DDR5:</strong> 16,384 bytes / 110 ns ≈ <strong>149 GB/s</strong>, below DDR5’s peak of 8 channels × 4,800 × 10<sup>6</sup> transfers/s × 8 bytes/transfer = 307.2 GB/s. So 8 threads run 18% faster from DDR5, because latency, not bandwidth, limits them.</li>
+<li><strong>56 cores, HBM:</strong> 56 cores × 2,048 bytes / 130 ns = 114,688 bytes / 130 ns ≈ <strong>882 GB/s</strong>, still below the 1 TB/s peak.</li>
+<li><strong>56 cores, DDR5:</strong> 114,688 bytes / 110 ns ≈ 1,043 GB/s of demand, capped at the <strong>307.2 GB/s</strong> peak. HBM gives 882 / 307.2 ≈ 2.9 times more.</li>
+</ol>
+<p>Run high-MLP, many-thread streaming work from HBM, and keep latency-bound or lightly threaded work on DDR5. HBM wins only when the total bytes in flight exceed about DDR5’s peak × latency: 307.2 GB/s × 110 ns ≈ 33,800 bytes, about 16 cores’ worth at this MLP. Even at full load, the cores can’t saturate the HBM, so MSHR count, not HBM bandwidth, is the next limit.</p>`, "hard"),
 },
 {
   id: "intv-conc",
