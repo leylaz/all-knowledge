@@ -22,6 +22,8 @@ const GLOSSARY = {
   "subnormal": { def: "A floating-point number below the smallest normal, with a hidden bit of 0. Fills the gap to zero but loses precision and is slow on some cores.", page: "fp-rounding/subnormal" },
   "ILP": { def: "Instruction-level parallelism: how many instructions from one thread can run at the same time.", page: "ooo-tradeoffs" },
   "IPC": { def: "Instructions per cycle: retired instructions divided by cycles. The basic throughput metric for a core.", page: "ipc-spec" },
+  "flit": { def: "Flow-control unit: the piece of a packet that network buffers and links are allocated in. A head flit carries the route, and a tail flit releases the packet's resources.", page: "icx-noc/packets" },
+  "virtual network": { def: "A set of virtual channels reserved for one class of coherence message (requests, forwarded requests, or responses), so that no message waits behind a class that depends on it.", page: "icx-noc/protocol-deadlock" },
   "ISA": { def: "Instruction set architecture: the contract between hardware and software (instructions, registers, memory model).", page: "r/isa" },
   "KV cache": { def: "The keys and values of every earlier token, stored so each new token's attention reuses them instead of recomputing them.", page: "llm-kvcache" },
   "LLC": { def: "Last-level cache: the cache closest to memory, usually shared by all cores (the L3 on most CPUs).", page: "l2-banks" },

@@ -185,6 +185,7 @@ READY  __________________|‾‾‾‾‾|____
 <ul>
 <li><strong>Latency</strong> depends on where the home node and owner sit, which is why some chips map addresses to nearby home nodes or split the mesh into regions.</li>
 <li><strong>Bandwidth</strong> scales with the number of links, but traffic concentrated on one home node (a hot lock, for example) creates a hot spot.</li>
+<li><strong>How the network works:</strong> flits, router pipelines, credits, and the virtual networks that keep coherence traffic from deadlocking are on <a href="#/icx-noc">On-Chip Networks: Flits, Routers, and Deadlock</a>.</li>
 <li><strong>Performance angle:</strong> coherence latency adds directly to the cost of sharing data between cores, which is why false sharing (see <a href="#/false-sharing">False sharing</a>) is so expensive on large chips.</li>
 </ul>`,
   practice: {
@@ -202,6 +203,168 @@ READY  __________________|‾‾‾‾‾|____
       {
         q: `<p>Why do large coherent systems use snoop filters at home nodes instead of broadcasting every snoop?</p>`,
         a: `<p>Broadcasting every miss to every cache wastes interconnect bandwidth and energy, and the cost grows with core count. A snoop filter (a directory) at each home node tracks which caches may hold each line, so snoops go only to actual sharers, often none. The cost is the filter's storage, and the need to invalidate cached lines when the filter runs out of space to track them.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "icx-noc",
+  region: "icx",
+  title: "On-Chip Networks: Flits, Routers, and Deadlock",
+  sections: [
+    { id: "packets", label: "Messages, Packets, and Flits" },
+    { id: "topology", label: "Topologies" },
+    { id: "switching", label: "Switching" },
+    { id: "flow-control", label: "Flow Control and Credits" },
+    { id: "vcs", label: "Virtual Channels" },
+    { id: "router", label: "The Router Pipeline" },
+    { id: "routing", label: "Routing and Routing Deadlock" },
+    { id: "protocol-deadlock", label: "Protocol Deadlock and Virtual Networks" },
+    { id: "latency", label: "A Latency Model" },
+    { id: "model", label: "What to Model" }
+  ],
+  body: `
+<p>A <a href="#/directory">directory protocol</a> assumes a network that delivers its messages. This page covers how an on-chip network (NoC) does that: how messages are cut into flits, how routers move them, how buffers are managed, and the two kinds of deadlock a coherent network has to rule out. It draws on Hennessy &amp; Patterson's Appendix F (by Pinkston and Duato), Jerger, Krishna, and Peh's <em>On-Chip Networks</em>, and Dally and Towles.</p>
+
+<h3 id="sec-packets">Messages, Packets, and Flits</h3>
+<p>The network works in four units:</p>
+<ul>
+<li><strong>Message:</strong> what the protocol sends, such as a read request or a data reply.</li>
+<li><strong>Packet:</strong> the unit that's routed. A header carries the destination, the message class, and a transaction ID. On chip, a message is usually one packet.</li>
+<li><strong>Flit</strong> (flow-control unit): the unit that buffers and links are allocated in. A packet is a head flit (with the route), zero or more body flits, and a tail flit that releases the resources the packet held. A one-flit packet is head and tail at once.</li>
+<li><strong>Phit</strong> (physical unit): what crosses the wires in one cycle. On chip, a phit is usually a whole flit.</li>
+</ul>
+<p>Coherence traffic is bimodal. Requests, forwarded requests, and acks carry an address and a few control bits, so they fit in one flit. A data message carries a whole cache line: with 16-byte flits, a 64-byte line plus a header is 5 flits. That's why many designs give data its own wider channel (CHI's DAT channel) or its own physical network.</p>
+
+<h3 id="sec-topology">Topologies</h3>
+<p>For N = k × k nodes with bidirectional links and uniform random traffic:</p>
+<div class="tbl"><table>
+<tr><th>Topology</th><th>Router ports</th><th>Diameter</th><th>Average hops</th><th>Bisection links</th></tr>
+<tr><td>Ring (N nodes)</td><td>3</td><td>N/2</td><td>About N/4</td><td>2</td></tr>
+<tr><td>2D mesh (k × k)</td><td>5</td><td>2(k − 1)</td><td>About 2k/3</td><td>k</td></tr>
+<tr><td>2D torus (k × k)</td><td>5</td><td>k (k even)</td><td>About k/2</td><td>2k</td></tr>
+<tr><td>Crossbar</td><td>N</td><td>1</td><td>1</td><td>N/2 (cost grows as N<sup>2</sup>)</td></tr>
+</table></div>
+<ul>
+<li><strong>Ring:</strong> cheap routers and a natural order for snooping, but latency and bisection don't scale. Intel used rings up to about two dozen cores (Broadwell-EP joined two).</li>
+<li><strong>Mesh:</strong> short, equal-length wires that fit a tiled floorplan. Bisection grows with √N. Intel's server chips since Skylake-SP and Arm's CMN fabrics are meshes.</li>
+<li><strong>Torus:</strong> wraparound links halve the average distance and double the bisection, but the long wires must be folded to keep lengths equal, and the rings it forms need extra virtual channels to avoid deadlock.</li>
+<li><strong>Crossbar:</strong> one hop between any pair. Fine for a handful of ports (a cluster's L2, a GPU's L2 slices), too costly for more.</li>
+</ul>
+
+<h3 id="sec-switching">Switching</h3>
+<p>Switching decides when a packet may leave a router. For a packet of F flits crossing H hops, with a router-plus-link delay of t<sub>r</sub> per hop and one flit per cycle on each link:</p>
+<ul>
+<li><strong>Store-and-forward:</strong> each router receives the whole packet before sending any of it. T ≈ H × (t<sub>r</sub> + F cycles). Serialization is paid at every hop.</li>
+<li><strong>Virtual cut-through:</strong> the head leaves as soon as its route and the next buffer are ready, and the body follows in a pipeline. T ≈ H × t<sub>r</sub> + F cycles. Buffers are allocated a packet at a time, so a blocked packet collapses into one router's buffer.</li>
+<li><strong>Wormhole:</strong> the same latency as cut-through, but buffers are allocated a flit at a time, so they can be smaller than a packet. A blocked packet stays strung across several routers and holds every channel it occupies, blocking unrelated packets behind it.</li>
+</ul>
+<p>Example: a 5-flit data packet crossing 4 hops at 3 cycles per hop takes 4 hops × (3 cycles + 5 cycles) = 32 cycles store-and-forward, but 4 hops × 3 cycles + 5 cycles = 17 cycles with cut-through or wormhole. On-chip networks use wormhole or cut-through with virtual channels.</p>
+
+<h3 id="sec-flow-control">Flow Control and Credits</h3>
+<p>Flow control keeps a sender from overrunning the receiver's buffers. On chip, it's almost always <strong>credit-based</strong>:</p>
+<ol>
+<li>The upstream router keeps a count of free buffer slots for each downstream virtual channel, starting at the buffer depth.</li>
+<li>Sending a flit decrements the count. At zero, the upstream router waits.</li>
+<li>When the downstream router forwards a flit and frees its slot, it sends a credit back, which increments the count.</li>
+</ol>
+<p>The <strong>credit round trip</strong> is the time from a slot's credit leaving the downstream router until the flit that reuses it arrives: link out, credit processing, link back, and the downstream pipeline. To keep a link busy every cycle, each virtual channel needs at least as many buffer slots as the round trip in cycles. Fewer slots cap that virtual channel's throughput at buffers / round trip. Back-pressure is how congestion spreads: a full buffer stops credits, which stops the router upstream, and so on back to the source.</p>
+
+<h3 id="sec-vcs">Virtual Channels</h3>
+<p>A <strong>virtual channel</strong> (VC) is a separate buffer queue, with its own state and credits, that shares a physical link with other VCs. The switch allocator picks one flit from among the VCs each cycle. VCs serve two purposes:</p>
+<ul>
+<li><strong>Performance:</strong> a packet blocked in one VC doesn't block packets in other VCs on the same link (head-of-line blocking).</li>
+<li><strong>Deadlock freedom:</strong> separating packets into classes that can't wait on each other in a cycle, for routing (next section) and for protocol messages (the one after).</li>
+</ul>
+<p>The cost is buffer area and power, and a more complex allocator, so VCs are kept to a few per port.</p>
+
+<h3 id="sec-router">The Router Pipeline</h3>
+<p>A baseline virtual-channel router handles a head flit in these stages:</p>
+<ol>
+<li><strong>Buffer write and route computation (BW, RC):</strong> the flit is written into its input VC, and the output port is computed from the destination.</li>
+<li><strong>VC allocation (VA):</strong> the packet wins a free VC on the output port.</li>
+<li><strong>Switch allocation (SA):</strong> the flit wins the crossbar for this cycle, against flits from other inputs that want the same output.</li>
+<li><strong>Switch traversal (ST):</strong> the flit crosses the crossbar.</li>
+<li><strong>Link traversal (LT):</strong> the flit crosses the wire to the next router.</li>
+</ol>
+<p>Body and tail flits skip RC and VA, since they follow the head's route and VC. The tail frees the VC. Optimizations bring the per-hop delay down from 5 cycles:</p>
+<ul>
+<li><strong>Lookahead routing:</strong> each router computes the next router's output port, taking RC off the critical path.</li>
+<li><strong>Speculative switch allocation:</strong> SA runs in parallel with VA and is discarded if VA fails.</li>
+<li><strong>Bypassing:</strong> a flit arriving at an idle router skips the buffer and goes straight to the crossbar.</li>
+</ul>
+<p>With these, commercial meshes reach 1 to 2 cycles per hop at low load, at the network's clock, which is often slower than the cores' clock.</p>
+
+<h3 id="sec-routing">Routing and Routing Deadlock</h3>
+<p>Routing picks the path. <strong>Dimension-order routing</strong> (XY on a mesh) goes all the way in X, then in Y. It's deterministic, needs almost no logic, and is the common choice on chip. Adaptive routing picks among minimal paths based on congestion, which spreads load but costs logic and loses ordering.</p>
+<p><strong>Routing deadlock</strong> happens when packets hold channels in a cycle, each waiting for a channel the next one holds. Dally and Seitz's condition: a routing function is deadlock-free if the <strong>channel dependency graph</strong> (an edge from channel a to channel b if a packet can hold a and request b) has no cycle.</p>
+<ul>
+<li><strong>XY on a mesh:</strong> a packet never turns from Y back to X, so the four turns that would close a cycle can't all happen. No cycle, no deadlock, with one VC.</li>
+<li><strong>Turn model</strong> (Glass and Ni): forbid just enough turns to break every cycle (for example west-first routing) and route adaptively with the rest.</li>
+<li><strong>Rings and tori:</strong> the wraparound itself is a cycle. A <strong>dateline</strong> fixes it: packets start in VC 0 and switch to VC 1 when they cross a chosen link, so no cycle stays within one VC.</li>
+<li><strong>Escape channels</strong> (Duato): route fully adaptively in some VCs, as long as a deadlock-free escape VC (for example XY) is always reachable.</li>
+</ul>
+
+<h3 id="sec-protocol-deadlock">Protocol Deadlock and Virtual Networks</h3>
+<p>A deadlock-free routing function isn't enough for coherence, because messages <em>depend on each other</em>: a request at the home generates forwarded requests, and a forwarded request at an owner generates a response. That's <strong>message-dependent</strong> or <strong>protocol deadlock</strong>:</p>
+<ol>
+<li>The home's input queue is full of requests.</li>
+<li>To finish the request at the head, the home needs a response from an owner.</li>
+<li>That response is stuck behind requests in the same queues, because every buffer between the owner and the home is full of requests.</li>
+<li>No request can be consumed until a response arrives, and no response can arrive until a request is consumed.</li>
+</ol>
+<p>The fix is to give each message class its own <strong>virtual network</strong> (its own VCs, or its own physical network) and to order the classes so that a message only ever waits for messages in a later class:</p>
+<ul>
+<li><strong>Requests</strong> (GetS, GetM, PutM) wait for forwarded requests and responses.</li>
+<li><strong>Forwarded requests</strong> (Fwd-GetS, Fwd-GetM, Inv) wait only for responses.</li>
+<li><strong>Responses</strong> (data, acks) wait for nothing: every endpoint must always accept them, which it can because it reserved space for them when it sent the request (an MSHR entry).</li>
+</ul>
+<p>The responses always drain, so the forwarded requests can always finish, so the requests can always finish. The number of virtual networks needed is the length of the longest chain of dependent message classes. Sorin, Hill, and Wood's directory protocols use three. Real fabrics name theirs:</p>
+<ul>
+<li><strong>Arm CHI:</strong> four channels, REQ, SNP, RSP, and DAT, with data split from other responses.</li>
+<li><strong>Intel QPI:</strong> six message classes: Home, Snoop, Non-Data Response, Data Response, Non-Coherent Standard, and Non-Coherent Bypass.</li>
+</ul>
+<p>Each virtual network still needs its own routing-deadlock freedom, so a torus with three virtual networks needs at least 3 virtual networks × 2 dateline VCs = 6 VCs per port. Ordering is the other thing to watch: with XY routing and one VC per class, two messages from the same source to the same destination arrive in order. Some protocols rely on that point-to-point ordering on a network to remove races, and adaptive routing or multiple VCs per class break it.</p>
+
+<h3 id="sec-latency">A Latency Model</h3>
+<p>Following Hennessy &amp; Patterson's Appendix F, a packet's latency splits into parts a model can charge separately:</p>
+<div class="math">\[ T = T_{\text{inject}} + H \times t_r + \frac{L}{b} + T_{\text{contention}} \]</div>
+<ul>
+<li><strong>T<sub>inject</sub>:</strong> getting from the cache controller into the network interface, and out at the other end.</li>
+<li><strong>H × t<sub>r</sub>:</strong> hops times the per-hop router and link delay at low load.</li>
+<li><strong>L / b:</strong> serialization, the packet length over the link width. It's what makes data replies slower than requests.</li>
+<li><strong>T<sub>contention</sub>:</strong> waiting for a VC, the switch, or credits. It's near zero at low load and grows without bound as offered load approaches saturation. On a mesh with uniform traffic, saturation comes before the bisection links are fully used, because XY routing loads the center links most.</li>
+</ul>
+
+<h3 id="sec-model">What to Model</h3>
+<ul>
+<li>Hop distance from the real placement of cores, LLC slices, and memory controllers, not an average.</li>
+<li>Serialization by message class: one flit for control, several for data.</li>
+<li>Contention at hot spots, a home slice with a contended lock or the routers next to a memory controller, which an average-latency model hides.</li>
+<li>The network's own clock domain, and credit round trips if the buffers are shallow.</li>
+<li>Virtual networks as separate resources, so that a flood of requests can't delay the responses in the model when it can't on silicon.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 6th ed., Appendix F (Pinkston and Duato), Sections F.2 to F.6, and Appendix I · Jerger, Krishna, and Peh, <em>On-Chip Networks</em>, 2nd ed. (2017) · Dally and Towles, <em>Principles and Practices of Interconnection Networks</em> (2004) · Sorin, Hill, and Wood, <em>A Primer on Memory Consistency and Cache Coherence</em>, 2nd ed. (2020), Chapters 8 and 9 · Dally and Seitz, "Deadlock-Free Message Routing in Multiprocessor Interconnection Networks," IEEE Trans. Computers, 1987 · Dally, "Virtual-Channel Flow Control," IEEE TPDS, 1992 · Glass and Ni, "The Turn Model for Adaptive Routing," ISCA 1992 · Duato, "A New Theory of Deadlock-Free Adaptive Routing in Wormhole Networks," IEEE TPDS, 1993</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A mesh has 32-byte flits and links that carry one flit per cycle. Each hop (router plus link) takes 2 cycles at low load. A data reply carries a 64-byte line plus a one-flit header, and a request fits in one flit. Both travel 6 hops. Compute each message's latency with store-and-forward and with wormhole switching, ignoring contention.</p>`,
+        a: `<ol><li>Data reply length: 64 bytes / 32 bytes/flit + 1 header flit = 3 flits.</li><li>Store-and-forward, data: 6 hops × (2 cycles/hop + 3 flits × 1 cycle/flit) = <strong>30 cycles</strong>.</li><li>Wormhole, data: 6 hops × 2 cycles/hop + 3 flits × 1 cycle/flit = <strong>15 cycles</strong>.</li><li>Store-and-forward, request: 6 hops × (2 cycles/hop + 1 flit × 1 cycle/flit) = <strong>18 cycles</strong>.</li><li>Wormhole, request: 6 hops × 2 cycles/hop + 1 flit × 1 cycle/flit = <strong>13 cycles</strong>.</li><li>Store-and-forward pays serialization at every hop, so it doubles the data reply's latency but adds only 38% to the request's. Long packets and long paths are where cut-through and wormhole matter.</li></ol>`
+      },
+      {
+        q: `<p>A link between two routers takes 1 cycle in each direction. The downstream router takes 2 cycles from a flit's arrival until it frees the flit's buffer slot and sends the credit, and the upstream router takes 1 cycle to process a credit before it can send a flit using it. Each VC has 3 buffer slots. What throughput can one VC sustain, and how many slots would it need to keep the link busy?</p>`,
+        a: `<ol><li>Credit round trip: 1 cycle (flit on the link) + 2 cycles (downstream until the credit is sent) + 1 cycle (credit on the link back) + 1 cycle (upstream processing) = 5 cycles.</li><li>Each slot can carry one flit per round trip, so 3 slots carry 3 flits every 5 cycles: <strong>0.6 flits/cycle</strong>.</li><li>Full throughput (1 flit/cycle) needs one slot per cycle of round trip: <strong>5 slots</strong> per VC.</li><li>With several VCs active on the link, they can fill each other's idle cycles, so a single VC's shortfall matters most when one flow has the link to itself, such as a stream of data replies from one home.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A 6 × 6 mesh runs at 2 GHz with 32-byte links in each direction. Traffic is uniform random: each tile sends to every tile (itself included) with equal probability. What's the highest injection rate per tile, in GB/s, that the bisection allows? Would you expect the network to sustain it?</p><p class="given">Assume XY routing, one flit per link per cycle, and that local-port and router bandwidth aren't the limit.</p>`,
+        a: `<ol><li>Cut the mesh between columns 2 and 3. Each half has 18 tiles, and 6 links cross the cut in each direction, one per row.</li><li>Bisection bandwidth in one direction: 6 links × 32 bytes/cycle × 2 × 10<sup>9</sup> cycles/s = 384 GB/s.</li><li>A tile's packet crosses the cut if its destination is in the other half: 18 tiles / 36 tiles = 0.5 of the time.</li><li>Left-to-right traffic at a per-tile rate r: 18 tiles × r × 0.5 = 9r. Setting 9r ≤ 384 GB/s gives r ≤ <strong>42.7 GB/s per tile</strong>, or 42.7 GB/s / 2 × 10<sup>9</sup> cycles/s ≈ 21.3 bytes/cycle, two-thirds of a link.</li><li>No. The bound assumes every bisection link is fully used every cycle. With XY routing and uniform traffic, the links near the center carry more load than the ones at the edge, so they saturate first. Allocation conflicts in the routers and finite buffers also cost throughput. Real meshes saturate well below the bisection bound, and latency climbs steeply well before saturation.</li></ol>`
+      },
+      {
+        q: `<p>A directory protocol has three message classes: requests (GetS, GetM, PutM), forwarded requests (Fwd-GetS, Fwd-GetM, Inv), and responses (data, acks). A colleague proposes putting requests and forwarded requests on the same virtual network to save buffers. Show how that can deadlock, and say what else you could do to save buffers instead.</p><p class="given">Assume each tile has a cache and a home slice behind one network interface, with one input queue per virtual network. A home stalls a request for a line that's busy (mid-transaction) at the head of its queue, and a cache stalls a forwarded request for a line in a transient state at the head of its queue. Responses keep their own virtual network.</p>`,
+        a: `<p>With requests and forwarded requests sharing one virtual network, this cycle can form between tiles A and C:</p><ol><li>A's cache is in IM<sup>A</sup> for line X: it has the data and waits for an Inv-Ack from C's cache. A Fwd-GetM for X, from a later writer, sits at the head of A's shared queue, stalled until A's store completes.</li><li>C's cache can't send that ack until it receives the Inv for X. The Inv sits in C's shared queue behind a GetS for line W, whose home is C.</li><li>Line W is busy at C's home: it sent a Fwd-GetS for W to A's cache, the owner, and waits for the data. So the GetS for W stalls at the head of C's queue.</li><li>The Fwd-GetS for W is in A's shared queue, behind the stalled Fwd-GetM for X.</li><li>A waits for C's ack, which waits for the Inv behind the GetS, which waits for W's data from A, which waits behind the Fwd-GetM, which waits for A's store. No message in the cycle can move.</li></ol><p>With separate virtual networks, the Inv for X would not sit behind a request, and the Fwd-GetS for W would still be stuck behind the Fwd-GetM in the same class, but that one would complete as soon as the ack arrived. The rule is that a message must never wait behind a message of a class that depends on it. Forwarded requests are generated by requests, so they need their own network. Ways to save buffers without merging:</p><ul><li>Give the control classes shallow buffers (one-flit packets need few slots) and spend the depth on the data network.</li><li>Share a common pool of buffers among the virtual networks, but reserve at least one slot per class so each can always advance.</li><li>Merge classes only where the dependency chain allows it: data and non-data responses can share a network, since neither generates further messages.</li></ul>`
       }
     ]
   }
