@@ -213,6 +213,27 @@ const CALCS = {
     }
   },
 
+  noc: {
+    title: "Mesh Latency and Bisection Calculator",
+    intro: "A k × k mesh with XY routing and uniform random traffic, at low load (no contention). Defaults: an 8 × 8 mesh with 32-byte flits carrying a 64-byte line.",
+    inputs: [
+      ["Mesh", [["k", "Tiles per side k", 8, 1], ["hop", "Cycles per hop t<sub>r</sub>", 2, 1], ["ghz", "Mesh clock (GHz)", 2, 0.1]]],
+      ["Packet", [["flit", "Flit width (bytes)", 32, 8], ["pay", "Payload (bytes)", 64, 8], ["hdr", "Header flits", 1, 1]]]
+    ],
+    run(v) {
+      const k = Math.max(1, Math.round(v.k)), F = Math.ceil(v.pay / v.flit) + v.hdr;
+      const avg = 2 * (k * k - 1) / (3 * k), worst = 2 * (k - 1);
+      const lo = Math.floor(k / 2), hi = Math.ceil(k / 2);
+      const bis = k * v.flit * v.ghz;                 /* bytes/cycle × GHz = GB/s, one direction */
+      const perTile = lo * hi > 0 ? bis / (lo * hi) : Infinity;
+      const row = (name, h) => `<tr><td>${name}</td><td>${fmt(h)}</td><td>${fmt(h * (v.hop + F))}</td><td>${fmt(h * v.hop + F)}</td></tr>`;
+      return `<p>Packet: ${fmt(v.pay)} B / ${fmt(v.flit)} B/flit, rounded up, + ${fmt(v.hdr)} header flit(s) = <strong>${fmt(F, 0)} flits</strong>.</p>
+        <table><tr><th>Path</th><th>Hops</th><th>Store-and-forward (cycles)</th><th>Wormhole (cycles)</th></tr>${row("Average", avg)}${row("Worst (corner to corner)", worst)}</table>
+        <p>Store-and-forward = H × (t<sub>r</sub> + F). Wormhole = H × t<sub>r</sub> + F. Average hops = 2(k² − 1) / (3k).</p>
+        <p class="calc-out">Bisection: ${fmt(k, 0)} links × ${fmt(v.flit)} B/cycle × ${fmt(v.ghz)} GHz = <strong>${fmt(bis, 1)} GB/s</strong> each way. Under uniform traffic, ${fmt(lo * k, 0)} tiles × r × ${fmt(hi * k, 0)}/${fmt(k * k, 0)} cross it, so each tile can inject at most <strong>${fmt(perTile, 1)} GB/s</strong>. Real meshes saturate well below this bound.</p>`;
+    }
+  },
+
   yield: {
     title: "Die Cost Calculator",
     intro: "Dies per wafer, Poisson yield, and cost per good die, using the formulas above. Defaults match the worked example.",

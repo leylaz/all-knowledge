@@ -251,6 +251,7 @@ READY  __________________|‾‾‾‾‾|____
 <li><strong>Mesh:</strong> short, equal-length wires that fit a tiled floorplan. Bisection grows with √N. Intel's server chips since Skylake-SP and Arm's CMN fabrics are meshes.</li>
 <li><strong>Torus:</strong> wraparound links halve the average distance and double the bisection, but the long wires must be folded to keep lengths equal, and the rings it forms need extra virtual channels to avoid deadlock.</li>
 <li><strong>Crossbar:</strong> one hop between any pair. Fine for a handful of ports (a cluster's L2, a GPU's L2 slices), too costly for more.</li>
+<li><strong>In real chips:</strong> see <a href="#/icx-fabrics">Coherent Fabrics in Server Chips</a> for how Intel, Arm, and AMD lay theirs out.</li>
 </ul>
 
 <h3 id="sec-switching">Switching</h3>
@@ -288,6 +289,54 @@ READY  __________________|‾‾‾‾‾|____
 <li><strong>Switch traversal (ST):</strong> the flit crosses the crossbar.</li>
 <li><strong>Link traversal (LT):</strong> the flit crosses the wire to the next router.</li>
 </ol>
+<div class="tbl"><svg viewBox="0 0 680 200" role="img" aria-label="The baseline router pipeline for a 3-flit packet over cycles 0 to 6. The head flit does buffer write and route computation in cycle 0, VC allocation in 1, switch allocation in 2, switch traversal in 3, and link traversal in 4. The body flit is written in cycle 1, skips route computation and VC allocation, and does switch allocation in 3, switch traversal in 4, and link traversal in 5. The tail flit follows one cycle behind, leaving in cycle 6 and freeing the VC." style="width:100%;min-width:520px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="16" style="fill:var(--ink);font-size:13px;font-weight:600">Baseline virtual-channel router, one 3-flit packet</text>
+<text x="145.0" y="42" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 0</text>
+<text x="215.0" y="42" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 1</text>
+<text x="285.0" y="42" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 2</text>
+<text x="355.0" y="42" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 3</text>
+<text x="425.0" y="42" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 4</text>
+<text x="495.0" y="42" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 5</text>
+<text x="565.0" y="42" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 6</text>
+<text x="0" y="71.0" style="fill:var(--ink);font-size:12px">Head flit</text>
+<rect x="112" y="50" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="145.0" y="71.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">BW/RC</text>
+<rect x="182" y="50" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="215.0" y="71.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">VA</text>
+<rect x="252" y="50" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="285.0" y="71.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">SA</text>
+<rect x="322" y="50" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="355.0" y="71.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">ST</text>
+<rect x="392" y="50" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="425.0" y="71.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">LT</text>
+<rect x="462" y="50" width="66" height="34" rx="3" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="532" y="50" width="66" height="34" rx="3" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="113.0" style="fill:var(--ink);font-size:12px">Body flit</text>
+<rect x="112" y="92" width="66" height="34" rx="3" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="182" y="92" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="215.0" y="113.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">BW</text>
+<rect x="252" y="92" width="66" height="34" rx="3" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="322" y="92" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="355.0" y="113.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">SA</text>
+<rect x="392" y="92" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="425.0" y="113.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">ST</text>
+<rect x="462" y="92" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="495.0" y="113.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">LT</text>
+<rect x="532" y="92" width="66" height="34" rx="3" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="155.0" style="fill:var(--ink);font-size:12px">Tail flit</text>
+<rect x="112" y="134" width="66" height="34" rx="3" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="182" y="134" width="66" height="34" rx="3" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="252" y="134" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="285.0" y="155.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">BW</text>
+<rect x="322" y="134" width="66" height="34" rx="3" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="392" y="134" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="425.0" y="155.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">SA</text>
+<rect x="462" y="134" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="495.0" y="155.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">ST</text>
+<rect x="532" y="134" width="66" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"/>
+<text x="565.0" y="155.0" text-anchor="middle" style="fill:var(--ink);font-size:11px">LT</text>
+<text x="0" y="190" style="fill:var(--muted);font-size:11px">Body and tail flits skip RC and VA, but each still needs its own switch allocation. Per hop: 5 cycles for the head at low load.</text>
+</svg></div>
 <p>Body and tail flits skip RC and VA, since they follow the head's route and VC. The tail frees the VC. Optimizations bring the per-hop delay down from 5 cycles:</p>
 <ul>
 <li><strong>Lookahead routing:</strong> each router computes the next router's output port, taking RC off the critical path.</li>
@@ -336,6 +385,7 @@ READY  __________________|‾‾‾‾‾|____
 <li><strong>L / b:</strong> serialization, the packet length over the link width. It's what makes data replies slower than requests.</li>
 <li><strong>T<sub>contention</sub>:</strong> waiting for a VC, the switch, or credits. It's near zero at low load and grows without bound as offered load approaches saturation. On a mesh with uniform traffic, saturation comes before the bisection links are fully used, because XY routing loads the center links most.</li>
 </ul>
+<div class="calc" data-calc="noc"></div>
 
 <h3 id="sec-model">What to Model</h3>
 <ul>
@@ -369,6 +419,90 @@ READY  __________________|‾‾‾‾‾|____
     ]
   }
 },
+
+{
+  id: "icx-fabrics",
+  region: "icx",
+  title: "Coherent Fabrics in Server Chips",
+  sections: [
+    { id: "intel", label: "Intel: A Mesh of CHAs" },
+    { id: "arm", label: "Arm CMN: Crosspoints and Home Nodes" },
+    { id: "amd", label: "AMD: Chiplets Around an I/O Die" },
+    { id: "compare", label: "Side by Side" },
+    { id: "numa", label: "Partitioning the Fabric" },
+    { id: "model", label: "What It Means for a Model" }
+  ],
+  body: `
+<p>The <a href="#/directory">directory</a> and <a href="#/icx-noc">network</a> pages describe the parts in general. This page shows how three server chip families put them together, as Hennessy &amp; Patterson's Section 5.8 does for earlier multicores: where the home for an address lives, what tracks the sharers, and what a miss to another core's cache has to cross. Vendors document their fabrics only in part, so some details here come from conference talks and from measurement by outside researchers. Treat specific numbers as approximate.</p>
+
+<h3 id="sec-intel">Intel: A Mesh of CHAs</h3>
+<p>From Skylake-SP (2017) on, Intel's server chips replaced the ring with a 2D mesh of tiles:</p>
+<ul>
+<li><strong>Each mesh stop</strong> has a core with its private L2, a slice of the shared, non-inclusive L3, a <strong>caching and home agent (CHA)</strong>, and a slice of the <strong>snoop filter</strong>.</li>
+<li><strong>The home:</strong> a hash of the physical address picks one CHA, which handles all coherence for that address. Intel doesn't document the hash.</li>
+<li><strong>The directory:</strong> the snoop filter is a sparse, inclusive directory of the private caches. The CHA consults it to decide which cores to snoop.</li>
+<li><strong>The floorplan:</strong> I/O (PCIe and the UPI socket links) sits along one edge of the mesh, and the memory controllers take the place of tiles. Derivatives add or remove rows and columns of tiles.</li>
+<li><strong>Clock:</strong> the mesh and L3 run in their own clock domain, slower than the cores. AnandTech reported 1.8 to 2.4 GHz for Skylake-SP, below the up-to-3 GHz ring it replaced.</li>
+</ul>
+<p>Sapphire Rapids extends the mesh across four dies joined by EMIB bridges, so a hop can cross a die boundary. Software still sees one shared L3.</p>
+
+<h3 id="sec-arm">Arm CMN: Crosspoints and Home Nodes</h3>
+<p>Arm's Coherent Mesh Network (CMN-600, then CMN-700) is licensed IP that chip designers configure. It speaks CHI (see <a href="#/icx-coherent/chi">CHI</a>):</p>
+<ul>
+<li><strong>Crosspoints (XPs):</strong> the mesh routers. Each has four mesh ports and device ports where nodes attach.</li>
+<li><strong>Request nodes (RN-F):</strong> the core clusters.</li>
+<li><strong>Fully coherent home nodes (HN-F):</strong> each holds a slice of the system-level cache and a snoop filter, and is the home for its share of addresses.</li>
+<li><strong>Subordinate nodes (SN-F):</strong> memory controllers.</li>
+<li><strong>Scale:</strong> per Arm's announcement, as reported by WikiChip and AnandTech, CMN-700 goes up to a 12 × 12 grid of crosspoints, up to 512 MB of system-level cache, and up to 256 cores (128 request nodes with 2 cores each). Reports differ on the core limit.</li>
+</ul>
+<p>Because it's configurable, the mesh size, the number of home nodes, and the placement of memory controllers differ from chip to chip. NVIDIA Grace, for example, puts 72 Neoverse V2 cores on its own mesh fabric (see <a href="#/r/proc">Real Processors</a>).</p>
+
+<h3 id="sec-amd">AMD: Chiplets Around an I/O Die</h3>
+<p>AMD's EPYC processors split the coherence problem in two levels:</p>
+<ul>
+<li><strong>Inside a CCD:</strong> 8 cores (in Zen 3 and Zen 4) share one L3 in a single core complex (CCX). Sharing between them stays on the die.</li>
+<li><strong>Between CCDs:</strong> each CCD connects to a central I/O die over a GMI link. Chips and Cheese measured a link at 32 bytes per fabric clock for reads and 16 bytes per fabric clock for writes. The I/O die holds the memory controllers and the fabric that connects the CCDs.</li>
+<li><strong>Scale:</strong> EPYC 9004 (Zen 4) uses up to 12 CCDs around one I/O die.</li>
+</ul>
+<p>The consequence for software: a line shared by two cores in one CCX moves inside the L3, but a line shared across CCDs goes through the I/O die. Measured core-to-core latencies across CCDs are several times those within one.</p>
+
+<h3 id="sec-compare">Side by Side</h3>
+<div class="tbl"><table>
+<tr><th></th><th>Intel (Skylake-SP and later)</th><th>Arm CMN-700</th><th>AMD EPYC (Zen 3, Zen 4)</th></tr>
+<tr><td>Topology</td><td>One 2D mesh, spanning several dies on newer parts</td><td>Configurable 2D mesh</td><td>Star of CCDs around an I/O die</td></tr>
+<tr><td>Home for an address</td><td>One CHA, by address hash</td><td>One HN-F, by address hash</td><td>The L3 within a CCX, then the fabric between CCDs</td></tr>
+<tr><td>Sharer tracking</td><td>Snoop filter slice at each CHA</td><td>Snoop filter at each HN-F</td><td>L3 shadow tags within a CCX, plus tracking at the fabric level</td></tr>
+<tr><td>Shared cache</td><td>Non-inclusive L3, sliced per tile</td><td>System-level cache, sliced per HN-F</td><td>L3 per CCX, not shared between CCDs</td></tr>
+<tr><td>Protocol</td><td>Intel proprietary, UPI between sockets</td><td>AMBA CHI</td><td>Infinity Fabric</td></tr>
+</table></div>
+
+<h3 id="sec-numa">Partitioning the Fabric</h3>
+<p>Both Intel and AMD let the firmware split one socket into several NUMA domains: Intel's sub-NUMA clustering (SNC) and AMD's NUMA nodes per socket (NPS) setting. In each domain, addresses map to homes and memory controllers in that part of the chip. Software that allocates memory in its own domain then pays shorter average distances to the home and to memory. The cost is that each domain sees a smaller share of the L3 for its own addresses, and data shared across domains travels farther.</p>
+
+<h3 id="sec-model">What It Means for a Model</h3>
+<ul>
+<li><strong>Distance:</strong> an L3 hit on a mesh isn't one latency. It depends on the hops to the home slice, so a model needs the address hash (or a uniform stand-in) and the tile placement.</li>
+<li><strong>Clock domains:</strong> the fabric often runs slower than the cores, so fabric cycles must be converted to core cycles (see <a href="#/intv-sim">Building a Performance Model in C</a>).</li>
+<li><strong>Two levels:</strong> on chiplet designs, model a near and a far path for sharing, with different latency and bandwidth, rather than a single average.</li>
+<li><strong>Configuration:</strong> SNC and NPS change both the hash and the memory mapping, so a model calibrated in one mode won't match another.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 6th ed., Section 5.8 · <a href="https://fuse.wikichip.org/news/1017/isscc-2018-intels-skylake-sp-mesh-and-floorplan/">WikiChip, "ISSCC 2018: Intel's Skylake-SP Mesh and Floorplan"</a> · <a href="https://www.anandtech.com/show/11544/intel-skylake-ep-vs-amd-epyc-7000-cpu-battle-of-the-decade/5">AnandTech, "Intel's New On-Chip Topology: A Mesh" (2017)</a> · <a href="https://arxiv.org/pdf/1905.12468">arXiv 1905.12468 (2019), on Skylake-SP core and tile placement</a> · <a href="https://fuse.wikichip.org/?p=5006">WikiChip, "The Mesh Network for Next-Generation Neoverse Chips"</a> · <a href="https://at-web1.www.anandtech.com/show/16640/arm-announces-neoverse-v1-n2-platforms-cpus-cmn700-mesh/7">AnandTech, "The CMN-700 Mesh Network" (2021)</a> · <a href="https://chipsandcheese.com/p/pushing-amds-infinity-fabric-to-its">Chips and Cheese, "Pushing AMD's Infinity Fabric to Its Limits"</a> · <a href="https://www.amd.com/content/dam/amd/en/documents/epyc-technical-docs/tuning-guides/58015-epyc-9004-tg-architecture-overview.pdf">AMD, EPYC 9004 Architecture Overview</a></p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A mesh server chip has 36 tiles in 6 columns by 6 rows, with 2 mesh cycles per hop at a 2.0 GHz mesh clock. Turning on a 2-way sub-NUMA clustering mode confines each address's home to the core's own half, 3 columns by 6 rows. How much does the average request-plus-reply network time of an L3 hit drop?</p><p class="given">Assume the requester and the home are uniform random tiles within the region (the whole mesh, or the core's half), and use (n<sup>2</sup> − 1) / (3n) hops for the average distance along a line of n tiles.</p>`,
+        a: `<ol><li>Whole mesh: each dimension averages (36 − 1) / (3 × 6) = 35/18 ≈ 1.94 hops, so 2 × 1.94 hops ≈ 3.89 hops.</li><li>Half mesh: columns (9 − 1) / (3 × 3) = 8/9 ≈ 0.89 hops, plus rows 1.94 hops = 2.83 hops.</li><li>Saving per traversal: 3.89 hops − 2.83 hops = 1.06 hops. An L3 hit is a request plus a reply: 2 × 1.06 hops = 2.11 hops.</li><li>In time: 2.11 hops × 2 mesh cycles/hop = 4.2 mesh cycles, and 4.2 cycles / 2.0 × 10<sup>9</sup> cycles/s = <strong>2.1 ns</strong> per L3 hit.</li><li>Against a total L3 hit of tens of nanoseconds, that's a modest saving. SNC mostly pays off through local memory and through less traffic crossing the whole mesh.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A producer thread passes 8-byte messages to a consumer thread through a ring buffer on an EPYC server. Moving a cache line between two cores in the same CCX takes 30 ns, and between cores on different CCDs, 110 ns. Estimate the message rate with the threads in one CCX and on two CCDs, first with one message handed off at a time and then with messages batched 8 to a 64-byte line. What would you recommend?</p><p class="given">Assume each handoff needs two serialized line transfers (the slot's line to the consumer, and the consumer's index line back to the producer), that transfers are the only cost, and that batching hands off one full line of 8 messages at a time.</p>`,
+        a: `<ol><li>One message per handoff, same CCX: 2 transfers × 30 ns = 60 ns per message, about <strong>16.7 million messages/s</strong>.</li><li>One message per handoff, two CCDs: 2 transfers × 110 ns = 220 ns per message, about <strong>4.5 million messages/s</strong>, 3.7× slower.</li><li>Batched, same CCX: 8 messages per 60 ns, about <strong>133 million messages/s</strong>.</li><li>Batched, two CCDs: 8 messages per 220 ns, about <strong>36 million messages/s</strong>.</li></ol><p>Batching across CCDs (36 million/s) beats unbatched within one CCX (16.7 million/s), so the first fix is batching, which helps wherever the threads run. Then pin the pair to one CCX if the scheduler allows it. A model of this queue needs both latencies and the thread placement, since an average core-to-core latency would be wrong for both cases.</p>`
+      }
+    ]
+  }
+},
+
 
 {
   id: "icx-chiplets",
