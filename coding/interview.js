@@ -2724,6 +2724,171 @@ a: `<p>The simulator keeps a credit counter per virtual channel and a table of c
 <p>This is the buffer-sizing trade-off from the Math tab in executable form, and the core of a flit-level network model: add more links, routing, and switch allocation, and the same credit bookkeeping carries over.</p>`
 });
 
+C("intv-proc", "cores", {
+lvl: "medium",
+q: `<p>Model the delivery rate of a decoupled front end. Fetch block <em>i</em> holds <code>size[i]</code> instructions and ends at a taken branch. Write <code>fe_cycles()</code>, which returns the cycles needed to deliver all blocks in order, when each cycle the front end delivers at most <code>width</code> instructions taken from at most <code>taken</code> blocks:</p>
+<ul>
+<li>A block that doesn’t fit in the current cycle is split: as many of its instructions as fit go now, and the rest go first next cycle. The remainder counts as one of the next cycle’s blocks.</li>
+<li>Blocks of size 0 don’t occur.</li>
+</ul>
+<p>Return 0 for no blocks.</p>`,
+head: String.raw`#include <stdio.h>`,
+todo: String.raw`int fe_cycles(int n, const int *size, int width, int taken) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`int fe_cycles(int n, const int *size, int width, int taken) {
+    int cycles = 0, i = 0, left = n ? size[0] : 0;   /* left: undelivered part of block i */
+    while (i < n) {
+        int slots = width, blocks = 0;
+        while (i < n && slots > 0 && blocks < taken) {
+            int take = left < slots ? left : slots;
+            slots -= take;
+            left -= take;
+            blocks++;
+            if (left == 0 && ++i < n) left = size[i];
+        }
+        cycles++;
+    }
+    return cycles;
+}`,
+tests: String.raw`static void expect(const char *name, int n, const int *size, int width, int taken, int want) {
+    int got = fe_cycles(n, size, width, taken);
+    CHECK(got == want, "%s: got %d cycles, expected %d", name, got, want);
+}
+
+int main(void) {
+    int six[] = { 6, 6, 6, 6 };
+    expect("6-instruction blocks, 1 taken/cycle", 4, six, 8, 1, 4);
+    expect("6-instruction blocks, 2 taken/cycle", 4, six, 8, 2, 3);
+    int mixed[] = { 3, 10, 2, 2, 5 };
+    expect("long block splits, 1 taken/cycle", 5, mixed, 8, 1, 6);
+    expect("long block splits, 2 taken/cycle", 5, mixed, 8, 2, 3);
+    expect("a 3rd taken branch gains nothing: 22 instructions need 3 cycles", 5, mixed, 8, 3, 3);
+    int tiny[] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+    expect("1-instruction blocks are limited by taken", 8, tiny, 8, 2, 4);
+    expect("no blocks", 0, tiny, 8, 2, 0);
+
+    /* 75 blocks of 6 = 450 instructions, about one 448-entry window. */
+    int win[75];
+    for (int k = 0; k < 75; k++) win[k] = 6;
+    expect("refill a window, 1 taken/cycle", 75, win, 8, 1, 75);
+    expect("refill a window, 2 taken/cycle", 75, win, 8, 2, 57);
+    return REPORT();
+}`,
+a: `<p>The model walks the blocks with a pointer and a count of the current block’s undelivered instructions. Each cycle fills up to <code>width</code> slots from up to <code>taken</code> blocks, and a split block’s remainder starts the next cycle.</p>
+<p>The tests show where each limit binds:</p>
+<ul>
+<li>With 6-instruction blocks, one taken branch per cycle caps delivery at 6 per cycle (4 blocks take 4 cycles). Two per cycle hit the 8-wide limit: 24 instructions in 3 cycles.</li>
+<li>In the mixed test, one taken branch per cycle needs 6 cycles, because the 10-instruction block takes two. With 2 per cycle, cycle 0 takes 3 + 5 of the 10-instruction block, cycle 1 its other 5 + 2, and cycle 2 the last 2 + 5. That is already the 8-wide minimum for 22 instructions, so a 3rd taken branch per cycle gains nothing.</li>
+<li>Refilling a window after a flush: 450 instructions take 75 cycles at one block per cycle and 57 at two (450 / 8 = 56.25, rounded up).</li>
+</ul>
+<p>This is the core of a front-end bandwidth model. A real one adds fetch-window alignment (a block can’t span two 64-byte lines in one fetch), op cache versus decode paths, and BTB capacity for predicting the taken branches.</p>`
+});
+
+C("intv-proc", "socs", {
+lvl: "hard",
+q: `<p>Compare two models of a two-level cache under the same trace of line addresses. Both levels are fully associative with LRU replacement, and the L2 holds <code>l2_cap</code> lines and the L3 <code>l3_cap</code>. Write <code>sim()</code>, which counts L2 hits, L3 hits, and misses (to memory):</p>
+<ul>
+<li><strong>Victim L3</strong> (<code>victim</code> = 1, like Zen 5): a miss in both levels brings the line into the L2 only. An L3 hit moves the line from the L3 into the L2 (it leaves the L3). Whenever the L2 evicts a line, the line goes into the L3 as most recently used, evicting the L3’s LRU line if it is full.</li>
+<li><strong>Fill-on-miss L3</strong> (<code>victim</code> = 0): a miss in both levels brings the line into both. An L3 hit leaves the line in the L3, makes it the L3’s most recently used, and copies it into the L2. Lines the L2 evicts are dropped.</li>
+<li>In both, an L2 hit doesn’t touch the L3, and a line inserted into the L2 becomes its most recently used.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>`,
+todo: String.raw`void sim(const int *trace, int n, int l2_cap, int l3_cap, int victim,
+         int *l2_hits, int *l3_hits, int *misses) {
+    /* TODO */
+    *l2_hits = *l3_hits = *misses = 0;
+}`,
+impl: String.raw`#define MAX_LINES 64
+
+/* A fully associative LRU cache: tag and last-use time per slot. */
+typedef struct { int cap, used, tag[MAX_LINES]; long t[MAX_LINES]; } Cache;
+
+static long now;
+
+static int find(Cache *c, int tag) {
+    for (int i = 0; i < c->used; i++) if (c->tag[i] == tag) return i;
+    return -1;
+}
+
+static void remove_at(Cache *c, int i) {
+    c->used--;
+    c->tag[i] = c->tag[c->used];
+    c->t[i] = c->t[c->used];
+}
+
+/* Inserts tag as MRU. Returns the evicted tag, or -1 if nothing was evicted. */
+static int insert(Cache *c, int tag) {
+    int victim = -1;
+    if (c->used == c->cap) {
+        int lru = 0;
+        for (int i = 1; i < c->used; i++) if (c->t[i] < c->t[lru]) lru = i;
+        victim = c->tag[lru];
+        remove_at(c, lru);
+    }
+    c->tag[c->used] = tag;
+    c->t[c->used++] = ++now;
+    return victim;
+}
+
+void sim(const int *trace, int n, int l2_cap, int l3_cap, int victim,
+         int *l2_hits, int *l3_hits, int *misses) {
+    Cache l2 = { .cap = l2_cap }, l3 = { .cap = l3_cap };
+    *l2_hits = *l3_hits = *misses = 0;
+    for (int k = 0; k < n; k++) {
+        int a = trace[k], i = find(&l2, a);
+        if (i >= 0) { l2.t[i] = ++now; (*l2_hits)++; continue; }
+
+        int j = find(&l3, a);
+        if (j >= 0) {
+            (*l3_hits)++;
+            if (victim) remove_at(&l3, j);
+            else l3.t[j] = ++now;
+        } else {
+            (*misses)++;
+            if (!victim) insert(&l3, a);
+        }
+        int out = insert(&l2, a);
+        if (victim && out >= 0) insert(&l3, out);
+    }
+}`,
+tests: String.raw`static void expect(const char *name, const int *trace, int n, int l2, int l3, int victim,
+                   int w2, int w3, int wm) {
+    int h2, h3, m;
+    sim(trace, n, l2, l3, victim, &h2, &h3, &m);
+    CHECK(h2 == w2 && h3 == w3 && m == wm,
+          "%s: got L2 %d, L3 %d, misses %d, expected %d, %d, %d", name, h2, h3, m, w2, w3, wm);
+}
+
+int main(void) {
+    int loop5[15];
+    for (int k = 0; k < 15; k++) loop5[k] = k % 5;
+    expect("5-line loop, victim L3 (2 + 4 lines hold it)", loop5, 15, 2, 4, 1, 0, 10, 5);
+    expect("5-line loop, fill-on-miss L3 (4 lines thrash)", loop5, 15, 2, 4, 0, 0, 0, 15);
+
+    int pingpong[] = { 0, 1, 0, 1, 0, 1 };
+    expect("2 lines fit in the L2, victim", pingpong, 6, 2, 4, 1, 4, 0, 2);
+    expect("2 lines fit in the L2, fill-on-miss", pingpong, 6, 2, 4, 0, 4, 0, 2);
+
+    int mix[] = { 0, 1, 2, 0, 3, 0, 1 };
+    expect("mixed trace, victim", mix, 7, 2, 2, 1, 1, 2, 4);
+    expect("mixed trace, fill-on-miss", mix, 7, 2, 2, 0, 1, 0, 6);
+
+    int loop7[21];
+    for (int k = 0; k < 21; k++) loop7[k] = k % 7;
+    expect("7-line loop thrashes 2 + 4 lines, victim", loop7, 21, 2, 4, 1, 0, 0, 21);
+    return REPORT();
+}`,
+a: `<p>Each level is a small fully associative LRU array with a timestamp per line. The two policies differ only in what happens around an L2 miss:</p>
+<ul>
+<li><strong>Victim:</strong> an L3 hit removes the line from the L3 (it now lives in the L2), and the L2’s evicted line, if any, goes into the L3. The levels stay exclusive, so together they hold <code>l2_cap + l3_cap</code> distinct lines.</li>
+<li><strong>Fill-on-miss:</strong> the L3 keeps its own copy of everything the L2 holds, so its useful capacity is just <code>l3_cap</code>.</li>
+</ul>
+<p>The 5-line loop shows the difference in its starkest form. With 2 + 4 lines, the victim hierarchy holds all 5 lines, so after the first pass every access hits in the L3 (10 hits). The fill-on-miss L3 holds only 4 lines, and LRU on a 5-line loop evicts each line just before it is needed again, so it never hits. Once the loop exceeds 6 lines, the victim hierarchy thrashes too.</p>
+<p>That is the modeling error from the Conceptual tab in executable form: a model of Zen 5 with a fill-on-miss L3 gets both capacity and streaming behavior wrong. A full model would also keep a line in the L3 on a hit when other cores share it, and track the L2s’ contents with shadow tags.</p>`
+});
+
 C("intv-conc", "locks", {
 lvl: "medium",
 threads: true,

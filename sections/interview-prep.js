@@ -88,7 +88,7 @@ ${window.INTV_CODING_HELP || ""}
 <h3 id="sec-order">Study Order</h3>
 <ol>
 <li><strong>Fundamentals:</strong> <a href="#/intv-pipeline">Pipeline Flow and Width</a>, <a href="#/intv-renaming">Renaming and Dependences</a>, <a href="#/intv-rob">The ROB and Retirement</a>, <a href="#/intv-sched">Scheduling and Execution</a>, <a href="#/intv-arith">Arithmetic and Floating Point</a>, <a href="#/intv-isa">Instruction Sets and Encoding</a>.</li>
-<li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-fe">Front End and Fetch</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-mem">Caches, TLBs and DRAM</a>, <a href="#/intv-coh">Coherence and Consistency</a>, <a href="#/intv-icx">Interconnects, Links and Memory Interfaces</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>.</li>
+<li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-fe">Front End and Fetch</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-mem">Caches, TLBs and DRAM</a>, <a href="#/intv-coh">Coherence and Consistency</a>, <a href="#/intv-icx">Interconnects, Links and Memory Interfaces</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>, <a href="#/intv-proc">Reasoning About Real Processors</a>.</li>
 <li><strong>Systems programming:</strong> <a href="#/intv-conc">Concurrency and Parallelism</a>, <a href="#/intv-alloc">Memory Allocation and the C Library</a>, <a href="#/intv-vm">Virtual Memory and the OS Boundary</a>. Expect to write code for these in an interview.</li>
 <li><strong>Your own experience:</strong> <a href="#/intv-sim">Building a Performance Model in C</a>, <a href="#/intv-design">Open-Ended Design Problems</a>. Connect every answer here to a decision or bug from your own simulator.</li>
 </ol>
@@ -2739,6 +2739,146 @@ M(`<p>A 56-core server has HBM at 130 ns loaded latency with 1 TB/s peak, and DD
 <li><strong>56 cores, DDR5:</strong> 114,688 bytes / 110 ns ≈ 1,043 GB/s of demand, capped at the <strong>307.2 GB/s</strong> peak. HBM gives 882 / 307.2 ≈ 2.9 times more.</li>
 </ol>
 <p>Run high-MLP, many-thread streaming work from HBM, and keep latency-bound or lightly threaded work on DDR5. HBM wins only when the total bytes in flight exceed about DDR5’s peak × latency: 307.2 GB/s × 110 ns ≈ 33,800 bytes, about 16 cores’ worth at this MLP. Even at full load, the cores can’t saturate the HBM, so MSHR count, not HBM bandwidth, is the next limit.</p>`, "hard"),
+},
+{
+  id: "intv-proc",
+  title: "Reasoning About Real Processors",
+  body: `
+<p>Background: <a href="#/r/proc">Real Processors</a>: <a href="#/zen5-core">AMD Zen 5 Core</a>, <a href="#/zen5-soc">AMD Zen 5 Chiplets and SoCs</a>, <a href="#/neoverse-v2">Arm Neoverse V2 Core</a>, <a href="#/grace">NVIDIA Grace</a>, <a href="#/hopper">Hopper</a>, <a href="#/blackwell">Blackwell</a>, and <a href="#/proc-compare">Comparing the Four Designs</a>. Structure sizes are the ones on those pages.</p>
+<h3 id="sec-cores">CPU Cores Compared</h3>` +
+Q(`<p>Zen 5 has two 4-wide decode pipes, but with one thread running, decode peaks at 4 instructions per cycle, while dispatch is 8 wide. How does a single thread ever dispatch 8 per cycle, and which workloads are stuck nearer 4?</p>`,
+`<p>A single thread reaches 8 per cycle through the op cache, which bypasses decode entirely.</p>
+<ul>
+<li>The op cache holds about 6K already-decoded instructions and delivers two entries of up to 6 per cycle, enough to feed 8-wide dispatch. In loops and hot code that fit, decode width doesn’t matter.</li>
+<li>Decode is only on the path when the op cache misses: large or cold instruction footprints, such as databases, browsers, compilers, and JIT-compiled code. There, one thread gets at most 4 per cycle, and in SMT mode each thread owns a decode pipe, so two threads decode 8 together.</li>
+</ul>
+<p>To tell which case a workload is in, compare the op cache’s share of dispatched ops with the decoders’ share. AMD exposes both through performance counters.</p>`, "easy") +
+Q(`<p>Per cycle, a Zen 5 core can do 32 FP64 FLOPs (two 512-bit FMA pipes) and a Neoverse V2 core 16 (four 128-bit pipes, all able to do FMA). Describe code where V2 matches or beats Zen 5 per cycle despite this, and code where Zen 5’s 2× shows up in full.</p>`,
+`<p>V2’s four narrow pipes are each fully capable, so it wins per cycle whenever vectors are narrow or absent, while Zen 5 needs wide vectors to use its width.</p>
+<ul>
+<li><strong>V2 matches or wins:</strong> scalar FP code dominated by FMAs. V2 issues 4 scalar FMAs per cycle, and Zen 5 only 2 (its other two pipes do adds, not FMAs). Code vectorized only to 128 bits does the same: V2 does 4 × 2 FP64 lanes per cycle with FMA, and Zen 5 runs 128-bit ops on 2 FMA pipes, so 2 × 2.</li>
+<li><strong>Zen 5 wins 2×:</strong> dense, well-vectorized AVX-512 kernels whose data fits in cache, such as a blocked matrix multiply, where every cycle can issue two 8-lane FMAs.</li>
+<li><strong>Neither:</strong> memory-bound loops, which run at the memory system’s pace, so FP width is irrelevant.</li>
+</ul>
+<p>Per second, frequency matters too: a desktop Zen 5 runs near 5 GHz against Grace’s 3.1 GHz V2 cores. The design lesson is that peak FLOPs only predict performance for code that uses the full vector width, and many server workloads don’t.</p>`, "medium") +
+Q(`<p>Zen 5’s L1D is 48 KB and 12-way. Neoverse V2’s is 64 KB and only 4-way. Explain why Zen 5 needs 12 ways for that size, what problem V2’s geometry creates, and what each design pays.</p><p class="given">Assume both caches are virtually indexed and physically tagged, and that the OS uses 4 KB pages.</p>`,
+`<p>A virtually indexed, physically tagged cache avoids aliasing only if each way is no larger than a page. Zen 5 obeys that rule, and V2 breaks it and handles the consequences in hardware.</p>
+<ul>
+<li><strong>Zen 5:</strong> 48 KB / 12 ways = 4 KB per way, exactly one page. All index bits come from the page offset, which translation doesn’t change, so the set can be read in parallel with the TLB lookup and a physical line can live in only one set. The price is 12 tag comparisons and 12 data reads (or a way predictor) on every access, which costs energy and makes the 4-cycle latency harder to hold.</li>
+<li><strong>V2:</strong> 64 KB / 4 ways = 16 KB per way, so 2 index bits come from the virtual page number. Two virtual addresses that map to the same physical line (synonyms) can index different sets, and the line could be cached twice. A store through one copy would leave the other stale.</li>
+<li><strong>V2’s fix:</strong> Arm describes the cache as virtually indexed but behaving as physically indexed: hardware ensures a physical line is present at only one of its possible indexes, for example by checking or invalidating the other alias positions when a line is filled. That costs logic on fills and a corner case to verify, but keeps every access to 4 tag comparisons. With Arm’s 16 KB or 64 KB pages, the aliasing disappears.</li>
+</ul>
+<p>Wanting a big, fast L1 under 4 KB pages forces this choice: more ways (Zen 5, and Intel’s 48 KB, 12-way caches) or alias handling (Arm).</p>`, "hard") +
+Q(`<p>In SMT mode, Zen 5 statically splits its 448-entry retire queue into 224 entries per thread and gives each thread its own decode pipe. Describe a workload where enabling SMT gains almost nothing or loses, and one where it gains 30% or more, with the mechanisms.</p>`,
+`<p>SMT pays when one thread leaves many issue slots idle, and doesn’t when one thread already saturates a shared resource or needs the whole window.</p>
+<ul>
+<li><strong>Little or negative gain:</strong> two copies of a dense AVX-512 kernel that already keeps both FMA pipes busy: they just take turns on the same pipes. A memory-bound kernel that relies on a deep window for memory-level parallelism also loses: each thread now has 224 entries instead of 448, so it overlaps fewer misses, and the two threads also split the L1D, L2, and miss-handling resources.</li>
+<li><strong>Large gain:</strong> branchy, latency-bound integer code with a big instruction footprint, such as a database or compiler. One thread runs at IPC near 1 because it stalls on mispredicts, cache misses, and op cache misses. A second thread fills those idle slots, and on Zen 5 it also gets its own 4-wide decode pipe, doubling decode bandwidth for code that misses the op cache.</li>
+</ul>
+<p>Static partitioning of the retire queue is the main reason the deep-window case loses: unlike a competitively shared structure, a thread can’t borrow entries its sibling isn’t using.</p>`, "hard") +
+M(`<p>A front end that predicts one taken branch per cycle can deliver at most one fetch block per cycle, because each block ends at a taken branch. On a workload whose fetch blocks average 6 instructions, what dispatch rate can such a front end sustain on an 8-wide core, compared with Zen 5’s two taken branches per cycle? After a branch mispredict empties a 448-entry window, how long does each take to refill it?</p><p class="given">Assume the op cache supplies every block in time, the back end never stalls, and blocks are exactly 6 instructions.</p>`,
+`<ol>
+<li><strong>One taken branch per cycle:</strong> 1 block/cycle × 6 instructions/block = <strong>6 instructions/cycle</strong>, below the 8-wide dispatch.</li>
+<li><strong>Two per cycle:</strong> 2 blocks/cycle × 6 instructions/block = 12 instructions/cycle, capped by dispatch at <strong>8 instructions/cycle</strong>.</li>
+<li><strong>Refill, one per cycle:</strong> 448 instructions / 6 instructions/cycle ≈ 74.7 cycles.</li>
+<li><strong>Refill, two per cycle:</strong> 448 instructions / 8 instructions/cycle = 56 cycles, 18.7 cycles faster.</li>
+</ol>
+<p>With typical code having a taken branch every 5 to 10 instructions, a wide core can’t use its width without predicting more than one taken branch per cycle. The refill time matters even when the back end limits steady-state IPC, because after each mispredict the window must refill before the core finds memory-level parallelism again.</p>`, "medium") +
+`<h3 id="sec-socs">Chips and Memory Systems</h3>` +
+Q(`<p>A colleague models Zen 5’s 32 MB L3 as an ordinary cache that is filled on every L2 miss. Zen 5’s L3 is actually a victim cache filled by lines evicted from the L2s. Which modeled results will be wrong, and why?</p>`,
+`<p>The model will misplace data and overstate how much of the L3 is useful, because in a victim cache, data enters the L3 only after the L2 is done with it.</p>
+<ul>
+<li><strong>Streaming data:</strong> a line read once from DRAM goes into the L2, not the L3. In the colleague’s model it also fills the L3, evicting useful lines, so streaming workloads look like they pollute the L3 more than they do.</li>
+<li><strong>Effective capacity:</strong> in a victim cache, L2 and L3 contents mostly don’t overlap, so the hierarchy holds about L2 + L3. An inclusive model wastes L3 capacity on copies of L2 lines and underestimates hit rates for working sets near 33 MB.</li>
+<li><strong>Hit behavior:</strong> on Zen 5, an L3 hit by one core moves the line to that core’s L2 and, unless it is shared, removes it from the L3. A model that keeps the line in both counts the space twice.</li>
+<li><strong>Sharing:</strong> the L3’s shadow tags of every L2 in the CCX let a line move core to core within the die. A model without them sends those transfers to DRAM or the fabric.</li>
+</ul>
+<p>The fix is to model fills on L2 eviction, removal on exclusive hits, and the shadow-tag snoop filter.</p>`, "medium") +
+Q(`<p>NVIDIA’s Grace uses LPDDR5X soldered on the package instead of DDR5 DIMMs, reaching about 500 GB/s. What does that choice buy and cost compared with a DDR5 server, and why does it fit Grace’s role?</p>`,
+`<p>LPDDR5X on the package buys bandwidth per watt and per board area, and costs capacity flexibility and some latency.</p>
+<ul>
+<li><strong>Buys:</strong> short, point-to-point wiring with no DIMM connectors, so the interface runs fast at low voltage. The memory uses much less energy per bit than DDR5 DIMMs, and the module takes far less board space.</li>
+<li><strong>Costs:</strong> capacity is fixed when the package is built (up to 480 GB per Grace die), with no upgrades or larger configurations later. A failed memory part means replacing the module. Latency is no better than DDR5, and measured loaded latencies are higher.</li>
+</ul>
+<p>It fits Grace because Grace is built to feed GPUs and to run bandwidth-hungry HPC and AI pre- and post-processing within a fixed power budget per board, where bandwidth per watt matters more than terabytes of capacity. A general-purpose cloud server, where memory capacity per core and upgradability matter, would usually choose DDR5.</p>`, "medium") +
+Q(`<p>One Grace core measured about 21 GB/s from memory with about 200 ns latency, while the chip delivers about 500 GB/s. Why can’t one core use the chip’s bandwidth, and is that a flaw? What would raise single-core bandwidth?</p>`,
+`<p>One core can’t keep enough misses in flight. By Little’s law, its bandwidth is bytes in flight divided by latency, and a single core’s miss-tracking resources are sized for a share of the chip, not the whole chip.</p>
+<ul>
+<li>21 GB/s × 200 ns = 4,200 bytes, about 66 lines in flight. Filling 500 GB/s at the same latency takes 500 GB/s × 200 ns = 100,000 bytes, about 1,560 lines, which more than 20 cores can supply together.</li>
+<li>It isn’t a flaw for a 72-core throughput chip: sizing every core’s miss buffers and prefetchers to saturate the whole memory system alone would waste area and power, since the chip normally runs many threads.</li>
+</ul>
+<p>Raising single-core bandwidth needs more outstanding misses per core (more L1 and L2 miss-handling entries), more aggressive prefetchers that issue further ahead, or lower latency. Workloads that need it can use more cores. A model of Grace must include per-core miss limits, or it will predict that one thread can stream at chip bandwidth.</p>`, "hard") +
+M(`<p>Compare one core of an EPYC 9755 (128 Zen 5 cores at 2.7 GHz, 32 FP64 FLOPs/cycle each, 576 GB/s for the socket) with one core of Grace (72 Neoverse V2 cores at 3.1 GHz, 16 FP64 FLOPs/cycle each, 500 GB/s). With all cores busy, what does each core attain on a kernel at 10 FLOPs/byte, and at 30 FLOPs/byte? At what arithmetic intensity does the EPYC core start to win?</p><p class="given">Assume each core gets an equal share of its socket’s bandwidth, kernels follow the roofline exactly, and the arithmetic intensity is measured at DRAM.</p>`,
+`<ol>
+<li><strong>Peak per core:</strong> EPYC 32 FLOPs/cycle × 2.7 × 10<sup>9</sup> cycles/s = 86.4 GFLOPS. Grace 16 FLOPs/cycle × 3.1 × 10<sup>9</sup> cycles/s = 49.6 GFLOPS.</li>
+<li><strong>Bandwidth per core:</strong> EPYC 576 GB/s / 128 cores = 4.5 GB/s. Grace 500 GB/s / 72 cores ≈ 6.94 GB/s.</li>
+<li><strong>At 10 FLOPs/byte:</strong> EPYC min(86.4 GFLOPS, 10 FLOPs/byte × 4.5 GB/s = 45 GFLOPS) = <strong>45 GFLOPS</strong>, memory bound. Grace min(49.6 GFLOPS, 10 FLOPs/byte × 6.94 GB/s = 69.4 GFLOPS) = <strong>49.6 GFLOPS</strong>, compute bound. The Grace core is 10% faster.</li>
+<li><strong>At 30 FLOPs/byte:</strong> EPYC min(86.4 GFLOPS, 135 GFLOPS) = <strong>86.4 GFLOPS</strong>. Grace stays at <strong>49.6 GFLOPS</strong>. The EPYC core is 1.74× faster.</li>
+<li><strong>Crossover:</strong> below the EPYC ridge (86.4 GFLOPS / 4.5 GB/s = 19.2 FLOPs/byte), the EPYC core attains 4.5 GB/s × I. It passes Grace’s 49.6 GFLOPS when I = 49.6 GFLOPS / 4.5 GB/s ≈ <strong>11 FLOPs/byte</strong>.</li>
+</ol>
+<p>Per socket, EPYC wins at every intensity (it has more of both), but per core the answer flips at about 11 FLOPs/byte, because Grace gives each core 54% more bandwidth. That matters for licensing per core, for jobs sized in cores, and for memory-bound kernels such as sparse solvers and stencils, which typically sit below 1 FLOP/byte.</p>`, "hard") +
+M(`<p>A single thread chases pointers through a 64 MB table: every load depends on the last and goes to a uniformly random line. Compare a Ryzen 9950X at 5.0 GHz (1 MB L2 at 14 cycles, 32 MB L3 at 50 cycles, DRAM at 85 ns) with a Grace core at 3.1 GHz (1 MB L2 at 10 cycles, 114 MB L3 at 40 ns). What is the average time per load on each? What changes with a 9950X3D, whose L3 is 96 MB at 54 cycles on the CCD with the extra cache?</p><p class="given">Assume huge pages (no TLB misses), no prefetching helps, the thread can use all of its CCD’s L3 on Ryzen and all of Grace’s L3, and the fraction of loads that hit a level equals that level’s capacity divided by 64 MB. Treat Ryzen’s L2 and L3 as exclusive (the L3 is a victim cache) and Grace’s L3 as holding the whole table.</p>`,
+`<ol>
+<li><strong>Latencies in ns:</strong> Ryzen L2 14 cycles / 5.0 GHz = 2.8 ns, L3 50 cycles / 5.0 GHz = 10 ns. Grace L2 10 cycles / 3.1 GHz ≈ 3.2 ns, L3 40 ns.</li>
+<li><strong>Ryzen 9950X fractions:</strong> L2 1 MB / 64 MB ≈ 1.6%, L3 32 MB / 64 MB = 50%, DRAM 100% − 1.6% − 50% = 48.4%.</li>
+<li><strong>Ryzen 9950X average:</strong> 0.016 × 2.8 ns + 0.5 × 10 ns + 0.484 × 85 ns = 0.04 ns + 5.0 ns + 41.1 ns ≈ <strong>46.2 ns/load</strong>.</li>
+<li><strong>Grace:</strong> L2 1.6%, L3 the other 98.4%: 0.016 × 3.2 ns + 0.984 × 40 ns = 0.05 ns + 39.4 ns ≈ <strong>39.4 ns/load</strong>, 15% faster than the 9950X despite the slower clock.</li>
+<li><strong>Ryzen 9950X3D:</strong> L3 54 cycles / 5.0 GHz = 10.8 ns. L2 + L3 hold 1 MB + 96 MB = 97 MB, more than 64 MB, so every load hits: 1.6% in L2, 98.4% in L3. Average = 0.016 × 2.8 ns + 0.984 × 10.8 ns ≈ <strong>10.7 ns/load</strong>, 4.3 times faster than the 9950X.</li>
+</ol>
+<p>For dependent loads, whether the working set fits in some on-chip level dominates everything else, including frequency and DRAM latency. Grace’s big but slow mesh L3 beats a fast small L3 plus DRAM, and a big, fast L3 beats both. The assumptions matter: a hit rate of capacity / working set assumes random access and a well-hashed cache, and the 9950X3D’s other CCD has the normal 32 MB L3, so thread placement decides the result.</p>`, "hard") +
+`<h3 id="sec-gpus">GPUs Through a CPU Architect’s Eyes</h3>` +
+Q(`<p>A Zen 5 core’s L1D hit takes 4 cycles. An H100 SM’s L1 and shared-memory hit takes tens of cycles, and HBM about 300 ns. Why does the GPU accept such long latency at every level, and what does it use instead of short latency?</p>`,
+`<p>The GPU accepts long latency because it hides latency with thread parallelism instead of avoiding it, and that lets it spend area on arithmetic and bandwidth.</p>
+<ul>
+<li>A CPU core runs one or two threads, so every cycle of load latency is a cycle that thread might wait. It spends area and power on small, fast caches, deep out-of-order windows, and prefetchers to shorten or overlap that wait.</li>
+<li>An SM holds up to 64 warps. When one warp waits on memory, the scheduler issues from another that is ready, with no context-switch cost because every warp’s registers stay resident. As long as enough warps are ready, the latency is hidden.</li>
+</ul>
+<p>The trade: the GPU needs enough parallelism (occupancy) and bytes in flight, about 1 MB across the chip for H100, and single-thread latency is terrible. That’s why the same code can be latency-bound on a GPU and fine on a CPU when it has little parallelism.</p>`, "easy") +
+Q(`<p>Attention during LLM decode with batch size 1 is memory-bound on an H100 but close to compute-bound on a Grace core. Explain using machine balance. What changes as the batch grows, and which machine benefits?</p>`,
+`<p>Whether a kernel is memory- or compute-bound depends on its arithmetic intensity relative to the machine’s ridge point, and the H100’s ridge is about 40 times higher than Grace’s.</p>
+<ul>
+<li>Decode at batch 1 reads each weight or KV-cache value once for about 2 FLOPs, a few FLOPs per byte at most.</li>
+<li>Grace’s balance is about 3.57 TFLOPS / 500 GB/s ≈ 7 FLOPs/byte, so a kernel at a few FLOPs per byte sits near the ridge: memory and compute are both close to their limits.</li>
+<li>H100’s balance is about 989 TFLOPS (dense FP16 tensor) / 3.35 TB/s ≈ 295 FLOPs/byte, so the same kernel uses about 1% of the tensor cores’ peak. It is entirely memory bound.</li>
+</ul>
+<p>Batching raises intensity for the weight reads: each weight read serves every sequence in the batch, so intensity grows roughly with batch size. The GPU benefits enormously, approaching compute-bound only at batches in the hundreds, while the CPU becomes compute bound almost immediately and gains little. The KV-cache reads in attention don’t batch this way, since each sequence has its own, which is why attention stays memory bound even at large batches.</p>`, "medium") +
+Q(`<p>Hopper added the Tensor Memory Accelerator (TMA), which copies a whole tile between global memory and an SM’s shared memory from one instruction, completing asynchronously. Explain what problem it solves, using CPU concepts, and what it changes in how a kernel is written.</p>`,
+`<p>TMA solves the cost of generating and tracking loads in software: without it, the threads themselves compute every address, issue every load, and hold the data in registers on its way to shared memory.</p>
+<ul>
+<li><strong>The CPU analogy:</strong> it is a DMA engine with a programmable address generator, or a prefetcher told exactly what to fetch. One thread hands it a descriptor (base, dimensions, strides, tile shape), and the hardware generates the addresses, handles out-of-bounds edges, and writes straight into shared memory.</li>
+<li><strong>Registers and issue slots:</strong> the copy no longer passes through registers, so those registers go to the math, and warps no longer spend issue slots on address arithmetic and load instructions.</li>
+<li><strong>Asynchrony:</strong> completion is signaled on a shared-memory barrier that counts bytes arrived, so a warp can start the next tile’s copy and wait for it only when it needs the data.</li>
+</ul>
+<p>It changes kernels into producer-consumer pipelines: a producer warp issues TMA copies several tiles ahead into a ring of shared-memory buffers, and consumer warps run tensor-core math on tiles that have landed. That is software pipelining with explicit buffers, the same idea a CPU gets from out-of-order execution and prefetching, made explicit because the GPU has no out-of-order window.</p>`, "hard") +
+Q(`<p>Blackwell (B200) is two reticle-sized dies joined by a 10 TB/s die-to-die link, presented to software as one GPU. For comparison, a whole GPU’s NVLink bandwidth is about 1.8 TB/s. Why must the internal link be so much faster, and what would go wrong if it were only as fast as NVLink?</p>`,
+`<p>The internal link must carry a large share of the GPU’s total memory and L2 traffic, because software treats the two dies as one device and places data without regard to which die owns it.</p>
+<ul>
+<li>Each die has its own HBM stacks and half of the L2. With addresses spread across both dies, roughly half of every SM’s memory and L2 traffic belongs to the other die. With 8 TB/s of HBM bandwidth and L2 hit traffic on top, the crossing traffic is several TB/s.</li>
+<li>NVLink connects separate GPUs, and software is written knowing that: it partitions work so only activations or gradients cross, a small fraction of the data each GPU touches.</li>
+</ul>
+<p>If the link ran at 1.8 TB/s, the GPU would become NUMA: kernels whose data happened to live on the far die would run at a fraction of the speed, and a kernel that streams all of memory would be capped near link speed instead of HBM speed. Keeping the “one GPU” abstraction means making the crossing cheap enough that ordinary CUDA code doesn’t notice it. The cost is die area and power for the link, which is the same trade AMD makes in the other direction by exposing NUMA domains on EPYC.</p>`, "hard") +
+M(`<p>A 13-billion-parameter model with FP16 weights generates tokens on one H100 (3.35 TB/s of HBM, 989 TFLOPS dense FP16). Each decode step reads all weights once and does 2 FLOPs per weight per sequence in the batch. What is the step time and the tokens per second at batch 1? At what batch size does the step become compute bound? What is the throughput there?</p><p class="given">Assume weight reads are the only memory traffic (ignore the KV cache and activations), both peaks are achieved, and a step takes the longer of its memory time and its compute time.</p>`,
+`<ol>
+<li><strong>Weight bytes:</strong> 13 × 10<sup>9</sup> weights × 2 bytes/weight = 26 GB.</li>
+<li><strong>Memory time:</strong> 26 GB / 3.35 TB/s ≈ 7.76 ms per step, for any batch size.</li>
+<li><strong>Batch 1:</strong> compute = 2 FLOPs/weight × 13 × 10<sup>9</sup> weights = 26 GFLOPs, taking 26 GFLOPs / 989 TFLOPS ≈ 0.026 ms. The step takes 7.76 ms, so <strong>about 129 tokens/s</strong>.</li>
+<li><strong>Crossover batch:</strong> compute time = 26 GFLOPs/sequence × B / 989 TFLOPS. Setting it equal to 7.76 ms gives B = 7.76 ms × 989 TFLOPS / 26 GFLOPs/sequence ≈ <strong>295 sequences</strong>. That equals the machine balance of 295 FLOPs/byte, because the kernel’s intensity is 2 FLOPs/weight × B / 2 bytes/weight = B FLOPs/byte.</li>
+<li><strong>Throughput at B = 295:</strong> 295 tokens / 7.76 ms ≈ <strong>38,000 tokens/s</strong>, about 295 times batch 1.</li>
+</ol>
+<p>This is why serving systems batch aggressively. In practice the KV cache, which grows with batch size and context and doesn’t amortize across sequences, adds memory traffic and lowers the useful batch well below 295. Running weights in FP8 halves the bytes and doubles the tensor rate, which leaves the crossover batch near the same value but doubles throughput at every batch size.</p>`, "hard") +
+M(`<p>By Little’s law, how many bytes must be in flight for one Zen 5 core, for a whole Grace chip, and for a whole H100 to reach their bandwidths? Use: a Zen 5 core tracks 124 outstanding 64-byte L1D misses at a 90 ns memory latency, Grace delivers 500 GB/s at 200 ns, and H100 delivers 3.35 TB/s at 300 ns across 132 SMs. What does each design use to generate that concurrency?</p><p class="given">Assume the latencies stay fixed at the given values under load.</p>`,
+`<ol>
+<li><strong>Zen 5 core:</strong> 124 misses × 64 bytes/miss = 7,936 bytes in flight, giving at most 7,936 bytes / 90 ns ≈ <strong>88 GB/s</strong> from one core.</li>
+<li><strong>Grace chip:</strong> 500 GB/s × 200 ns = <strong>100,000 bytes</strong> in flight, 100,000 bytes / 72 cores ≈ 1,389 bytes per core, about 22 lines per core when all cores share the load.</li>
+<li><strong>H100:</strong> 3.35 TB/s × 300 ns ≈ <strong>1,005,000 bytes</strong> in flight, 1,005,000 bytes / 132 SMs ≈ 7,600 bytes per SM.</li>
+</ol>
+<p>One H100 SM needs about as many bytes in flight as one Zen 5 core can sustain at its limit, but the two get there differently:</p>
+<ul>
+<li>Zen 5 uses one or two threads, a 448-entry out-of-order window, and prefetchers to find independent misses.</li>
+<li>Grace spreads a modest load over 72 cores, each needing only about 22 outstanding lines.</li>
+<li>The H100 SM uses many warps each issuing wide loads, plus TMA copies that put kilobytes in flight from one instruction.</li>
+</ul>
+<p>For a model, this is the number to check first: if the modeled structures can’t hold the bytes in flight, the model can’t reach the bandwidth, whatever the DRAM model says.</p>`, "hard"),
 },
 {
   id: "intv-conc",
