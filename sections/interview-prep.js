@@ -2273,7 +2273,7 @@ M(`<p>A Zen 5 core can track 124 outstanding misses, and idle DRAM latency is 90
   id: "intv-coh",
   title: "Coherence and Consistency",
   body: `
-<p>Background: <a href="#/r/coh">Coherence</a>, <a href="#/moesi">MOESI, MESIF, and Snoop Filters</a>, <a href="#/coh-transient">Transient States and Protocol Races</a>, <a href="#/consistency">Memory Consistency Models in Hardware</a>.</p>
+<p>Background: <a href="#/r/coh">Coherence</a>, <a href="#/moesi">MOESI, MESIF, and Snoop Filters</a>, <a href="#/directory">Directory-Based Coherence</a>, <a href="#/coh-transient">Transient States and Protocol Races</a>, <a href="#/icx-noc">On-Chip Networks: Flits, Routers, and Deadlock</a>, <a href="#/consistency">Memory Consistency Models in Hardware</a>.</p>
 <h3 id="sec-protocol">Protocols and States</h3>` +
 Q(`<p>In MESIF, why does exactly one sharer hold a clean shared line in the F state, and which sharer gets it?</p>`,
 `<p>A new reader can get a clean shared line from another cache faster than from memory, but if every sharer answered, all but one reply would be wasted traffic. F names a single responder, and the other sharers stay silent in S. The newest requester usually receives F, and the previous holder drops to S, because the newest copy is the least likely to be evicted soon. If the F copy is evicted, the next request is served by the LLC or memory.</p>`, "easy") +
@@ -2335,6 +2335,64 @@ M(`<p>A hot lock line lives at one directory slice. Each acquire is a transactio
 <li><strong>(b)</strong> For M/D/1, the mean wait is W = ρ S / (2 (1 − ρ)) = 0.96 × 60 ns / (2 × 0.04) = <strong>720 ns</strong>, twelve times the service time. Each acquire takes about 720 ns + 60 ns = 780 ns, not 60 ns.</li>
 <li><strong>(c)</strong> ρ = 1.056, above 1: the queue grows without bound. In practice cores slow down as they wait, and acquisitions saturate at 1 acquisition / 60 ns ≈ 16.7 million per second chip-wide.</li>
 <li>A model without per-line busy states and queuing at the directory charges 60 ns where the real system pays more than ten times as much.</li>
+</ol>`, "hard") +
+`<h3 id="sec-noc">Directories on a Network</h3>` +
+Q(`<p>In a directory protocol, every block has a fixed home node chosen from its address. Why fixed, and what does the home give the protocol that a shared bus gave a snooping protocol?</p>`,
+`<p>A fixed home lets any requester find the block's directory entry from the address alone, with no search and no broadcast. The home is also the block's ordering point. A bus orders all requests because only one can be on it at a time, and every cache sees them in that order. On a mesh there's no such medium, so the home takes its place: it handles the requests for its blocks one at a time, and the order in which it handles them is the order of writes to that block that every core agrees on.</p>`, "easy") +
+Q(`<p>Dimension-order (XY) routing on a 2D mesh can't deadlock with one virtual channel per link, but shortest-path routing on a bidirectional ring can. Why, and what's the cheapest fix for the ring?</p>`,
+`<p>Deadlock needs a cycle in the channel dependency graph: packets each holding one channel and waiting for the next. With XY routing, a packet finishes all its X hops before any Y hop and never turns from Y back to X. A closed loop of channels has to turn from Y back into X somewhere, so with those turns forbidden, the graph has no cycle. On a ring, packets going clockwise only ever wait for the next clockwise channel, and those channels form a cycle. When every buffer around it fills, every packet waits for the one ahead.</p>
+<p>The cheapest fix is a dateline: give each direction two virtual channels, inject packets in VC 0, and move them to VC 1 when they cross one chosen link. No packet ever goes from VC 1 back to VC 0, so neither VC's dependencies close the ring. It costs a second set of buffers per port, but no extra wires.</p>`, "medium") +
+Q(`<p>A sparse directory is full, and a new request needs an entry in a set whose entries all track lines that private caches still hold. What must the home do before accepting the request, which virtual networks do those messages use, and can it deadlock?</p><p class="given">Assume the protocol has separate virtual networks for requests, forwarded requests, and responses, and that the home has one buffer for a request waiting on an eviction.</p>`,
+`<p>The home must pick a victim entry and invalidate every copy it tracks, because a copy the directory no longer tracks could never be invalidated later, and two cores could then see different values. If the victim is in M, the owner must also write the data back. Only when every invalidation is acknowledged (and any data has arrived) is the entry free.</p>
+<ul>
+<li><strong>The invalidations</strong> (or a fetch/invalidate to an owner) go out on the forwarded-request network, like any other message the home sends to caches.</li>
+<li><strong>The acknowledgments and write-back data</strong> come back on the response network.</li>
+<li><strong>The new request</strong> waits in the home's one buffer, so the home can keep serving requests for other sets.</li>
+</ul>
+<p>It can't deadlock, because the request waits only for responses, and responses always drain. It would deadlock if the acks shared a queue with requests stuck behind the waiting one. The costs are in performance:</p>
+<ul>
+<li>The request pays a full invalidation round trip on top of its own miss.</li>
+<li>The evicted lines miss again in the caches that were using them. An undersized or low-associativity directory shows up as misses that no private-cache model explains.</li>
+<li>With one eviction buffer, a second request that also needs an eviction blocks the request network at the home until the first finishes.</li>
+</ul>`, "hard") +
+Q(`<p>In a 3-hop read, the owner sends data straight to the requester. CHI then has the requester send a completion acknowledgment (CompAck) to the home, and the home keeps the line busy until it arrives. Why not let the home move on as soon as it has sent the snoop? What does that acknowledgment cost on a contended line?</p>`,
+`<p>The home, the owner, and the requester send messages on different paths, so nothing orders the owner's data against the home's later messages to the requester. If the home moved on and then forwarded a later request's snoop to the new holder, that snoop could reach the requester before its own data. The requester would see a snoop for a line it doesn't hold yet. CompAck tells the home that the data has arrived, so the home can safely snoop the requester.</p>
+<p>The alternative is to let the home move on and have the requester handle the early snoop itself: it stays in a transient state, holds the snoop until its data arrives, uses the data once, then answers. That's what Sorin, Hill, and Wood's protocols do, and it needs more transient states and buffering at the caches.</p>
+<p>The cost is home busy time. With CompAck, the line is busy from the request's arrival until the ack, which covers the directory lookup, the snoop, the owner's access, the data transfer, and the ack's own trip back. A line handed from core to core can move at most once per busy time. Without it, the home is busy only for the lookup, and back-to-back handoffs are limited by the owner-to-owner transfers. For a contended lock, that can be a factor of two or more in handoff rate.</p>`, "hard") +
+M(`<p>A lock line is handed from core to core. Each handoff is a 3-hop transaction: request to the home, snoop to the current owner, data from the owner to the next owner. Every one-way message takes 8 ns, the directory lookup takes 3 ns, and the owner's cache access takes 5 ns.</p>
+<ul>
+<li>(a) With CompAck, the home keeps the line busy from the request's arrival until the new owner's completion ack reaches it. What's the maximum handoff rate?</li>
+<li>(b) Without it, the home is busy only for the 3 ns lookup, and an owner holds an early snoop until its own data arrives. What's the maximum handoff rate now?</li>
+</ul><p class="given">Assume the line is always contended, so the next request is already queued at the home when the line becomes free. In (b), assume the next snoop always reaches the new owner before its data, so each handoff is limited by the owner's access plus the data transfer. Ignore the time each owner holds the lock.</p>`,
+`<ol>
+<li><strong>(a)</strong> Busy time per handoff: 3 ns lookup + 8 ns snoop + 5 ns owner access + 8 ns data + 8 ns CompAck = 32 ns. Maximum rate: 1 handoff / 32 ns = <strong>31.25 million handoffs/s</strong>.</li>
+<li><strong>(b)</strong> The home issues each snoop 3 ns after the previous one, so snoops are already waiting at the next owner when its data arrives. Each handoff then takes the owner's access plus the data trip: 5 ns + 8 ns = 13 ns. Maximum rate: 1 handoff / 13 ns ≈ <strong>76.9 million handoffs/s</strong>.</li>
+<li>Ratio: 32 ns / 13 ns ≈ 2.5×. The home's 3 ns lookup isn't the limit, since 3 ns &lt; 13 ns.</li>
+<li>A model that charges a fixed "3-hop latency" per transfer and ignores busy time gets neither number. It needs the home's busy interval and the protocol's rule for early snoops.</li>
+</ol>`, "hard") +
+M(`<p>A mesh router has 5 input ports. The protocol uses four virtual networks: requests, forwarded requests, and control responses (all one-flit packets), and data responses (a 64-byte line plus a one-flit header). Flits are 16 bytes. Each virtual network gets 2 VCs per port for performance. Control VCs need 4 flit buffers each to cover the credit round trip. Data VCs use virtual cut-through, so each must hold a whole packet.</p>
+<ul>
+<li>(a) How many bytes of input buffering does one router need, and how much do 64 routers need?</li>
+<li>(b) The same chip built as a torus needs a dateline in every virtual network. If you keep 2 VCs per dateline class, how much buffering does a router need?</li>
+<li>(c) On the torus, what's the minimum number of VCs per port that is still deadlock-free, and how does its buffering compare with (a)?</li>
+</ul><p class="given">Assume each data VC needs max(packet length, 4 flits) of buffering, and each port's buffers are separate.</p>`,
+`<ol>
+<li>Data packet: 64 bytes / 16 bytes/flit + 1 header flit = 5 flits, so each data VC holds max(5 flits, 4 flits) = 5 flits.</li>
+<li><strong>(a)</strong> Per port: 3 control networks × 2 VCs × 4 flits + 1 data network × 2 VCs × 5 flits = 24 flits + 10 flits = 34 flits. In bytes: 34 flits × 16 bytes/flit = 544 bytes per port. Per router: 5 ports × 544 bytes = <strong>2,720 bytes</strong>. For 64 routers: 64 × 2,720 bytes = 174,080 bytes ≈ <strong>170 KiB</strong>.</li>
+<li><strong>(b)</strong> Each virtual network now has 2 dateline classes × 2 VCs = 4 VCs, double (a): 68 flits × 16 bytes/flit = 1,088 bytes per port, × 5 ports = <strong>5,440 bytes</strong> per router.</li>
+<li><strong>(c)</strong> Deadlock freedom needs one VC per dateline class in each virtual network: 4 networks × 2 classes = <strong>8 VCs per port</strong>, the same count as (a). The buffering is the same as (a), 2,720 bytes per router, but now both VCs in each network are needed for correctness, and none are left to reduce head-of-line blocking.</li>
+<li>Every extra message class multiplies buffering by the number of routing classes. That's why designs merge classes where the dependency chain allows, such as control and data responses.</li>
+</ol>`, "hard") +
+M(`<p>A server chip has 48 tiles in a mesh of 6 columns by 8 rows, clocked at 2.2 GHz, with 32-byte links carrying one flit per cycle in each direction. Each L2 miss sends a one-flit request to its home and gets a 3-flit data reply, and half of all misses also cause a 3-flit write-back with a one-flit ack. The cores run at 3.5 GHz with IPC 2. At what L2 misses per thousand instructions (MPKI) does the vertical bisection saturate?</p><p class="given">Assume homes are spread uniformly by the address hash, every tile has one core with the same miss rate, each message's destination is uniform over all 48 tiles (itself included), and the cut runs between columns 2 and 3. Ignore other traffic.</p>`,
+`<ol>
+<li>Flits per miss: 1 flit (request) + 3 flits (data) + 0.5 × (3 flits + 1 flit) (write-back and ack) = 6 flits.</li>
+<li>Each tile sends the same average traffic, and each message crosses the cut with probability 24 tiles / 48 tiles = 0.5, in either direction with equal chance. Per direction: 6 flits/miss × 0.5 / 2 = 1.5 flits/miss.</li>
+<li>Capacity per direction: 8 links (one per row) × 1 flit/cycle = 8 flits per mesh cycle.</li>
+<li>Chip-wide miss rate at saturation: 8 flits/cycle / 1.5 flits/miss ≈ 5.33 misses per mesh cycle, or 5.33 misses/cycle × 2.2 × 10<sup>9</sup> cycles/s ≈ 11.7 × 10<sup>9</sup> misses/s.</li>
+<li>Per core: 11.7 × 10<sup>9</sup> misses/s / 48 cores ≈ 244 × 10<sup>6</sup> misses/s.</li>
+<li>Instructions per core: 3.5 × 10<sup>9</sup> cycles/s × 2 instructions/cycle = 7 × 10<sup>9</sup> instructions/s.</li>
+<li>MPKI: 244 × 10<sup>6</sup> misses/s / 7 × 10<sup>9</sup> instructions/s × 1,000 ≈ <strong>35 MPKI</strong>.</li>
+<li>That's an upper bound. XY routing loads the center links more, and routers lose throughput to allocation conflicts, so latency rises sharply well before 35 MPKI. Streaming workloads with tens of L2 MPKI on every core are where a mesh's bisection shows up.</li>
 </ol>`, "hard") +
 `<h3 id="sec-order">Consistency Models</h3>` +
 Q(`<p>Thread 0 writes data and then sets a flag. Thread 1 waits for the flag and then reads the data. Why can thread 1 see the flag set and still read stale data on Arm, but not on x86? What is the cheapest correct fix on Arm?</p>`,

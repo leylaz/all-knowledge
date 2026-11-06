@@ -2216,6 +2216,116 @@ a: `<p>Keep the exact sharer set per line even in limited-pointer mode, and add 
 <p>Silent Shared evictions save a message per eviction but leave stale sharers, so a later write still invalidates them and waits for their acknowledgments. Some protocols send a clean-eviction notice to keep the directory precise. Which choice wins depends on how often evicted lines are written later.</p>`
 });
 
+C("intv-coh", "noc", {
+lvl: "hard",
+q: `<p>Check whether a turn-restricted routing function on a k × k mesh can deadlock, by building its channel dependency graph and looking for a cycle (Dally and Seitz's condition). Directions are <code>E</code> (+x), <code>W</code> (−x), <code>N</code> (+y), and <code>S</code> (−y). A channel is the link leaving tile (x, y) in direction d, if that neighbor exists. Channel a, entering tile v in direction d1, depends on channel b, leaving v in direction d2, when a packet may go from one to the other:</p>
+<ul>
+<li><strong>Straight</strong> (d2 = d1) is always allowed.</li>
+<li><strong>U-turns</strong> (d2 opposite to d1) are never allowed.</li>
+<li><strong>A turn</strong> from d1 to d2 is allowed when bit <code>d1 * 4 + d2</code> of <code>turns</code> is set.</li>
+</ul>
+<p>Write <code>cdg_edges()</code>, which counts the dependency edges, and <code>cdg_has_cycle()</code>, which returns 1 if the graph has a cycle and 0 otherwise. The tests use XY routing, all turns allowed, and Glass and Ni's turn-model algorithms.</p>`,
+head: String.raw`#include <stdio.h>
+#include <string.h>
+
+#define MAXK 8
+enum { E, W, N, S };
+#define TURN(a, b) (1u << ((a) * 4 + (b)))`,
+todo: String.raw`int cdg_edges(int k, unsigned turns) {
+    /* TODO: count channel pairs (a, b) where b can follow a */
+    return 0;
+}
+
+int cdg_has_cycle(int k, unsigned turns) {
+    /* TODO: depth-first search over channels */
+    return 0;
+}`,
+impl: String.raw`static const int DX[4] = { 1, -1, 0, 0 }, DY[4] = { 0, 0, 1, -1 };
+
+static int has_link(int k, int x, int y, int d) {
+    int nx = x + DX[d], ny = y + DY[d];
+    return nx >= 0 && nx < k && ny >= 0 && ny < k;
+}
+
+static int follows(unsigned turns, int d1, int d2) {
+    if (d2 == (d1 ^ 1)) return 0;               /* E^1 = W, N^1 = S: a U-turn */
+    return d1 == d2 || (turns >> (d1 * 4 + d2) & 1);
+}
+
+int cdg_edges(int k, unsigned turns) {
+    int n = 0;
+    for (int y = 0; y < k; y++)
+        for (int x = 0; x < k; x++)
+            for (int d = 0; d < 4; d++) {
+                if (!has_link(k, x, y, d)) continue;
+                int nx = x + DX[d], ny = y + DY[d];
+                for (int d2 = 0; d2 < 4; d2++)
+                    if (has_link(k, nx, ny, d2) && follows(turns, d, d2)) n++;
+            }
+    return n;
+}
+
+/* Channel id = (y * k + x) * 4 + d. 0 = unvisited, 1 = on the DFS stack, 2 = done. */
+static unsigned char color[MAXK * MAXK * 4];
+
+static int dfs(int k, unsigned turns, int c) {
+    int d = c % 4, x = c / 4 % k, y = c / 4 / k;
+    int nx = x + DX[d], ny = y + DY[d];
+    color[c] = 1;
+    for (int d2 = 0; d2 < 4; d2++) {
+        if (!has_link(k, nx, ny, d2) || !follows(turns, d, d2)) continue;
+        int c2 = (ny * k + nx) * 4 + d2;
+        if (color[c2] == 1) return 1;            /* back edge: a cycle */
+        if (color[c2] == 0 && dfs(k, turns, c2)) return 1;
+    }
+    color[c] = 2;
+    return 0;
+}
+
+int cdg_has_cycle(int k, unsigned turns) {
+    memset(color, 0, sizeof color);
+    for (int y = 0; y < k; y++)
+        for (int x = 0; x < k; x++)
+            for (int d = 0; d < 4; d++) {
+                int c = (y * k + x) * 4 + d;
+                if (has_link(k, x, y, d) && color[c] == 0 && dfs(k, turns, c)) return 1;
+            }
+    return 0;
+}`,
+tests: String.raw`int main(void) {
+    unsigned all = 0;
+    for (int a = 0; a < 4; a++)
+        for (int b = 0; b < 4; b++)
+            if (a != b && b != (a ^ 1)) all |= TURN(a, b);
+    unsigned xy = TURN(E, N) | TURN(E, S) | TURN(W, N) | TURN(W, S);
+    unsigned west_first = all & ~(TURN(N, W) | TURN(S, W));
+    unsigned north_last = all & ~(TURN(N, E) | TURN(N, W));
+    unsigned negative_first = all & ~(TURN(E, S) | TURN(N, W));
+    unsigned bad = all & ~(TURN(S, W) | TURN(W, S));
+
+    CHECK(cdg_edges(2, all) == 8, "2 x 2, all turns: %d edges, expected 8", cdg_edges(2, all));
+    CHECK(cdg_edges(2, xy) == 4, "2 x 2, XY: %d edges, expected 4", cdg_edges(2, xy));
+    CHECK(cdg_edges(3, 0) == 12, "3 x 3, straight only: %d edges, expected 12", cdg_edges(3, 0));
+    CHECK(cdg_has_cycle(2, all) == 1, "2 x 2 with all turns has a cycle around the square");
+    CHECK(cdg_has_cycle(4, all) == 1, "4 x 4 with all turns has a cycle");
+    CHECK(cdg_has_cycle(4, xy) == 0, "XY routing is deadlock-free");
+    CHECK(cdg_has_cycle(4, west_first) == 0, "west-first is deadlock-free");
+    CHECK(cdg_has_cycle(4, north_last) == 0, "north-last is deadlock-free");
+    CHECK(cdg_has_cycle(4, negative_first) == 0, "negative-first is deadlock-free");
+    CHECK(cdg_has_cycle(4, bad) == 1, "forbidding S->W and W->S still allows a cycle");
+    CHECK(cdg_has_cycle(4, 0) == 0, "straight-only routing has no cycle");
+    CHECK(cdg_has_cycle(1, all) == 0, "a single tile has no channels");
+    return REPORT();
+}`,
+a: `<p>The graph has one node per channel and an edge wherever a packet holding one channel may request the next. Each channel ends at a tile, and its successors are that tile's outgoing links in the allowed directions, so the edges come from the turn mask alone. A depth-first search with three colors finds a cycle as soon as it reaches a channel still on its stack.</p>
+<ul>
+<li><strong>Why the tests come out as they do:</strong> XY never turns from Y into X, so no loop can close. West-first, north-last, and negative-first each forbid one turn from the clockwise loop and one from the counterclockwise loop, chosen so that no combination of the remaining turns can stand in for a forbidden one.</li>
+<li><strong>The bad case:</strong> forbidding S→W and W→S also removes one turn from each loop, but three left turns (S→E, E→N, N→W) do the work of the forbidden right turn S→W, and W→N, N→E, E→S do the work of W→S. A loop such as S, E, N, W, N, E, S closes on a 4 × 4 mesh. Glass and Ni found that 4 of the 16 ways to forbid one turn per loop fail like this.</li>
+<li><strong>Edge counts:</strong> on a 2 × 2 mesh every tile is a corner. Each channel's only non-U-turn successor is a turn, so all 8 channels have 1 edge with every turn allowed, and only the 4 east and west channels have one under XY. With no turns, only straight runs count: each row has 1 eastward and 1 westward edge on a 3 × 3 mesh, 6 in all, and the columns add 6 more.</li>
+</ul>
+<p>An acyclic graph is sufficient for deadlock freedom, but not necessary for adaptive routing: Duato's theory allows cycles as long as an acyclic escape subnetwork is always reachable.</p>`
+});
+
 C("intv-conc", "locks", {
 lvl: "medium",
 threads: true,
