@@ -68,6 +68,8 @@ const GLOSSARY = {
   "io_uring": { def: "Linux's completion-based I/O interface: submission and completion rings shared with the kernel, so one system call, or none, covers many operations.", page: "io-path/epoll-uring" },
   "zombie": { def: "A process that has exited but not yet been reaped by its parent's wait. It keeps only its PID, exit status, and kernel task structure.", page: "process-syscalls/exit-wait" },
   "TSO": { def: "Total store order, x86's memory model: a load may pass an earlier store to a different address; nothing else is reordered.", page: "consistency/tso" },
+  "senior store": { def: "A store that has retired but hasn't yet written the cache, so it still holds its store-queue entry. Only its own core can see it, through forwarding.", page: "senior-stores/retired" },
+  "RFO": { def: "Read for ownership: a request for a line in M, sent before a store can write it. It invalidates every other copy.", page: "senior-stores/stolen" },
   "UVM": { def: "Universal Verification Methodology: the standard SystemVerilog class library for building reusable testbenches.", page: "verif-testbench" },
   "store-to-load forwarding": { def: "A load gets its data straight from an older, not-yet-committed store to the same address in the store queue.", page: "lsq" },
   "memory-level parallelism": { def: "The average number of cache misses outstanding at once. Higher MLP hides more of the memory latency.", page: "latency-tolerance" },

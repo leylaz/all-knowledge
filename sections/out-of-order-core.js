@@ -292,11 +292,12 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
   body: `
 <p>The LQ and SQ track memory operations in program order so they can execute out of order without breaking memory semantics.</p>
 <h3 id="sec-stores">Stores</h3>
-<p>Stores don't write the cache until they commit; after retirement they drain from the store buffer into L1.</p>
+<p>Stores don't write the cache until they commit; after retirement they drain from the store buffer into L1. What happens to a retired store while it waits, including losing its line to another core, is on <a href="#/senior-stores">Senior Stores and Coherence</a>.</p>
 <h3 id="sec-loads">Loads</h3>
 <p>A load searches the SQ for older stores to the same address and forwards data when one fully covers it. If an older store's address is unknown, the load waits or speculates.</p>
 <h3 id="sec-catching-violations">Catching Violations</h3>
 <p>When a store's address resolves, it searches the LQ for younger loads to the same address that already executed; a hit means flush and re-execute.</p>
+<p>Invalidations from other cores also search the LQ, to keep loads in the order the memory model requires (see <a href="#/consistency/impl">Speculating Past the Model</a>).</p>
 <h3 id="sec-store-coalescing">Store Coalescing</h3>
 <p>Merging retired stores to the same line saves L1 write bandwidth, but must not make stores visible in an order the memory model forbids.</p>`,
   practice: {
