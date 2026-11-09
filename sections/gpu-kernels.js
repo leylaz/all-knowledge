@@ -21,6 +21,7 @@ section({
 <h3 id="sec-pages">How the Pages Fit Together</h3>
 <ul>
 <li><a href="#/gpu-why">Why GPU Kernels Exist</a>: the workloads GPUs are built for, how they differ from CPUs, and a first kernel next to the CPU loop it replaces.</li>
+<li><a href="#/gpu-compute">What GPUs Compute</a>: elementwise work, reductions, and matrix multiplies, measured in FLOPs per byte against real workload sizes.</li>
 <li><a href="#/gpu-launch">Grids, Blocks, and Threads</a>: indexing, how blocks are placed on SMs, the thread hierarchy they form, and what a launch costs.</li>
 <li><a href="#/gpu-tiling">Tiled Matrix Multiply in Shared Memory</a>: the naive matrix multiply, why it is load-bound, and how shared-memory tiles with <code>__syncthreads</code> fix it.</li>
 <li><a href="#/gpu-kernels">GPU Kernels and Tensor Cores</a>: a matrix-multiply kernel from the inside, epilogue fusion, and what Tensor Cores compute.</li>
@@ -143,7 +144,7 @@ saxpy&lt;&lt;&lt;(n + 255) / 256, 256&gt;&gt;&gt;(n, 2.0f, x, y);</code></pre></
 <li><strong><code>__global__</code></strong> marks a function that runs on the GPU and is launched from the CPU.</li>
 <li><strong>The loop is gone.</strong> The launch line <code>&lt;&lt;&lt;blocks, threads per block&gt;&gt;&gt;</code> asks for enough threads to cover all \\(n\\) elements, and each thread computes its own \\(i\\) from built-in coordinates. <a href="#/gpu-launch">Grids, Blocks, and Threads</a> covers that indexing in detail.</li>
 <li><strong>The <code>if (i &lt; n)</code> check</strong> is there because threads come in groups of 256, so the last group can hang past the end of the array.</li>
-<li><strong>No ordering is promised.</strong> The iterations must be independent, because the GPU runs them in whatever order and grouping it likes. A loop with a dependence between iterations (such as a running sum) needs a different algorithm, such as a tree-shaped reduction.</li>
+<li><strong>No ordering is promised.</strong> The iterations must be independent, because the GPU runs them in whatever order and grouping it likes. A loop with a dependence between iterations (such as a running sum) needs a different algorithm, such as the tree in <a href="#/gpu-compute/reduction">Reductions</a>.</li>
 </ul>
 
 <h3 id="sec-in-use">Kernels in Use Today</h3>
@@ -155,7 +156,7 @@ saxpy&lt;&lt;&lt;(n + 255) / 256, 256&gt;&gt;&gt;(n, 2.0f, x, y);</code></pre></
 <li><strong>Collectives (NCCL):</strong> kernels that move and sum data between GPUs over NVLink and the network, such as the all-reduce that combines gradients in data-parallel training.</li>
 <li><strong>Graphics shaders:</strong> pixel shaders for every frame of a game, and compute shaders for culling, physics, and post-processing. Upscalers such as DLSS run a small neural network per frame on the same Tensor Cores the GEMM libraries use.</li>
 </ul>
-<p>The next page sorts these into a few shapes of computation and shows which ones the hardware is fast at.</p>
+<p>The next page, <a href="#/gpu-compute">What GPUs Compute</a>, sorts these into a few shapes of computation and shows which ones the hardware is fast at.</p>
 <p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Chapter 4 · Kirk, Hwu, and El Hajj, <em>Programming Massively Parallel Processors</em> (4th ed.), Chapters 1 and 2 · NVIDIA, <em>H100 Tensor Core GPU Architecture</em> whitepaper · AMD, EPYC 9654 product specifications · Meta, Llama 3 8B model configuration</p>`,
   practice: {
     guided: [
@@ -168,6 +169,96 @@ saxpy&lt;&lt;&lt;(n + 255) / 256, 256&gt;&gt;&gt;(n, 2.0f, x, y);</code></pre></
       {
         q: `<p>A photo app applies 3 × 3 filters to a 6,000 × 4,000 RGBA8 image (4 B/pixel). The choices are a Ryzen 9 7950X, which streams the image at 70 GB/s, or an RTX 4090 (1,008 GB/s) behind a PCIe 4.0 x16 link. For one filter, which is faster? How many filters in a row, with the image staying on the GPU between them, before the GPU wins, and what is the speedup at 20 filters?</p><p class="given">Assume each filter is memory-bound on both chips and reads and writes the image once (neighboring pixels come from cache), the GPU reaches its full bandwidth, and PCIe moves 25 GB/s each way, one direction at a time.</p>`,
         a: `<ol><li>Image size: 6,000 × 4,000 pixels × 4 B/pixel = 96 MB. One filter moves 96 MB read + 96 MB written = 192 MB.</li><li>CPU per filter: 192 MB / 70 GB/s ≈ 2.74 ms.</li><li>GPU per filter: 192 MB / 1,008 GB/s ≈ 0.19 ms. Transfers: 96 MB / 25 GB/s ≈ 3.84 ms up and 3.84 ms back, 7.68 ms in all.</li><li>One filter: CPU 2.74 ms against GPU 7.68 ms + 0.19 ms = 7.87 ms. <strong>The CPU wins by 2.9×</strong>, because PCIe is 40× slower than the GPU's own memory.</li><li>Break-even for \\(F\\) filters: 2.74 ms × F = 7.68 ms + 0.19 ms × F, so F = 7.68 ms / 2.55 ms ≈ 3.0. The GPU wins from <strong>4 filters</strong> on.</li><li>At 20 filters: CPU 20 × 2.74 ms ≈ 54.9 ms, GPU 7.68 ms + 20 × 0.19 ms ≈ 11.5 ms, a <strong>4.8× speedup</strong>, still well short of the 14× bandwidth ratio because the transfers are 2/3 of the GPU time.</li></ol><p>The lesson is the one that shapes real GPU software: keep data resident on the GPU and run long chains of kernels on it, because a kernel's speed doesn't matter if every call pays for a round trip over PCIe.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "gpu-compute",
+  region: "gk",
+  title: "What GPUs Compute",
+  sections: [
+    { id: "elementwise", label: "Elementwise Work" },
+    { id: "reduction", label: "Reductions" },
+    { id: "matmul", label: "Matrix Multiply" },
+    { id: "intensity", label: "FLOPs per Byte" },
+    { id: "scale", label: "How Much Work, in Real Numbers" },
+    { id: "vocabulary", label: "Three Words for the Next Pages" }
+  ],
+  body: `
+<p>Almost every kernel from <a href="#/gpu-why/in-use">Kernels in Use Today</a> is built from three shapes of computation: elementwise work, reductions, and matrix multiplies. Which shape a kernel has decides how much arithmetic it does per byte it moves, and that ratio decides whether a GPU's 67 TFLOP/s or its 3.35 TB/s sets the speed. This page measures that ratio for each shape, then puts real workload sizes against it.</p>
+
+<h3 id="sec-elementwise">Elementwise Work</h3>
+<p>Each output depends only on the inputs at the same index: vector add, SAXPY, ReLU, scaling, type conversion. Vector add is the smallest example:</p>
+<pre><code>__global__ void vadd(int n, const float *a, const float *b, float *c) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i &lt; n) c[i] = a[i] + b[i];                  <span class="cm">// 1 FLOP, 12 B moved</span>
+}</code></pre>
+<p>Each element reads 8 B, writes 4 B, and does 1 FLOP, so the kernel does 1 FLOP / 12 B ≈ 0.083 FLOP/B. For 100 million elements on an H100, moving 1.2 GB at 3.35 TB/s takes about 358 µs, while the 100 MFLOP of math would take 1.5 µs at peak. The arithmetic is 240× faster than the data can arrive, so the lanes mostly wait. Elementwise kernels are always <strong>memory-bound</strong>, and the only ways to speed one up are to move fewer bytes (lower precision) or not to run it as its own kernel at all (fusion, covered in <a href="#/gpu-kernels/epilogue">Epilogues and Fusion</a>).</p>
+
+<h3 id="sec-reduction">Reductions</h3>
+<p>A reduction combines many values into one: a sum, a max, a norm, the softmax denominator. The CPU loop <code>for (i...) s += x[i];</code> is a chain where each add waits for the previous one, so it can't be split across threads as written. Because addition is associative, the GPU regroups it as a tree: pairs first, then pairs of pairs.</p>
+<div class="tbl"><svg viewBox="0 0 680 206" role="img" aria-label="A tree reduction of 8 values: 3, 1, 4, 1, 5, 9, 2, 6. Step 0 does 4 adds in parallel, giving 4, 5, 14, 8. Step 1 does 2 adds, giving 9 and 22. Step 2 does 1 add, giving 31. Seven adds in all, in 3 steps instead of 7." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<g style="stroke:var(--muted);stroke-width:1.2"><path d="M150,30L185,80M220,30L185,80M290,30L325,80M360,30L325,80M430,30L465,80M500,30L465,80M570,30L605,80M640,30L605,80M185,80L255,130M325,80L255,130M465,80L535,130M605,80L535,130M255,130L395,180M535,130L395,180"/></g>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"><circle cx="150" cy="30" r="14"/><circle cx="220" cy="30" r="14"/><circle cx="290" cy="30" r="14"/><circle cx="360" cy="30" r="14"/><circle cx="430" cy="30" r="14"/><circle cx="500" cy="30" r="14"/><circle cx="570" cy="30" r="14"/><circle cx="640" cy="30" r="14"/></g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"><circle cx="185" cy="80" r="14"/><circle cx="325" cy="80" r="14"/><circle cx="465" cy="80" r="14"/><circle cx="605" cy="80" r="14"/><circle cx="255" cy="130" r="14"/><circle cx="535" cy="130" r="14"/></g>
+<circle cx="395" cy="180" r="15" style="fill:var(--pad);fill-opacity:.55;stroke:var(--pad);stroke-width:1.5"/>
+<g text-anchor="middle" style="font-size:12px;fill:var(--ink)"><text x="150" y="34">3</text><text x="220" y="34">1</text><text x="290" y="34">4</text><text x="360" y="34">1</text><text x="430" y="34">5</text><text x="500" y="34">9</text><text x="570" y="34">2</text><text x="640" y="34">6</text><text x="185" y="84">4</text><text x="325" y="84">5</text><text x="465" y="84">14</text><text x="605" y="84">8</text><text x="255" y="134">9</text><text x="535" y="134">22</text><text x="395" y="184" style="font-weight:600">31</text></g>
+<g style="font-size:11px;fill:var(--muted)"><text x="10" y="34">Input</text><text x="10" y="84">Step 0: 4 adds</text><text x="10" y="134">Step 1: 2 adds</text><text x="10" y="184">Step 2: 1 add</text></g>
+</svg></div>
+<ul>
+<li><strong>Same work, shorter chain:</strong> \\(n - 1\\) adds either way, but in \\(\\lceil \\log_2 n \\rceil\\) steps instead of \\(n - 1\\). A group of 256 threads sums 256 values in 8 steps.</li>
+<li><strong>Threads must share partial sums:</strong> unlike elementwise work, step 1 needs results that other threads produced in step 0. That needs fast memory a group of threads can share and a way to wait for each other, which is why the GPU has both (see <a href="#/gpu-launch/hierarchy">The Thread Hierarchy</a>).</li>
+<li><strong>Still memory-bound:</strong> each 4 B value read feeds 1 add, so a sum does about 0.25 FLOP/B.</li>
+<li><strong>Not bit-identical:</strong> floating-point addition isn't truly associative, so the tree's rounding differs from the loop's. That's the price of every parallel sum, CPU or GPU.</li>
+</ul>
+
+<h3 id="sec-matmul">Matrix Multiply</h3>
+<p>\\(C = AB\\) with \\(N \\times N\\) matrices does \\(N^3\\) multiply-adds, \\(2N^3\\) FLOPs, but it only has to move the three matrices, \\(3N^2\\) values. Every element of \\(A\\) is used \\(N\\) times, once for each column of \\(B\\). In FP32, at the minimum traffic:</p>
+<div class="math">\\[ \\text{AI}_\\text{min traffic} = \\frac{2N^3 \\ \\text{FLOP}}{3N^2 \\times 4 \\ \\text{B}} = \\frac{N}{6} \\ \\text{FLOP/B} \\]</div>
+<p>For \\(N = 4{,}096\\) that's about 683 FLOP/B, thousands of times more than elementwise work, and it grows with the matrix. This is the one common shape that can keep a GPU's lanes busy, and it's why GPUs dedicate Tensor Cores to it. The catch is the word "minimum": a kernel only gets that intensity if it actually reuses each loaded value \\(N\\) times instead of loading it again. The next pages show what happens when it doesn't.</p>
+
+<h3 id="sec-intensity">FLOPs per Byte</h3>
+<p>A kernel's <strong>arithmetic intensity</strong> (AI) is FLOPs done per byte moved to or from DRAM. A chip's <strong>ridge point</strong> is its peak FLOP/s divided by its bandwidth: kernels below it are memory-bound, kernels above it can be compute-bound. That's the roofline model (see <a href="#/gen-gpus/roofline">GPUs for Generative AI</a>):</p>
+<div class="math">\\[ \\text{attainable FLOP/s} = \\min\\left(\\text{peak FLOP/s},\\ \\text{AI} \\times \\text{bandwidth}\\right) \\]</div>
+<div class="tbl"><table>
+<tr><th>Kernel or chip</th><th>FLOP/B</th></tr>
+<tr><td>Vector add (FP32)</td><td>0.083</td></tr>
+<tr><td>Sum (FP32)</td><td>0.25</td></tr>
+<tr><td>Matrix multiply, \\(N = 4{,}096\\), FP32, minimum traffic</td><td>683</td></tr>
+<tr><td>Ridge: EPYC 9654, FP32 (7.4 TFLOP/s / 461 GB/s)</td><td>16</td></tr>
+<tr><td>Ridge: H100, FP32 on CUDA cores (67 TFLOP/s / 3.35 TB/s)</td><td>20</td></tr>
+<tr><td>Ridge: H100, FP16 on Tensor Cores (989 TFLOP/s / 3.35 TB/s)</td><td>295</td></tr>
+</table></div>
+<p>Two things stand out. Elementwise work and reductions sit far below every ridge, on GPUs and CPUs alike, so for them a GPU is only as much faster as its memory is (about 7× here). And Tensor Cores push the ridge so high that only large matrix multiplies, with their reuse fully captured, can use them.</p>
+
+<h3 id="sec-scale">How Much Work, in Real Numbers</h3>
+<ul>
+<li><strong>One LLM token:</strong> about 2 FLOPs per parameter, so 16 GFLOP for Llama 3 8B. At batch size 1 every token must also read all 16 GB of BF16 weights, which is 1 FLOP/B: generating one token on an H100 takes about 16 GB / 3.35 TB/s ≈ 4.8 ms of memory time against 16 µs of Tensor Core time. Batching 64 users' tokens reuses each weight 64 times, which turns a matrix-vector product into a matrix multiply.</li>
+<li><strong>Training:</strong> about 6 FLOPs per parameter per token (forward plus backward). Llama 3 8B was trained on about 15 trillion tokens: 6 × 8 × 10<sup>9</sup> × 15 × 10<sup>12</sup> ≈ 7.2 × 10<sup>23</sup> FLOPs, about 34 H100-years at 67% of the 989 TFLOP/s FP16 peak.</li>
+<li><strong>A 4K game at 60 Hz:</strong> 498 million pixels/s. An RTX 4090 (82.6 TFLOP/s FP32) has a budget of about 166,000 FLOPs per pixel per frame for every pass combined, and spends it on lighting, shadows, and post-processing.</li>
+</ul>
+
+<h3 id="sec-vocabulary">Three Words for the Next Pages</h3>
+<p>The story pages that follow need just three terms. The pages after them go into each in depth.</p>
+<ul>
+<li><strong>Thread:</strong> one running copy of the kernel, usually responsible for one output element. Each has its own registers.</li>
+<li><strong>Block:</strong> a group of up to 1,024 threads that runs together on one SM and can share a small, fast, on-chip <em>shared memory</em> and wait for each other at a barrier. A launch is a grid of many blocks. See <a href="#/gpu-launch">Grids, Blocks, and Threads</a>.</li>
+<li><strong>Global memory:</strong> the GPU's DRAM (HBM or GDDR), visible to every thread. Kernel inputs and outputs live there, and reaching it costs hundreds of cycles, partly hidden by caches.</li>
+</ul>
+<p class="refs">References: Williams, Waterman, and Patterson, "Roofline: An Insightful Visual Performance Model for Multicore Architectures" (2009) · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Chapter 4 · Kirk, Hwu, and El Hajj, <em>Programming Massively Parallel Processors</em> (4th ed.), Chapter 10 (reductions) · Kaplan et al., "Scaling Laws for Neural Language Models" (2020), for the 2 and 6 FLOPs per parameter rules · Meta, Llama 3 model card</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>On an A100 80 GB (19.5 TFLOP/s FP32, 312 TFLOP/s BF16 on Tensor Cores, 2.04 TB/s), find the minimum-traffic arithmetic intensity, whether each kernel is memory- or compute-bound, and its time at the roofline: (a) ReLU over 134,217,728 BF16 values, written back as BF16, (b) a sum of 268,435,456 FP32 values, (c) an 8,192 × 8,192 × 8,192 BF16 GEMM with BF16 inputs and output.</p>`,
+        a: `<ol><li>Ridges: FP32 19.5 TFLOP/s / 2.04 TB/s ≈ 9.6 FLOP/B, BF16 Tensor Core 312 TFLOP/s / 2.04 TB/s ≈ 153 FLOP/B.</li><li>ReLU: 1 FLOP per 2 B read + 2 B written = <strong>0.25 FLOP/B</strong>, memory-bound. Bytes: 134,217,728 values × 4 B/value ≈ 537 MB, so 537 MB / 2.04 TB/s ≈ <strong>263 µs</strong>.</li><li>Sum: 1 FLOP per 4 B read = <strong>0.25 FLOP/B</strong>, memory-bound. Bytes: 268,435,456 values × 4 B/value ≈ 1.07 GB, so 1.07 GB / 2.04 TB/s ≈ <strong>526 µs</strong>.</li><li>GEMM: FLOPs = 2 FLOP/FMA × 8,192<sup>3</sup> FMAs ≈ 1.10 × 10<sup>12</sup> FLOP. Bytes = 3 matrices × 8,192<sup>2</sup> values/matrix × 2 B/value ≈ 403 MB. AI ≈ <strong>2,731 FLOP/B</strong> (N/3 for 2-byte values), 18× past the ridge, so compute-bound: 1.10 × 10<sup>12</sup> FLOP / 312 TFLOP/s ≈ <strong>3.52 ms</strong>. Its memory floor is only 403 MB / 2.04 TB/s ≈ 197 µs.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>You serve Mistral 7B (7.24 billion parameters, BF16 weights) on one A100 80 GB (312 TFLOP/s BF16, 2.04 TB/s). Estimate the time per decode step and the tokens per second at batch sizes 1, 64, and 256, and find the batch size where decoding turns compute-bound. What stops you from simply running at that batch size?</p><p class="given">Assume each step reads every weight once, ignore KV-cache and activation traffic, and assume the kernels reach the roofline.</p>`,
+        a: `<ol><li>Weight bytes: 7.24 × 10<sup>9</sup> parameters × 2 B/parameter = 14.48 GB. Memory time per step: 14.48 GB / 2.04 TB/s ≈ 7.10 ms, whatever the batch.</li><li>Compute per step at batch B: 2 FLOP/parameter/token × 7.24 × 10<sup>9</sup> parameters × B tokens = 1.448 × 10<sup>10</sup> FLOP/token × B tokens.</li><li>B = 1: compute 1.448 × 10<sup>10</sup> FLOP / 312 TFLOP/s ≈ 46 µs, so memory-bound at <strong>7.10 ms/step, about 141 tokens/s</strong>.</li><li>B = 64: compute 9.27 × 10<sup>11</sup> FLOP / 312 TFLOP/s ≈ 2.97 ms, still under 7.10 ms. Step 7.10 ms, 64 tokens / 7.10 ms ≈ <strong>9,000 tokens/s</strong>, 64× the throughput for free.</li><li>B = 256: compute 3.71 × 10<sup>12</sup> FLOP / 312 TFLOP/s ≈ 11.9 ms, now longer than the memory time, so <strong>11.9 ms/step, about 21,500 tokens/s</strong>.</li><li>Crossover: 7.10 ms × 312 TFLOP/s / 1.448 × 10<sup>10</sup> FLOP/token ≈ <strong>153 tokens</strong>, which is the ridge point, because each weight byte serves 1 FLOP per token in the batch.</li></ol><p>What stops you: the KV cache. Every sequence in the batch keeps its own keys and values in HBM and reads them every step, and that traffic grows with batch size and context length, so it eats both the 80 GB and the bandwidth this estimate ignored. Latency also rises once the step is compute-bound, since each user's next token waits 11.9 ms instead of 7.1 ms.</p>`
       }
     ]
   }
