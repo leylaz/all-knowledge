@@ -42,7 +42,7 @@ section({
 <h3 id="sec-mesi-states">MESI States</h3>
 <ul><li><strong>Modified:</strong> only copy, dirty.</li><li><strong>Exclusive:</strong> only copy, clean; can become M silently.</li><li><strong>Shared:</strong> possibly other copies, read only.</li><li><strong>Invalid.</strong></li></ul>
 <h3 id="sec-snooping">Snooping</h3>
-<p>A read miss broadcasts a read; an owner in M supplies data and drops to S. A write broadcasts ownership requests that invalidate other copies. MOESI adds Owned, letting dirty lines be shared without writeback.</p>
+<p>A read miss broadcasts a read, and an owner in M supplies data and drops to S. A write broadcasts an ownership request that invalidates other copies. See <a href="#/snooping">Snooping Protocols</a> for the bus transactions, snoop responses, and races.</p>
 <h3 id="sec-coherence-consistency">Coherence vs. Consistency</h3>
 <p>Coherence covers one address; consistency covers the order across addresses.</p>`,
   practice: {
@@ -60,6 +60,128 @@ section({
       {
         q: `<p>Why does the E state exist?</p>`,
         a: `<p>Private data is often read and then written. Without E, the read leaves the line in S and the write needs an upgrade message. With E, the core knows it has the only copy and can move to M silently.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "snooping",
+  region: "coh",
+  title: "Snooping Protocols",
+  sections: [
+    { id: "order", label: "The Bus as the Ordering Point" },
+    { id: "controllers", label: "Two Controllers per Cache" },
+    { id: "responses", label: "Snoop Responses" },
+    { id: "update", label: "Invalidate or Update" },
+    { id: "tags", label: "Snoop Bandwidth and Duplicate Tags" },
+    { id: "split", label: "Split-Transaction Buses" },
+    { id: "beyond", label: "Snooping Without a Bus" },
+    { id: "model", label: "What to Model" }
+  ],
+  body: `
+<p>A snooping protocol puts every cache on a shared broadcast medium. Each miss is sent to all caches, and every cache controller watches (snoops) that traffic and checks its own tags to see whether it must react. <a href="#/mesi">MESI</a> defines the states. This page covers the machinery that moves a line between them: the bus transactions, the controllers, the responses, and what changes once the bus stops being atomic. It follows Hennessy &amp; Patterson's Chapter 5 and Culler and Singh's treatment of bus-based multiprocessors.</p>
+
+<h3 id="sec-order">The Bus as the Ordering Point</h3>
+<p>Coherence needs every write to a location to be seen in the same order by every core (write serialization). A bus gives that order for free: only one request can win arbitration at a time, and every cache sees the winners in the same sequence. A write is ordered at the moment its request wins the bus, not when its data arrives or when the store reaches the cache array. A cache that loses arbitration must keep snooping while it waits, because a request ordered ahead of it can change the state of the line it is waiting for.</p>
+<p>The bus carries a small set of transactions:</p>
+<ul>
+<li><strong>BusRd:</strong> a read miss. The requester wants a readable copy.</li>
+<li><strong>BusRdX:</strong> a write miss (read for ownership). The requester wants the data and the only copy, so every other copy is invalidated.</li>
+<li><strong>BusUpgr:</strong> the requester already holds the line in S and wants to write it. It needs only the invalidations, not the data.</li>
+<li><strong>Flush:</strong> a cache puts a dirty line on the bus, either to supply another cache or to write it back on eviction.</li>
+</ul>
+
+<h3 id="sec-controllers">Two Controllers per Cache</h3>
+<p>Each cache has one state machine driven from two sides: requests from its own core, and transactions it snoops from the bus. For MESI with the transactions above:</p>
+<div class="tbl"><table>
+<tr><th>State</th><th>Core reads</th><th>Core writes</th><th>Line evicted</th></tr>
+<tr><td>I</td><td>BusRd, then E if no other cache asserts Shared, otherwise S</td><td>BusRdX, then M</td><td>Nothing to do</td></tr>
+<tr><td>S</td><td>Hit</td><td>BusUpgr, then M</td><td>Silent, to I</td></tr>
+<tr><td>E</td><td>Hit</td><td>Silent, to M</td><td>Silent, to I</td></tr>
+<tr><td>M</td><td>Hit</td><td>Hit</td><td>Flush (writeback), to I</td></tr>
+</table></div>
+<div class="tbl"><table>
+<tr><th>State</th><th>Snoops BusRd</th><th>Snoops BusRdX</th><th>Snoops BusUpgr</th></tr>
+<tr><td>I</td><td>Ignore</td><td>Ignore</td><td>Ignore</td></tr>
+<tr><td>S</td><td>Assert Shared, stay S</td><td>To I</td><td>To I</td></tr>
+<tr><td>E</td><td>Assert Shared, to S</td><td>To I</td><td>Cannot happen (no other copy exists)</td></tr>
+<tr><td>M</td><td>Assert Shared and Dirty, Flush, to S</td><td>Flush, to I</td><td>Cannot happen</td></tr>
+</table></div>
+<p>The table assumes an atomic bus, where a request and its response happen as one step. On a split-transaction bus, a cache can lose its copy while its own upgrade is still waiting, and the protocol has to handle that (below).</p>
+
+<h3 id="sec-responses">Snoop Responses</h3>
+<p>A requester needs two facts from the snoopers before the transaction can finish: does anyone else hold the line, and does anyone hold it dirty. Classic buses collect them on <strong>wired-OR lines</strong> that any cache can pull:</p>
+<ul>
+<li><strong>Shared:</strong> some other cache holds a copy. On a BusRd, it decides between E and S for the requester. Without it, MESI collapses to MSI.</li>
+<li><strong>Dirty (or Inhibit):</strong> some cache holds the line in M and will supply the data, so memory must not respond.</li>
+<li><strong>Snoop done:</strong> every cache has finished its tag lookup. The bus can't close the snoop phase until the slowest snooper answers, so snoop latency is set by the busiest cache, not the average one.</li>
+</ul>
+<p>Intel's P6 front-side bus, used from the Pentium Pro through the Core 2 generation, has exactly this shape: HIT# for Shared and HITM# for a hit on a Modified line, with both asserted together meaning "stall the snoop phase, I'm not done yet."</p>
+<p>Who supplies clean data is a design choice. In the simplest MESI (the Illinois protocol in Culler and Singh), sharers can supply clean lines too, but then several caches may answer at once and one must be picked. That is the problem MESIF's Forward state solves (see <a href="#/moesi/forward">MESIF: The Forward State</a>). Many bus designs simply let memory supply every clean line.</p>
+
+<h3 id="sec-update">Invalidate or Update</h3>
+<p>Everything above is <strong>write-invalidate</strong>: a writer removes all other copies, then writes locally as often as it likes. The alternative is <strong>write-update</strong> (write broadcast): every write to a shared line is put on the bus, and the other copies are updated in place. Xerox PARC's Dragon and DEC's Firefly workstations used update protocols.</p>
+<ul>
+<li><strong>Update wins</strong> when one core writes a value and others read it soon after, because readers never miss.</li>
+<li><strong>Invalidate wins</strong> when a core writes the same line many times before anyone reads it. Update would send every one of those writes over the bus, while invalidate sends one invalidation. It also wins when a line migrates between cores or when a former sharer has stopped using it, since update keeps paying for copies nobody reads.</li>
+</ul>
+<p>Bus bandwidth is the scarce resource, so nearly every modern protocol invalidates. Update survives in narrow places, such as some protocols' handling of specific synchronization variables.</p>
+
+<h3 id="sec-tags">Snoop Bandwidth and Duplicate Tags</h3>
+<p>Every snooped transaction needs a tag lookup in every cache, and almost all of them miss. Those lookups compete with the core's own accesses for the tag array. Two standard fixes:</p>
+<ul>
+<li><strong>Duplicate tags:</strong> keep a second copy of the tag array (or a second tag port) for the snoop controller. Snoops no longer steal cycles from the core. The two copies must be updated together on every fill and state change.</li>
+<li><strong>Inclusion:</strong> if the L2 includes everything in the L1, only the L2 needs to snoop. The L1 is disturbed only when the L2 finds the line and must invalidate or downgrade the L1's copy as well.</li>
+</ul>
+<p>Neither fix removes the energy and bus traffic of broadcasting, which grows with core count. Removing the broadcast itself is the job of snoop filters (see <a href="#/moesi/filters">Snoop Filters and Inclusion</a>) and, at larger scale, directories.</p>
+
+<h3 id="sec-split">Split-Transaction Buses</h3>
+<p>An <strong>atomic bus</strong> holds the bus from request until the data returns, so the bus sits idle for the whole memory latency. A <strong>split-transaction bus</strong> separates the request phase from the response phase and lets other requests use the bus in between. The SGI Challenge, for example, allowed up to 8 outstanding reads on its bus. This multiplies usable bandwidth, but a request and its response are no longer one indivisible step, so the protocol needs states for "ordered but not finished":</p>
+<ul>
+<li><strong>Read then invalidate:</strong> core 0's BusRd is ordered, and before its data arrives, core 1's BusRdX to the same line is ordered. Core 0's read came first, so it may use the data once when it arrives, then it must invalidate the line instead of keeping it in S. Sorin, Hill, and Wood call this state IS<sup>D</sup>I.</li>
+<li><strong>Lost upgrade:</strong> two caches in S both issue BusUpgr. The first one ordered wins. The second one snoops it while its own request is still pending, loses its copy, and its upgrade must now fetch data, so it has to become a BusRdX.</li>
+<li><strong>Conflicting requests:</strong> many buses simplify this by keeping a table of outstanding requests in every controller and refusing to issue a request for a line that already has one outstanding. The SGI Challenge did this.</li>
+</ul>
+<p>These are the snooping versions of the transient states on <a href="#/coh-transient">Transient States and Protocol Races</a>. They are fewer than a directory's, because the bus still provides a total order of requests.</p>
+
+<h3 id="sec-beyond">Snooping Without a Bus</h3>
+<p>Electrical limits ended the shared multidrop bus, but broadcast protocols outlived it:</p>
+<ul>
+<li><strong>Rings:</strong> a unidirectional ring delivers messages to each stop in a fixed order, so it can serve as the ordering medium. Intel's client ring and AMD's core complexes add an inclusive L3 or shadow tags so most requests probe no cores at all (see <a href="#/moesi/filters">Snoop Filters and Inclusion</a>).</li>
+<li><strong>Broadcast over point-to-point links:</strong> AMD's Opteron sent coherence probes for every miss to every socket over HyperTransport, with the home memory controller acting as the ordering point. Later Opterons added HT Assist, which used 1 MB of the 6 MB L3 as a probe filter, because broadcast probes limited multi-socket bandwidth.</li>
+<li><strong>Scoped broadcast:</strong> IBM's POWER servers predict how far a request needs to go and broadcast first to the nearest chips, widening the scope only when the line isn't found there.</li>
+</ul>
+<p>Each step adds filtering or ordering that a pure bus didn't need, until the design is a directory in all but name (see <a href="#/directory/why">Why Snooping Stops Scaling</a>).</p>
+
+<h3 id="sec-model">What to Model</h3>
+<ul>
+<li>Occupancy of the ordering medium (bus, ring, or home agent) per transaction type, and the arbitration delay when it is busy.</li>
+<li>Snoop response latency as the maximum over all snoopers, including tag-port conflicts with the core's own accesses when there are no duplicate tags.</li>
+<li>The data source for each request (memory, owner cache, or forwarder) and the latency of each path.</li>
+<li>Outstanding-request limits per controller and for the bus as a whole, which cap memory-level parallelism.</li>
+<li>Transient states for requests that are ordered but not complete. A model that treats each transaction as atomic overstates how quickly a contended line moves.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 5 (centralized shared-memory architectures and snooping coherence protocols) · Culler and Singh, <em>Parallel Computer Architecture: A Hardware/Software Approach</em> (1999), Chapters 5 and 6 · Sorin, Hill, and Wood, <em>A Primer on Memory Consistency and Cache Coherence</em>, 2nd ed. (2020), Chapter 7 · Conway et al., "Cache Hierarchy and Memory Subsystem of the AMD Opteron Processor," <em>IEEE Micro</em> (2010)</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Four cores share an atomic bus and run MESI with BusRd, BusRdX, BusUpgr, and the Shared and Dirty snoop lines. Memory supplies clean data. A cache in M supplies dirty data with a Flush, and memory takes a copy of the flushed line. Line X starts Invalid in every cache. For the sequence C0 reads, C1 reads, C1 writes, C2 reads, C0 writes, give each bus transaction, the snoop lines asserted, the data source, and the resulting states. Then count bus transactions, data transfers, and memory writes.</p>`,
+        a: `<ol><li>C0 reads: BusRd. No snoop line is asserted, and memory supplies the data. C0 = <strong>E</strong>.</li><li>C1 reads: BusRd. C0 asserts Shared and goes E → S. Memory supplies the data. C1 = S.</li><li>C1 writes: C1 already has the data, so it issues BusUpgr. C0 goes S → I. No data moves. C1 = <strong>M</strong>.</li><li>C2 reads: BusRd. C1 asserts Shared and Dirty, so memory stays silent. C1 Flushes the line, C2 takes it, and memory takes a copy. C1 goes M → S, and C2 = S.</li><li>C0 writes: C0 holds nothing, so it issues BusRdX. C1 and C2 go S → I. Memory is up to date since step 4 and supplies the data. C0 = <strong>M</strong>.</li><li>Totals: 5 bus transactions (3 BusRd, 1 BusUpgr, 1 BusRdX), 4 data transfers (3 from memory in steps 1, 2, and 5, and 1 cache-to-cache in step 4), and 1 memory write (the Flush in step 4). Final states: C0 = M, and C1, C2, and C3 = I.</li></ol>`
+      },
+      {
+        q: `<p>A 16-core chip snoops by broadcast, with every L2 miss probing the private L2 of every other core. Each core runs at an IPC of 1.5 instructions/cycle, with 30 L1D misses per 1,000 instructions (each one an L2 lookup) and 4 L2 misses per 1,000 instructions. Assume every core runs the same workload, and that 3% of L2 misses find the line in another core's L2, in exactly one cache. (a) How many snoop lookups per cycle does each L2 receive, compared with its own core's lookups? (b) What fraction of snoop lookups find the line? (c) Redo (a) for 64 cores.</p>`,
+        a: `<ol><li>L2 misses per core: 1.5 instructions/cycle × 4 misses / 1,000 instructions = 0.006 misses/cycle.</li><li>Snoops arriving at one L2: 15 other cores × 0.006 misses/cycle = 0.09 snoop lookups/cycle.</li><li>The core's own L2 lookups: 1.5 instructions/cycle × 30 L1D misses / 1,000 instructions = 0.045 lookups/cycle.</li><li>(a) Snoops are 0.09 / 0.045 = <strong>2×</strong> the core's own L2 lookups, so without duplicate tags two-thirds of the tag array's work is snooping.</li><li>(b) Each miss causes 15 lookups, and on average 0.03 of them find the line (3% of misses, one cache each). Useful fraction: 0.03 hits/miss / 15 lookups/miss = <strong>0.2%</strong>. The other 99.8% of lookups are wasted energy.</li><li>(c) At 64 cores: 63 other cores × 0.006 misses/cycle = 0.378 snoop lookups/cycle, which is 0.378 / 0.045 = <strong>8.4×</strong> the core's own lookups. Duplicate tags would keep these off the core's tag port, but the useful fraction drops to 0.03 / 63 ≈ 0.05%, which is why chips this size filter snoops instead of broadcasting them.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Cores 0 and 1 both hold line X in S on a split-transaction bus running MESI, and both execute a store to X at about the same time. A request is ordered when it wins the address bus, and data returns later on a separate data bus. BusUpgr carries no data. Core 0's BusUpgr wins arbitration first. Walk through what core 1's controller must do, and describe the bug a controller would have if it treated its pending upgrade as already granted.</p>`,
+        a: `<p>Core 0's upgrade is ordered first, so core 0's store comes first in the coherence order. Core 1 snoops that BusUpgr while its own BusUpgr is still waiting for the bus. It is in a transient state ("S, upgrade pending"), and it must invalidate its copy, moving to the equivalent of "I, write miss pending." Its pending request is now wrong: an upgrade assumes the requester has the data, and core 1 no longer does. The controller must cancel it and reissue it as BusRdX (some buses convert it in place, or NACK it and let the requester retry). When core 1's BusRdX is ordered, core 0 is in M, so it asserts Dirty, Flushes the line with its store included, and goes to I. Core 1 then takes the line in M and performs its own store on top of core 0's value. The final order, core 0's store then core 1's, is the same for everyone.</p><p>If core 1 treated its upgrade as granted, it would write into its stale S copy and go to M without the data from core 0's store. Two caches would then have believed they were the sole writer, and core 0's store would be lost when core 1's line is later written back. That breaks write serialization. The rule that prevents it: a store may not be performed until its own request has been ordered, and every request ordered ahead of it must be applied to the line's state first.</p>`
+      },
+      {
+        q: `<p>A quad-core Core 2 Quad Q9450 at 2.66 GHz shares one front-side bus that moves 8 bytes per transfer at 1,333 MT/s. Lines are 64 bytes, and the time from a request to the first data returning from memory is 60 ns. Each core runs at an IPC of 1.2 instructions/cycle. Assume only line fills use the data bus (no writebacks or prefetches), the address bus is never the bottleneck, and all four cores miss at the same rate. What is the highest L2 MPKI per core the bus can sustain if it is split-transaction, and if it is atomic?</p>`,
+        a: `<ol><li>Data phase per line: 64 bytes / 8 bytes/transfer = 8 transfers, and 8 transfers / 1,333 × 10<sup>6</sup> transfers/s = 6.0 ns.</li><li>Split-transaction: the data bus is the only limit, so it moves 1 line / 6.0 ns = 166.7 × 10<sup>6</sup> lines/s (10.67 GB/s).</li><li>Atomic: each fill holds the bus for 60 ns + 6.0 ns = 66 ns, so 1 line / 66 ns = 15.2 × 10<sup>6</sup> lines/s (0.97 GB/s), 11× less.</li><li>Instructions per core: 2.66 × 10<sup>9</sup> cycles/s × 1.2 instructions/cycle = 3.19 × 10<sup>9</sup> instructions/s.</li><li>Split-transaction: 166.7 × 10<sup>6</sup> lines/s / 4 cores = 41.7 × 10<sup>6</sup> lines/s per core, and 41.7 × 10<sup>6</sup> misses/s / 3.19 × 10<sup>9</sup> instructions/s × 1,000 = <strong>13.1 MPKI</strong>.</li><li>Atomic: 15.2 × 10<sup>6</sup> lines/s / 4 cores = 3.79 × 10<sup>6</sup> lines/s per core, and 3.79 × 10<sup>6</sup> misses/s / 3.19 × 10<sup>9</sup> instructions/s × 1,000 = <strong>1.19 MPKI</strong>.</li></ol><p>These are ceilings at 100% bus utilization. Queueing delay grows sharply well before that, so a real system sees miss latency climb at perhaps 60 to 70% of these rates, and writebacks would lower them further. The atomic number shows why every bus that served more than a couple of cores became split-transaction: one memory latency per transaction makes 4 cores bus-bound at an L2 miss rate that ordinary workloads exceed.</p>`
       }
     ]
   }
@@ -153,7 +275,7 @@ section({
 <p>A directory keeps, for every memory block, a record of which caches hold it and in what state. A miss goes to that record instead of to every cache, so coherence becomes a set of point-to-point messages. The structure of this page follows Hennessy &amp; Patterson's Chapter 5 (distributed shared memory and directory-based coherence), with the implementation details from their Appendix I and from Sorin, Hill, and Wood's primer.</p>
 
 <h3 id="sec-why">Why Snooping Stops Scaling</h3>
-<p>A snooping protocol needs every miss to reach every cache, and in a fixed order. That costs in three ways as core count grows:</p>
+<p>A <a href="#/snooping">snooping protocol</a> needs every miss to reach every cache, and in a fixed order. That costs in three ways as core count grows:</p>
 <ul>
 <li><strong>Bandwidth:</strong> each miss becomes N probes, so probe traffic grows as N × (miss rate per core) × N, roughly with the square of the core count.</li>
 <li><strong>Tag bandwidth:</strong> every cache must look up every probe, even though almost all of them miss. The lookups compete with the core's own accesses.</li>

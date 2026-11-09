@@ -30,6 +30,7 @@ const GLOSSARY = {
   "LSQ": { def: "Load and store queues: hold in-flight memory operations in program order for forwarding, ordering checks, and commit.", page: "lsq" },
   "MESI": { def: "A coherence protocol with four line states: Modified, Exclusive, Shared, Invalid.", page: "mesi" },
   "MLP": { def: "Memory-level parallelism: the average number of cache misses outstanding at once. Higher MLP hides more of the memory latency.", page: "latency-tolerance" },
+  "snooping": { def: "Coherence by broadcast: every miss goes to all caches over a shared, ordered medium such as a bus or ring, and each cache checks its own tags.", page: "snooping" },
   "MOESI": { def: "MESI plus Owned: a dirty line that other caches may share; the owner supplies data and writes it back later.", page: "moesi" },
   "TAGE": { def: "TAgged GEometric history length predictor: tagged tables indexed with geometrically longer histories; the longest match predicts.", page: "fe-direction/tage" },
   "FR-FCFS": { def: "First-ready, first-come-first-served: the baseline DRAM scheduling policy that serves row-buffer hits before older requests.", page: "dram-ctrl/scheduling" },

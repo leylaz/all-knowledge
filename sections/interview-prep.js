@@ -2432,7 +2432,7 @@ M(`<p>A Zen 5 core can track 124 outstanding misses, and idle DRAM latency is 90
   id: "intv-coh",
   title: "Coherence and Consistency",
   body: `
-<p>Background: <a href="#/r/coh">Coherence</a>, <a href="#/moesi">MOESI, MESIF, and Snoop Filters</a>, <a href="#/directory">Directory-Based Coherence</a>, <a href="#/coh-transient">Transient States and Protocol Races</a>, <a href="#/icx-noc">On-Chip Networks: Flits, Routers, and Deadlock</a>, <a href="#/consistency">Memory Consistency Models in Hardware</a>.</p>
+<p>Background: <a href="#/r/coh">Coherence</a>, <a href="#/snooping">Snooping Protocols</a>, <a href="#/moesi">MOESI, MESIF, and Snoop Filters</a>, <a href="#/directory">Directory-Based Coherence</a>, <a href="#/coh-transient">Transient States and Protocol Races</a>, <a href="#/icx-noc">On-Chip Networks: Flits, Routers, and Deadlock</a>, <a href="#/consistency">Memory Consistency Models in Hardware</a>.</p>
 <h3 id="sec-protocol">Protocols and States</h3>` +
 Q(`<p>In MESIF, why does exactly one sharer hold a clean shared line in the F state, and which sharer gets it?</p>`,
 `<p>A new reader can get a clean shared line from another cache faster than from memory, but if every sharer answered, all but one reply would be wasted traffic. F names a single responder, and the other sharers stay silent in S. The newest requester usually receives F, and the previous holder drops to S, because the newest copy is the least likely to be evicted soon. If the F copy is evicted, the next request is served by the LLC or memory.</p>`, "easy") +
