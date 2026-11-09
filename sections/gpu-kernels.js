@@ -22,8 +22,9 @@ section({
 <ul>
 <li><a href="#/gpu-why">Why GPU Kernels Exist</a>: the workloads GPUs are built for, how they differ from CPUs, and a first kernel next to the CPU loop it replaces.</li>
 <li><a href="#/gpu-compute">What GPUs Compute</a>: elementwise work, reductions, and matrix multiplies, measured in FLOPs per byte against real workload sizes.</li>
+<li><a href="#/gpu-naive">The Naive Matrix Multiply</a>: one thread per output, coalesced, and still at about 5% of peak because it requests every input element over and over.</li>
 <li><a href="#/gpu-launch">Grids, Blocks, and Threads</a>: indexing, how blocks are placed on SMs, the thread hierarchy they form, and what a launch costs.</li>
-<li><a href="#/gpu-tiling">Tiled Matrix Multiply in Shared Memory</a>: the naive matrix multiply, why it is load-bound, and how shared-memory tiles with <code>__syncthreads</code> fix it.</li>
+<li><a href="#/gpu-tiling">Tiled Matrix Multiply in Shared Memory</a>: how shared-memory tiles with <code>__syncthreads</code> cut the naive kernel's requests.</li>
 <li><a href="#/gpu-kernels">GPU Kernels and Tensor Cores</a>: a matrix-multiply kernel from the inside, epilogue fusion, and what Tensor Cores compute.</li>
 </ul>
 <p>The rest of the tab goes down a level: <a href="#/r/gsm">CUDA Cores and the SM</a> for the hardware a block runs on, <a href="#/r/gwarp">Warps and SIMT</a> for how its threads are issued, <a href="#/r/gmem">GPU Memory System</a> for how its loads are served, and <a href="#/r/gperf">GPU Performance Modeling</a> for predicting how fast all of it runs. For shipping hardware, see <a href="#/hopper">NVIDIA Hopper</a> and <a href="#/blackwell">NVIDIA Blackwell</a>.</p>`,
@@ -217,7 +218,7 @@ saxpy&lt;&lt;&lt;(n + 255) / 256, 256&gt;&gt;&gt;(n, 2.0f, x, y);</code></pre></
 <h3 id="sec-matmul">Matrix Multiply</h3>
 <p>\\(C = AB\\) with \\(N \\times N\\) matrices does \\(N^3\\) multiply-adds, \\(2N^3\\) FLOPs, but it only has to move the three matrices, \\(3N^2\\) values. Every element of \\(A\\) is used \\(N\\) times, once for each column of \\(B\\). In FP32, at the minimum traffic:</p>
 <div class="math">\\[ \\text{AI}_\\text{min traffic} = \\frac{2N^3 \\ \\text{FLOP}}{3N^2 \\times 4 \\ \\text{B}} = \\frac{N}{6} \\ \\text{FLOP/B} \\]</div>
-<p>For \\(N = 4{,}096\\) that's about 683 FLOP/B, thousands of times more than elementwise work, and it grows with the matrix. This is the one common shape that can keep a GPU's lanes busy, and it's why GPUs dedicate Tensor Cores to it. The catch is the word "minimum": a kernel only gets that intensity if it actually reuses each loaded value \\(N\\) times instead of loading it again. The next pages show what happens when it doesn't.</p>
+<p>For \\(N = 4{,}096\\) that's about 683 FLOP/B, thousands of times more than elementwise work, and it grows with the matrix. This is the one common shape that can keep a GPU's lanes busy, and it's why GPUs dedicate Tensor Cores to it. The catch is the word "minimum": a kernel only gets that intensity if it actually reuses each loaded value \\(N\\) times instead of loading it again. <a href="#/gpu-naive">The Naive Matrix Multiply</a> shows what happens when it doesn't.</p>
 
 <h3 id="sec-intensity">FLOPs per Byte</h3>
 <p>A kernel's <strong>arithmetic intensity</strong> (AI) is FLOPs done per byte moved to or from DRAM. A chip's <strong>ridge point</strong> is its peak FLOP/s divided by its bandwidth: kernels below it are memory-bound, kernels above it can be compute-bound. That's the roofline model (see <a href="#/gen-gpus/roofline">GPUs for Generative AI</a>):</p>
@@ -259,6 +260,98 @@ saxpy&lt;&lt;&lt;(n + 255) / 256, 256&gt;&gt;&gt;(n, 2.0f, x, y);</code></pre></
       {
         q: `<p>You serve Mistral 7B (7.24 billion parameters, BF16 weights) on one A100 80 GB (312 TFLOP/s BF16, 2.04 TB/s). Estimate the time per decode step and the tokens per second at batch sizes 1, 64, and 256, and find the batch size where decoding turns compute-bound. What stops you from simply running at that batch size?</p><p class="given">Assume each step reads every weight once, ignore KV-cache and activation traffic, and assume the kernels reach the roofline.</p>`,
         a: `<ol><li>Weight bytes: 7.24 × 10<sup>9</sup> parameters × 2 B/parameter = 14.48 GB. Memory time per step: 14.48 GB / 2.04 TB/s ≈ 7.10 ms, whatever the batch.</li><li>Compute per step at batch B: 2 FLOP/parameter/token × 7.24 × 10<sup>9</sup> parameters × B tokens = 1.448 × 10<sup>10</sup> FLOP/token × B tokens.</li><li>B = 1: compute 1.448 × 10<sup>10</sup> FLOP / 312 TFLOP/s ≈ 46 µs, so memory-bound at <strong>7.10 ms/step, about 141 tokens/s</strong>.</li><li>B = 64: compute 9.27 × 10<sup>11</sup> FLOP / 312 TFLOP/s ≈ 2.97 ms, still under 7.10 ms. Step 7.10 ms, 64 tokens / 7.10 ms ≈ <strong>9,000 tokens/s</strong>, 64× the throughput for free.</li><li>B = 256: compute 3.71 × 10<sup>12</sup> FLOP / 312 TFLOP/s ≈ 11.9 ms, now longer than the memory time, so <strong>11.9 ms/step, about 21,500 tokens/s</strong>.</li><li>Crossover: 7.10 ms × 312 TFLOP/s / 1.448 × 10<sup>10</sup> FLOP/token ≈ <strong>153 tokens</strong>, which is the ridge point, because each weight byte serves 1 FLOP per token in the batch.</li></ol><p>What stops you: the KV cache. Every sequence in the batch keeps its own keys and values in HBM and reads them every step, and that traffic grows with batch size and context length, so it eats both the 80 GB and the bandwidth this estimate ignored. Latency also rises once the step is compute-bound, since each user's next token waits 11.9 ms instead of 7.1 ms.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "gpu-naive",
+  region: "gk",
+  title: "The Naive Matrix Multiply",
+  sections: [
+    { id: "naive", label: "The Naive Kernel" },
+    { id: "naive-cost", label: "Where the Naive Kernel Spends Its Time" },
+    { id: "measured", label: "How Slow It Is in Practice" }
+  ],
+  body: `
+<p><a href="#/gpu-compute/matmul">Matrix Multiply</a> showed that a matrix multiply can do hundreds of FLOPs per byte, because each input element is used \\(N\\) times. That's only true if the kernel actually reuses what it loads. This page writes the kernel almost everyone writes first, one thread per output element, and shows that even with well-formed memory accesses it runs at about 5% of peak. The reason it's slow is the motivation for <a href="#/gpu-tiling">Tiling Through Shared Memory</a>.</p>
+
+<h3 id="sec-naive">The Naive Kernel</h3>
+<p>Each thread computes one element of \\(C = AB\\), where \\(A\\) is \\(M \\times K\\), \\(B\\) is \\(K \\times N\\), and all three are row-major FP32. The host side is the standard sequence: allocate, copy in, launch, copy out.</p>
+<pre><code>#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;cuda_runtime.h&gt;
+
+__global__ void matmul_naive(float *C, const float *A, const float *B, int M, int N, int K) {
+  int row = blockIdx.y * blockDim.y + threadIdx.y;
+  int col = blockIdx.x * blockDim.x + threadIdx.x;
+  if (row &lt; M &amp;&amp; col &lt; N) {
+    float sum = 0.0f;
+    for (int k = 0; k &lt; K; k++)
+      sum += A[row * K + k] * B[k * N + col];        <span class="cm">// 2 global loads per FMA</span>
+    C[row * N + col] = sum;
+  }
+}
+
+int main(void) {
+  const int M = 1024, N = 1024, K = 1024;
+  size_t bytes_a = (size_t)M * K * sizeof(float);
+  size_t bytes_b = (size_t)K * N * sizeof(float);
+  size_t bytes_c = (size_t)M * N * sizeof(float);
+
+  float *h_a = (float *)malloc(bytes_a), *h_b = (float *)malloc(bytes_b), *h_c = (float *)malloc(bytes_c);
+  for (int i = 0; i &lt; M * K; i++) h_a[i] = 1.0f;
+  for (int i = 0; i &lt; K * N; i++) h_b[i] = 1.0f;
+
+  float *d_a, *d_b, *d_c;
+  cudaMalloc(&amp;d_a, bytes_a);
+  cudaMalloc(&amp;d_b, bytes_b);
+  cudaMalloc(&amp;d_c, bytes_c);
+  cudaMemcpy(d_a, h_a, bytes_a, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_b, h_b, bytes_b, cudaMemcpyHostToDevice);
+
+  dim3 block(16, 16);                                <span class="cm">// 256 threads = 8 warps</span>
+  dim3 grid((N + 15) / 16, (M + 15) / 16);           <span class="cm">// 64 × 64 blocks</span>
+  matmul_naive&lt;&lt;&lt;grid, block&gt;&gt;&gt;(d_c, d_a, d_b, M, N, K);
+  cudaMemcpy(h_c, d_c, bytes_c, cudaMemcpyDeviceToHost);   <span class="cm">// waits for the kernel</span>
+
+  printf("C[0] = %.1f (expect %d)\\n", h_c[0], K);      <span class="cm">// all-ones inputs: every C entry is K</span>
+  cudaFree(d_a); cudaFree(d_b); cudaFree(d_c);
+  free(h_a); free(h_b); free(h_c);
+  return 0;
+}</code></pre>
+<p>The kernel is <strong>coalesced</strong> on purpose: <code>threadIdx.x</code> picks the column, so on each iteration a warp's neighboring threads read consecutive floats of \\(B\\) and share a single broadcast float of \\(A\\) per row, and every load is as compact as a load can be (see <a href="#/gpu-coalescing">Memory Coalescing</a>). Nothing about the access pattern is wasteful. The problem is volume.</p>
+
+<h3 id="sec-naive-cost">Where the Naive Kernel Spends Its Time</h3>
+<p>Every FMA needs two loads, and nothing a thread loads is ever reused by that thread. For \\(M = N = K = 1{,}024\\):</p>
+<ul>
+<li><strong>Per output element:</strong> 1,024 iterations × 2 loads/iteration = 2,048 loads = 8 KB requested, for 2,048 FLOPs.</li>
+<li><strong>Whole grid:</strong> 1,048,576 elements × 8 KB/element = 8 GiB of load requests for \\(2 \\times 1{,}024^3 \\approx 2.15\\) GFLOP. That's 0.25 FLOP/B against the loads, against a minimum of 12 MiB for the three matrices: each input element is requested 1,024 times.</li>
+<li><strong>Most of it doesn't reach DRAM:</strong> the three matrices are 4 MiB each and fit in the GPU's L2 cache together, and neighboring warps hit the same lines in the per-SM L1. Every one of those requests still costs a load instruction, a cache lookup, and a trip back through the load path.</li>
+<li><strong>Issue becomes the limit:</strong> an SM's load path handles about one warp-wide load per cycle, while its four schedulers can issue four warp-wide FMAs per cycle. At two loads per FMA, the kernel tops out near 1/8 of FP32 peak <em>even if every load hits L1</em>. In practice L2 latency and bandwidth pull it lower still.</li>
+</ul>
+<p>The redundancy is easy to see inside one block. The 16 threads in one row of the block all read the same row of \\(A\\), and the 16 threads in one column all read the same column of \\(B\\), each fetching its own copy from global memory. Tiling turns that overlap into reuse.</p>
+
+<h3 id="sec-measured">How Slow It Is in Practice</h3>
+<p>Simon Boehm's CUDA matmul worklog measures this kernel on an RTX A6000 (84 SMs, 38.7 TFLOP/s FP32, 768 GB/s) with \\(4{,}092 \\times 4{,}092\\) FP32 matrices, 137 GFLOP of work:</p>
+<ul>
+<li><strong>Coalesced, as above:</strong> 1,987 GFLOP/s, about 69 ms, which is <strong>5.1% of peak</strong>.</li>
+<li><strong>Requested vs needed:</strong> each thread loads \\(2 \\times 4{,}092\\) floats, about 548 GB in all, against 268 MB that any kernel must move. Running in 69 ms at 768 GB/s, at most 53 GB of that can have come from DRAM, so over 90% of requests were served by L1 and L2. Those caches are what keep the naive kernel from being far slower, and the request volume is what keeps it from being faster.</li>
+<li><strong>Uncoalesced, for contrast:</strong> with the two indices swapped, a warp's threads walk down a column of \\(A\\), each in a different row, and the same kernel drops to 309 GFLOP/s. Coalescing is necessary, but it's not where the remaining 95% went.</li>
+</ul>
+<p class="refs">References: Simon Boehm, CUDA matrix multiply worklog (siboehm.com, 2022), kernels 1 and 2 · NVIDIA, <em>CUDA C++ Programming Guide</em> · Kirk, Hwu, and El Hajj, <em>Programming Massively Parallel Processors</em> (4th ed.), Chapters 3 and 5 · <a href="https://www.youtube.com/watch?v=xewKxorikwE">Video walkthrough of naive and tiled CUDA matrix multiply</a></p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>The naive kernel runs with \\(M = N = K = 2{,}048\\) on an A100 (108 SMs, 64 FP32 lanes and 32 load/store units per SM, 1.41 GHz, 19.5 TFLOP/s FP32). How many bytes of loads does the grid request, and how does that compare with the minimum traffic? If each SM can issue one warp-wide 32-bit load per cycle, what FLOP/s ceiling does load issue put on the kernel, and what is the best possible run time?</p>`,
+        a: `<ol><li>Requests: 2,048<sup>2</sup> elements × (2 loads/iteration × 2,048 iterations) × 4 B/load = 4,194,304 elements × 16 KB/element ≈ <strong>68.7 GB</strong> (64 GiB).</li><li>Minimum: 3 matrices × 2,048<sup>2</sup> floats/matrix × 4 B/float ≈ <strong>50.3 MB</strong>, so the kernel requests about <strong>1,365×</strong> the minimum (2N/3 for N = 2,048).</li><li>Issue: per SM per cycle, 1 warp-wide load = 32 loads, and each FMA needs 2 loads, so 16 FMAs/cycle, against 64 lanes. Load issue caps the kernel at 16 / 64 = <strong>25% of peak</strong>.</li><li>Ceiling: 108 SMs × 16 FMA/cycle × 2 FLOP/FMA × 1.41 × 10<sup>9</sup> cycles/s ≈ <strong>4.87 TFLOP/s</strong>.</li><li>Time: 2 FLOP/FMA × 2,048<sup>3</sup> FMAs ≈ 17.2 GFLOP, so 17.2 GFLOP / 4.87 TFLOP/s ≈ <strong>3.53 ms</strong> at best, against 17.2 GFLOP / 19.5 TFLOP/s ≈ 0.88 ms at peak.</li></ol><p>The A100's ceiling is 1/4 of peak rather than the 1/8 on the page, because its SM has 64 FP32 lanes instead of 128 behind the same single warp-wide load per cycle.</p>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A colleague writes the naive kernel with 32 × 32 blocks but maps <code>row</code> to <code>threadIdx.x</code> and <code>col</code> to <code>threadIdx.y</code>. For one warp and one iteration of the k loop, how many distinct 32-byte sectors do the loads of A and of B touch, in their version and in the coalesced one? Predict how much slower their kernel is, and explain why the real slowdown can be smaller than the sector ratio.</p><p class="given">Assume FP32 row-major matrices with N = K = 2,048, so rows are 8 KB apart, and that warps are formed from consecutive <code>threadIdx.x</code>.</p>`,
+        a: `<ol><li><strong>Their version:</strong> a warp is 32 consecutive <code>threadIdx.x</code>, so 32 different rows and one column.<ul><li>A: <code>A[row * K + k]</code> hits 32 addresses 8 KB apart, so <strong>32 sectors</strong>, each carrying 4 useful bytes of 32 (12.5% efficiency).</li><li>B: <code>B[k * N + col]</code> is the same address for all 32 threads, a broadcast: <strong>1 sector</strong>.</li></ul></li><li><strong>Coalesced version:</strong> one row and 32 consecutive columns.<ul><li>A: one address, broadcast: <strong>1 sector</strong>.</li><li>B: 32 consecutive floats = 128 B = <strong>4 sectors</strong>.</li></ul></li><li>Per iteration: 33 sectors against 5, so about <strong>6.6× more</strong> memory work per FMA. With both versions limited by the load path, that predicts roughly a 6.6× slowdown, close to the measured ratio on this page's A6000.</li><li><strong>Why it can be smaller:</strong> the 32 sectors of A each hold 8 floats, and the same warp needs the next 7 of them in the next 7 iterations. If those lines stay in L1, later iterations hit, so DRAM traffic grows much less than 6.6×. The L1 still has to process 32 separate sectors per load instruction, which is why the slowdown stays large.</li></ol>`
       }
     ]
   }
@@ -381,15 +474,13 @@ scale&lt;&lt;&lt;grid, block&gt;&gt;&gt;(img, w, h, 2.0f);</code></pre>
   title: "Tiled Matrix Multiply in Shared Memory",
   sections: [
     { id: "hierarchy", label: "The Memory a Kernel Sees" },
-    { id: "naive", label: "The Naive Kernel" },
-    { id: "naive-cost", label: "Where the Naive Kernel Spends Its Time" },
     { id: "tiling", label: "Tiling Through Shared Memory" },
     { id: "phases", label: "Load, Synchronize, Compute" },
     { id: "bounds", label: "Bounds Checks and the Barrier Rule" },
     { id: "savings", label: "What Tiling Saves and What It Doesn't" }
   ],
   body: `
-<p>A matrix multiply written the obvious way, one thread per output element, spends nearly all its time loading operands. The classic fix is <strong>tiling</strong>: a thread block copies a square tile of each input into shared memory, synchronizes, and then every thread reuses that tile many times. This page builds the tiled kernel from the naive one on plain CUDA cores, so every step is visible. <a href="#/gpu-kernels/gemm">How a GEMM Kernel Works</a> takes the same idea to Tensor Cores and production tile sizes.</p>
+<p>A matrix multiply written the obvious way, one thread per output element, spends nearly all its time loading operands. The classic fix is <strong>tiling</strong>: a thread block copies a square tile of each input into shared memory, synchronizes, and then every thread reuses that tile many times. This page builds the tiled kernel from the one in <a href="#/gpu-naive">The Naive Matrix Multiply</a> on plain CUDA cores, so every step is visible. <a href="#/gpu-kernels/gemm">How a GEMM Kernel Works</a> takes the same idea to Tensor Cores and production tile sizes.</p>
 
 <h3 id="sec-hierarchy">The Memory a Kernel Sees</h3>
 <p>Each level of the hierarchy is shared by a different group of threads, and that scope decides who can reuse what.</p>
@@ -431,62 +522,6 @@ scale&lt;&lt;&lt;grid, block&gt;&gt;&gt;(img, w, h, 2.0f);</code></pre>
 <li><strong>A thread is not a CUDA core.</strong> A thread is a software context: a program counter (per warp) and a slice of registers. Its warp's instructions issue onto the SM's lanes, and an SM holds up to 2,048 threads against 128 FP32 lanes. See <a href="#/cuda-cores/lane">A Lane, Not a Core</a>.</li>
 </ul>
 <p>Shared memory is fast but not instant: about 19 cycles is still several dependent FMAs' worth. What makes it valuable is that it's on-chip, wide (32 banks, 128 B per cycle per SM), and controlled by the program, so a block can stage data there once and then read it many times.</p>
-
-<h3 id="sec-naive">The Naive Kernel</h3>
-<p>Each thread computes one element of \\(C = AB\\), where \\(A\\) is \\(M \\times K\\), \\(B\\) is \\(K \\times N\\), and all three are row-major FP32. The host side is the standard sequence: allocate, copy in, launch, copy out.</p>
-<pre><code>#include &lt;stdio.h&gt;
-#include &lt;stdlib.h&gt;
-#include &lt;cuda_runtime.h&gt;
-
-__global__ void matmul_naive(float *C, const float *A, const float *B, int M, int N, int K) {
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  if (row &lt; M &amp;&amp; col &lt; N) {
-    float sum = 0.0f;
-    for (int k = 0; k &lt; K; k++)
-      sum += A[row * K + k] * B[k * N + col];        <span class="cm">// 2 global loads per FMA</span>
-    C[row * N + col] = sum;
-  }
-}
-
-int main(void) {
-  const int M = 1024, N = 1024, K = 1024;
-  size_t bytes_a = (size_t)M * K * sizeof(float);
-  size_t bytes_b = (size_t)K * N * sizeof(float);
-  size_t bytes_c = (size_t)M * N * sizeof(float);
-
-  float *h_a = (float *)malloc(bytes_a), *h_b = (float *)malloc(bytes_b), *h_c = (float *)malloc(bytes_c);
-  for (int i = 0; i &lt; M * K; i++) h_a[i] = 1.0f;
-  for (int i = 0; i &lt; K * N; i++) h_b[i] = 1.0f;
-
-  float *d_a, *d_b, *d_c;
-  cudaMalloc(&amp;d_a, bytes_a);
-  cudaMalloc(&amp;d_b, bytes_b);
-  cudaMalloc(&amp;d_c, bytes_c);
-  cudaMemcpy(d_a, h_a, bytes_a, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_b, h_b, bytes_b, cudaMemcpyHostToDevice);
-
-  dim3 block(16, 16);                                <span class="cm">// 256 threads = 8 warps</span>
-  dim3 grid((N + 15) / 16, (M + 15) / 16);           <span class="cm">// 64 × 64 blocks</span>
-  matmul_naive&lt;&lt;&lt;grid, block&gt;&gt;&gt;(d_c, d_a, d_b, M, N, K);
-  cudaMemcpy(h_c, d_c, bytes_c, cudaMemcpyDeviceToHost);   <span class="cm">// waits for the kernel</span>
-
-  printf("C[0] = %.1f (expect %d)\\n", h_c[0], K);      <span class="cm">// all-ones inputs: every C entry is K</span>
-  cudaFree(d_a); cudaFree(d_b); cudaFree(d_c);
-  free(h_a); free(h_b); free(h_c);
-  return 0;
-}</code></pre>
-<p>The access pattern is reasonable. With a 16 × 16 block, a warp is two rows of 16 threads (see <a href="#/gpu-launch/indexing">Computing an Index</a>). On each iteration all 32 threads read the same 16 consecutive floats of \\(B\\), 64 B in 2 sectors, and just 2 distinct floats of \\(A\\), each broadcast to 16 threads. Nothing is uncoalesced. The problem is volume.</p>
-
-<h3 id="sec-naive-cost">Where the Naive Kernel Spends Its Time</h3>
-<p>Every FMA needs two loads, and nothing a thread loads is ever reused by that thread. For \\(M = N = K = 1{,}024\\):</p>
-<ul>
-<li><strong>Per output element:</strong> 1,024 iterations × 2 loads/iteration = 2,048 loads = 8 KB requested, for 2,048 FLOPs.</li>
-<li><strong>Whole grid:</strong> 1,048,576 elements × 8 KB/element = 8 GiB of load requests for \\(2 \\times 1{,}024^3 \\approx 2.15\\) GFLOP. That's 0.25 FLOP/B against the loads.</li>
-<li><strong>Most of it doesn't reach HBM:</strong> the three matrices are 4 MiB each and fit in L2 together, and neighboring warps hit the same lines in L1. Every one of those requests still costs a load instruction, an L1 or L2 lookup, and a trip back through the load path.</li>
-<li><strong>Issue becomes the limit:</strong> an SM's 32 load/store units handle about one warp-wide load per cycle, while its four schedulers can issue four warp-wide FMAs per cycle. At two loads per FMA, the kernel tops out near 1/8 of FP32 peak <em>even if every load hits L1</em>. In practice L2 latency and bandwidth pull it lower still.</li>
-</ul>
-<p>Threads in the same block load the same data over and over. The 16 threads in one row of the block all read the same row of \\(A\\), and the 16 threads in one column all read the same column of \\(B\\). Tiling turns that overlap into reuse.</p>
 
 <h3 id="sec-tiling">Tiling Through Shared Memory</h3>
 <p>Split the K dimension into <strong>phases</strong> of width \\(T\\) (the tile size, 16 here). In each phase, the block's \\(T \\times T\\) threads cooperatively copy one \\(T \\times T\\) tile of \\(A\\) and one of \\(B\\) into shared memory, one element per thread per tile. Then each thread runs \\(T\\) FMAs out of shared memory. The block's output tile walks along a row of tiles in \\(A\\) and down a column of tiles in \\(B\\):</p>
