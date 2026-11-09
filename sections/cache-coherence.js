@@ -91,6 +91,63 @@ section({
 <li><strong>BusUpgr:</strong> the requester already holds the line in S and wants to write it. It needs only the invalidations, not the data.</li>
 <li><strong>Flush:</strong> a cache puts a dirty line on the bus, either to supply another cache or to write it back on eviction.</li>
 </ul>
+<div class="tbl"><svg viewBox="0 0 680 420" role="img" aria-label="Four caches, core 0 to core 3, hang off one shared bus with an arbiter and memory. Cores 1, 2, and 3 hold line A in S. Cores 1 and 3 both write A in the same cycle and both request BusUpgr. The arbiter grants core 1 first, at grant 0, so core 1's write is ordered there: core 1 goes S to M, and cores 2 and 3 snoop the upgrade and go S to I. Core 3 lost arbitration but kept snooping, so it sees that its copy is gone and reissues its request as BusRdX. At grant 1, core 3's BusRdX wins: core 1 flushes A and goes M to I, and core 3 takes the data and goes I to M. Every cache sees core 1's write before core 3's." style="width:100%;min-width:520px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="16" style="fill:var(--ink);font-size:13px;font-weight:600">Two writes to line A race for the bus. The grant order is the write order.</text>
+<rect x="20" y="34" width="145" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="92.5" y="52" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">Core 0 L1</text>
+<text x="92.5" y="72" text-anchor="middle" style="fill:var(--ink);font-size:10px">A: I</text>
+<text x="92.5" y="90" text-anchor="middle" style="fill:var(--muted);font-size:10px">no copy, no action</text>
+<rect x="185" y="34" width="145" height="70" rx="4" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="257.5" y="52" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">Core 1 L1</text>
+<text x="257.5" y="72" text-anchor="middle" style="fill:var(--ink);font-size:10px">A: S → M at grant 0</text>
+<text x="257.5" y="90" text-anchor="middle" style="fill:var(--ink);font-size:10px">M → I at grant 1 (Flush)</text>
+<rect x="350" y="34" width="145" height="70" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="422.5" y="52" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">Core 2 L1</text>
+<text x="422.5" y="72" text-anchor="middle" style="fill:var(--ink);font-size:10px">A: S → I at grant 0</text>
+<text x="422.5" y="90" text-anchor="middle" style="fill:var(--muted);font-size:10px">only snoops</text>
+<rect x="515" y="34" width="145" height="70" rx="4" style="fill:var(--surface);stroke:var(--redirect);stroke-width:1.2"/>
+<text x="587.5" y="52" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">Core 3 L1</text>
+<text x="587.5" y="72" text-anchor="middle" style="fill:var(--ink);font-size:10px">A: S → I at grant 0</text>
+<text x="587.5" y="90" text-anchor="middle" style="fill:var(--ink);font-size:10px">I → M at grant 1</text>
+<line x1="92.5" y1="104" x2="92.5" y2="146" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="257.5" y1="104" x2="257.5" y2="146" style="stroke:var(--trace);stroke-width:2"/>
+<line x1="422.5" y1="104" x2="422.5" y2="146" style="stroke:var(--rule);stroke-width:2"/>
+<line x1="587.5" y1="104" x2="587.5" y2="146" style="stroke:var(--redirect);stroke-width:2"/>
+<text x="251" y="130" text-anchor="end" style="fill:var(--ink);font-size:10px;font-weight:600">BusUpgr A (wins)</text>
+<text x="581" y="130" text-anchor="end" style="fill:var(--ink);font-size:10px;font-weight:600">BusUpgr A (waits)</text>
+<rect x="20" y="146" width="640" height="8" rx="2" style="fill:var(--ink)"/>
+<text x="340" y="172" text-anchor="middle" style="fill:var(--muted);font-size:10px">Shared bus: one transaction at a time, seen by every cache</text>
+<line x1="95" y1="154" x2="95" y2="182" style="stroke:var(--rule);stroke-width:2"/>
+<rect x="20" y="182" width="150" height="44" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="95" y="200" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">Arbiter</text>
+<text x="95" y="216" text-anchor="middle" style="fill:var(--muted);font-size:10px">grants one requester</text>
+<line x1="585" y1="154" x2="585" y2="182" style="stroke:var(--rule);stroke-width:2"/>
+<rect x="510" y="182" width="150" height="44" rx="4" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="585" y="200" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">Memory</text>
+<text x="585" y="216" text-anchor="middle" style="fill:var(--muted);font-size:10px">stale once A is in M</text>
+<text x="0" y="252" style="fill:var(--ink);font-size:12px;font-weight:600">Bus order, identical at every cache</text>
+<rect x="20" y="262" width="300" height="120" rx="4" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="32" y="282" style="fill:var(--ink);font-size:12px;font-weight:700">Grant 0: core 1 BusUpgr A</text>
+<g style="fill:var(--ink);font-size:11px">
+<text x="32" y="302">• Core 1's write is ordered here.</text>
+<text x="32" y="320">• Cores 2 and 3 snoop it: S → I.</text>
+<text x="32" y="338">• Core 3 lost arbitration but kept snooping,</text>
+<text x="40" y="354">so it sees its copy is gone.</text>
+<text x="32" y="372">• It reissues its request as BusRdX.</text>
+</g>
+<defs><marker id="arrBusOrder" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--ink)"/></marker></defs>
+<line x1="322" y1="322" x2="356" y2="322" marker-end="url(#arrBusOrder)" style="stroke:var(--ink);stroke-width:1.5"/>
+<rect x="360" y="262" width="300" height="120" rx="4" style="fill:var(--surface);stroke:var(--redirect);stroke-width:1.2"/>
+<text x="372" y="282" style="fill:var(--ink);font-size:12px;font-weight:700">Grant 1: core 3 BusRdX A</text>
+<g style="fill:var(--ink);font-size:11px">
+<text x="372" y="302">• Core 3's write is ordered after core 1's.</text>
+<text x="372" y="320">• Core 1 snoops it, flushes A: M → I.</text>
+<text x="372" y="338">• Core 3 takes the flushed data: I → M.</text>
+<text x="372" y="356">• No cache can see core 3's write</text>
+<text x="380" y="372">before core 1's.</text>
+</g>
+<text x="0" y="408" style="fill:var(--muted);font-size:11px">A write is ordered when its request wins the bus, not when its data arrives or the store reaches the array.</text>
+</svg></div>
 
 <h3 id="sec-controllers">Two Controllers per Cache</h3>
 <p>Each cache has one state machine driven from two sides: requests from its own core, and transactions it snoops from the bus. For MESI with the transactions above:</p>
