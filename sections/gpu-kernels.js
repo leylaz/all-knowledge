@@ -21,6 +21,7 @@ section({
 <h3 id="sec-pages">How the Pages Fit Together</h3>
 <ul>
 <li><a href="#/gpu-launch">Grids, Blocks, and Threads</a>: the thread hierarchy, indexing, how blocks are placed on SMs, and what a launch costs.</li>
+<li><a href="#/gpu-tiling">Tiled Matrix Multiply in Shared Memory</a>: the naive matrix multiply, why it is load-bound, and how shared-memory tiles with <code>__syncthreads</code> fix it.</li>
 <li><a href="#/gpu-kernels">GPU Kernels and Tensor Cores</a>: a matrix-multiply kernel from the inside, epilogue fusion, and what Tensor Cores compute.</li>
 </ul>
 <p>The rest of the tab goes down a level: <a href="#/r/gsm">CUDA Cores and the SM</a> for the hardware a block runs on, <a href="#/r/gwarp">Warps and SIMT</a> for how its threads are issued, <a href="#/r/gmem">GPU Memory System</a> for how its loads are served, and <a href="#/r/gperf">GPU Performance Modeling</a> for predicting how fast all of it runs. For shipping hardware, see <a href="#/hopper">NVIDIA Hopper</a> and <a href="#/blackwell">NVIDIA Blackwell</a>.</p>`,
@@ -122,6 +123,233 @@ scale&lt;&lt;&lt;grid, block&gt;&gt;&gt;(img, w, h, 2.0f);</code></pre>
 },
 
 {
+  id: "gpu-tiling",
+  region: "gk",
+  title: "Tiled Matrix Multiply in Shared Memory",
+  sections: [
+    { id: "hierarchy", label: "The Memory a Kernel Sees" },
+    { id: "naive", label: "The Naive Kernel" },
+    { id: "naive-cost", label: "Where the Naive Kernel Spends Its Time" },
+    { id: "tiling", label: "Tiling Through Shared Memory" },
+    { id: "phases", label: "Load, Synchronize, Compute" },
+    { id: "bounds", label: "Bounds Checks and the Barrier Rule" },
+    { id: "savings", label: "What Tiling Saves and What It Doesn't" }
+  ],
+  body: `
+<p>A matrix multiply written the obvious way, one thread per output element, spends nearly all its time loading operands. The classic fix is <strong>tiling</strong>: a thread block copies a square tile of each input into shared memory, synchronizes, and then every thread reuses that tile many times. This page builds the tiled kernel from the naive one on plain CUDA cores, so every step is visible. <a href="#/gpu-kernels/gemm">How a GEMM Kernel Works</a> takes the same idea to Tensor Cores and production tile sizes.</p>
+
+<h3 id="sec-hierarchy">The Memory a Kernel Sees</h3>
+<p>Each level of the hierarchy is shared by a different group of threads, and that scope decides who can reuse what.</p>
+<div class="tbl"><svg viewBox="0 0 680 340" role="img" aria-label="The GPU memory hierarchy as a kernel sees it. Inside the GPU chip, SM 0 holds two resident blocks, block (0,0) and block (1,0), each of 256 threads in 8 warps. SM 1 holds block (2,0) and has a free slot for the next block. Each SM has a register file split into private per-thread slices and a shared memory and L1 array split into one slice per resident block. Below the SMs, an L2 cache of 50 megabytes is shared by all 132 SMs. Outside the chip, global memory in HBM holds 80 gigabytes at 3.35 terabytes per second." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<rect x="10" y="10" width="660" height="262" style="fill:none;stroke:var(--muted);stroke-width:1.2;stroke-dasharray:5 4"/>
+<text x="20" y="27" style="font-size:11px;fill:var(--muted)">GPU chip (H100)</text>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"><rect x="30" y="38" width="270" height="180"/><rect x="320" y="38" width="270" height="180"/></g>
+<g text-anchor="middle" style="font-size:13px;font-weight:600;fill:var(--ink)"><text x="165" y="56">SM 0</text><text x="455" y="56">SM 1</text></g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"><rect x="44" y="66" width="116" height="62"/><rect x="170" y="66" width="116" height="62"/><rect x="334" y="66" width="116" height="62"/></g>
+<rect x="460" y="66" width="116" height="62" style="fill:none;stroke:var(--muted);stroke-width:1;stroke-dasharray:4 3"/>
+<g text-anchor="middle" style="font-size:12px;font-weight:600;fill:var(--ink)"><text x="102" y="86">Block (0,0)</text><text x="228" y="86">Block (1,0)</text><text x="392" y="86">Block (2,0)</text></g>
+<g text-anchor="middle" style="font-size:11px;fill:var(--muted)">
+<text x="102" y="103">256 threads</text><text x="102" y="118">8 warps</text>
+<text x="228" y="103">256 threads</text><text x="228" y="118">8 warps</text>
+<text x="392" y="103">256 threads</text><text x="392" y="118">8 warps</text>
+<text x="518" y="96">free slot</text><text x="518" y="111">for the next block</text>
+</g>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1"><rect x="44" y="138" width="242" height="30"/><rect x="44" y="176" width="242" height="30"/><rect x="334" y="138" width="242" height="30"/><rect x="334" y="176" width="242" height="30"/></g>
+<g text-anchor="middle" style="font-size:11px;font-weight:600;fill:var(--ink)"><text x="165" y="151">Register file, 256 KB</text><text x="165" y="189">Shared memory / L1, 256 KB</text><text x="455" y="151">Register file, 256 KB</text><text x="455" y="189">Shared memory / L1, 256 KB</text></g>
+<g text-anchor="middle" style="font-size:10px;fill:var(--muted)"><text x="165" y="163">a private slice per thread</text><text x="165" y="201">a slice per resident block</text><text x="455" y="163">a private slice per thread</text><text x="455" y="201">a slice per resident block</text></g>
+<g text-anchor="middle" style="font-size:12px;fill:var(--muted)"><text x="630" y="122">…</text><text x="630" y="140">132 SMs</text></g>
+<g style="stroke:var(--muted);stroke-width:1.2"><path d="M165,218 V230 M455,218 V230 M200,260 V292 M345,260 V292 M490,260 V292"/></g>
+<rect x="30" y="230" width="630" height="30" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="345" y="250" text-anchor="middle" style="font-size:12px;fill:var(--ink)">L2 cache, 50 MB, shared by every SM</text>
+<rect x="30" y="292" width="630" height="34" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5"/>
+<text x="345" y="314" text-anchor="middle" style="font-size:12px;font-weight:600;fill:var(--ink)">Global memory (HBM), 80 GB at 3.35 TB/s, visible to every thread</text>
+</svg></div>
+<div class="tbl"><table>
+<tr><th>Level</th><th>Shared by</th><th>Size (H100)</th><th>Load-to-use latency (V100, measured)</th></tr>
+<tr><td>Registers</td><td>One thread</td><td>256 KB per SM</td><td>No load needed. A dependent FMA waits about 4 cycles.</td></tr>
+<tr><td>Shared memory</td><td>One block</td><td>Up to 228 KB per SM</td><td>About 19 cycles</td></tr>
+<tr><td>L1 cache</td><td>One SM</td><td>Whatever of the 256 KB isn't shared memory</td><td>About 28 cycles</td></tr>
+<tr><td>L2 cache</td><td>Every SM</td><td>50 MB</td><td>About 193 cycles</td></tr>
+<tr><td>HBM</td><td>Every SM</td><td>80 GB</td><td>Several hundred cycles</td></tr>
+</table></div>
+<p>Two points that simplified pictures often blur:</p>
+<ul>
+<li><strong>A block is not an SM.</strong> A block runs on one SM for its whole life, but one SM holds several blocks at once (up to 32 on Hopper), and each block sees only its own slice of shared memory. How many fit is the subject of <a href="#/gpu-occupancy">Occupancy and Per-SM Resources</a>.</li>
+<li><strong>A thread is not a CUDA core.</strong> A thread is a software context: a program counter (per warp) and a slice of registers. Its warp's instructions issue onto the SM's lanes, and an SM holds up to 2,048 threads against 128 FP32 lanes. See <a href="#/cuda-cores/lane">A Lane, Not a Core</a>.</li>
+</ul>
+<p>Shared memory is fast but not instant: about 19 cycles is still several dependent FMAs' worth. What makes it valuable is that it's on-chip, wide (32 banks, 128 B per cycle per SM), and controlled by the program, so a block can stage data there once and then read it many times.</p>
+
+<h3 id="sec-naive">The Naive Kernel</h3>
+<p>Each thread computes one element of \\(C = AB\\), where \\(A\\) is \\(M \\times K\\), \\(B\\) is \\(K \\times N\\), and all three are row-major FP32. The host side is the standard sequence: allocate, copy in, launch, copy out.</p>
+<pre><code>#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;cuda_runtime.h&gt;
+
+__global__ void matmul_naive(float *C, const float *A, const float *B, int M, int N, int K) {
+  int row = blockIdx.y * blockDim.y + threadIdx.y;
+  int col = blockIdx.x * blockDim.x + threadIdx.x;
+  if (row &lt; M &amp;&amp; col &lt; N) {
+    float sum = 0.0f;
+    for (int k = 0; k &lt; K; k++)
+      sum += A[row * K + k] * B[k * N + col];        <span class="cm">// 2 global loads per FMA</span>
+    C[row * N + col] = sum;
+  }
+}
+
+int main(void) {
+  const int M = 1024, N = 1024, K = 1024;
+  size_t bytes_a = (size_t)M * K * sizeof(float);
+  size_t bytes_b = (size_t)K * N * sizeof(float);
+  size_t bytes_c = (size_t)M * N * sizeof(float);
+
+  float *h_a = (float *)malloc(bytes_a), *h_b = (float *)malloc(bytes_b), *h_c = (float *)malloc(bytes_c);
+  for (int i = 0; i &lt; M * K; i++) h_a[i] = 1.0f;
+  for (int i = 0; i &lt; K * N; i++) h_b[i] = 1.0f;
+
+  float *d_a, *d_b, *d_c;
+  cudaMalloc(&amp;d_a, bytes_a);
+  cudaMalloc(&amp;d_b, bytes_b);
+  cudaMalloc(&amp;d_c, bytes_c);
+  cudaMemcpy(d_a, h_a, bytes_a, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_b, h_b, bytes_b, cudaMemcpyHostToDevice);
+
+  dim3 block(16, 16);                                <span class="cm">// 256 threads = 8 warps</span>
+  dim3 grid((N + 15) / 16, (M + 15) / 16);           <span class="cm">// 64 × 64 blocks</span>
+  matmul_naive&lt;&lt;&lt;grid, block&gt;&gt;&gt;(d_c, d_a, d_b, M, N, K);
+  cudaMemcpy(h_c, d_c, bytes_c, cudaMemcpyDeviceToHost);   <span class="cm">// waits for the kernel</span>
+
+  printf("C[0] = %.1f (expect %d)\\n", h_c[0], K);      <span class="cm">// all-ones inputs: every C entry is K</span>
+  cudaFree(d_a); cudaFree(d_b); cudaFree(d_c);
+  free(h_a); free(h_b); free(h_c);
+  return 0;
+}</code></pre>
+<p>The access pattern is reasonable. With a 16 × 16 block, a warp is two rows of 16 threads (see <a href="#/gpu-launch/indexing">Computing an Index</a>). On each iteration all 32 threads read the same 16 consecutive floats of \\(B\\), 64 B in 2 sectors, and just 2 distinct floats of \\(A\\), each broadcast to 16 threads. Nothing is uncoalesced. The problem is volume.</p>
+
+<h3 id="sec-naive-cost">Where the Naive Kernel Spends Its Time</h3>
+<p>Every FMA needs two loads, and nothing a thread loads is ever reused by that thread. For \\(M = N = K = 1{,}024\\):</p>
+<ul>
+<li><strong>Per output element:</strong> 1,024 iterations × 2 loads/iteration = 2,048 loads = 8 KB requested, for 2,048 FLOPs.</li>
+<li><strong>Whole grid:</strong> 1,048,576 elements × 8 KB/element = 8 GiB of load requests for \\(2 \\times 1{,}024^3 \\approx 2.15\\) GFLOP. That's 0.25 FLOP/B against the loads.</li>
+<li><strong>Most of it doesn't reach HBM:</strong> the three matrices are 4 MiB each and fit in L2 together, and neighboring warps hit the same lines in L1. Every one of those requests still costs a load instruction, an L1 or L2 lookup, and a trip back through the load path.</li>
+<li><strong>Issue becomes the limit:</strong> an SM's 32 load/store units handle about one warp-wide load per cycle, while its four schedulers can issue four warp-wide FMAs per cycle. At two loads per FMA, the kernel tops out near 1/8 of FP32 peak <em>even if every load hits L1</em>. In practice L2 latency and bandwidth pull it lower still.</li>
+</ul>
+<p>Threads in the same block load the same data over and over. The 16 threads in one row of the block all read the same row of \\(A\\), and the 16 threads in one column all read the same column of \\(B\\). Tiling turns that overlap into reuse.</p>
+
+<h3 id="sec-tiling">Tiling Through Shared Memory</h3>
+<p>Split the K dimension into <strong>phases</strong> of width \\(T\\) (the tile size, 16 here). In each phase, the block's \\(T \\times T\\) threads cooperatively copy one \\(T \\times T\\) tile of \\(A\\) and one of \\(B\\) into shared memory, one element per thread per tile. Then each thread runs \\(T\\) FMAs out of shared memory. The block's output tile walks along a row of tiles in \\(A\\) and down a column of tiles in \\(B\\):</p>
+<div class="tbl"><svg viewBox="0 0 680 330" role="img" aria-label="Tiling a matrix multiply through shared memory. A is drawn as a 4 by 4 grid of tiles, B as a 4 by 4 grid of tiles above C, and C as a 4 by 4 grid. Block (1,2) owns one output tile of C, in tile row 1 and tile column 2. Its row of A tiles and column of B tiles are shaded and numbered phase 0 to phase 3. The phase 1 tiles are highlighted in the same color as the a_tile and b_tile arrays in the block's shared memory. In each phase every thread loads one element of each phase 1 tile, synchronizes, does T fused multiply-adds from shared memory, and synchronizes again." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"><rect x="40" y="176" width="128" height="128"/><rect x="200" y="24" width="128" height="128"/><rect x="200" y="176" width="128" height="128"/></g>
+<g style="fill:var(--trace-soft);stroke:none"><rect x="40" y="208" width="128" height="32"/><rect x="264" y="24" width="32" height="128"/></g>
+<g style="fill:var(--pad);fill-opacity:.55;stroke:none"><rect x="72" y="208" width="32" height="32"/><rect x="264" y="56" width="32" height="32"/></g>
+<rect x="264" y="208" width="32" height="32" style="fill:var(--pad-soft);stroke:none"/>
+<g style="stroke:var(--rule);stroke-width:1;fill:none"><path d="M40,208H168M40,240H168M40,272H168M72,176V304M104,176V304M136,176V304"/><path d="M200,56H328M200,88H328M200,120H328M232,24V152M264,24V152M296,24V152"/><path d="M200,208H328M200,240H328M200,272H328M232,176V304M264,176V304M296,176V304"/></g>
+<g style="fill:none;stroke:var(--trace);stroke-width:1.5"><rect x="40" y="208" width="128" height="32"/><rect x="264" y="24" width="32" height="128"/></g>
+<rect x="264" y="208" width="32" height="32" style="fill:none;stroke:var(--pad);stroke-width:2.5"/>
+<g text-anchor="middle" style="font-size:11px;fill:var(--ink)"><text x="56" y="228">p0</text><text x="88" y="228">p1</text><text x="120" y="228">p2</text><text x="152" y="228">p3</text><text x="280" y="44">p0</text><text x="280" y="76">p1</text><text x="280" y="108">p2</text><text x="280" y="140">p3</text></g>
+<g text-anchor="middle" style="font-size:13px;font-weight:600;fill:var(--ink)"><text x="104" y="322">A (M × K)</text><text x="264" y="16">B (K × N)</text><text x="264" y="322">C (M × N)</text></g>
+<g style="font-size:11px;fill:var(--muted)"><text x="336" y="222">output tile of</text><text x="336" y="236">block (1,2)</text></g>
+<rect x="430" y="24" width="230" height="128" style="fill:var(--surface);stroke:var(--muted);stroke-width:1;stroke-dasharray:4 3"/>
+<text x="545" y="42" text-anchor="middle" style="font-size:11px;font-weight:600;fill:var(--ink)">Shared memory of block (1,2)</text>
+<g style="fill:var(--pad);fill-opacity:.55;stroke:var(--pad);stroke-width:1.2"><rect x="450" y="54" width="64" height="64"/><rect x="576" y="54" width="64" height="64"/></g>
+<g text-anchor="middle" style="font-size:12px;font-family:var(--mono);fill:var(--ink)"><text x="482" y="90">a_tile</text><text x="608" y="90">b_tile</text></g>
+<g text-anchor="middle" style="font-size:10px;fill:var(--muted)"><text x="482" y="136">T × T floats</text><text x="608" y="136">T × T floats</text></g>
+<g style="font-size:11px;fill:var(--ink)">
+<text x="430" y="186" style="font-weight:600">Phase 1 (highlighted), every thread:</text>
+<text x="430" y="206">1. Load one element of A's phase-1 tile</text>
+<text x="430" y="220">    and one of B's into shared memory.</text>
+<text x="430" y="240">2. <tspan style="font-family:var(--mono)">__syncthreads()</tspan></text>
+<text x="430" y="260">3. Do T FMAs from shared memory.</text>
+<text x="430" y="280">4. <tspan style="font-family:var(--mono)">__syncthreads()</tspan>, go to phase 2.</text>
+</g>
+</svg></div>
+<p>Each element loaded into shared memory is now read by \\(T\\) threads instead of being loaded \\(T\\) separate times: thread \\((t_y, t_x)\\) reads row \\(t_y\\) of <code>a_tile</code> and column \\(t_x\\) of <code>b_tile</code>, and every other thread in the same row or column reads the same values. The two tiles take \\(2 \\times 16 \\times 16 \\times 4\\) B = 2 KB per block, small enough that shared memory never limits occupancy here.</p>
+
+<h3 id="sec-phases">Load, Synchronize, Compute</h3>
+<p>Every phase runs the same three steps:</p>
+<ol>
+<li><strong>Load:</strong> thread \\((t_y, t_x)\\) copies <code>A[row][phase·T + t_x]</code> into <code>a_tile[t_y][t_x]</code> and <code>B[phase·T + t_y][col]</code> into <code>b_tile[t_y][t_x]</code>. Consecutive \\(t_x\\) read consecutive addresses in both, so the loads coalesce.</li>
+<li><strong>Synchronize:</strong> <code>__syncthreads()</code> waits until every thread in the block has stored its elements.</li>
+<li><strong>Compute:</strong> each thread runs <code>sum += a_tile[t_y][i] * b_tile[i][t_x]</code> for \\(i = 0 \\ldots T-1\\), then hits a second <code>__syncthreads()</code> before the next phase's load.</li>
+</ol>
+<p>Both barriers are needed, for opposite hazards:</p>
+<ul>
+<li><strong>The first is read-after-write.</strong> Thread \\((t_y, t_x)\\) reads <code>a_tile[t_y][i]</code> for every \\(i\\), and those were written by 16 other threads, half of them in a different warp. Without the barrier, a warp can start computing before another warp's loads have landed.</li>
+<li><strong>The second is write-after-read.</strong> Without it, a warp that finishes computing can start the next phase's load and overwrite a tile entry that a slower warp still needs for the current phase.</li>
+</ul>
+<p>The inner loop is also free of bank conflicts (see <a href="#/gpu-smem/banks">32 Banks</a>). Across a warp, <code>b_tile[i][t_x]</code> hits 16 consecutive words in 16 different banks, shared by both rows of the warp. <code>a_tile[t_y][i]</code> hits two words 16 words apart, in different banks, each broadcast to 16 threads.</p>
+
+<h3 id="sec-bounds">Bounds Checks and the Barrier Rule</h3>
+<p>When \\(M\\), \\(N\\), or \\(K\\) is not a multiple of \\(T\\), the edge blocks hang off the matrix and the last phase reads past column \\(K - 1\\). The kernel handles both cases by zero-filling any tile element that falls outside its matrix:</p>
+<pre><code>#define TILE 16
+
+__global__ void matmul_tiled(float *C, const float *A, const float *B, int M, int N, int K) {
+  __shared__ float a_tile[TILE][TILE];
+  __shared__ float b_tile[TILE][TILE];
+  int tx = threadIdx.x, ty = threadIdx.y;
+  int row = blockIdx.y * TILE + ty;
+  int col = blockIdx.x * TILE + tx;
+  float sum = 0.0f;
+
+  for (int phase = 0; phase &lt; (K + TILE - 1) / TILE; phase++) {
+    int a_col = phase * TILE + tx;                   <span class="cm">// column of A this thread loads</span>
+    int b_row = phase * TILE + ty;                   <span class="cm">// row of B this thread loads</span>
+    a_tile[ty][tx] = (row &lt; M &amp;&amp; a_col &lt; K) ? A[row * K + a_col] : 0.0f;
+    b_tile[ty][tx] = (b_row &lt; K &amp;&amp; col &lt; N) ? B[b_row * N + col] : 0.0f;
+    __syncthreads();                                 <span class="cm">// tiles complete before anyone reads</span>
+
+    for (int i = 0; i &lt; TILE; i++)
+      sum += a_tile[ty][i] * b_tile[i][tx];
+    __syncthreads();                                 <span class="cm">// everyone done before the next load</span>
+  }
+  if (row &lt; M &amp;&amp; col &lt; N) C[row * N + col] = sum;
+}
+
+<span class="cm">// same launch shape as the naive kernel</span>
+dim3 block(TILE, TILE);
+dim3 grid((N + TILE - 1) / TILE, (M + TILE - 1) / TILE);
+matmul_tiled&lt;&lt;&lt;grid, block&gt;&gt;&gt;(d_c, d_a, d_b, M, N, K);</code></pre>
+<ul>
+<li><strong>Why zeros are safe:</strong> in the last phase, the padded columns of <code>a_tile</code> (\\(a\\_col \\ge K\\)) line up exactly with the padded rows of <code>b_tile</code> (\\(b\\_row \\ge K\\)), so each extra term is \\(0 \\times 0 = 0\\) and the sum is exact.</li>
+<li><strong>The barrier rule:</strong> CUDA allows <code>__syncthreads()</code> inside a condition only if the condition is the same for every thread in the block. So threads outside \\(C\\) can't return early. They stay in the loop, load their tile elements (or zeros), reach both barriers, and skip only the final store.</li>
+<li><strong>Out-of-range threads still matter:</strong> a thread with \\(row \\ge M\\) but \\(col &lt; N\\) loads a real element of \\(B\\) into <code>b_tile</code>, which the in-range threads above it need.</li>
+<li><strong>Cost:</strong> the checks are two compares and a select per load, a few instructions per phase against \\(T\\) FMAs. When the dimensions are multiples of \\(T\\), every check passes and the kernel does the same work as the unchecked version. Libraries often go further and pick a specialized kernel when the dimensions are tile-aligned.</li>
+</ul>
+
+<h3 id="sec-savings">What Tiling Saves and What It Doesn't</h3>
+<p>Per phase, each thread issues 2 global loads and runs \\(T\\) FMAs, so global loads per output element drop by a factor of \\(T\\):</p>
+<div class="math">\\[ \\text{loads per element: } 2K \\ \\to\\ \\frac{2K}{T}, \\qquad \\text{AI}_\\text{global} = \\frac{2T \\ \\text{FLOP}}{2 \\times 4 \\ \\text{B}} = \\frac{T}{4} \\ \\text{FLOP/B} \\]</div>
+<p>For \\(K = 1{,}024\\) and \\(T = 16\\), each element needs 2,048 / 16 = 128 global loads instead of 2,048, and intensity against global loads goes from 0.25 to 4 FLOP/B. The grid's load requests fall from 8 GiB to 512 MiB.</p>
+<p>What tiling does <em>not</em> change is the inner loop's instruction mix: it still does two loads per FMA, now from shared memory instead of L1. The compiler can merge consecutive <code>a_tile[t_y][i]</code> reads into 128-bit loads, but <code>b_tile[i][t_x]</code> stays one load per FMA, so the kernel remains limited by load issue rather than by the FP32 lanes. Two changes fix that, and they're how real GEMMs are built:</p>
+<ul>
+<li><strong>Register blocking:</strong> each thread computes a small patch of outputs, say 8 × 8, keeping its 64 accumulators in registers. Per step of \\(i\\) it loads 8 values of \\(A\\) and 8 of \\(B\\) and does 64 FMAs, so loads per FMA fall from 2 to 0.25. The price is registers, which lowers occupancy (see <a href="#/gpu-occupancy/lower-occupancy">When Higher Occupancy Doesn't Help</a>).</li>
+<li><strong>Bigger block tiles and pipelining:</strong> a 128 × 128 block tile multiplies global reuse, and double-buffering the tiles (asynchronous copies, see <a href="#/gpu-smem/async">Asynchronous Copies</a>) overlaps the next phase's load with this phase's math. Tensor Cores then replace the FMA loop entirely (see <a href="#/gpu-kernels/gemm">How a GEMM Kernel Works</a>).</li>
+</ul>
+<p class="refs">References: NVIDIA, <em>CUDA C++ Programming Guide</em> (shared memory and <code>__syncthreads</code>) · Kirk, Hwu, and El Hajj, <em>Programming Massively Parallel Processors</em> (4th ed.), Chapter 5 · Jia et al., “Dissecting the NVIDIA Volta GPU Architecture via Microbenchmarking” (2018), for the latencies · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 4 · <a href="https://www.youtube.com/watch?v=xewKxorikwE">Video walkthrough of naive and tiled CUDA matrix multiply</a></p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A tiled FP32 matrix multiply with \\(T = 32\\) runs on an A100 80 GB (19.5 TFLOP/s FP32, 2.04 TB/s HBM) for \\(M = N = K = 4{,}096\\). How many threads and how much shared memory does each block use? How many global loads does each output element need, naive and tiled? What is the arithmetic intensity against global loads, and how does it compare to the ridge point?</p>`,
+        a: `<ol><li>Threads: 32 × 32 = <strong>1,024 threads/block</strong>, the most a block can have. Shared memory: 2 tiles × 32 × 32 floats/tile × 4 B/float = <strong>8 KB/block</strong>.</li><li>Naive: 2 loads/FMA × 4,096 FMAs = <strong>8,192 loads/element</strong>.</li><li>Tiled: 4,096 / 32 = 128 phases, each with 2 loads, so 128 phases × 2 loads/phase = <strong>256 loads/element</strong>, 32× fewer.</li><li>Per phase each thread does 32 FMAs × 2 FLOP/FMA = 64 FLOP against 2 loads × 4 B/load = 8 B: <strong>8 FLOP/B</strong>.</li><li>Ridge = 19.5 × 10<sup>12</sup> FLOP/s / 2.04 × 10<sup>12</sup> B/s ≈ <strong>9.6 FLOP/B</strong>. Even if every tile load went to HBM, the kernel would sit just under the ridge, at most 8 / 9.6 ≈ 83% of peak. Neighboring blocks load the same tiles, so L2 hits push the effective intensity higher. The real limit is the inner loop's two shared-memory loads per FMA.</li></ol>`
+      },
+      {
+        q: `<p>The bounds-checked tiled kernel with \\(T = 32\\) runs with \\(M = 1{,}000\\), \\(N = 600\\), \\(K = 300\\). How many blocks does the grid have, how many phases does each block run, how many columns of <code>a_tile</code> are zero-filled in the last phase, and how many threads skip the final store?</p>`,
+        a: `<ol><li>Grid: ⌈600 / 32⌉ = 19 blocks in x and ⌈1,000 / 32⌉ = 32 blocks in y, so 19 × 32 = <strong>608 blocks</strong>.</li><li>Phases: ⌈300 / 32⌉ = ⌈9.375⌉ = <strong>10 phases</strong>.</li><li>The last phase (phase 9) covers k = 288 to 319, and only k = 288 to 299 exist. That leaves 12 real columns and <strong>20 zero-filled columns</strong> of <code>a_tile</code>, matched by 20 zero-filled rows of <code>b_tile</code>.</li><li>Threads: 608 blocks × 1,024 threads/block = 622,592 threads for 1,000 × 600 = 600,000 outputs, so <strong>22,592 threads</strong> skip the store. All of them still load and reach both barriers in every phase.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A colleague "cleans up" the bounds-checked tiled kernel by adding <code>if (row &gt;= M || col &gt;= N) return;</code> as its first line and dropping the check on the final store. On tile-aligned sizes it works. On a 1,000 × 600 output it sometimes hangs and otherwise gives wrong values in in-range elements near the edges. Explain both failures.</p>`,
+        a: `<ul><li><strong>The hang:</strong> in an edge block, the returning threads never reach <code>__syncthreads()</code>. CUDA allows a barrier in conditional code only if every thread in the block takes the same path, so this is undefined behavior. It can deadlock, or the barrier can release early because the exited threads are no longer counted, and then the next problem shows.</li><li><strong>The wrong values:</strong> the tiles are filled cooperatively. A thread with row ≥ M but col &lt; N was responsible for loading <code>b_tile[t_y][t_x]</code>, a real element of B that every in-range thread in column \\(t_x\\) multiplies against. Once it returns, that slot holds whatever the previous phase or another block left there, so in-range outputs in the bottom edge blocks pick up garbage terms. The same goes for <code>a_tile</code> slots owned by threads with col ≥ N.</li><li><strong>Why aligned sizes hide it:</strong> with M and N multiples of T, no thread returns, so the code is identical to the correct version.</li></ul><p>The fix is the original structure: every thread runs every phase, loads a real element or a zero, and only the final store is guarded.</p>`
+      },
+      {
+        q: `<p>You extend the tiled kernel so each 128-thread block computes a 64 × 64 tile of C, each thread owning an 8 × 4 patch of outputs in registers. Each phase stages a 64 × 16 slice of A and a 16 × 64 slice of B (FP32) in shared memory. On an A100 80 GB (164 KB shared memory, 65,536 registers, 2,048 threads, and 32 blocks per SM, ridge ≈ 9.6 FLOP/B), find the shared-memory loads per FMA in the inner loop, the arithmetic intensity against global loads, and the blocks per SM at 64 registers per thread. Is the resulting occupancy a problem?</p><p class="given">Assume scalar shared-memory loads, and ignore the 1 KB of shared memory the driver reserves per block.</p>`,
+        a: `<ol><li><strong>Inner loop:</strong> per step along k, a thread loads 8 values of A (one per output row) and 4 of B (one per output column), 12 loads, and does 8 × 4 = 32 FMAs. That's 12 loads / 32 FMAs = <strong>0.375 loads/FMA</strong>, against 2 loads/FMA for the one-output-per-thread kernel, 5.3× fewer.</li><li><strong>Global intensity:</strong> per phase the block does 2 FLOP/FMA × 64 × 64 × 16 FMAs = 131,072 FLOP and loads (64 × 16 + 16 × 64) floats × 4 B/float = 8,192 B. That's 131,072 FLOP / 8,192 B = <strong>16 FLOP/B</strong>, above the 9.6 FLOP/B ridge even with no L2 reuse at all.</li><li><strong>Blocks per SM:</strong><ul><li>Registers: 128 threads/block × 64 registers/thread = 8,192 registers/block, so 65,536 / 8,192 = 8 blocks.</li><li>Shared memory: 2,048 floats × 4 B/float = 8 KB/block, so ⌊164 KB / 8 KB⌋ = 20 blocks.</li><li>Threads: 2,048 / 128 = 16 blocks.</li><li>Block limit: 32.</li></ul>Registers win: <strong>8 blocks</strong>, 8 blocks × 4 warps/block = 32 of 64 warps, <strong>50% occupancy</strong>.</li><li><strong>Not a problem:</strong> each thread has 32 independent accumulators, so every step along k gives each warp 32 FMAs with no dependences among them. Each scheduler holds 8 warps × 32 independent FMAs, far more than the roughly 4-cycle FMA latency needs. Doubling occupancy would mean halving the per-thread patch, which brings back the shared-memory load pressure this design removed.</li></ol>`
+      }
+    ]
+  }
+},
+
+{
   id: "gpu-kernels",
   region: "gk",
   title: "GPU Kernels and Tensor Cores",
@@ -164,7 +392,7 @@ bias_relu&lt;&lt;&lt;(total + 255) / 256, 256&gt;&gt;&gt;(x, b, y, n, total);</c
 </ul>
 
 <h3 id="sec-gemm">How a GEMM Kernel Works</h3>
-<p>A matrix multiply (GEMM) of an \\(M \\times K\\) matrix by a \\(K \\times N\\) matrix is the kernel everything else is built around. A naive kernel gives each thread one element of \\(C\\) and loops over \\(K\\), reading \\(A\\) and \\(B\\) from HBM every time: about 2 FLOPs per 4 bytes in FP16, far below the ridge. Real GEMM kernels use <strong>tiling</strong>:</p>
+<p>A matrix multiply (GEMM) of an \\(M \\times K\\) matrix by a \\(K \\times N\\) matrix is the kernel everything else is built around. A naive kernel gives each thread one element of \\(C\\) and loops over \\(K\\), reading \\(A\\) and \\(B\\) from HBM every time: about 2 FLOPs per 4 bytes in FP16, far below the ridge. The first fix, shared-memory tiles on CUDA cores, is worked through in <a href="#/gpu-tiling">Tiled Matrix Multiply in Shared Memory</a>. Real GEMM kernels use <strong>tiling</strong>:</p>
 <ol>
 <li><strong>Block tile:</strong> each thread block owns one \\(B_M \\times B_N\\) tile of \\(C\\), for example 128 × 128.</li>
 <li><strong>K loop:</strong> the block walks along \\(K\\) in steps of \\(B_K\\). At each step it copies a \\(B_M \\times B_K\\) slice of \\(A\\) and a \\(B_K \\times B_N\\) slice of \\(B\\) from HBM into shared memory.</li>
