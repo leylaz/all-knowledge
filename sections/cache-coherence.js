@@ -150,22 +150,44 @@ section({
 </svg></div>
 
 <h3 id="sec-controllers">Two Controllers per Cache</h3>
-<p>Each cache has one state machine driven from two sides: requests from its own core, and transactions it snoops from the bus. For MESI with the transactions above:</p>
+<p>Each cache has one state machine per line, driven from two sides: requests from its own core, and transactions it snoops from the bus. Both tables below take the point of view of one cache, core 0's private L1, and one line in it, X. The first column is always the state of X in core 0's L1 before the event, and the last column is its state after.</p>
+<p>The first table covers events from core 0 itself:</p>
+<ul>
+<li><strong>Load:</strong> core 0 executes a load to an address in X.</li>
+<li><strong>Store:</strong> core 0 executes a store to an address in X. The store writes into core 0's own copy of X (the cache is write-back). Any bus transaction it triggers asks for permission, and sometimes the data, not for a write to memory.</li>
+<li><strong>Evict:</strong> core 0's L1 picks X as the victim to make room for a different line that missed. X leaves the L1. If it's dirty, it goes back to memory over the bus.</li>
+</ul>
+<p>A <strong>hit</strong> means the L1 already holds X with enough permission for the access (any valid state for a load, E or M for a store). The access completes inside core 0's L1 and nothing goes on the bus.</p>
 <div class="tbl"><table>
-<tr><th>State</th><th>Core reads</th><th>Core writes</th><th>Line evicted</th></tr>
-<tr><td>I</td><td>BusRd, then E if no other cache asserts Shared, otherwise S</td><td>BusRdX, then M</td><td>Nothing to do</td></tr>
-<tr><td>S</td><td>Hit</td><td>BusUpgr, then M</td><td>Silent, to I</td></tr>
-<tr><td>E</td><td>Hit</td><td>Silent, to M</td><td>Silent, to I</td></tr>
-<tr><td>M</td><td>Hit</td><td>Hit</td><td>Flush (writeback), to I</td></tr>
+<tr><th>X in core 0's L1 (before)</th><th>Core 0 event</th><th>Bus transaction core 0's L1 issues</th><th>Where the data comes from</th><th>X in core 0's L1 (after)</th></tr>
+<tr><td>I</td><td>Load</td><td>BusRd (read miss)</td><td>The owner's Flush if another L1 holds X in M, otherwise memory</td><td>E if no other cache asserts Shared, otherwise S</td></tr>
+<tr><td>I</td><td>Store</td><td>BusRdX (write miss). Every other copy is invalidated.</td><td>The owner's Flush if another L1 holds X in M, otherwise memory. The store then writes into the line.</td><td>M</td></tr>
+<tr><td>S</td><td>Load</td><td>None (hit)</td><td>Core 0's own L1</td><td>S</td></tr>
+<tr><td>S</td><td>Store</td><td>BusUpgr. Core 0 already has the data and needs only the other copies invalidated.</td><td>Core 0's own L1</td><td>M, once the BusUpgr wins the bus</td></tr>
+<tr><td>S</td><td>Evict</td><td>None (silent). Memory already has the current value.</td><td>None</td><td>I</td></tr>
+<tr><td>E</td><td>Load</td><td>None (hit)</td><td>Core 0's own L1</td><td>E</td></tr>
+<tr><td>E</td><td>Store</td><td>None (hit, silent upgrade). No other copy exists to invalidate.</td><td>Core 0's own L1</td><td>M</td></tr>
+<tr><td>E</td><td>Evict</td><td>None (silent). The line is clean.</td><td>None</td><td>I</td></tr>
+<tr><td>M</td><td>Load</td><td>None (hit)</td><td>Core 0's own L1</td><td>M</td></tr>
+<tr><td>M</td><td>Store</td><td>None (hit)</td><td>Core 0's own L1</td><td>M</td></tr>
+<tr><td>M</td><td>Evict</td><td>Flush. Core 0's L1 writes the dirty line back to memory.</td><td>None (core 0's L1 is the source)</td><td>I</td></tr>
 </table></div>
+<p>An invalid line has no eviction row: a line in I holds nothing, so there's nothing to evict.</p>
+<p>The second table covers the other side. Some other core, say core 2, has put a transaction for X on the bus. Core 0's L1 snoops it, looks up X in its own tags, and reacts. Core 0's L1 is never the requester here, only a bystander that may have to give up or hand over its copy.</p>
 <div class="tbl"><table>
-<tr><th>State</th><th>Snoops BusRd</th><th>Snoops BusRdX</th><th>Snoops BusUpgr</th></tr>
-<tr><td>I</td><td>Ignore</td><td>Ignore</td><td>Ignore</td></tr>
-<tr><td>S</td><td>Assert Shared, stay S</td><td>To I</td><td>To I</td></tr>
-<tr><td>E</td><td>Assert Shared, to S</td><td>To I</td><td>Cannot happen (no other copy exists)</td></tr>
-<tr><td>M</td><td>Assert Shared and Dirty, Flush, to S</td><td>Flush, to I</td><td>Cannot happen</td></tr>
+<tr><th>X in core 0's L1 (before)</th><th>Transaction core 0's L1 snoops (from core 2)</th><th>What core 0's L1 does</th><th>X in core 0's L1 (after)</th></tr>
+<tr><td>I</td><td>Any of BusRd, BusRdX, BusUpgr</td><td>Nothing. The tag lookup misses.</td><td>I</td></tr>
+<tr><td>S</td><td>BusRd</td><td>Asserts Shared, so core 2 fills in S rather than E. Memory supplies the data.</td><td>S</td></tr>
+<tr><td>S</td><td>BusRdX</td><td>Invalidates its copy</td><td>I</td></tr>
+<tr><td>S</td><td>BusUpgr</td><td>Invalidates its copy</td><td>I</td></tr>
+<tr><td>E</td><td>BusRd</td><td>Asserts Shared. Memory supplies the data, since the line is clean.</td><td>S</td></tr>
+<tr><td>E</td><td>BusRdX</td><td>Invalidates its copy</td><td>I</td></tr>
+<tr><td>E</td><td>BusUpgr</td><td>Can't happen. A BusUpgr means core 2 holds X in S, but E means core 0 has the only copy.</td><td>—</td></tr>
+<tr><td>M</td><td>BusRd</td><td>Asserts Shared and Dirty, so memory doesn't respond. Flushes X: core 2 takes the data and memory is updated.</td><td>S</td></tr>
+<tr><td>M</td><td>BusRdX</td><td>Asserts Dirty and flushes X to core 2</td><td>I</td></tr>
+<tr><td>M</td><td>BusUpgr</td><td>Can't happen, for the same reason as E</td><td>—</td></tr>
 </table></div>
-<p>The table assumes an atomic bus, where a request and its response happen as one step. On a split-transaction bus, a cache can lose its copy while its own upgrade is still waiting, and the protocol has to handle that (below).</p>
+<p>Both tables assume an atomic bus, where a request and its response happen as one step. On a split-transaction bus, a cache can lose its copy while its own upgrade is still waiting, and the protocol has to handle that (below).</p>
 
 <h3 id="sec-responses">Snoop Responses</h3>
 <p>A requester needs two facts from the snoopers before the transaction can finish: does anyone else hold the line, and does anyone hold it dirty. Classic buses collect them on <strong>wired-OR lines</strong> that any cache can pull:</p>
