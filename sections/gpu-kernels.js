@@ -76,7 +76,11 @@ section({
 <g style="font-size:10px;fill:var(--muted)"><text x="500" y="172">Each cell's new value (gold)</text><text x="500" y="186">needs only its neighbors'</text><text x="500" y="200">old values (blue), so every</text><text x="500" y="214">cell updates at once.</text></g>
 </svg></div>
 <ul>
-<li><strong>Neural networks:</strong> a layer multiplies a matrix of activations by a matrix of weights. In Llama 3 8B, each MLP up-projection multiplies tokens × 4,096 activations by a 4,096 × 14,336 weight matrix, and every one of the outputs is its own dot product. The whole model costs about 2 FLOPs per parameter per token, about 16 GFLOP per generated token.</li>
+<li><strong>Neural networks:</strong> a layer is the \\(W\\mathbf{a} + \\mathbf{b}\\) from <a href="#/nn-basics/matrix">Neural network basics</a>, done for many inputs at once. In Llama 3 8B, each token is a vector of 4,096 activations. Stack \\(T\\) tokens as the rows of a \\(T \\times 4{,}096\\) matrix \\(X\\), and the MLP's up-projection is \\(Y = XW\\), with \\(W\\) a 4,096 × 14,336 weight matrix and \\(Y\\) a \\(T \\times 14{,}336\\) result. Each row of \\(Y\\) is the \\(W\\mathbf{a}\\) of one token, written with the token as a row instead of a column, and Llama's layers have no bias. Every one of the \\(T \\times 14{,}336\\) outputs is its own 4,096-term dot product, and all of them can run at once. Each weight does one multiply and one add per token, so:
+<ul>
+<li><strong>This one matrix:</strong> 2 FLOPs/weight × 58.7 M weights ≈ 117 MFLOP per token.</li>
+<li><strong>The whole model:</strong> 32 layers, each with 7 weight matrices (4 in attention, 3 in the MLP), about 8 B parameters in all. 2 FLOPs/parameter × 8 × 10<sup>9</sup> parameters ≈ 16 GFLOP per generated token.</li>
+</ul></li>
 <li><strong>Graphics:</strong> a game shades every pixel of every frame with the same short program (a <em>pixel shader</em>), and each pixel's color depends only on its own inputs. A 4K display at 60 Hz needs 3,840 × 2,160 pixels/frame × 60 frames/s ≈ 498 million pixels/s, before counting the extra passes for lighting, shadows, and post-processing.</li>
 <li><strong>Simulation:</strong> weather models, molecular dynamics, and fluid solvers update every cell or particle from its neighbors' values at the previous time step, so all of one step's updates can run at once.</li>
 </ul>
