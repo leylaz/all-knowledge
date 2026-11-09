@@ -205,13 +205,14 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .body .callout { font-family: var(--sans); font-size: .93rem; line-height: 1.55; background: var(--trace-soft); border-left: 3px solid var(--trace); border-radius: 3px; padding: 10px 14px; margin: 0 0 16px; }
 .body li { margin-bottom: 6px; }
 .body code { font-family: var(--mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
-.body pre { background: var(--code-bg); padding: 14px 16px; border-radius: 4px; overflow-x: auto; font-size: .84rem; line-height: 1.55; margin: 0 0 16px; }
+.body pre { background: var(--code-bg); padding: 14px 16px; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .84rem; line-height: 1.55; margin: 0 0 16px; }
 .body pre code { background: none; padding: 0; font-size: inherit; }
 .body pre code .cm { color: var(--code-comment); }
 .tbl { overflow-x: auto; margin: 0 0 16px; }
 .tbl td ul { margin: 0; }
 .body .code-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .body .code-pair figure { margin: 0; min-width: 0; }
+.body .code-pair pre { padding: 12px; font-size: .8rem; }
 .body .code-pair figcaption { font-family: var(--sans); font-size: .85rem; font-weight: 600; color: var(--muted); margin: 0 0 4px; }
 @media (max-width: 760px) { .body .code-pair { grid-template-columns: minmax(0, 1fr); } }
 .body table.halves { table-layout: fixed; }
@@ -235,7 +236,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .prob .a p { margin: 0 0 10px; }
 .prob .a ol, .prob .a ul, .prob .q ul { padding-left: 1.2em; margin: 0 0 10px; }
 .prob code { font-family: var(--mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
-.prob pre { background: var(--code-bg); padding: 10px 12px; border-radius: 4px; overflow-x: auto; font-size: .82rem; }
+.prob pre { background: var(--code-bg); padding: 10px 12px; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .82rem; }
 .prob pre code { background: none; padding: 0; }
 .prob .qn { font-family: var(--sans); font-size: .8rem; font-weight: 700; color: var(--pad); letter-spacing: .04em; margin: 0 0 4px; }
 .flag-btn { float: right; font: inherit; font-size: .78rem; font-weight: 600; letter-spacing: 0; color: var(--muted); background: none; border: 1px solid var(--rule); border-radius: 10px; padding: 1px 9px; cursor: pointer; }
@@ -288,7 +289,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .code-reset { color: var(--muted); background: none; border: 1px solid var(--rule); }
 .code-reset:hover { color: var(--trace); border-color: var(--trace); }
 .code-seed input { width: 5.5em; font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 4px; margin-left: 4px; }
-.prob pre.code-out { margin: 8px 0 0; max-height: 24em; overflow: auto; white-space: pre; font-family: var(--mono); font-size: .8rem; color: var(--ink); border-left: 3px solid var(--rule); }
+.prob pre.code-out { margin: 8px 0 0; max-height: 24em; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: .8rem; color: var(--ink); border-left: 3px solid var(--rule); }
 .code-status { color: var(--muted); font-style: italic; }
 .code-note { font-size: .85rem; color: var(--muted); }
 .drill-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 16px; margin: 0 0 20px; font-size: .9rem; }
@@ -608,7 +609,7 @@ window.MathJax = {
 <script src="sections/real-processors.js?v=1a2278a9"></script>
 <script src="sections/performance-analysis.js?v=4916e97d"></script>
 <script src="sections/stalls-bottlenecks.js?v=9d88012c"></script>
-<script src="sections/gpu-kernels.js?v=39e85127"></script>
+<script src="sections/gpu-kernels.js?v=a7103fae"></script>
 <script src="sections/threads-and-launches.js?v=5761c535"></script>
 <script src="sections/cuda-cores-sm.js?v=6af19d8d"></script>
 <script src="sections/warps-simt.js?v=31255544"></script>
