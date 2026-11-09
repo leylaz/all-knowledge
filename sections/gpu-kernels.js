@@ -5,7 +5,7 @@
 section({
   id: "gk",
   name: "GPU Kernels",
-  cap: "Kernels, the thread hierarchy, launches, and fused GEMMs",
+  cap: "Why kernels exist, what they compute, and the matrix multiply from naive to cuBLAS",
   sections: [
     { id: "host-device", label: "Host and Device" },
     { id: "pages", label: "How the Pages Fit Together" }
@@ -23,22 +23,21 @@ section({
 <li><a href="#/gpu-why">Why GPU Kernels Exist</a>: the workloads GPUs are built for, how they differ from CPUs, and a first kernel next to the CPU loop it replaces.</li>
 <li><a href="#/gpu-compute">What GPUs Compute</a>: elementwise work, reductions, and matrix multiplies, measured in FLOPs per byte against real workload sizes.</li>
 <li><a href="#/gpu-naive">The Naive Matrix Multiply</a>: one thread per output, coalesced, and still at about 5% of peak because it requests every input element over and over.</li>
-<li><a href="#/gpu-launch">Grids, Blocks, and Threads</a>: indexing, how blocks are placed on SMs, the thread hierarchy they form, and what a launch costs.</li>
 <li><a href="#/gpu-tiling">Tiling Through Shared Memory</a>: how shared-memory tiles with <code>__syncthreads</code> cut the naive kernel's requests, and why that alone buys only 1.5× on real hardware.</li>
 <li><a href="#/gpu-kernels">Beyond Tiling</a>: what closes the gap from the tiled kernel to cuBLAS, what Tensor Cores compute, and epilogue fusion.</li>
 </ul>
-<p>The rest of the tab goes down a level: <a href="#/r/gsm">CUDA Cores and the SM</a> for the hardware a block runs on, <a href="#/r/gwarp">Warps and SIMT</a> for how its threads are issued, <a href="#/r/gmem">GPU Memory System</a> for how its loads are served, and <a href="#/r/gperf">GPU Performance Modeling</a> for predicting how fast all of it runs. For shipping hardware, see <a href="#/hopper">NVIDIA Hopper</a> and <a href="#/blackwell">NVIDIA Blackwell</a>.</p>`,
+<p>The rest of the tab goes down a level: <a href="#/r/gthr">Threads and Launches</a> for how a launch names and places its threads, <a href="#/r/gsm">CUDA Cores and the SM</a> for the hardware a block runs on, <a href="#/r/gwarp">Warps and SIMT</a> for how its threads are issued, <a href="#/r/gmem">GPU Memory System</a> for how its loads are served, and <a href="#/r/gperf">GPU Performance Modeling</a> for predicting how fast all of it runs. For shipping hardware, see <a href="#/hopper">NVIDIA Hopper</a> and <a href="#/blackwell">NVIDIA Blackwell</a>.</p>`,
   practice: {
     guided: [
       {
-        q: `<p>A SAXPY kernel (<code>y[i] = a * x[i] + y[i]</code>) runs over 10,000,000 floats with 256-thread blocks, one element per thread. How many blocks does the launch need, and how many threads in the last block do useful work?</p>`,
-        a: `<ol><li>Blocks = ⌈10,000,000 / 256⌉ = ⌈39,062.5⌉ = <strong>39,063</strong>.</li><li>The first 39,062 blocks cover 39,062 × 256 = 9,999,872 elements.</li><li>The last block has 10,000,000 − 9,999,872 = <strong>128</strong> elements, so 128 of its 256 threads do work and the rest fail the <code>if (i &lt; n)</code> bounds check.</li></ol>`
+        q: `<p>A program copies two 512 MB FP32 arrays to an A100 over PCIe 4.0 x16, adds them with one kernel, and copies the 512 MB result back. How long does each step take, and what fraction of the total is the kernel?</p><p class="given">Assume PCIe moves 25 GB/s each way, one direction at a time, and the kernel streams its 1,536 MB at the A100 40 GB's 1,555 GB/s.</p>`,
+        a: `<ol><li>Copies in: 2 arrays × 512 MB/array / 25 GB/s ≈ 41.0 ms.</li><li>Kernel: (512 MB + 512 MB read + 512 MB written) / 1,555 GB/s ≈ 0.99 ms.</li><li>Copy out: 512 MB / 25 GB/s ≈ 20.5 ms.</li><li>Total ≈ 62.4 ms, and the kernel is 0.99 ms / 62.4 ms ≈ <strong>1.6%</strong> of it.</li></ol><p>A single cheap kernel can't pay for its own transfers. Real programs keep data on the device across many kernels and copy only inputs and final results.</p>`
       }
     ],
     interview: [
       {
-        q: `<p>A colleague moves a 4,096-element elementwise kernel from the CPU to an H100 (132 SMs, up to 64 resident warps per SM) and sees no speedup. They launch 256-thread blocks. Explain what the GPU is doing and what you'd change.</p>`,
-        a: `<p>The launch has 4,096 / 256 = 16 blocks, so only 16 of 132 SMs (12%) get any work, and each of those holds 8 warps out of a possible 64. That's 128 warps for a machine that can hold 132 × 64 = 8,448. Worse, the whole kernel is a few hundred nanoseconds of work against a launch overhead of several microseconds, so launch latency dominates. Fixes, in order of impact:</p><ul><li>Fuse it into a neighboring kernel so it costs no launch at all.</li><li>Batch many such small operations into one launch.</li><li>If it must stand alone, capture the sequence in a CUDA Graph to cut per-launch CPU overhead.</li></ul><p>Changing the block size doesn't help: there's simply not enough parallel work to fill the GPU.</p>`
+        q: `<p>A training loop launches its kernels asynchronously, but after every step it calls <code>loss.item()</code> to print the loss. Each step has about 45 ms of GPU work, and the CPU needs about 30 ms to enqueue that step's launches. Estimate the step time with and without the per-step <code>item()</code> call, and explain the difference.</p><p class="given">Assume reading the loss back costs about 0.1 ms once the GPU is idle, and launch work for the next step can't start until <code>item()</code> returns.</p>`,
+        a: `<ol><li><strong>Without it:</strong> the CPU enqueues step n + 1 (30 ms) while the GPU runs step n (45 ms). The GPU never waits, so a step takes about <strong>45 ms</strong>, set by the GPU.</li><li><strong>With it:</strong> <code>item()</code> is a blocking copy, so the CPU waits until step n finishes before it starts enqueueing step n + 1. Then the GPU sits idle while the CPU enqueues the first launches of the new step. The CPU and GPU now take turns: in the worst case about 45 ms + 0.1 ms + 30 ms ≈ <strong>75 ms</strong>, 1.67× slower. In practice the GPU starts as soon as the first kernel of step n + 1 is enqueued, so the loss is somewhere between a few ms and 30 ms per step, depending on how front-loaded the launch work is.</li></ol><p>Fixes: read the loss every N steps, or copy it asynchronously into pinned host memory and read it a step later, so the CPU stays ahead of the GPU.</p>`
       }
     ]
   }
@@ -352,117 +351,6 @@ int main(void) {
       {
         q: `<p>A colleague writes the naive kernel with 32 × 32 blocks but maps <code>row</code> to <code>threadIdx.x</code> and <code>col</code> to <code>threadIdx.y</code>. For one warp and one iteration of the k loop, how many distinct 32-byte sectors do the loads of A and of B touch, in their version and in the coalesced one? Predict how much slower their kernel is, and explain why the real slowdown can be smaller than the sector ratio.</p><p class="given">Assume FP32 row-major matrices with N = K = 2,048, so rows are 8 KB apart, and that warps are formed from consecutive <code>threadIdx.x</code>.</p>`,
         a: `<ol><li><strong>Their version:</strong> a warp is 32 consecutive <code>threadIdx.x</code>, so 32 different rows and one column.<ul><li>A: <code>A[row * K + k]</code> hits 32 addresses 8 KB apart, so <strong>32 sectors</strong>, each carrying 4 useful bytes of 32 (12.5% efficiency).</li><li>B: <code>B[k * N + col]</code> is the same address for all 32 threads, a broadcast: <strong>1 sector</strong>.</li></ul></li><li><strong>Coalesced version:</strong> one row and 32 consecutive columns.<ul><li>A: one address, broadcast: <strong>1 sector</strong>.</li><li>B: 32 consecutive floats = 128 B = <strong>4 sectors</strong>.</li></ul></li><li>Per iteration: 33 sectors against 5, so about <strong>6.6× more</strong> memory work per FMA. With both versions limited by the load path, that predicts roughly a 6.6× slowdown, close to the measured ratio on this page's A6000.</li><li><strong>Why it can be smaller:</strong> the 32 sectors of A each hold 8 floats, and the same warp needs the next 7 of them in the next 7 iterations. If those lines stay in L1, later iterations hit, so DRAM traffic grows much less than 6.6×. The L1 still has to process 32 separate sectors per load instruction, which is why the slowdown stays large.</li></ol>`
-      }
-    ]
-  }
-},
-
-{
-  id: "gpu-launch",
-  region: "gk",
-  title: "Grids, Blocks, and Threads",
-  sections: [
-    { id: "indexing", label: "Computing an Index" },
-    { id: "grid-stride", label: "Grid-Stride Loops" },
-    { id: "placement", label: "How Blocks Reach the SMs" },
-    { id: "hierarchy", label: "The Thread Hierarchy" },
-    { id: "launch-cost", label: "Launch Overhead, Streams, and Graphs" }
-  ],
-  body: `
-<p>A kernel launch names a grid shape and a block shape. The <strong>grid</strong> is every thread the launch creates, split into equal <strong>blocks</strong> of up to 1,024 <strong>threads</strong>. The hardware turns that into blocks on SMs and warps on schedulers, and each thread works out which data it owns from its coordinates. This page builds up the levels one at a time, then puts them side by side in <a href="#/gpu-launch/hierarchy">The Thread Hierarchy</a>.</p>
-<h3 id="sec-indexing">Computing an Index</h3>
-<p>Each thread reads its position from built-in variables: <code>threadIdx</code> within its block, <code>blockIdx</code> within the grid, and the shapes <code>blockDim</code> and <code>gridDim</code>. For a 2D image:</p>
-<pre><code>__global__ void scale(float *img, int w, int h, float s) {
-  int x = blockIdx.x * blockDim.x + threadIdx.x;   <span class="cm">// column</span>
-  int y = blockIdx.y * blockDim.y + threadIdx.y;   <span class="cm">// row</span>
-  if (x &lt; w &amp;&amp; y &lt; h) img[y * w + x] *= s;
-}
-
-dim3 block(32, 8);                                 <span class="cm">// 256 threads, 8 warps</span>
-dim3 grid((w + 31) / 32, (h + 7) / 8);
-scale&lt;&lt;&lt;grid, block&gt;&gt;&gt;(img, w, h, 2.0f);</code></pre>
-<p>Warps are formed from the block's <em>linear</em> thread id, with x varying fastest:</p>
-<div class="math">\\[ \\text{tid} = t_x + t_y \\cdot D_x + t_z \\cdot D_x D_y, \\qquad \\text{warp} = \\lfloor \\text{tid} / 32 \\rfloor \\]</div>
-<p>That's why the block above is 32 wide: each warp is one full row segment, so its 32 threads touch 32 consecutive floats and the load coalesces (see <a href="#/gpu-coalescing">Memory Coalescing</a>). A block of 8 × 32 would give each warp four rows of 8 floats, scattered across four separate lines.</p>
-<h3 id="sec-grid-stride">Grid-Stride Loops</h3>
-<p>Instead of one thread per element, a kernel can launch a fixed grid sized to the GPU and have each thread walk the array:</p>
-<pre><code>for (int i = blockIdx.x * blockDim.x + threadIdx.x; i &lt; n; i += gridDim.x * blockDim.x)
-  y[i] = a * x[i] + y[i];</code></pre>
-<ul>
-<li><strong>It works for any n</strong> without recomputing the launch shape.</li>
-<li><strong>It amortizes per-thread setup</strong> (index math, loading constants) over several elements.</li>
-<li><strong>Each iteration still coalesces:</strong> on every pass, neighboring threads touch neighboring elements.</li>
-</ul>
-<p>A common choice is a small multiple of (number of SMs × blocks that fit per SM), so the grid fills the GPU exactly.</p>
-<h3 id="sec-placement">How Blocks Reach the SMs</h3>
-<p>A hardware block scheduler hands blocks to SMs as long as an SM has room for another block's threads, registers, and shared memory (see <a href="#/gpu-occupancy">Occupancy and Per-SM Resources</a>). A block stays on its SM for its whole life, and when it finishes, the next one takes its place. If every block takes the same time, the grid runs in <strong>waves</strong>:</p>
-<div class="math">\\[ \\text{waves} = \\left\\lceil \\frac{\\text{blocks}}{\\text{SMs} \\times \\text{blocks per SM}} \\right\\rceil, \\qquad \\text{wave efficiency} = \\frac{\\text{blocks}}{\\text{waves} \\times \\text{SMs} \\times \\text{blocks per SM}} \\]</div>
-<p>On an H100 with 132 SMs and 4 blocks resident per SM, one wave is 528 blocks. A grid of 600 blocks takes 2 waves, and the second wave has only 72 blocks, so wave efficiency is 600 / 1,056 ≈ 57%. This <strong>tail effect</strong> is why GEMM libraries pick tile sizes with the SM count in mind, and why "stream-K" and split-K kernels divide the work more finely than one tile per block.</p>
-<p>Inside the SM, the block's warps are divided among four sub-partitions. Each sub-partition has its own warp scheduler and 32 FP32 lanes, and each cycle its scheduler can issue one instruction from one ready warp, which all 32 threads of that warp execute together (see <a href="#/r/gwarp">Warps and SIMT</a>). Threads of one warp can exchange registers directly with shuffles. Threads of one block, which may sit in different sub-partitions, go through the SM's shared memory and <code>__syncthreads</code>.</p>
-<p>Hopper adds an optional level between the block and the grid: the <strong>thread block cluster</strong>. A kernel declared with <code>__cluster_dims__(2, 1, 1)</code>, or launched with a cluster attribute, groups neighboring blocks, and the hardware guarantees that a cluster's blocks run at the same time on SMs in the same GPC. That lets them read and write each other's shared memory (distributed shared memory) and wait at a cluster-wide barrier, which ordinary blocks can't do.</p>
-<h3 id="sec-hierarchy">The Thread Hierarchy</h3>
-<p>Put together, the levels nest. The figure shows a small launch of the 32 × 8 blocks from <a href="#/gpu-launch/indexing">Computing an Index</a>: a 4 × 2 grid, launched with clusters of 2 blocks. Block (3,0) is enlarged. Each of its rows is one warp, because x varies fastest and a row is exactly 32 threads wide.</p>
-<div class="tbl"><svg viewBox="0 0 680 252" role="img" aria-label="The thread hierarchy for one launch. On the left, a grid with gridDim (4, 2) holds 8 blocks in two rows, labeled block (0,0) to block (3,1). Adjacent pairs of blocks are outlined as clusters 0 to 3, each of 2 blocks. Block (3,0) is highlighted and enlarged on the right: it has blockDim (32, 8), drawn as 8 rows of 32 thread cells. Each row, with one value of threadIdx.y, is one warp, labeled warp 0 to warp 7. Warp 2 is shaded, covering linear thread ids 64 to 95, and inside it thread (5, 2), with linear id 69, is marked." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
-<text x="14" y="24" style="font-size:12px;font-weight:600;fill:var(--ink)">Grid: gridDim = (4, 2)</text>
-<rect x="14" y="32" width="304" height="206" style="fill:none;stroke:var(--muted);stroke-width:1.2;stroke-dasharray:5 4"/>
-<g style="fill:none;stroke:var(--pad);stroke-width:1.2;stroke-dasharray:3 3"><rect x="26" y="44" width="136" height="88"/><rect x="174" y="44" width="136" height="88"/><rect x="26" y="140" width="136" height="88"/><rect x="174" y="140" width="136" height="88"/></g>
-<g style="font-size:10px;fill:var(--pad)"><text x="32" y="56">Cluster 0</text><text x="180" y="56">Cluster 1</text><text x="32" y="152">Cluster 2</text><text x="180" y="152">Cluster 3</text></g>
-<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1"><rect x="34" y="64" width="56" height="56"/><rect x="98" y="64" width="56" height="56"/><rect x="182" y="64" width="56" height="56"/><rect x="34" y="160" width="56" height="56"/><rect x="98" y="160" width="56" height="56"/><rect x="182" y="160" width="56" height="56"/><rect x="246" y="160" width="56" height="56"/></g>
-<rect x="246" y="64" width="56" height="56" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
-<g text-anchor="middle" style="font-size:10px;fill:var(--muted)"><text x="62" y="88">Block</text><text x="126" y="88">Block</text><text x="210" y="88">Block</text><text x="62" y="184">Block</text><text x="126" y="184">Block</text><text x="210" y="184">Block</text><text x="274" y="184">Block</text></g>
-<g text-anchor="middle" style="font-size:11px;fill:var(--ink)"><text x="62" y="102">(0,0)</text><text x="126" y="102">(1,0)</text><text x="210" y="102">(2,0)</text><text x="62" y="198">(0,1)</text><text x="126" y="198">(1,1)</text><text x="210" y="198">(2,1)</text><text x="274" y="198">(3,1)</text></g>
-<g text-anchor="middle" style="font-size:11px;font-weight:600;fill:var(--ink)"><text x="274" y="88">Block</text><text x="274" y="102">(3,0)</text></g>
-<path d="M302,64 L370,32 M302,120 L370,238" style="fill:none;stroke:var(--trace);stroke-width:1;stroke-dasharray:4 3"/>
-<rect x="370" y="32" width="296" height="206" style="fill:none;stroke:var(--trace);stroke-width:1.5"/>
-<text x="378" y="50" style="font-size:12px;font-weight:600;fill:var(--ink)">Block (3,0): blockDim = (32, 8)</text>
-<rect x="384" y="60" width="224" height="128" style="fill:var(--trace-soft)"/>
-<rect x="384" y="92" width="224" height="16" style="fill:var(--pad-soft)"/>
-<rect x="419" y="92" width="7" height="16" style="fill:var(--pad)"/>
-<path d="M391,60 V188 M398,60 V188 M405,60 V188 M412,60 V188 M419,60 V188 M426,60 V188 M433,60 V188 M440,60 V188 M447,60 V188 M454,60 V188 M461,60 V188 M468,60 V188 M475,60 V188 M482,60 V188 M489,60 V188 M496,60 V188 M503,60 V188 M510,60 V188 M517,60 V188 M524,60 V188 M531,60 V188 M538,60 V188 M545,60 V188 M552,60 V188 M559,60 V188 M566,60 V188 M573,60 V188 M580,60 V188 M587,60 V188 M594,60 V188 M601,60 V188 M384,76 H608 M384,92 H608 M384,108 H608 M384,124 H608 M384,140 H608 M384,156 H608 M384,172 H608" style="fill:none;stroke:var(--muted);stroke-width:.5"/>
-<rect x="384" y="60" width="224" height="128" style="fill:none;stroke:var(--muted);stroke-width:1"/>
-<rect x="384" y="92" width="224" height="16" style="fill:none;stroke:var(--pad);stroke-width:1.5"/>
-<g style="font-size:10px;fill:var(--muted)"><text x="614" y="72">warp 0</text><text x="614" y="88">warp 1</text><text x="614" y="120">warp 3</text><text x="614" y="136">warp 4</text><text x="614" y="152">warp 5</text><text x="614" y="168">warp 6</text><text x="614" y="184">warp 7</text></g>
-<text x="614" y="104" style="font-size:10px;font-weight:600;fill:var(--pad)">warp 2</text>
-<text x="608" y="201" text-anchor="end" style="font-size:10px;fill:var(--muted)">threadIdx.x = 0 → 31</text>
-<path d="M422.5,108 V212" style="fill:none;stroke:var(--pad);stroke-width:1"/>
-<text x="428" y="216" style="font-size:11px;fill:var(--ink)"><tspan style="font-weight:600">Thread (5, 2):</tspan> tid = 5 + 2 × 32 = 69</text>
-<text x="428" y="231" style="font-size:11px;fill:var(--ink)"><tspan style="font-weight:600">Warp 2:</tspan> threadIdx.y = 2, tids 64 to 95</text>
-</svg></div>
-<div class="tbl"><table>
-<tr><th>Level</th><th>Runs on</th><th>Can cooperate through</th><th>Limits (compute capability 9.0, Hopper)</th></tr>
-<tr><td>Thread</td><td>One lane of a sub-partition</td><td>Its own registers</td><td>Up to 255 registers</td></tr>
-<tr><td>Warp (32 threads)</td><td>One sub-partition's scheduler</td><td>Shuffles, votes, <code>__syncwarp</code></td><td>Fixed at 32</td></tr>
-<tr><td>Block</td><td>One SM, for its whole life</td><td>Shared memory, <code>__syncthreads</code></td><td>Up to 1,024 threads</td></tr>
-<tr><td>Cluster (Hopper and later)</td><td>A group of SMs in one GPC</td><td>Distributed shared memory</td><td>Up to 8 blocks portably (16 opt-in)</td></tr>
-<tr><td>Grid</td><td>The whole GPU</td><td>Global memory and atomics only</td><td>Up to 2<sup>31</sup> − 1 blocks in x, 65,535 in y and z</td></tr>
-</table></div>
-<p>The key constraint: blocks in a grid can't wait for each other. The hardware may run them in any order and at any time, so a grid-wide dependency needs either a second kernel launch or a cooperative launch that guarantees every block is resident. Clusters are the one exception, and only within a cluster.</p>
-<h3 id="sec-launch-cost">Launch Overhead, Streams, and Graphs</h3>
-<ul>
-<li><strong>Launch cost:</strong> a few microseconds of CPU time per launch through the driver, and around a microsecond or more of GPU-side gap between back-to-back dependent kernels. For a kernel that does 5 µs of work, that's a large fraction.</li>
-<li><strong>Streams:</strong> launches in one stream run in order. Independent streams can overlap kernels with each other and with copies, which lets a small kernel share the GPU with another.</li>
-<li><strong>CUDA Graphs:</strong> record a whole sequence of launches once and replay it with one call. The driver validates and sets up the work at capture time, so each replayed kernel costs much less CPU time. LLM decode loops, which launch hundreds of small kernels per token, rely on this.</li>
-</ul>
-<p class="refs">References: NVIDIA, <em>CUDA C++ Programming Guide</em> (programming model, thread hierarchy, and compute capability tables) · Kirk and Hwu, <em>Programming Massively Parallel Processors</em>, Chapters 2 to 4 · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 4 (GPU programming)</p>`,
-  practice: {
-    guided: [
-      {
-        q: `<p>A kernel launches 1,000 blocks on an A100 (108 SMs). Its resource use allows 2 blocks per SM, and every block takes the same time. How many waves does it run in, and what is the wave efficiency?</p>`,
-        a: `<ol><li>One wave = 108 × 2 = 216 blocks.</li><li>Waves = ⌈1,000 / 216⌉ = ⌈4.63⌉ = <strong>5</strong>.</li><li>Efficiency = 1,000 / (5 × 216) = 1,000 / 1,080 ≈ <strong>92.6%</strong>. The last wave has 1,000 − 4 × 216 = 136 blocks, so 80 of the 216 slots sit idle during it.</li></ol>`
-      },
-      {
-        q: `<p>A kernel uses a 3D block of 16 × 4 × 4 threads. Which warp does thread (t<sub>x</sub>, t<sub>y</sub>, t<sub>z</sub>) = (5, 3, 2) belong to, and how many distinct values of t<sub>y</sub> does one warp span?</p>`,
-        a: `<ol><li>D<sub>x</sub> = 16 and D<sub>x</sub>D<sub>y</sub> = 64.</li><li>tid = 5 + 3 × 16 + 2 × 64 = 5 + 48 + 128 = 181.</li><li>Warp = ⌊181 / 32⌋ = <strong>5</strong> (warp 0 is the first).</li><li>A warp is 32 consecutive tids, which is two full rows of 16 in x, so each warp spans <strong>2</strong> values of t<sub>y</sub> (and one value of t<sub>z</sub>, since 64 is a multiple of 32).</li></ol>`
-      }
-    ],
-    interview: [
-      {
-        q: `<p>An FP16 GEMM with M = N = 3,072 runs on an H100 (132 SMs) with one block per SM. Option A uses 128 × 128 output tiles. Option B uses 256 × 128 tiles, which do twice the work per tile but, thanks to better operand reuse, take only 1.6× as long as an A tile. Which finishes first, and how far is the better one from perfect load balance?</p><p class="given">Assume every tile of one shape takes the same time, and the K dimension is the same for both.</p>`,
-        a: `<ol><li>Option A: (3,072 / 128)<sup>2</sup> = 24 × 24 = 576 tiles. Waves = ⌈576 / 132⌉ = ⌈4.36⌉ = 5. Time = 5t, where t is one A-tile time.</li><li>Option B: (3,072 / 256) × (3,072 / 128) = 12 × 24 = 288 tiles. Waves = ⌈288 / 132⌉ = ⌈2.18⌉ = 3. Time = 3 × 1.6t = <strong>4.8t</strong>.</li><li>So B wins by 4%, even though its wave efficiency (288 / 396 ≈ 73%) is worse than A's (576 / 660 ≈ 87%): its per-FLOP speed more than makes up for the bigger tail.</li><li>Perfect balance with B-tile efficiency: total work = 288 × 1.6t = 460.8t, spread over 132 SMs = <strong>3.49t</strong>. B is 4.8 / 3.49 ≈ 1.38× from ideal.</li></ol><p>A stream-K kernel closes most of that gap by giving each SM an equal share of the K-loop iterations across all tiles, at the cost of fixing up partial tiles that two SMs both contributed to.</p>`
-      },
-      {
-        q: `<p>An LLM decode step for a 32-layer model launches about 14 kernels per layer, each doing about 6 µs of GPU work at batch size 1. Launching from Python through a framework costs about 12 µs of CPU time per kernel, and back-to-back dependent kernels leave about 1 µs of gap on the GPU even when the CPU stays ahead. Estimate the step time with and without CUDA Graphs.</p><p class="given">Assume a CUDA Graph replay brings CPU cost to about 0.5 µs per kernel and leaves the 1 µs GPU-side gap unchanged.</p>`,
-        a: `<ol><li>Kernels per step: 32 × 14 = 448. Each takes 6 µs + 1 µs gap = 7 µs on the GPU, so the GPU alone needs 448 × 7 µs ≈ 3.14 ms.</li><li>Without graphs: the CPU needs 12 µs per kernel, longer than the GPU's 7 µs, so the GPU drains its queue and waits for each launch. The CPU is the bottleneck: step ≈ 448 × 12 µs ≈ <strong>5.38 ms</strong>.</li><li>With graphs: CPU cost drops to 448 × 0.5 µs ≈ 0.22 ms, so the GPU is the bottleneck: step ≈ <strong>3.14 ms</strong>, a 1.7× speedup.</li></ol><p>The remaining 448 µs of GPU-side gaps (14% of the step) don't go away with graphs. Fusing kernels so there are fewer of them removes those gaps and some HBM traffic too.</p>`
       }
     ]
   }

@@ -71,9 +71,10 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "proc proc proc proc proc proc"
     "perf perf perf stall stall stall"; }
 .floor[data-tab="gpu"] { grid-template-areas:
-    "gk gk gk gsm gsm gsm"
-    "gwarp gwarp gwarp gmem gmem gmem"
-    "gai gai gai gperf gperf gperf"; }
+    "gk gk gk gthr gthr gthr"
+    "gsm gsm gsm gwarp gwarp gwarp"
+    "gmem gmem gmem gai gai gai"
+    "gperf gperf gperf gperf gperf gperf"; }
 .floor[data-tab="os"] { grid-template-areas:
     "os os os task task task"
     "osmem osmem osmem io io io"; }
@@ -593,7 +594,7 @@ window.MathJax = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-<script src="js/site.js?v=42ffe59d"></script>
+<script src="js/site.js?v=07dbe6f9"></script>
 <script src="sections/instruction-sets.js?v=f24c74e3"></script>
 <script src="sections/pipeline-stages.js?v=e204b34c"></script>
 <script src="sections/front-end.js?v=ca728824"></script>
@@ -607,7 +608,8 @@ window.MathJax = {
 <script src="sections/real-processors.js?v=1a2278a9"></script>
 <script src="sections/performance-analysis.js?v=4916e97d"></script>
 <script src="sections/stalls-bottlenecks.js?v=9d88012c"></script>
-<script src="sections/gpu-kernels.js?v=28fb0fe0"></script>
+<script src="sections/gpu-kernels.js?v=d4422138"></script>
+<script src="sections/threads-and-launches.js?v=5761c535"></script>
 <script src="sections/cuda-cores-sm.js?v=6af19d8d"></script>
 <script src="sections/warps-simt.js?v=31255544"></script>
 <script src="sections/gpu-memory-system.js?v=a270a0a8"></script>
