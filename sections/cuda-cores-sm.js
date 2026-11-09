@@ -28,7 +28,7 @@ section({
 <li><a href="#/cuda-cores">What a CUDA Core Is</a>: the lane behind the marketing number, how lanes are grouped into sub-partitions, and how to count peak throughput.</li>
 <li><a href="#/gpu-occupancy">Occupancy and Per-SM Resources</a>: how registers, shared memory, and thread limits decide how many blocks an SM holds.</li>
 </ul>
-<p>For the full H100 SM diagram, see <a href="#/hopper/sm">Inside the SM</a> on the Hopper page. For a kernel that puts the SM's registers and shared memory to work, see <a href="#/gpu-tiling">Tiled Matrix Multiply in Shared Memory</a>.</p>`,
+<p>For the full H100 SM diagram, see <a href="#/hopper/sm">Inside the SM</a> on the Hopper page. For a kernel that puts the SM's registers and shared memory to work, see <a href="#/gpu-tiling">Tiling Through Shared Memory</a>.</p>`,
   practice: {
     guided: [
       {

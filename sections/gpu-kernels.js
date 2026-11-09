@@ -24,7 +24,7 @@ section({
 <li><a href="#/gpu-compute">What GPUs Compute</a>: elementwise work, reductions, and matrix multiplies, measured in FLOPs per byte against real workload sizes.</li>
 <li><a href="#/gpu-naive">The Naive Matrix Multiply</a>: one thread per output, coalesced, and still at about 5% of peak because it requests every input element over and over.</li>
 <li><a href="#/gpu-launch">Grids, Blocks, and Threads</a>: indexing, how blocks are placed on SMs, the thread hierarchy they form, and what a launch costs.</li>
-<li><a href="#/gpu-tiling">Tiled Matrix Multiply in Shared Memory</a>: how shared-memory tiles with <code>__syncthreads</code> cut the naive kernel's requests.</li>
+<li><a href="#/gpu-tiling">Tiling Through Shared Memory</a>: how shared-memory tiles with <code>__syncthreads</code> cut the naive kernel's requests, and why that alone buys only 1.5× on real hardware.</li>
 <li><a href="#/gpu-kernels">GPU Kernels and Tensor Cores</a>: a matrix-multiply kernel from the inside, epilogue fusion, and what Tensor Cores compute.</li>
 </ul>
 <p>The rest of the tab goes down a level: <a href="#/r/gsm">CUDA Cores and the SM</a> for the hardware a block runs on, <a href="#/r/gwarp">Warps and SIMT</a> for how its threads are issued, <a href="#/r/gmem">GPU Memory System</a> for how its loads are served, and <a href="#/r/gperf">GPU Performance Modeling</a> for predicting how fast all of it runs. For shipping hardware, see <a href="#/hopper">NVIDIA Hopper</a> and <a href="#/blackwell">NVIDIA Blackwell</a>.</p>`,
@@ -471,19 +471,20 @@ scale&lt;&lt;&lt;grid, block&gt;&gt;&gt;(img, w, h, 2.0f);</code></pre>
 {
   id: "gpu-tiling",
   region: "gk",
-  title: "Tiled Matrix Multiply in Shared Memory",
+  title: "Tiling Through Shared Memory",
   sections: [
     { id: "hierarchy", label: "The Memory a Kernel Sees" },
-    { id: "tiling", label: "Tiling Through Shared Memory" },
+    { id: "tiling", label: "Splitting K Into Tiles" },
     { id: "phases", label: "Load, Synchronize, Compute" },
     { id: "bounds", label: "Bounds Checks and the Barrier Rule" },
-    { id: "savings", label: "What Tiling Saves and What It Doesn't" }
+    { id: "savings", label: "What Tiling Saves and What It Doesn't" },
+    { id: "speed", label: "How Much Faster Tiling Is" }
   ],
   body: `
-<p>A matrix multiply written the obvious way, one thread per output element, spends nearly all its time loading operands. The classic fix is <strong>tiling</strong>: a thread block copies a square tile of each input into shared memory, synchronizes, and then every thread reuses that tile many times. This page builds the tiled kernel from the one in <a href="#/gpu-naive">The Naive Matrix Multiply</a> on plain CUDA cores, so every step is visible. <a href="#/gpu-kernels/gemm">How a GEMM Kernel Works</a> takes the same idea to Tensor Cores and production tile sizes.</p>
+<p><a href="#/gpu-naive">The Naive Matrix Multiply</a> requests every input element over and over: the 16 threads in one row of a block each load the same row of \(A\) from global memory, one copy per thread. <strong>Tiling</strong> removes that redundancy. A thread block copies a square tile of each input into <strong>shared memory</strong>, the small on-chip memory its threads share, waits until the copy is complete, and then every thread reads its operands from there. Each element now crosses from global memory once per block instead of once per thread. This page builds the tiled kernel on plain CUDA cores, so every step is visible, then measures how much it helps and why the answer is less than the drop in requests suggests. <a href="#/gpu-kernels/gemm">How a GEMM Kernel Works</a> takes the same idea to Tensor Cores and production tile sizes.</p>
 
 <h3 id="sec-hierarchy">The Memory a Kernel Sees</h3>
-<p>Each level of the hierarchy is shared by a different group of threads, and that scope decides who can reuse what.</p>
+<p>A tile has to live somewhere every thread of the block can read. Each level of the hierarchy is shared by a different group of threads, and that scope decides who can reuse what.</p>
 <div class="tbl"><svg viewBox="0 0 680 340" role="img" aria-label="The GPU memory hierarchy as a kernel sees it. Inside the GPU chip, SM 0 holds two resident blocks, block (0,0) and block (1,0), each of 256 threads in 8 warps. SM 1 holds block (2,0) and has a free slot for the next block. Each SM has a register file split into private per-thread slices and a shared memory and L1 array split into one slice per resident block. Below the SMs, an L2 cache of 50 megabytes is shared by all 132 SMs. Outside the chip, global memory in HBM holds 80 gigabytes at 3.35 terabytes per second." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
 <rect x="10" y="10" width="660" height="262" style="fill:none;stroke:var(--muted);stroke-width:1.2;stroke-dasharray:5 4"/>
 <text x="20" y="27" style="font-size:11px;fill:var(--muted)">GPU chip (H100)</text>
@@ -523,7 +524,7 @@ scale&lt;&lt;&lt;grid, block&gt;&gt;&gt;(img, w, h, 2.0f);</code></pre>
 </ul>
 <p>Shared memory is fast but not instant: about 19 cycles is still several dependent FMAs' worth. What makes it valuable is that it's on-chip, wide (32 banks, 128 B per cycle per SM), and controlled by the program, so a block can stage data there once and then read it many times.</p>
 
-<h3 id="sec-tiling">Tiling Through Shared Memory</h3>
+<h3 id="sec-tiling">Splitting K Into Tiles</h3>
 <p>Split the K dimension into <strong>phases</strong> of width \\(T\\) (the tile size, 16 here). In each phase, the block's \\(T \\times T\\) threads cooperatively copy one \\(T \\times T\\) tile of \\(A\\) and one of \\(B\\) into shared memory, one element per thread per tile. Then each thread runs \\(T\\) FMAs out of shared memory. The block's output tile walks along a row of tiles in \\(A\\) and down a column of tiles in \\(B\\):</p>
 <div class="tbl"><svg viewBox="0 0 680 330" role="img" aria-label="Tiling a matrix multiply through shared memory. A is drawn as a 4 by 4 grid of tiles, B as a 4 by 4 grid of tiles above C, and C as a 4 by 4 grid. Block (1,2) owns one output tile of C, in tile row 1 and tile column 2. Its row of A tiles and column of B tiles are shaded and numbered phase 0 to phase 3. The phase 1 tiles are highlighted in the same color as the a_tile and b_tile arrays in the block's shared memory. In each phase every thread loads one element of each phase 1 tile, synchronizes, does T fused multiply-adds from shared memory, and synchronizes again." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
 <g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"><rect x="40" y="176" width="128" height="128"/><rect x="200" y="24" width="128" height="128"/><rect x="200" y="176" width="128" height="128"/></g>
@@ -612,7 +613,39 @@ matmul_tiled&lt;&lt;&lt;grid, block&gt;&gt;&gt;(d_c, d_a, d_b, M, N, K);</code><
 <li><strong>Register blocking:</strong> each thread computes a small patch of outputs, say 8 × 8, keeping its 64 accumulators in registers. Per step of \\(i\\) it loads 8 values of \\(A\\) and 8 of \\(B\\) and does 64 FMAs, so loads per FMA fall from 2 to 0.25. The price is registers, which lowers occupancy (see <a href="#/gpu-occupancy/lower-occupancy">When Higher Occupancy Doesn't Help</a>).</li>
 <li><strong>Bigger block tiles and pipelining:</strong> a 128 × 128 block tile multiplies global reuse, and double-buffering the tiles (asynchronous copies, see <a href="#/gpu-smem/async">Asynchronous Copies</a>) overlaps the next phase's load with this phase's math. Tensor Cores then replace the FMA loop entirely (see <a href="#/gpu-kernels/gemm">How a GEMM Kernel Works</a>).</li>
 </ul>
-<p class="refs">References: NVIDIA, <em>CUDA C++ Programming Guide</em> (shared memory and <code>__syncthreads</code>) · Kirk, Hwu, and El Hajj, <em>Programming Massively Parallel Processors</em> (4th ed.), Chapter 5 · Jia et al., “Dissecting the NVIDIA Volta GPU Architecture via Microbenchmarking” (2018), for the latencies · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 4 · <a href="https://www.youtube.com/watch?v=xewKxorikwE">Video walkthrough of naive and tiled CUDA matrix multiply</a></p>`,
+<h3 id="sec-speed">How Much Faster Tiling Is</h3>
+<p>A simple model predicts the answer before any measurement. Count bytes requested per FLOP at each level, for FP32 and one output per thread:</p>
+<div class="tbl"><table>
+<tr><th>Kernel</th><th>Global memory, B/FLOP</th><th>Shared memory, B/FLOP</th><th>Loads per FMA, any level</th></tr>
+<tr><td>Naive</td><td>4</td><td>0</td><td>2</td></tr>
+<tr><td>Tiled, \\(T = 16\\)</td><td>4 / 16 = 0.25</td><td>4</td><td>2 + 2/16 ≈ 2.1</td></tr>
+<tr><td>Tiled, \\(T = 32\\)</td><td>4 / 32 = 0.125</td><td>4</td><td>2 + 2/32 ≈ 2.1</td></tr>
+</table></div>
+<ul>
+<li><strong>Global requests fall by \\(T\\):</strong> 32× fewer for \\(T = 32\\). That would be decisive if the naive kernel were waiting on DRAM, but <a href="#/gpu-naive/measured">How Slow It Is in Practice</a> showed that over 90% of its requests already hit in L1 and L2.</li>
+<li><strong>Loads per FMA don't fall at all:</strong> every FMA still needs two operands, now from shared memory. An SM's load path serves about one warp-wide load per cycle against four warp-wide FMAs, so the ceiling of about 1/8 of FP32 peak from <a href="#/gpu-naive/naive-cost">Where the Naive Kernel Spends Its Time</a> still holds.</li>
+<li><strong>Prediction:</strong> a real but modest gain, from cheaper shared-memory hits replacing L1 and L2 traffic, and nowhere near 32×.</li>
+</ul>
+<p>Simon Boehm's worklog measures the whole progression on an RTX A6000 (38.7 TFLOP/s FP32) with \\(4{,}092 \\times 4{,}092\\) FP32 matrices, 137 GFLOP per multiply. The kernel numbers in the second column are his:</p>
+<div class="tbl"><table>
+<tr><th>Kernel</th><th>Boehm kernel</th><th>GFLOP/s</th><th>% of FP32 peak</th><th>% of cuBLAS</th><th>Time</th></tr>
+<tr><td>Naive, uncoalesced</td><td>1</td><td>309</td><td>0.8%</td><td>1.3%</td><td>443 ms</td></tr>
+<tr><td>Naive, coalesced (<a href="#/gpu-naive/naive">The Naive Kernel</a>)</td><td>2</td><td>1,987</td><td>5.1%</td><td>8.5%</td><td>69 ms</td></tr>
+<tr><td>Shared-memory tiles, 32 × 32 (this page)</td><td>3</td><td>2,980</td><td>7.7%</td><td>12.8%</td><td>46 ms</td></tr>
+<tr><td>Register blocking, 8 outputs per thread</td><td>4</td><td>8,475</td><td>21.9%</td><td>36.5%</td><td>16.2 ms</td></tr>
+<tr><td>Register blocking, 8 × 8 outputs per thread</td><td>5</td><td>15,972</td><td>41.3%</td><td>68.7%</td><td>8.6 ms</td></tr>
+<tr><td>Plus vectorized 128-bit loads</td><td>6</td><td>18,237</td><td>47.1%</td><td>78.4%</td><td>7.5 ms</td></tr>
+<tr><td>Plus autotuned tile sizes</td><td>9</td><td>19,721</td><td>51.0%</td><td>84.8%</td><td>6.9 ms</td></tr>
+<tr><td>Plus warp tiling</td><td>10</td><td>21,779</td><td>56.3%</td><td>93.7%</td><td>6.3 ms</td></tr>
+<tr><td>cuBLAS SGEMM</td><td>0 (reference)</td><td>23,250</td><td>60.1%</td><td>100%</td><td>5.9 ms</td></tr>
+</table></div>
+<ul>
+<li><strong>Tiling alone gives 1.5×</strong> (1,987 to 2,980 GFLOP/s), and the kernel stays under the 1/8-of-peak load ceiling of about 4.8 TFLOP/s, just as the model predicts.</li>
+<li><strong>The big jump comes from cutting loads per FMA:</strong> register blocking (kernels 4 and 5) takes the same shared-memory tiles and makes each loaded value feed several FMAs, for another 5.4×. That's the first fix in <a href="#/gpu-tiling/savings">What Tiling Saves and What It Doesn't</a>.</li>
+<li><strong>The last 30% to cuBLAS</strong> is a series of smaller steps: wider loads, tile sizes tuned to the GPU, and organizing the work per warp. <a href="#/gpu-kernels">Beyond Tiling</a> covers those and what Tensor Cores add on top. Even cuBLAS reaches only 60% of the A6000's FP32 peak here.</li>
+</ul>
+<p>Boehm's numbers in the table are from the A6000. He also ran some kernels on an A100, where cuBLAS reaches about 14.7 TFLOP/s because the A100 has less FP32 throughput, so check which GPU a quoted figure comes from before comparing it.</p>
+<p class="refs">References: NVIDIA, <em>CUDA C++ Programming Guide</em> (shared memory and <code>__syncthreads</code>) · Kirk, Hwu, and El Hajj, <em>Programming Massively Parallel Processors</em> (4th ed.), Chapter 5 · Simon Boehm, CUDA matrix multiply worklog (siboehm.com, 2022), for the measured kernels · Jia et al., “Dissecting the NVIDIA Volta GPU Architecture via Microbenchmarking” (2018), for the latencies · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 4 · <a href="https://www.youtube.com/watch?v=xewKxorikwE">Video walkthrough of naive and tiled CUDA matrix multiply</a></p>`,
   practice: {
     guided: [
       {
@@ -622,6 +655,10 @@ matmul_tiled&lt;&lt;&lt;grid, block&gt;&gt;&gt;(d_c, d_a, d_b, M, N, K);</code><
       {
         q: `<p>The bounds-checked tiled kernel with \\(T = 32\\) runs with \\(M = 1{,}000\\), \\(N = 600\\), \\(K = 300\\). How many blocks does the grid have, how many phases does each block run, how many columns of <code>a_tile</code> are zero-filled in the last phase, and how many threads skip the final store?</p>`,
         a: `<ol><li>Grid: ⌈600 / 32⌉ = 19 blocks in x and ⌈1,000 / 32⌉ = 32 blocks in y, so 19 × 32 = <strong>608 blocks</strong>.</li><li>Phases: ⌈300 / 32⌉ = ⌈9.375⌉ = <strong>10 phases</strong>.</li><li>The last phase (phase 9) covers k = 288 to 319, and only k = 288 to 299 exist. That leaves 12 real columns and <strong>20 zero-filled columns</strong> of <code>a_tile</code>, matched by 20 zero-filled rows of <code>b_tile</code>.</li><li>Threads: 608 blocks × 1,024 threads/block = 622,592 threads for 1,000 × 600 = 600,000 outputs, so <strong>22,592 threads</strong> skip the store. All of them still load and reach both barriers in every phase.</li></ol>`
+      },
+      {
+        q: `<p>An RTX 4090 has 128 SMs, each with 128 FP32 lanes and a load path that serves one warp-wide 32-bit load per cycle, at 2.52 GHz (82.6 TFLOP/s FP32). For an FP32 multiply with \\(M = N = K = 8{,}192\\), find the global bytes requested by the naive kernel and by the tiled kernel with \\(T = 32\\), and the load-issue ceiling of each. What is the ceiling for a register-blocked kernel that needs 0.25 loads per FMA?</p>`,
+        a: `<ol><li>FLOPs: 2 FLOP/FMA × 8,192<sup>3</sup> FMAs ≈ 1.10 × 10<sup>12</sup> FLOP.</li><li>Naive requests: 4 B/FLOP × 1.10 × 10<sup>12</sup> FLOP ≈ <strong>4.4 TB</strong>. Tiled: 4.4 TB / 32 ≈ <strong>137 GB</strong>. The minimum is 3 matrices × 8,192<sup>2</sup> floats/matrix × 4 B/float ≈ 805 MB.</li><li>Naive ceiling: 32 loads/cycle/SM / 2 loads/FMA = 16 FMA/cycle/SM against 128 lanes, 1/8 of peak: 128 SMs × 16 FMA/cycle × 2 FLOP/FMA × 2.52 × 10<sup>9</sup> cycles/s ≈ <strong>10.3 TFLOP/s</strong>, so at least 1.10 × 10<sup>12</sup> FLOP / 10.3 TFLOP/s ≈ 107 ms.</li><li>Tiled ceiling: 2 shared-memory loads + 2/32 global loads = 2.0625 loads/FMA, so 32 / 2.0625 ≈ 15.5 FMA/cycle/SM and about <strong>10.0 TFLOP/s</strong>. Cutting global requests 32× leaves the ceiling where it was.</li><li>Register-blocked: 32 loads/cycle / 0.25 loads/FMA = 128 FMA/cycle/SM, exactly the lane count, so load issue no longer limits it: the ceiling is the full <strong>82.6 TFLOP/s</strong>, about 13 ms.</li></ol>`
       }
     ],
     interview: [
@@ -680,7 +717,7 @@ bias_relu&lt;&lt;&lt;(total + 255) / 256, 256&gt;&gt;&gt;(x, b, y, n, total);</c
 </ul>
 
 <h3 id="sec-gemm">How a GEMM Kernel Works</h3>
-<p>A matrix multiply (GEMM) of an \\(M \\times K\\) matrix by a \\(K \\times N\\) matrix is the kernel everything else is built around. A naive kernel gives each thread one element of \\(C\\) and loops over \\(K\\), reading \\(A\\) and \\(B\\) from HBM every time: about 2 FLOPs per 4 bytes in FP16, far below the ridge. The first fix, shared-memory tiles on CUDA cores, is worked through in <a href="#/gpu-tiling">Tiled Matrix Multiply in Shared Memory</a>. Real GEMM kernels use <strong>tiling</strong>:</p>
+<p>A matrix multiply (GEMM) of an \\(M \\times K\\) matrix by a \\(K \\times N\\) matrix is the kernel everything else is built around. A naive kernel gives each thread one element of \\(C\\) and loops over \\(K\\), reading \\(A\\) and \\(B\\) from HBM every time: about 2 FLOPs per 4 bytes in FP16, far below the ridge. The first fix, shared-memory tiles on CUDA cores, is worked through in <a href="#/gpu-tiling">Tiling Through Shared Memory</a>. Real GEMM kernels use <strong>tiling</strong>:</p>
 <ol>
 <li><strong>Block tile:</strong> each thread block owns one \\(B_M \\times B_N\\) tile of \\(C\\), for example 128 × 128.</li>
 <li><strong>K loop:</strong> the block walks along \\(K\\) in steps of \\(B_K\\). At each step it copies a \\(B_M \\times B_K\\) slice of \\(A\\) and a \\(B_K \\times B_N\\) slice of \\(B\\) from HBM into shared memory.</li>
