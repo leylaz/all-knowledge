@@ -20,7 +20,7 @@ section({
 </ul>
 <h3 id="sec-pages">How the Pages Fit Together</h3>
 <ul>
-<li><a href="#/gpu-launch">Grids, Blocks, and Threads</a>: the thread hierarchy, indexing, how blocks are placed on SMs, and what a launch costs.</li>
+<li><a href="#/gpu-launch">Grids, Blocks, and Threads</a>: indexing, how blocks are placed on SMs, the thread hierarchy they form, and what a launch costs.</li>
 <li><a href="#/gpu-tiling">Tiled Matrix Multiply in Shared Memory</a>: the naive matrix multiply, why it is load-bound, and how shared-memory tiles with <code>__syncthreads</code> fix it.</li>
 <li><a href="#/gpu-kernels">GPU Kernels and Tensor Cores</a>: a matrix-multiply kernel from the inside, epilogue fusion, and what Tensor Cores compute.</li>
 </ul>
@@ -45,24 +45,14 @@ section({
   region: "gk",
   title: "Grids, Blocks, and Threads",
   sections: [
-    { id: "hierarchy", label: "The Thread Hierarchy" },
     { id: "indexing", label: "Computing an Index" },
     { id: "grid-stride", label: "Grid-Stride Loops" },
     { id: "placement", label: "How Blocks Reach the SMs" },
+    { id: "hierarchy", label: "The Thread Hierarchy" },
     { id: "launch-cost", label: "Launch Overhead, Streams, and Graphs" }
   ],
   body: `
-<p>A kernel launch names a grid shape and a block shape. The hardware turns that into blocks on SMs and warps on schedulers, and each thread works out which data it owns from its coordinates.</p>
-<h3 id="sec-hierarchy">The Thread Hierarchy</h3>
-<div class="tbl"><table>
-<tr><th>Level</th><th>Runs on</th><th>Can cooperate through</th><th>Limits (compute capability 9.0, Hopper)</th></tr>
-<tr><td>Thread</td><td>One lane of a sub-partition</td><td>Its own registers</td><td>Up to 255 registers</td></tr>
-<tr><td>Warp (32 threads)</td><td>One sub-partition's scheduler</td><td>Shuffles, votes, <code>__syncwarp</code></td><td>Fixed at 32</td></tr>
-<tr><td>Block</td><td>One SM, for its whole life</td><td>Shared memory, <code>__syncthreads</code></td><td>Up to 1,024 threads</td></tr>
-<tr><td>Cluster (Hopper and later)</td><td>A group of SMs in one GPC</td><td>Distributed shared memory</td><td>Up to 8 blocks portably (16 opt-in)</td></tr>
-<tr><td>Grid</td><td>The whole GPU</td><td>Global memory and atomics only</td><td>Up to 2<sup>31</sup> − 1 blocks in x, 65,535 in y and z</td></tr>
-</table></div>
-<p>The key constraint: blocks in a grid can't wait for each other. The hardware may run them in any order and at any time, so a grid-wide dependency needs either a second kernel launch or a cooperative launch that guarantees every block is resident.</p>
+<p>A kernel launch names a grid shape and a block shape. The <strong>grid</strong> is every thread the launch creates, split into equal <strong>blocks</strong> of up to 1,024 <strong>threads</strong>. The hardware turns that into blocks on SMs and warps on schedulers, and each thread works out which data it owns from its coordinates. This page builds up the levels one at a time, then puts them side by side in <a href="#/gpu-launch/hierarchy">The Thread Hierarchy</a>.</p>
 <h3 id="sec-indexing">Computing an Index</h3>
 <p>Each thread reads its position from built-in variables: <code>threadIdx</code> within its block, <code>blockIdx</code> within the grid, and the shapes <code>blockDim</code> and <code>gridDim</code>. For a 2D image:</p>
 <pre><code>__global__ void scale(float *img, int w, int h, float s) {
@@ -88,9 +78,48 @@ scale&lt;&lt;&lt;grid, block&gt;&gt;&gt;(img, w, h, 2.0f);</code></pre>
 </ul>
 <p>A common choice is a small multiple of (number of SMs × blocks that fit per SM), so the grid fills the GPU exactly.</p>
 <h3 id="sec-placement">How Blocks Reach the SMs</h3>
-<p>A hardware block scheduler hands blocks to SMs as long as an SM has room for another block's threads, registers, and shared memory (see <a href="#/gpu-occupancy">Occupancy and Per-SM Resources</a>). When a block finishes, the next one takes its place. If every block takes the same time, the grid runs in <strong>waves</strong>:</p>
+<p>A hardware block scheduler hands blocks to SMs as long as an SM has room for another block's threads, registers, and shared memory (see <a href="#/gpu-occupancy">Occupancy and Per-SM Resources</a>). A block stays on its SM for its whole life, and when it finishes, the next one takes its place. If every block takes the same time, the grid runs in <strong>waves</strong>:</p>
 <div class="math">\\[ \\text{waves} = \\left\\lceil \\frac{\\text{blocks}}{\\text{SMs} \\times \\text{blocks per SM}} \\right\\rceil, \\qquad \\text{wave efficiency} = \\frac{\\text{blocks}}{\\text{waves} \\times \\text{SMs} \\times \\text{blocks per SM}} \\]</div>
 <p>On an H100 with 132 SMs and 4 blocks resident per SM, one wave is 528 blocks. A grid of 600 blocks takes 2 waves, and the second wave has only 72 blocks, so wave efficiency is 600 / 1,056 ≈ 57%. This <strong>tail effect</strong> is why GEMM libraries pick tile sizes with the SM count in mind, and why "stream-K" and split-K kernels divide the work more finely than one tile per block.</p>
+<p>Inside the SM, the block's warps are divided among four sub-partitions. Each sub-partition has its own warp scheduler and 32 FP32 lanes, and each cycle its scheduler can issue one instruction from one ready warp, which all 32 threads of that warp execute together (see <a href="#/r/gwarp">Warps and SIMT</a>). Threads of one warp can exchange registers directly with shuffles. Threads of one block, which may sit in different sub-partitions, go through the SM's shared memory and <code>__syncthreads</code>.</p>
+<p>Hopper adds an optional level between the block and the grid: the <strong>thread block cluster</strong>. A kernel declared with <code>__cluster_dims__(2, 1, 1)</code>, or launched with a cluster attribute, groups neighboring blocks, and the hardware guarantees that a cluster's blocks run at the same time on SMs in the same GPC. That lets them read and write each other's shared memory (distributed shared memory) and wait at a cluster-wide barrier, which ordinary blocks can't do.</p>
+<h3 id="sec-hierarchy">The Thread Hierarchy</h3>
+<p>Put together, the levels nest. The figure shows a small launch of the 32 × 8 blocks from <a href="#/gpu-launch/indexing">Computing an Index</a>: a 4 × 2 grid, launched with clusters of 2 blocks. Block (3,0) is enlarged. Each of its rows is one warp, because x varies fastest and a row is exactly 32 threads wide.</p>
+<div class="tbl"><svg viewBox="0 0 680 252" role="img" aria-label="The thread hierarchy for one launch. On the left, a grid with gridDim (4, 2) holds 8 blocks in two rows, labeled block (0,0) to block (3,1). Adjacent pairs of blocks are outlined as clusters 0 to 3, each of 2 blocks. Block (3,0) is highlighted and enlarged on the right: it has blockDim (32, 8), drawn as 8 rows of 32 thread cells. Each row, with one value of threadIdx.y, is one warp, labeled warp 0 to warp 7. Warp 2 is shaded, covering linear thread ids 64 to 95, and inside it thread (5, 2), with linear id 69, is marked." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="14" y="24" style="font-size:12px;font-weight:600;fill:var(--ink)">Grid: gridDim = (4, 2)</text>
+<rect x="14" y="32" width="304" height="206" style="fill:none;stroke:var(--muted);stroke-width:1.2;stroke-dasharray:5 4"/>
+<g style="fill:none;stroke:var(--pad);stroke-width:1.2;stroke-dasharray:3 3"><rect x="26" y="44" width="136" height="88"/><rect x="174" y="44" width="136" height="88"/><rect x="26" y="140" width="136" height="88"/><rect x="174" y="140" width="136" height="88"/></g>
+<g style="font-size:10px;fill:var(--pad)"><text x="32" y="56">Cluster 0</text><text x="180" y="56">Cluster 1</text><text x="32" y="152">Cluster 2</text><text x="180" y="152">Cluster 3</text></g>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1"><rect x="34" y="64" width="56" height="56"/><rect x="98" y="64" width="56" height="56"/><rect x="182" y="64" width="56" height="56"/><rect x="34" y="160" width="56" height="56"/><rect x="98" y="160" width="56" height="56"/><rect x="182" y="160" width="56" height="56"/><rect x="246" y="160" width="56" height="56"/></g>
+<rect x="246" y="64" width="56" height="56" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<g text-anchor="middle" style="font-size:10px;fill:var(--muted)"><text x="62" y="88">Block</text><text x="126" y="88">Block</text><text x="210" y="88">Block</text><text x="62" y="184">Block</text><text x="126" y="184">Block</text><text x="210" y="184">Block</text><text x="274" y="184">Block</text></g>
+<g text-anchor="middle" style="font-size:11px;fill:var(--ink)"><text x="62" y="102">(0,0)</text><text x="126" y="102">(1,0)</text><text x="210" y="102">(2,0)</text><text x="62" y="198">(0,1)</text><text x="126" y="198">(1,1)</text><text x="210" y="198">(2,1)</text><text x="274" y="198">(3,1)</text></g>
+<g text-anchor="middle" style="font-size:11px;font-weight:600;fill:var(--ink)"><text x="274" y="88">Block</text><text x="274" y="102">(3,0)</text></g>
+<path d="M302,64 L370,32 M302,120 L370,238" style="fill:none;stroke:var(--trace);stroke-width:1;stroke-dasharray:4 3"/>
+<rect x="370" y="32" width="296" height="206" style="fill:none;stroke:var(--trace);stroke-width:1.5"/>
+<text x="378" y="50" style="font-size:12px;font-weight:600;fill:var(--ink)">Block (3,0): blockDim = (32, 8)</text>
+<rect x="384" y="60" width="224" height="128" style="fill:var(--trace-soft)"/>
+<rect x="384" y="92" width="224" height="16" style="fill:var(--pad-soft)"/>
+<rect x="419" y="92" width="7" height="16" style="fill:var(--pad)"/>
+<path d="M391,60 V188 M398,60 V188 M405,60 V188 M412,60 V188 M419,60 V188 M426,60 V188 M433,60 V188 M440,60 V188 M447,60 V188 M454,60 V188 M461,60 V188 M468,60 V188 M475,60 V188 M482,60 V188 M489,60 V188 M496,60 V188 M503,60 V188 M510,60 V188 M517,60 V188 M524,60 V188 M531,60 V188 M538,60 V188 M545,60 V188 M552,60 V188 M559,60 V188 M566,60 V188 M573,60 V188 M580,60 V188 M587,60 V188 M594,60 V188 M601,60 V188 M384,76 H608 M384,92 H608 M384,108 H608 M384,124 H608 M384,140 H608 M384,156 H608 M384,172 H608" style="fill:none;stroke:var(--muted);stroke-width:.5"/>
+<rect x="384" y="60" width="224" height="128" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<rect x="384" y="92" width="224" height="16" style="fill:none;stroke:var(--pad);stroke-width:1.5"/>
+<g style="font-size:10px;fill:var(--muted)"><text x="614" y="72">warp 0</text><text x="614" y="88">warp 1</text><text x="614" y="120">warp 3</text><text x="614" y="136">warp 4</text><text x="614" y="152">warp 5</text><text x="614" y="168">warp 6</text><text x="614" y="184">warp 7</text></g>
+<text x="614" y="104" style="font-size:10px;font-weight:600;fill:var(--pad)">warp 2</text>
+<text x="608" y="201" text-anchor="end" style="font-size:10px;fill:var(--muted)">threadIdx.x = 0 → 31</text>
+<path d="M422.5,108 V212" style="fill:none;stroke:var(--pad);stroke-width:1"/>
+<text x="428" y="216" style="font-size:11px;fill:var(--ink)"><tspan style="font-weight:600">Thread (5, 2):</tspan> tid = 5 + 2 × 32 = 69</text>
+<text x="428" y="231" style="font-size:11px;fill:var(--ink)"><tspan style="font-weight:600">Warp 2:</tspan> threadIdx.y = 2, tids 64 to 95</text>
+</svg></div>
+<div class="tbl"><table>
+<tr><th>Level</th><th>Runs on</th><th>Can cooperate through</th><th>Limits (compute capability 9.0, Hopper)</th></tr>
+<tr><td>Thread</td><td>One lane of a sub-partition</td><td>Its own registers</td><td>Up to 255 registers</td></tr>
+<tr><td>Warp (32 threads)</td><td>One sub-partition's scheduler</td><td>Shuffles, votes, <code>__syncwarp</code></td><td>Fixed at 32</td></tr>
+<tr><td>Block</td><td>One SM, for its whole life</td><td>Shared memory, <code>__syncthreads</code></td><td>Up to 1,024 threads</td></tr>
+<tr><td>Cluster (Hopper and later)</td><td>A group of SMs in one GPC</td><td>Distributed shared memory</td><td>Up to 8 blocks portably (16 opt-in)</td></tr>
+<tr><td>Grid</td><td>The whole GPU</td><td>Global memory and atomics only</td><td>Up to 2<sup>31</sup> − 1 blocks in x, 65,535 in y and z</td></tr>
+</table></div>
+<p>The key constraint: blocks in a grid can't wait for each other. The hardware may run them in any order and at any time, so a grid-wide dependency needs either a second kernel launch or a cooperative launch that guarantees every block is resident. Clusters are the one exception, and only within a cluster.</p>
 <h3 id="sec-launch-cost">Launch Overhead, Streams, and Graphs</h3>
 <ul>
 <li><strong>Launch cost:</strong> a few microseconds of CPU time per launch through the driver, and around a microsecond or more of GPU-side gap between back-to-back dependent kernels. For a kernel that does 5 µs of work, that's a large fraction.</li>
