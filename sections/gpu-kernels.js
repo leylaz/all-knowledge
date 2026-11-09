@@ -25,7 +25,7 @@ section({
 <li><a href="#/gpu-naive">The Naive Matrix Multiply</a>: one thread per output, coalesced, and still at about 5% of peak because it requests every input element over and over.</li>
 <li><a href="#/gpu-launch">Grids, Blocks, and Threads</a>: indexing, how blocks are placed on SMs, the thread hierarchy they form, and what a launch costs.</li>
 <li><a href="#/gpu-tiling">Tiling Through Shared Memory</a>: how shared-memory tiles with <code>__syncthreads</code> cut the naive kernel's requests, and why that alone buys only 1.5× on real hardware.</li>
-<li><a href="#/gpu-kernels">GPU Kernels and Tensor Cores</a>: a matrix-multiply kernel from the inside, epilogue fusion, and what Tensor Cores compute.</li>
+<li><a href="#/gpu-kernels">Beyond Tiling</a>: what closes the gap from the tiled kernel to cuBLAS, what Tensor Cores compute, and epilogue fusion.</li>
 </ul>
 <p>The rest of the tab goes down a level: <a href="#/r/gsm">CUDA Cores and the SM</a> for the hardware a block runs on, <a href="#/r/gwarp">Warps and SIMT</a> for how its threads are issued, <a href="#/r/gmem">GPU Memory System</a> for how its loads are served, and <a href="#/r/gperf">GPU Performance Modeling</a> for predicting how fast all of it runs. For shipping hardware, see <a href="#/hopper">NVIDIA Hopper</a> and <a href="#/blackwell">NVIDIA Blackwell</a>.</p>`,
   practice: {
@@ -677,47 +677,30 @@ matmul_tiled&lt;&lt;&lt;grid, block&gt;&gt;&gt;(d_c, d_a, d_b, M, N, K);</code><
 {
   id: "gpu-kernels",
   region: "gk",
-  title: "GPU Kernels and Tensor Cores",
-  sections: [{ id: "kernels", label: "What a Kernel Is" }, { id: "memory", label: "Where the Data Lives" }, { id: "gemm", label: "How a GEMM Kernel Works" }, { id: "epilogue", label: "Epilogues and Fusion" }, { id: "tensor-cores", label: "Tensor Cores" }, { id: "stack", label: "Who Writes These Kernels" }],
+  title: "Beyond Tiling",
+  sections: [
+    { id: "gap", label: "From Tiled to cuBLAS" },
+    { id: "gemm", label: "How a GEMM Kernel Works" },
+    { id: "tensor-cores", label: "Tensor Cores" },
+    { id: "epilogue", label: "Epilogues and Fusion" },
+    { id: "stack", label: "Who Writes These Kernels" }
+  ],
   body: `
-<p>The hardware views across these notes keep saying that some piece of work is done “by a kernel” or “on Tensor Cores.” This page covers both: what a GPU kernel is, how a matrix-multiply kernel is organized, what an epilogue is, and what Tensor Cores actually compute. For the thread hierarchy and launches, see <a href="#/gpu-launch">Grids, Blocks, and Threads</a>. For the SM and warps, see <a href="#/cuda-cores">What a CUDA Core Is</a> and <a href="#/warp-sched">Warp Scheduling and Latency Hiding</a>. For the roofline model, see <a href="#/gen-gpus/roofline">GPUs for Generative AI</a>.</p>
+<p><a href="#/gpu-tiling/speed">How Much Faster Tiling Is</a> ended with a gap: the tiled kernel runs at about 3 TFLOP/s on an A6000, and cuBLAS runs the same FP32 multiply at about 23 TFLOP/s. Tiling fixed the redundant global-memory requests, but each FMA still needs two loads from shared memory. This page covers what closes that gap, then what Tensor Cores add on top of it, and how the result gets fused with the work around it. For the hardware underneath, see <a href="#/cuda-cores">What a CUDA Core Is</a> and <a href="#/warp-sched">Warp Scheduling and Latency Hiding</a>. For the roofline model, see <a href="#/gen-gpus/roofline">GPUs for Generative AI</a>.</p>
 
-<h3 id="sec-kernels">What a Kernel Is</h3>
-<p>A <strong>kernel</strong> is a function that runs on the GPU. The CPU launches it, and thousands of GPU threads run it at once. Every thread runs the same code; each uses its own index to pick the data it's responsible for.</p>
-<ul>
-<li><strong>Grid, blocks, warps, threads.</strong> A launch creates a <em>grid</em> of thread <em>blocks</em>. Each block runs on one SM, and its threads can cooperate through that SM's fast shared memory. The SM executes a block's threads in <em>warps</em> of 32.</li>
-<li><strong>A model is a sequence of kernels.</strong> A forward pass is a chain of launches: a matrix multiply, then a normalization, then an activation, and so on. Each launch costs a few microseconds of overhead, and every kernel that writes its result to HBM forces the next kernel to read it back.</li>
-</ul>
-<p>Here's a minimal CUDA kernel: the bias + ReLU step from <a href="#/nn-basics/nn-hw">Neural network basics</a>, run as its own kernel.</p>
-<pre><code><span class="cm">// y[i] = max(0, x[i] + b[i % n]) over a batch of rows of length n</span>
-__global__ void bias_relu(const float *x, const float *b, float *y, int n, int total) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;   <span class="cm">// this thread's element</span>
-  if (i &lt; total) y[i] = fmaxf(0.0f, x[i] + b[i % n]);
-}
-
-<span class="cm">// launch enough 256-thread blocks to cover every element</span>
-bias_relu&lt;&lt;&lt;(total + 255) / 256, 256&gt;&gt;&gt;(x, b, y, n, total);</code></pre>
-<p>Each element costs 2 FLOPs (an add and a max) but moves 8 bytes (read <code>x</code>, write <code>y</code>; <code>b</code> stays in cache):</p>
-<div class="math">\\[ \\text{AI} = \\frac{2 \\text{ FLOPs}}{8 \\text{ B}} = 0.25 \\ \\text{FLOP/B} \\]</div>
-<p>That's far below the ridge point of any GPU, so on its own this kernel is purely memory-bound. That's why it's usually folded into the matrix multiply before it (see <a href="#/gpu-kernels/epilogue">Epilogues and Fusion</a>).</p>
-
-<h3 id="sec-memory">Where the Data Lives</h3>
-<p>Fast kernels are mostly about moving data down this hierarchy once and reusing it many times. Rough numbers for an NVIDIA H100 (SXM):</p>
-<div class="tbl"><table>
-<tr><th>Level</th><th>Shared by</th><th>Size</th><th>Notes</th></tr>
-<tr><td>Registers</td><td>One thread</td><td>256 KB per SM</td><td>Where GEMM accumulators live</td></tr>
-<tr><td>Shared memory / L1</td><td>One block</td><td>Up to 228 KB per SM</td><td>Software-managed; holds the tiles being multiplied</td></tr>
-<tr><td>L2 cache</td><td>Whole GPU</td><td>50 MB</td><td>Catches reuse between neighboring blocks</td></tr>
-<tr><td>HBM</td><td>Whole GPU</td><td>80 GB</td><td>About 3.35 TB/s; the bottleneck for memory-bound kernels</td></tr>
-</table></div>
-<p>Two rules follow from this:</p>
-<ul>
-<li><strong>Coalesce:</strong> the 32 threads of a warp should touch consecutive addresses, so one wide memory transaction serves the whole warp instead of 32 separate ones.</li>
-<li><strong>Reuse:</strong> load a tile into shared memory or registers once and use each value many times before discarding it. This is cache blocking from CPU code, managed by hand.</li>
-</ul>
+<h3 id="sec-gap">From Tiled to cuBLAS</h3>
+<p>Every step after tiling attacks the same ratio: loads and instructions per FMA. In Boehm's A6000 progression, each one keeps the shared-memory tiles and changes how threads use them:</p>
+<ol>
+<li><strong>Register blocking:</strong> each thread computes a patch of outputs instead of one, say 8 × 8. Per step along K it loads 8 values of \\(A\\) and 8 of \\(B\\) from shared memory and does 64 FMAs, so loads per FMA fall from 2 to 0.25 and the load path stops being the limit. This is the 5.4× jump.</li>
+<li><strong>Vectorized loads:</strong> 128-bit loads bring 4 floats per instruction, which cuts load instructions by 4× again. Storing the \\(A\\) tile transposed in shared memory lets a thread read its 8 values of \\(A\\) as two 128-bit loads instead of eight scalar ones.</li>
+<li><strong>Tuned tile sizes:</strong> the best block tile, K step, and per-thread patch depend on the GPU's registers, shared memory, and SM count. Libraries search over them and keep a table per GPU.</li>
+<li><strong>Warp tiling:</strong> an extra level between the block and the thread, so each warp owns a sub-tile of the block's output. That keeps a warp's shared-memory reads within a small region (fewer bank conflicts) and matches how Tensor Core instructions are issued, one warp at a time.</li>
+<li><strong>Pipelining:</strong> double-buffer the tiles, so the next K step's copy from global memory runs while this one's math does. On Ampere and later, asynchronous copies move data to shared memory without passing through registers (see <a href="#/gpu-smem/async">Asynchronous Copies</a>).</li>
+</ol>
+<p>With all of that, an FP32 kernel can get within a few percent of cuBLAS, and both sit at about 60% of FP32 peak. The bigger step is changing what does the math: for FP16, BF16, TF32, or FP8 inputs, Tensor Cores replace the per-thread FMA loop entirely.</p>
 
 <h3 id="sec-gemm">How a GEMM Kernel Works</h3>
-<p>A matrix multiply (GEMM) of an \\(M \\times K\\) matrix by a \\(K \\times N\\) matrix is the kernel everything else is built around. A naive kernel gives each thread one element of \\(C\\) and loops over \\(K\\), reading \\(A\\) and \\(B\\) from HBM every time: about 2 FLOPs per 4 bytes in FP16, far below the ridge. The first fix, shared-memory tiles on CUDA cores, is worked through in <a href="#/gpu-tiling">Tiling Through Shared Memory</a>. Real GEMM kernels use <strong>tiling</strong>:</p>
+<p>A production GEMM keeps the structure of <a href="#/gpu-tiling">Tiling Through Shared Memory</a>, with bigger tiles at every level and Tensor Cores doing the math:</p>
 <ol>
 <li><strong>Block tile:</strong> each thread block owns one \\(B_M \\times B_N\\) tile of \\(C\\), for example 128 × 128.</li>
 <li><strong>K loop:</strong> the block walks along \\(K\\) in steps of \\(B_K\\). At each step it copies a \\(B_M \\times B_K\\) slice of \\(A\\) and a \\(B_K \\times B_N\\) slice of \\(B\\) from HBM into shared memory.</li>
@@ -751,16 +734,6 @@ bias_relu&lt;&lt;&lt;(total + 255) / 256, 256&gt;&gt;&gt;(x, b, y, n, total);</c
 <div class="math">\\[ \\text{AI} = \\frac{2\\,B_M B_N B_K}{2\\,(B_M + B_N)\\,B_K} = \\frac{B_M B_N}{B_M + B_N} \\ \\text{FLOP/B} \\]</div>
 <p>A 128 × 128 tile gives 64 FLOP/byte. Neighboring blocks load the same slices of \\(A\\) and \\(B\\), so L2 hits raise the effective intensity above that. Bigger tiles mean more reuse, limited by how much shared memory and how many registers each SM has. Fast kernels also <strong>pipeline</strong> the K loop: while the Tensor Cores work on one slice, the next one is already being copied in (on Hopper, by the Tensor Memory Accelerator, TMA).</p>
 
-<h3 id="sec-epilogue">Epilogues and Fusion</h3>
-<p>When the K loop finishes, the block's results are still sitting in registers. Anything elementwise that comes next can be applied right there, before \\(C\\) is written to HBM. That final stage is the <strong>epilogue</strong>. BLAS bakes the simplest one into the GEMM definition:</p>
-<div class="math">\\[ C \\leftarrow \\alpha AB + \\beta C \\]</div>
-<ul>
-<li><strong>Bias for free:</strong> preload \\(C\\) with the bias and set \\(\\beta = 1\\), and the bias add rides along with the GEMM.</li>
-<li><strong>Fused epilogues:</strong> cuBLASLt and CUTLASS can also apply ReLU or GELU, add a residual, or rescale to FP8 in the epilogue.</li>
-<li><strong>What fusion saves:</strong> a whole kernel launch and an HBM round trip for every fused operation. The bias + ReLU kernel above disappears entirely, along with its 8 bytes per element.</li>
-<li><strong>The extreme case:</strong> fusing an entire attention computation into one kernel, so the large score matrix never touches HBM. That's FlashAttention (see the practice problems in <a href="#/gen-gpus">GPUs for generative AI</a>).</li>
-</ul>
-
 <h3 id="sec-tensor-cores">Tensor Cores</h3>
 <p>A <strong>Tensor Core</strong> is a unit inside each SM that performs a small matrix multiply-accumulate (MMA) as a single operation:</p>
 <div class="math">\\[ D = A \\cdot B + C \\]</div>
@@ -789,6 +762,29 @@ bias_relu&lt;&lt;&lt;(total + 255) / 256, 256&gt;&gt;&gt;(x, b, y, n, total);</c
 <li><strong>FP32 accumulation</strong> keeps long sums accurate even when the inputs are low precision.</li>
 </ul>
 <p>The catch: Tensor Cores only speed up matrix multiplies of reasonable size. Elementwise work, reductions, and softmax still run on the regular CUDA cores. And if tiles can't be delivered fast enough, the Tensor Cores sit idle. Tiling, the TMA, and fusion exist to keep them fed.</p>
+
+<h3 id="sec-epilogue">Epilogues and Fusion</h3>
+<p>A GEMM in a neural network is almost always followed by elementwise work. Here's the bias + ReLU step from <a href="#/nn-basics/nn-hw">Neural network basics</a>, run as its own kernel:</p>
+<pre><code><span class="cm">// y[i] = max(0, x[i] + b[i % n]) over a batch of rows of length n</span>
+__global__ void bias_relu(const float *x, const float *b, float *y, int n, int total) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x;   <span class="cm">// this thread's element</span>
+  if (i &lt; total) y[i] = fmaxf(0.0f, x[i] + b[i % n]);
+}
+
+<span class="cm">// launch enough 256-thread blocks to cover every element</span>
+bias_relu&lt;&lt;&lt;(total + 255) / 256, 256&gt;&gt;&gt;(x, b, y, n, total);</code></pre>
+<p>Each element costs 2 FLOPs (an add and a max) but moves 8 bytes (read <code>x</code>, write <code>y</code>; <code>b</code> stays in cache):</p>
+<div class="math">\\[ \\text{AI} = \\frac{2 \\text{ FLOPs}}{8 \\text{ B}} = 0.25 \\ \\text{FLOP/B} \\]</div>
+<p>That's far below the ridge point of any GPU, so on its own this kernel is purely memory-bound. That's why it's usually folded into the matrix multiply before it.</p>
+
+<p>When the K loop finishes, the block's results are still sitting in registers. Anything elementwise that comes next can be applied right there, before \\(C\\) is written to HBM. That final stage is the <strong>epilogue</strong>. BLAS bakes the simplest one into the GEMM definition:</p>
+<div class="math">\\[ C \\leftarrow \\alpha AB + \\beta C \\]</div>
+<ul>
+<li><strong>Bias for free:</strong> preload \\(C\\) with the bias and set \\(\\beta = 1\\), and the bias add rides along with the GEMM.</li>
+<li><strong>Fused epilogues:</strong> cuBLASLt and CUTLASS can also apply ReLU or GELU, add a residual, or rescale to FP8 in the epilogue.</li>
+<li><strong>What fusion saves:</strong> a whole kernel launch and an HBM round trip for every fused operation. The bias + ReLU kernel above disappears entirely, along with its 8 bytes per element.</li>
+<li><strong>The extreme case:</strong> fusing an entire attention computation into one kernel, so the large score matrix never touches HBM. That's FlashAttention (see the practice problems in <a href="#/gen-gpus">GPUs for generative AI</a>).</li>
+</ul>
 
 <h3 id="sec-stack">Who Writes These Kernels</h3>
 <ul>

@@ -250,7 +250,7 @@ acc = fma(w2, a2, acc)      <span class="cm">// acc = b + w0·a0 + w1·a1 + w2·
 <p>The convention still counts it as 2 FLOPs. Chip specs count the same way, which keeps the numbers comparable:</p><div class="math">\\[\\text{Peak FLOPS} = N_{\\text{FMA units}} \\times 2 \\times f_{\\text{clock}} \\qquad t \\approx \\frac{\\text{FLOPs}}{\\text{Peak FLOPS}}\\]</div><p> This is the same “2 FLOPs per weight per input” rule used for LLMs in <a href="#/llm-block/params">Where the parameters are</a>, where “per input” means per token instead of per image.</p>
 
 <h4>The Bias and Activation Are Nearly Free</h4>
-<p>The bias is one add per neuron against 784 FMAs, about 0.1% more work (\\(1/784 \\approx 0.13\\%\\)), and it usually doesn't even cost a separate step. <a href="#/gpu-kernels/kernels">Kernels</a> absorb it in one of three ways:</p>
+<p>The bias is one add per neuron against 784 FMAs, about 0.1% more work (\\(1/784 \\approx 0.13\\%\\)), and it usually doesn't even cost a separate step. <a href="#/gpu-why">Kernels</a> absorb it in one of three ways:</p>
 <ul>
 <li><strong>Start the accumulator at \\(b\\)</strong> instead of 0. BLAS GEMM computes<div class="math">\\[C \\leftarrow \\alpha AB + \\beta C\\]</div>so loading the bias into \\(C\\) with \\(\\beta = 1\\) folds it in. <a href="#/gpu-kernels/tensor-cores">Tensor Core</a> MMA instructions likewise compute<div class="math">\\[D = AB + C\\]</div></li>
 <li><strong>Add it in the epilogue,</strong> in registers, right after the dot product finishes.</li>

@@ -544,7 +544,7 @@ ${procSvg(760, 330, 620, "A Grace die drawn as a mesh of cache switch nodes, eac
     { id: "impl", label: "Performance Implications" }
   ],
   body: `
-<p>A GPU is organized around the opposite bet from a CPU core: no branch predictor, no out-of-order window, small per-thread resources, and enough resident threads that some are always ready while others wait on memory. <a href="#/gen-gpus">How GPUs Make This Possible</a> and <a href="#/gpu-kernels">GPU Kernels and Tensor Cores</a> cover the programming model; this page is the hardware of NVIDIA's 2022 data-center GPU.</p>
+<p>A GPU is organized around the opposite bet from a CPU core: no branch predictor, no out-of-order window, small per-thread resources, and enough resident threads that some are always ready while others wait on memory. <a href="#/gen-gpus">How GPUs Make This Possible</a> and <a href="#/gpu-why">Why GPU Kernels Exist</a> cover the programming model; this page is the hardware of NVIDIA's 2022 data-center GPU.</p>
 
 <h3 id="sec-chip">Chip Organization</h3>
 <p>GH100 (TSMC 4N, 80 billion transistors, 814 mm²) is built hierarchically: 8 GPCs (graphics processing clusters), each with 9 TPCs of 2 SMs, for 144 SMs on a full die. The H100 SXM5 product enables 132 SMs (66 TPCs) and 5 of 6 HBM3 stacks: 80 GB on ten 512-bit memory controllers.</p>

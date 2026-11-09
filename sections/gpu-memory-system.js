@@ -22,7 +22,7 @@ section({
 <tr><td>Global</td><td>Whole grid and host</td><td>HBM or GDDR, cached in L2 and optionally L1</td><td>Inputs, outputs, anything shared across blocks</td></tr>
 <tr><td>Constant</td><td>Whole grid, read-only</td><td>Global memory with a per-SM constant cache</td><td>Values every thread of a warp reads at once</td></tr>
 </table></div>
-<p>The L1 is not coherent across SMs. A store by one block becomes visible to another block on a different SM only through L2, after a memory fence or at kernel end. See <a href="#/gpu-kernels/memory">Where the Data Lives</a> for the sizes on an H100.</p>
+<p>The L1 is not coherent across SMs. A store by one block becomes visible to another block on a different SM only through L2, after a memory fence or at kernel end. See <a href="#/gpu-tiling/hierarchy">The Memory a Kernel Sees</a> for the sizes on an H100.</p>
 <h3 id="sec-balance">Bytes per FLOP</h3>
 <p>An H100 SXM delivers 3.35 TB/s of HBM bandwidth and 67 TFLOPS of FP32 on its CUDA cores: about 0.05 bytes per FLOP, or 20 FLOPs for every byte read. Any kernel that does less than that per byte from HBM can't keep the CUDA cores busy, and the tensor cores need around 300 FLOPs per byte (see <a href="#/gen-gpus/roofline">the roofline</a>). On-chip reuse through shared memory, registers, and L2 is what closes that gap.</p>
 <h3 id="sec-pages">How the Pages Fit Together</h3>
