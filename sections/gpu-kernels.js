@@ -20,6 +20,7 @@ section({
 </ul>
 <h3 id="sec-pages">How the Pages Fit Together</h3>
 <ul>
+<li><a href="#/gpu-why">Why GPU Kernels Exist</a>: the workloads GPUs are built for, how they differ from CPUs, and a first kernel next to the CPU loop it replaces.</li>
 <li><a href="#/gpu-launch">Grids, Blocks, and Threads</a>: indexing, how blocks are placed on SMs, the thread hierarchy they form, and what a launch costs.</li>
 <li><a href="#/gpu-tiling">Tiled Matrix Multiply in Shared Memory</a>: the naive matrix multiply, why it is load-bound, and how shared-memory tiles with <code>__syncthreads</code> fix it.</li>
 <li><a href="#/gpu-kernels">GPU Kernels and Tensor Cores</a>: a matrix-multiply kernel from the inside, epilogue fusion, and what Tensor Cores compute.</li>
@@ -40,6 +41,138 @@ section({
     ]
   }
 }, [
+{
+  id: "gpu-why",
+  region: "gk",
+  title: "Why GPU Kernels Exist",
+  sections: [
+    { id: "workloads", label: "Workloads Made of Independent Pieces" },
+    { id: "cpu-vs-gpu", label: "A Few Big Cores or Many Simple Lanes" },
+    { id: "first-kernel", label: "A Loop Becomes a Kernel" },
+    { id: "in-use", label: "Kernels in Use Today" }
+  ],
+  body: `
+<p>A CPU core is built to finish one instruction stream as fast as possible: it predicts branches, renames registers, and reorders hundreds of instructions to dodge every stall. That machinery costs most of the core's area and power, and it buys nothing when a workload is millions of small, identical, independent jobs. GPUs exist for those workloads, and a <strong>kernel</strong> is how you hand one to the GPU: the code for one small job, run once per job by the GPU's threads. This page starts with the workloads, then shows how the hardware differs and what a kernel looks like.</p>
+
+<h3 id="sec-workloads">Workloads Made of Independent Pieces</h3>
+<p>Three kinds of workload keep GPUs busy. Each splits into a huge number of pieces that don't depend on each other.</p>
+<div class="tbl"><svg viewBox="0 0 680 236" role="img" aria-label="Three workloads made of independent pieces. Left, a neural-network layer as a matrix multiply: X, tokens by 4,096, times W, 4,096 by 14,336, gives Y, tokens by 14,336. One row of X and one column of W are highlighted, and they produce one highlighted element of Y. Middle, a game frame drawn as a grid of pixels with one pixel highlighted: a 4K frame has 8.3 million pixels, each shaded on its own. Right, a simulation grid with one cell and its four neighbors highlighted: each cell's new value depends only on its neighbors' old values." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<g style="font-size:12px;font-weight:600;fill:var(--ink)"><text x="10" y="24">Neural-network layer</text><text x="300" y="24">Game frame</text><text x="500" y="24">Physics simulation</text></g>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"><rect x="10" y="50" width="36" height="100"/><rect x="66" y="82" width="90" height="36"/><rect x="186" y="50" width="90" height="100"/></g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"><rect x="10" y="90" width="36" height="8"/><rect x="118" y="82" width="8" height="36"/></g>
+<rect x="238" y="90" width="8" height="8" style="fill:var(--pad);stroke:var(--pad)"/>
+<g text-anchor="middle" style="font-size:14px;fill:var(--muted)"><text x="56" y="105">×</text><text x="171" y="105">=</text></g>
+<g text-anchor="middle" style="font-size:11px;font-weight:600;fill:var(--ink)"><text x="28" y="166">X</text><text x="111" y="134">W</text><text x="231" y="166">Y</text></g>
+<g style="font-size:10px;fill:var(--muted)"><text x="10" y="186">X: tokens × 4,096</text><text x="10" y="200">W: 4,096 × 14,336 weights</text><text x="10" y="214">Each output is a dot product of a row of X</text><text x="10" y="228">and a column of W, independent of the rest.</text></g>
+<rect x="300" y="40" width="170" height="110" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<path d="M310,40V150M320,40V150M330,40V150M340,40V150M350,40V150M360,40V150M370,40V150M380,40V150M390,40V150M400,40V150M410,40V150M420,40V150M430,40V150M440,40V150M450,40V150M460,40V150M300,50H470M300,60H470M300,70H470M300,80H470M300,90H470M300,100H470M300,110H470M300,120H470M300,130H470M300,140H470" style="fill:none;stroke:var(--rule);stroke-width:.6"/>
+<rect x="380" y="90" width="10" height="10" style="fill:var(--pad);stroke:var(--pad)"/>
+<g style="font-size:10px;fill:var(--muted)"><text x="300" y="172">3,840 × 2,160 = 8.3 million</text><text x="300" y="186">pixels per 4K frame. One</text><text x="300" y="200">thread shades each pixel,</text><text x="300" y="214">60 times a second.</text></g>
+<rect x="500" y="40" width="160" height="110" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<path d="M520,40V150M540,40V150M560,40V150M580,40V150M600,40V150M620,40V150M640,40V150M500,62H660M500,84H660M500,106H660M500,128H660" style="fill:none;stroke:var(--rule);stroke-width:.8"/>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1"><rect x="580" y="62" width="20" height="22"/><rect x="560" y="84" width="20" height="22"/><rect x="600" y="84" width="20" height="22"/><rect x="580" y="106" width="20" height="22"/></g>
+<rect x="580" y="84" width="20" height="22" style="fill:var(--pad);stroke:var(--pad)"/>
+<g style="font-size:10px;fill:var(--muted)"><text x="500" y="172">Each cell's new value (gold)</text><text x="500" y="186">needs only its neighbors'</text><text x="500" y="200">old values (blue), so every</text><text x="500" y="214">cell updates at once.</text></g>
+</svg></div>
+<ul>
+<li><strong>Neural networks:</strong> a layer multiplies a matrix of activations by a matrix of weights. In Llama 3 8B, each MLP up-projection multiplies tokens × 4,096 activations by a 4,096 × 14,336 weight matrix, and every one of the outputs is its own dot product. The whole model costs about 2 FLOPs per parameter per token, about 16 GFLOP per generated token.</li>
+<li><strong>Graphics:</strong> a game shades every pixel of every frame with the same short program (a <em>pixel shader</em>), and each pixel's color depends only on its own inputs. A 4K display at 60 Hz needs 3,840 × 2,160 pixels/frame × 60 frames/s ≈ 498 million pixels/s, before counting the extra passes for lighting, shadows, and post-processing.</li>
+<li><strong>Simulation:</strong> weather models, molecular dynamics, and fluid solvers update every cell or particle from its neighbors' values at the previous time step, so all of one step's updates can run at once.</li>
+</ul>
+<p>The pattern is <strong>data parallelism</strong>: the same operation on many data elements. Hennessy &amp; Patterson's Chapter 4 calls it data-level parallelism and covers the three ways hardware exploits it: vector machines, SIMD extensions such as AVX-512, and GPUs.</p>
+
+<h3 id="sec-cpu-vs-gpu">A Few Big Cores or Many Simple Lanes</h3>
+<p>Given a fixed die and power budget, a CPU spends most of it on making one thread fast. A GPU spends most of it on arithmetic lanes, keeps each lane's control simple, and hides latency by having many threads to switch between instead of by reordering instructions.</p>
+<div class="tbl"><svg viewBox="0 0 680 282" role="img" aria-label="Schematic die comparison, not to scale. Left, a CPU die with 8 large cores in two rows around a shared L3 cache band. Each core is mostly control, out-of-order machinery, and private caches, with a small gold patch for its arithmetic units. Right, a GPU die with 32 small SMs in four rows around a shared L2 cache band. Each SM is mostly gold arithmetic lanes with a thin strip of control at the top." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<g style="font-size:12px;font-weight:600;fill:var(--ink)"><text x="20" y="26">CPU: a few big out-of-order cores</text><text x="350" y="26">GPU: many SMs full of simple lanes</text></g>
+<rect x="20" y="36" width="298" height="206" style="fill:none;stroke:var(--muted);stroke-width:1.2;stroke-dasharray:5 4"/>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1"><rect x="28" y="44" width="66" height="70"/><rect x="100" y="44" width="66" height="70"/><rect x="172" y="44" width="66" height="70"/><rect x="244" y="44" width="66" height="70"/><rect x="28" y="164" width="66" height="70"/><rect x="100" y="164" width="66" height="70"/><rect x="172" y="164" width="66" height="70"/><rect x="244" y="164" width="66" height="70"/></g>
+<g style="fill:var(--pad);fill-opacity:.7;stroke:none"><rect x="34" y="94" width="18" height="14"/><rect x="106" y="94" width="18" height="14"/><rect x="178" y="94" width="18" height="14"/><rect x="250" y="94" width="18" height="14"/><rect x="34" y="214" width="18" height="14"/><rect x="106" y="214" width="18" height="14"/><rect x="178" y="214" width="18" height="14"/><rect x="250" y="214" width="18" height="14"/></g>
+<g text-anchor="middle" style="font-size:9px;fill:var(--muted)"><text x="61" y="62">fetch, predict</text><text x="61" y="74">rename, ROB</text><text x="61" y="86">L1, L2</text><text x="133" y="62">fetch, predict</text><text x="133" y="74">rename, ROB</text><text x="133" y="86">L1, L2</text><text x="205" y="62">fetch, predict</text><text x="205" y="74">rename, ROB</text><text x="205" y="86">L1, L2</text><text x="277" y="62">fetch, predict</text><text x="277" y="74">rename, ROB</text><text x="277" y="86">L1, L2</text></g>
+<rect x="28" y="120" width="282" height="38" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="169" y="143" text-anchor="middle" style="font-size:11px;fill:var(--ink)">Shared L3 cache</text>
+<rect x="350" y="36" width="310" height="206" style="fill:none;stroke:var(--muted);stroke-width:1.2;stroke-dasharray:5 4"/>
+<g style="fill:var(--pad);fill-opacity:.55;stroke:var(--muted);stroke-width:.8"><rect x="358" y="44" width="34" height="28"/><rect x="396" y="44" width="34" height="28"/><rect x="434" y="44" width="34" height="28"/><rect x="472" y="44" width="34" height="28"/><rect x="510" y="44" width="34" height="28"/><rect x="548" y="44" width="34" height="28"/><rect x="586" y="44" width="34" height="28"/><rect x="624" y="44" width="34" height="28"/><rect x="358" y="78" width="34" height="28"/><rect x="396" y="78" width="34" height="28"/><rect x="434" y="78" width="34" height="28"/><rect x="472" y="78" width="34" height="28"/><rect x="510" y="78" width="34" height="28"/><rect x="548" y="78" width="34" height="28"/><rect x="586" y="78" width="34" height="28"/><rect x="624" y="78" width="34" height="28"/><rect x="358" y="172" width="34" height="28"/><rect x="396" y="172" width="34" height="28"/><rect x="434" y="172" width="34" height="28"/><rect x="472" y="172" width="34" height="28"/><rect x="510" y="172" width="34" height="28"/><rect x="548" y="172" width="34" height="28"/><rect x="586" y="172" width="34" height="28"/><rect x="624" y="172" width="34" height="28"/><rect x="358" y="206" width="34" height="28"/><rect x="396" y="206" width="34" height="28"/><rect x="434" y="206" width="34" height="28"/><rect x="472" y="206" width="34" height="28"/><rect x="510" y="206" width="34" height="28"/><rect x="548" y="206" width="34" height="28"/><rect x="586" y="206" width="34" height="28"/><rect x="624" y="206" width="34" height="28"/></g>
+<g style="fill:var(--surface);stroke:none"><rect x="359" y="45" width="32" height="5"/><rect x="397" y="45" width="32" height="5"/><rect x="435" y="45" width="32" height="5"/><rect x="473" y="45" width="32" height="5"/><rect x="511" y="45" width="32" height="5"/><rect x="549" y="45" width="32" height="5"/><rect x="587" y="45" width="32" height="5"/><rect x="625" y="45" width="32" height="5"/><rect x="359" y="79" width="32" height="5"/><rect x="397" y="79" width="32" height="5"/><rect x="435" y="79" width="32" height="5"/><rect x="473" y="79" width="32" height="5"/><rect x="511" y="79" width="32" height="5"/><rect x="549" y="79" width="32" height="5"/><rect x="587" y="79" width="32" height="5"/><rect x="625" y="79" width="32" height="5"/><rect x="359" y="173" width="32" height="5"/><rect x="397" y="173" width="32" height="5"/><rect x="435" y="173" width="32" height="5"/><rect x="473" y="173" width="32" height="5"/><rect x="511" y="173" width="32" height="5"/><rect x="549" y="173" width="32" height="5"/><rect x="587" y="173" width="32" height="5"/><rect x="625" y="173" width="32" height="5"/><rect x="359" y="207" width="32" height="5"/><rect x="397" y="207" width="32" height="5"/><rect x="435" y="207" width="32" height="5"/><rect x="473" y="207" width="32" height="5"/><rect x="511" y="207" width="32" height="5"/><rect x="549" y="207" width="32" height="5"/><rect x="587" y="207" width="32" height="5"/><rect x="625" y="207" width="32" height="5"/></g>
+<rect x="358" y="114" width="300" height="50" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="508" y="135" text-anchor="middle" style="font-size:11px;fill:var(--ink)">Shared L2 cache</text>
+<text x="508" y="151" text-anchor="middle" style="font-size:10px;fill:var(--muted)">(an H100 has 132 SMs, 32 drawn)</text>
+<rect x="20" y="256" width="14" height="12" style="fill:var(--pad);fill-opacity:.7"/><text x="40" y="266" style="font-size:11px;fill:var(--ink)">Arithmetic lanes</text>
+<rect x="160" y="256" width="14" height="12" style="fill:var(--surface);stroke:var(--muted)"/><text x="180" y="266" style="font-size:11px;fill:var(--ink)">Control, scheduling, and caches</text>
+<text x="660" y="266" text-anchor="end" style="font-size:10px;fill:var(--muted)">Schematic, not to scale</text>
+</svg></div>
+<div class="tbl"><table>
+<tr><th></th><th>AMD EPYC 9654 (Zen 4, one socket)</th><th>NVIDIA H100 SXM</th></tr>
+<tr><td>Cores</td><td>96 cores</td><td>132 SMs</td></tr>
+<tr><td>FP32 lanes</td><td>96 cores × 16 FMA lanes/core = 1,536</td><td>132 SMs × 128 lanes/SM = 16,896</td></tr>
+<tr><td>Peak FP32</td><td>About 7.4 TFLOP/s at the 2.4 GHz base clock</td><td>About 67 TFLOP/s at 1.98 GHz</td></tr>
+<tr><td>Memory bandwidth</td><td>461 GB/s (12 channels of DDR5-4800)</td><td>3.35 TB/s (HBM3)</td></tr>
+<tr><td>Threads resident at once</td><td>192 (2 per core)</td><td>270,336 (2,048 per SM)</td></tr>
+<tr><td>How a stall is hidden</td><td>Run later independent instructions from a 320-entry reorder buffer</td><td>Switch to another ready warp the next cycle</td></tr>
+<tr><td>Power</td><td>360 W</td><td>700 W</td></tr>
+</table></div>
+<p>The GPU has about 9× the FP32 throughput and 7× the memory bandwidth, but only if it has hundreds of thousands of threads to run. On a single thread with branchy, dependent code, a Zen 4 core at 3.7 GHz is many times faster than one GPU thread, which runs in order at under 2 GHz and shares its instruction stream with 31 others. That's the trade: GPUs give up single-thread speed to get throughput.</p>
+
+<h3 id="sec-first-kernel">A Loop Becomes a Kernel</h3>
+<p>Here's SAXPY (\\(y \\leftarrow a x + y\\)), the "hello world" of data parallelism, written for each machine. The CPU version is a loop. The GPU version is the loop body, plus one line that works out which iteration this thread is:</p>
+<div class="code-pair">
+<figure><figcaption>CPU: one thread runs every iteration</figcaption>
+<pre><code>void saxpy(int n, float a,
+           const float *x, float *y) {
+  for (int i = 0; i &lt; n; i++)
+    y[i] = a * x[i] + y[i];
+}
+
+
+
+<span class="cm">// one call, one thread</span>
+saxpy(n, 2.0f, x, y);</code></pre></figure>
+<figure><figcaption>GPU: one thread per iteration</figcaption>
+<pre><code>__global__ void saxpy(int n, float a,
+                      const float *x, float *y) {
+  <span class="cm">// which iteration am I?</span>
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i &lt; n)
+    y[i] = a * x[i] + y[i];
+}
+
+<span class="cm">// launch n threads, in groups of 256</span>
+saxpy&lt;&lt;&lt;(n + 255) / 256, 256&gt;&gt;&gt;(n, 2.0f, x, y);</code></pre></figure>
+</div>
+<ul>
+<li><strong><code>__global__</code></strong> marks a function that runs on the GPU and is launched from the CPU.</li>
+<li><strong>The loop is gone.</strong> The launch line <code>&lt;&lt;&lt;blocks, threads per block&gt;&gt;&gt;</code> asks for enough threads to cover all \\(n\\) elements, and each thread computes its own \\(i\\) from built-in coordinates. <a href="#/gpu-launch">Grids, Blocks, and Threads</a> covers that indexing in detail.</li>
+<li><strong>The <code>if (i &lt; n)</code> check</strong> is there because threads come in groups of 256, so the last group can hang past the end of the array.</li>
+<li><strong>No ordering is promised.</strong> The iterations must be independent, because the GPU runs them in whatever order and grouping it likes. A loop with a dependence between iterations (such as a running sum) needs a different algorithm, such as a tree-shaped reduction.</li>
+</ul>
+
+<h3 id="sec-in-use">Kernels in Use Today</h3>
+<p>Most GPU time in the world goes to a short list of kernels, nearly all written by specialists and called through libraries:</p>
+<ul>
+<li><strong>GEMMs (cuBLAS, CUTLASS):</strong> matrix multiplies for every linear layer of every neural network. Most of this tab's story is about how these get fast.</li>
+<li><strong>Attention (FlashAttention):</strong> one fused kernel for a transformer's attention, built so that the large matrix of attention scores never leaves the chip.</li>
+<li><strong>Convolutions (cuDNN):</strong> the core of image and video models, often rewritten internally as GEMMs.</li>
+<li><strong>Collectives (NCCL):</strong> kernels that move and sum data between GPUs over NVLink and the network, such as the all-reduce that combines gradients in data-parallel training.</li>
+<li><strong>Graphics shaders:</strong> pixel shaders for every frame of a game, and compute shaders for culling, physics, and post-processing. Upscalers such as DLSS run a small neural network per frame on the same Tensor Cores the GEMM libraries use.</li>
+</ul>
+<p>The next page sorts these into a few shapes of computation and shows which ones the hardware is fast at.</p>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Chapter 4 · Kirk, Hwu, and El Hajj, <em>Programming Massively Parallel Processors</em> (4th ed.), Chapters 1 and 2 · NVIDIA, <em>H100 Tensor Core GPU Architecture</em> whitepaper · AMD, EPYC 9654 product specifications · Meta, Llama 3 8B model configuration</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>An Intel Xeon Platinum 8480+ has 56 cores, each with 2 AVX-512 FMA units (16 FP32 lanes per unit), at a 2.0 GHz base clock. An A100 has 108 SMs with 64 FP32 lanes per SM at a 1.41 GHz boost clock. Find each chip's peak FP32 throughput. Then, if an FP32 FMA takes 4 cycles on both, how many independent FMAs must each chip have in flight every cycle to keep all its lanes busy?</p>`,
+        a: `<ol><li>Xeon lanes: 56 cores × 2 units/core × 16 lanes/unit = 1,792 lanes. Peak = 1,792 lanes × 2 FLOP/FMA × 2.0 × 10<sup>9</sup> cycles/s ≈ <strong>7.17 TFLOP/s</strong>.</li><li>A100 lanes: 108 SMs × 64 lanes/SM = 6,912 lanes. Peak = 6,912 lanes × 2 FLOP/FMA × 1.41 × 10<sup>9</sup> cycles/s ≈ <strong>19.5 TFLOP/s</strong>.</li><li>In flight (Little's law, lanes × latency): Xeon 1,792 lanes × 4 cycles = <strong>7,168 FMAs</strong>, A100 6,912 lanes × 4 cycles = <strong>27,648 FMAs</strong>.</li></ol><p>The CPU finds its 7,168 inside a few threads, by reordering and by SIMD. The GPU needs nearly 4× as many just to cover FMA latency, and far more to cover memory latency of several hundred cycles, which is why it wants hundreds of thousands of threads.</p>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A photo app applies 3 × 3 filters to a 6,000 × 4,000 RGBA8 image (4 B/pixel). The choices are a Ryzen 9 7950X, which streams the image at 70 GB/s, or an RTX 4090 (1,008 GB/s) behind a PCIe 4.0 x16 link. For one filter, which is faster? How many filters in a row, with the image staying on the GPU between them, before the GPU wins, and what is the speedup at 20 filters?</p><p class="given">Assume each filter is memory-bound on both chips and reads and writes the image once (neighboring pixels come from cache), the GPU reaches its full bandwidth, and PCIe moves 25 GB/s each way, one direction at a time.</p>`,
+        a: `<ol><li>Image size: 6,000 × 4,000 pixels × 4 B/pixel = 96 MB. One filter moves 96 MB read + 96 MB written = 192 MB.</li><li>CPU per filter: 192 MB / 70 GB/s ≈ 2.74 ms.</li><li>GPU per filter: 192 MB / 1,008 GB/s ≈ 0.19 ms. Transfers: 96 MB / 25 GB/s ≈ 3.84 ms up and 3.84 ms back, 7.68 ms in all.</li><li>One filter: CPU 2.74 ms against GPU 7.68 ms + 0.19 ms = 7.87 ms. <strong>The CPU wins by 2.9×</strong>, because PCIe is 40× slower than the GPU's own memory.</li><li>Break-even for \\(F\\) filters: 2.74 ms × F = 7.68 ms + 0.19 ms × F, so F = 7.68 ms / 2.55 ms ≈ 3.0. The GPU wins from <strong>4 filters</strong> on.</li><li>At 20 filters: CPU 20 × 2.74 ms ≈ 54.9 ms, GPU 7.68 ms + 20 × 0.19 ms ≈ 11.5 ms, a <strong>4.8× speedup</strong>, still well short of the 14× bandwidth ratio because the transfers are 2/3 of the GPU time.</li></ol><p>The lesson is the one that shapes real GPU software: keep data resident on the GPU and run long chains of kernels on it, because a kernel's speed doesn't matter if every call pays for a round trip over PCIe.</p>`
+      }
+    ]
+  }
+},
+
 {
   id: "gpu-launch",
   region: "gk",
