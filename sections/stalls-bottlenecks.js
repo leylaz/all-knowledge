@@ -422,6 +422,27 @@ One instruction cache miss:
 <li>Compare the bytes the program uses (the entry, the key) with the bytes moved (whole lines). The ratio shows how much bandwidth goes to unused parts of lines, and whether packing the table or shrinking entries would help more than adding concurrency.</li>
 <li>If the rate is near the concurrency ceiling but far below the bandwidth ceiling, the core can't ask for enough at once: more misses in flight (software prefetch, batched probes) or a shorter latency (a smaller table that fits in a closer cache) helps, a wider core doesn't.</li>
 </ul>
+<p><strong>When the useful work is nodes or edges:</strong></p>
+<ul>
+<li>Count one per node visited for lists and trees, and one per edge traversed for graphs. Graph benchmarks report traversed edges per second (TEPS, the Graph500 metric), because a graph's cost grows with its edges, not its vertices.</li>
+<li>First ask whether the next address depends on the current load. If it does (a linked list, a walk from root to leaf), the ceiling is a latency chain: chains in flight ÷ load latency at the level where the nodes live. A tree lookup costs about depth × that latency.</li>
+<li>If many nodes are independent (a BFS frontier, many lists or keys at once), the chain no longer binds, and the ceilings are the same two as for lookups: concurrency (outstanding misses ÷ latency) and bandwidth (bandwidth ÷ bytes moved per node or edge). In a CSR graph, each edge reads its neighbor index sequentially, which is cheap, then touches that neighbor's state at a random address, which usually costs a whole line.</li>
+<li>Compare the rate with the load-port ceiling, as Example 3 does, to see how much throughput the chain leaves idle. What helps is changing the shape, not the core:
+<ul><li>More independent chains (interleave several traversals)</li><li>A layout that shortens latency or depth (nodes allocated contiguously, wide B-tree nodes that fill a cache line, CSR instead of pointer lists)</li><li>Prefetching the next nodes when their addresses are known early</li></ul></li>
+</ul>
+<p><strong>When the useful work is bytes:</strong></p>
+<ul>
+<li>Count the bytes of data the program processes, not the bytes the hardware moves. Copies count bytes copied, and compressors and parsers count input bytes (decompressors count output bytes, the uncompressed size). Report GB/s, or cycles per byte, which is how hashing, encryption, and compression are usually compared.</li>
+<li>For a copy, the ceiling is memory bandwidth divided by the traffic per byte copied. Each byte is read once and written once (2 B of traffic), and a normal store also reads the destination line before writing it (write-allocate), which makes 3 B. Non-temporal stores skip that read. A copy near this ceiling is done, and only less copying helps.</li>
+<li>Compression and parsing usually do enough work per byte that the core binds before the memory system does. The ceiling is then the bytes per cycle the inner loop can handle, set by its bounds like any loop. Byte-at-a-time branchy code costs several cycles per byte and pays mispredicts on data-dependent branches, while SIMD code that handles 16 to 64 bytes per instruction (such as simdjson for JSON) can approach memory bandwidth.</li>
+<li>Comparing the rate with the bandwidth ceiling tells you which kind this is. Near it, data movement binds. Far below it, the per-byte work binds, and vectorizing or removing branches helps.</li>
+</ul>
+<p><strong>When the useful work is requests or transactions:</strong></p>
+<ul>
+<li>Count requests or transactions completed. The core's cost per request is instructions per request × CPI, with CPI from the per-instruction form above, \\( \\text{CPI} \\approx \\max_k B_k + \\sum_j \\text{MPKI}_j \\, P_j / 1000 \\). The rate is cores × f ÷ cycles per request. This splits a slow server into too many instructions per request (a software fix) or too high a CPI (front-end misses, cache misses, mispredicts, the hardware's side).</li>
+<li>The CPU is only one ceiling. Others are network bandwidth ÷ bytes per request, storage I/O operations per second ÷ I/Os per request, and any serialized section (a lock, a log write), which caps the whole server at 1 ÷ the time the section is held, however many cores there are.</li>
+<li>Latency matters as much as throughput, and Little's law links them: requests in flight = throughput × latency. As utilization nears 100%, queueing makes latency, especially tail latency, grow without bound, so servers run well below their peak. The useful number is the throughput reached while still meeting a latency target (for example a 99th-percentile response time), not the peak.</li>
+</ul>
 <p>Step 3 of each example below applies this: FLOPs in Example 1, lookups in Example 2, and nodes in Example 3.</p>
 <p>The three examples below each show one kind of bound winning. The worked example after them combines all three.</p>
 <details class="ex"><summary>Example 1: a bandwidth bound (N / W) on Apple M1 Firestorm</summary>
