@@ -123,34 +123,24 @@ section({
 <div class="code-pair">
 <figure><figcaption>CPU: one thread runs every iteration</figcaption>
 <pre><code>void saxpy(int n, float a,
-           const float *x,
-           float *y) {
+           const float *x, float *y) {
   for (int i = 0; i &lt; n; i++)
     y[i] = a * x[i] + y[i];
 }
 
-
-
-
-
-
 <span class="cm">// one call, one thread</span>
-saxpy(n, a, x, y);</code></pre></figure>
+saxpy(n, 2.0f, x, y);</code></pre></figure>
 <figure><figcaption>GPU: one thread per iteration</figcaption>
-<pre><code>__global__
-void saxpy(int n, float a,
-           const float *x,
-           float *y) {
+<pre><code>__global__ void saxpy(int n, float a,
+                      const float *x, float *y) {
   <span class="cm">// which iteration am I?</span>
-  int i = blockIdx.x * blockDim.x
-        + threadIdx.x;
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i &lt; n)
     y[i] = a * x[i] + y[i];
 }
 
-<span class="cm">// n threads, in groups of 256</span>
-int blocks = (n + 255) / 256;
-saxpy&lt;&lt;&lt;blocks, 256&gt;&gt;&gt;(n, a, x, y);</code></pre></figure>
+<span class="cm">// launch n threads, in groups of 256</span>
+saxpy&lt;&lt;&lt;(n + 255) / 256, 256&gt;&gt;&gt;(n, 2.0f, x, y);</code></pre></figure>
 </div>
 <ul>
 <li><strong><code>__global__</code></strong> marks a function that runs on the GPU and is launched from the CPU.</li>
