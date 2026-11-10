@@ -429,7 +429,7 @@ One instruction cache miss:
 <p><strong>The lesson.</strong> No single port class binds. Loads alone allow 2.67 cycles and stores alone 2.0, but they share 4 pipes, and the shared limit, 12 / 4, wins. A bandwidth bound has to be computed for every group of units that shares a limit, not only for each unit. More unrolling doesn't help (the ratio of memory operations to FLOPs stays the same), and neither do longer FMA chains. Only fewer memory operations per FLOP would, which SAXPY can't offer.</p>
 </details>
 <details class="ex"><summary>Example 2: a capacity bound (Little's law) on Intel Golden Cove</summary>
-<p><strong>Question.</strong> A hash-join probe on an Intel Core i9-12900K performance core (Golden Cove, 4.9 GHz) reads a precomputed index array sequentially and does one lookup per index into a 1 GB table: <code>sum += table[idx[i]]</code>. The indices are random, so every table access misses to DRAM, and no hardware prefetcher can predict it. The table is mapped with 1 GB pages, so TLB misses are negligible. Each table entry is 8 B. DRAM latency is about 90 ns. The loop is 5 micro-ops per iteration: 2 loads, the add, the index increment, and a fused compare-and-branch. How many cycles per lookup?</p>
+<p><strong>Question.</strong> A hash-join probe on an Intel Core i9-12900K performance core (Golden Cove, 4.9 GHz) reads a precomputed index array sequentially and does one lookup per index into a 1 GB table: <code>sum += table[idx[i]]</code>. The indices are random, so every table access misses to DRAM, and no hardware prefetcher can predict it. The table is mapped with 1 GB pages, so TLB misses are negligible. Each table entry is 8 B. DRAM latency is about 90 ns. The system has dual-channel DDR5-4800 (2 channels × 8 B/transfer × 4800 MT/s = 76.8 GB/s peak), which sustains about 70 GB/s. The loop is 5 micro-ops per iteration: 2 loads, the add, the index increment, and a fused compare-and-branch. How many cycles per lookup?</p>
 <p><strong>The machine</strong> (Intel's optimization manual and Chips and Cheese):</p><ul><li>Allocate 6 micro-ops per cycle</li><li>512-entry ROB, 192-entry load buffer</li><li>16 L1 fill buffers (outstanding L1 misses)</li><li>48 outstanding L2 misses</li></ul>
 <p><strong>Step 1: residency.</strong> 90 ns × 4.9 GHz ≈ 440 cycles per miss.</p>
 <p><strong>Step 2: the bounds.</strong> The iterations are independent: <code>sum</code> carries a 1-cycle add chain, and each table load depends only on its own index load, which hits in L1.</p>
@@ -440,7 +440,7 @@ One instruction cache miss:
 <tr><td>ROB</td><td>5 × 440 / 512</td><td>4.30</td></tr>
 <tr><td>Load buffer</td><td>2 × 440 / 192</td><td>4.58</td></tr>
 <tr><td><strong>L1 fill buffers</strong></td><td>1 × 440 / 16</td><td><strong>27.5</strong></td></tr>
-<tr><td>DRAM bandwidth</td><td>64 B at about 70 GB/s</td><td>about 4.5</td></tr>
+<tr><td>DRAM bandwidth</td><td>64 B/iteration ÷ (70 GB/s ÷ 4.9 GHz ≈ 14.3 B/cycle)</td><td>about 4.5</td></tr>
 </table></div>
 <p>So T ≈ 27.5 cycles per iteration.</p>
 <p><strong>Step 3: turn T into a rate.</strong> As in Example 1, what you divide T by decides what the rate tells you:</p>
