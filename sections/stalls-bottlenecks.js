@@ -429,32 +429,38 @@ One instruction cache miss:
 <p><strong>The lesson.</strong> No single port class binds. Loads alone allow 2.67 cycles and stores alone 2.0, but they share 4 pipes, and the shared limit, 12 / 4, wins. A bandwidth bound has to be computed for every group of units that shares a limit, not only for each unit. More unrolling doesn't help (the ratio of memory operations to FLOPs stays the same), and neither do longer FMA chains. Only fewer memory operations per FLOP would, which SAXPY can't offer.</p>
 </details>
 <details class="ex"><summary>Example 2: a capacity bound (Little's law) on Intel Golden Cove</summary>
-<p><strong>Question.</strong> A hash-join probe on an Intel Core i9-12900K performance core (Golden Cove, 4.9 GHz) reads a precomputed index array sequentially and does one lookup per index into a 1 GB table: <code>sum += table[idx[i]]</code>. The indices are random, so every table access misses to DRAM, and no hardware prefetcher can predict it. The table is mapped with 1 GB pages, so TLB misses are negligible. Each table entry is 8 B. DRAM latency is about 90 ns. The system has dual-channel DDR5-4800 (2 channels × 8 B/transfer × 4800 MT/s = 76.8 GB/s peak), which sustains about 70 GB/s. The loop is 5 micro-ops per iteration: 2 loads, the add, the index increment, and a fused compare-and-branch. How many cycles per lookup?</p>
-<p><strong>The machine</strong> (Intel's optimization manual and Chips and Cheese):</p><ul><li>Allocate 6 micro-ops per cycle</li><li>512-entry ROB, 192-entry load buffer</li><li>16 L1 fill buffers (outstanding L1 misses)</li><li>48 outstanding L2 misses</li></ul>
-<p><strong>Step 1: residency.</strong> 90 ns × 4.9 GHz ≈ 440 cycles per miss.</p>
-<p><strong>Step 2: the bounds.</strong> The iterations are independent: <code>sum</code> carries a 1-cycle add chain, and each table load depends only on its own index load, which hits in L1.</p>
+<p><strong>Question.</strong> A hash-join probe on an Intel Core i9-12900K performance core (Golden Cove, 4.9 GHz) reads a precomputed index array sequentially and does one lookup per index into a 1 GB table: <code>sum += table[idx[i]]</code>. Each index is 4 B, and the index array is 64 B-aligned and much larger than the caches, so it streams from DRAM. The L2 streamer prefetches the index lines into L2 (not L1) well ahead of use, so the first index load in each 64 B line misses L1 and hits L2, and the other 15 hit L1. The table indices are random, so every table access misses to DRAM, and no hardware prefetcher can predict it. The table is mapped with 1 GB pages, so TLB misses are negligible. Each table entry is 8 B. DRAM latency is about 90 ns. The system has dual-channel DDR5-4800 (2 channels × 8 B/transfer × 4800 MT/s = 76.8 GB/s peak), which sustains about 70 GB/s. The loop is 5 micro-ops per iteration: 2 loads, the add, the index increment, and a fused compare-and-branch. How many cycles per lookup?</p>
+<p><strong>The machine</strong> (Intel's optimization manual and Chips and Cheese):</p><ul><li>Allocate 6 micro-ops per cycle</li><li>512-entry ROB, 192-entry load buffer</li><li>16 L1 fill buffers (outstanding L1 misses)</li><li>48 outstanding L2 misses</li><li>L2 hit latency about 15 cycles</li></ul>
+<p><strong>Step 1: residency.</strong> Each resource is held for a different time, depending on which loads miss:</p>
+<ul>
+<li>A table miss to DRAM: 90 ns × 4.9 GHz ≈ 440 cycles</li>
+<li>An index line: one 64 B line holds 16 indices, so 1 index load in 16 misses L1 and holds a fill buffer for the 15-cycle L2 hit. The prefetch that brought the line into L2 missed L2 and held an L2 miss slot for 440 cycles, once per 16 iterations.</li>
+<li>The ROB and load buffer free entries only at retirement, which is in order. So an index load that hits in L1 still waits behind the older table miss, and every micro-op holds its entry for about 440 cycles, hit or miss.</li>
+</ul>
+<p><strong>Step 2: the bounds.</strong> The iterations are independent: <code>sum</code> carries a 1-cycle add chain, and each table load depends only on its own index load.</p>
 <div class="tbl"><table>
 <tr><th>Bound</th><th>Formula</th><th>Cycles/iteration</th></tr>
 <tr><td>Allocate width</td><td>5 / 6</td><td>0.83</td></tr>
 <tr><td>Loop-carried <code>sum</code></td><td>1 add</td><td>1.00</td></tr>
 <tr><td>ROB</td><td>5 × 440 / 512</td><td>4.30</td></tr>
 <tr><td>Load buffer</td><td>2 × 440 / 192</td><td>4.58</td></tr>
-<tr><td><strong>L1 fill buffers</strong></td><td>1 × 440 / 16</td><td><strong>27.5</strong></td></tr>
-<tr><td>DRAM bandwidth</td><td>64 B/iteration ÷ (70 GB/s ÷ 4.9 GHz ≈ 14.3 B/cycle)</td><td>about 4.5</td></tr>
+<tr><td><strong>L1 fill buffers</strong></td><td>(1 table miss × 440 cycles + 1/16 index miss × 15 cycles) / 16 entries</td><td><strong>27.56</strong></td></tr>
+<tr><td>L2 misses</td><td>(1 table miss + 1/16 index line) × 440 cycles / 48 entries</td><td>9.74</td></tr>
+<tr><td>DRAM bandwidth</td><td>(64 B table line + 4 B index)/iteration ÷ (70 GB/s ÷ 4.9 GHz ≈ 14.3 B/cycle)</td><td>4.76</td></tr>
 </table></div>
-<p>So T ≈ 27.5 cycles per iteration.</p>
+<p>So T ≈ 27.6 cycles per iteration. The index stream costs the fill buffers only 15 cycles / 16 iterations / 16 entries ≈ 0.06 cycles per iteration, because 15 of every 16 index loads hit L1 and the 16th hits L2. It matters more for the L2 miss slots and DRAM bandwidth, where it adds 6% to each, but neither is close to binding.</p>
 <p><strong>Step 3: turn T into a rate.</strong> As in Example 1, what you divide T by decides what the rate tells you:</p>
 <ul>
-<li><strong>By the binding resource's items:</strong> each lookup holds 1 fill buffer for 440 cycles, and one lookup starts every 27.5 cycles, so 440 / 27.5 = 16 are in flight, 100% of the 16 fill buffers. True by definition, so it only confirms which bound wins.</li>
-<li><strong>By the useful work:</strong> one iteration is one lookup, so 4.9 GHz / 27.5 ≈ 178 million lookups per second, about 5.6 ns each. The ceiling is DRAM bandwidth: one 64 B line per lookup at about 70 GB/s allows about 1.1 billion lookups per second (4.5 cycles each), so the loop reaches about 16% of it. It pulls only 64 B / 5.6 ns ≈ 11 GB/s. The memory system isn't busy, the core just can't ask for more at once.</li>
+<li><strong>By the binding resource's items:</strong> each iteration holds fill buffers for 440 + 15 / 16 ≈ 440.9 cycles, and one iteration starts every 27.56 cycles, so 440.9 / 27.56 = 16 are in flight, 100% of the 16 fill buffers. True by definition, so it only confirms which bound wins.</li>
+<li><strong>By the useful work:</strong> one iteration is one lookup, so 4.9 GHz / 27.56 cycles ≈ 178 million lookups per second, about 5.6 ns each. The ceiling is DRAM bandwidth: 68 B per lookup at about 70 GB/s allows about 1.03 billion lookups per second (4.76 cycles each), so the loop reaches about 17% of it. It pulls only 68 B / 5.6 ns ≈ 12 GB/s. The memory system isn't busy, the core just can't ask for more at once.</li>
 </ul>
 <p>Lookups are the better unit, for three reasons:</p>
 <ol>
 <li>A lookup is what the program exists to do. Fill buffers are a cost of doing it, not the goal.</li>
 <li>It doesn't change with how the loop is written. Unrolling, software prefetch, or batching probes changes the instructions and micro-ops per iteration, but every version does one lookup per index, so versions are compared in cycles per lookup.</li>
-<li>The useful-work unit depends on the kernel. There are no FLOPs here, so FLOPs would be the wrong unit: it's FLOPs for SAXPY, lookups here, and nodes in Example 3. Bytes show the waste most clearly: each lookup pulls a 64 B line but uses only its 8 B entry, so of the 11 GB/s moved, only about 178 million × 8 B ≈ 1.4 GB/s is data the program reads.</li>
+<li>The useful-work unit depends on the kernel. There are no FLOPs here, so FLOPs would be the wrong unit: it's FLOPs for SAXPY, lookups here, and nodes in Example 3. Bytes show the waste most clearly: each lookup moves 68 B but uses 12 B (its 8 B entry and 4 B index), so of the 12 GB/s moved, only about 178 million × 12 B ≈ 2.1 GB/s is data the program reads. The index stream uses every byte it moves, so all the waste is in the table lines.</li>
 </ol>
-<p><strong>The lesson.</strong> A capacity bound is E × R / C, so only two things help:</p><ul><li>Shorter residency: a table that fits in the 30 MB L3 (about 70 cycles) gives 70 / 16 ≈ 4.4 cycles per lookup, at which point the load buffer and ROB bounds are close behind</li><li>More entries: more fill buffers, which is why each Intel generation has added them (10 on Skylake, 12 on Sunny Cove, 16 on Golden Cove)</li></ul><p>A wider core does nothing, since allocate is already at 0.83 cycles.</p>
+<p><strong>The lesson.</strong> A capacity bound is E × R / C, so only two things help:</p><ul><li>Shorter residency: a table that fits in the 30 MB L3 (about 70 cycles) gives (70 + 15 / 16) cycles / 16 entries ≈ 4.4 cycles per lookup, still fill-buffer bound, with the L2 miss slots next at (70 + 440 / 16) cycles / 48 entries ≈ 2.0 cycles</li><li>More entries: more fill buffers, which is why each Intel generation has added them (10 on Skylake, 12 on Sunny Cove, 16 on Golden Cove)</li></ul><p>A wider core does nothing, since allocate is already at 0.83 cycles.</p>
 </details>
 <details class="ex"><summary>Example 3: a latency bound (dependency) on Intel Golden Cove</summary>
 <p><strong>Question.</strong> On the same Golden Cove core, a loop sums a field over a linked list. Each node is 16 B: <code>next</code> at offset 0, <code>val</code> at offset 8. How many cycles per node when the whole list fits in the 48 KB L1, and when it's spread over 1 MB (L2 resident)? What would help?</p>
