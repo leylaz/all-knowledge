@@ -826,7 +826,7 @@ function renderReview() {
 /* ---------- The to-do list ----------
    Its own section in the Interview Prep tab, at #/r/todo. Like flags, the
    owner's items live in the private db and everyone else's in this browser.
-   Done items move to their own list below until cleared. */
+   Done items move to their own list below until cleared, sub-items with them. */
 const TODO_KEY = "intv-todos";
 let TODOS = [], TODO_SAVE = Promise.resolve();
 try { TODOS = JSON.parse(localStorage.getItem(TODO_KEY) || "[]"); } catch (e) { TODOS = []; }
@@ -847,16 +847,31 @@ function saveTodos() {
   }
   try { localStorage.setItem(TODO_KEY, JSON.stringify(copy)); } catch (e) {}
 }
-const todoItem = t => `<li class="todo-item${t.done ? " done" : ""}" data-id="${esc(t.id)}">
+/* Sub-items carry `parent` (the main item's id). Items without one, or whose
+   parent is gone, are main items, so lists saved before sub-items existed
+   load unchanged. Display order is array order, among main items and among
+   one main item's sub-items. */
+const todoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const todoIsMain = t => !t.parent || !TODOS.some(p => p.id === t.parent && !p.parent);
+const todoKids = id => TODOS.filter(t => t.parent === id);
+const todoDrop = ids => { TODOS = TODOS.filter(t => !ids.includes(t.id) && !ids.includes(t.parent)); };
+const todoRow = (t, sub) => `<div class="todo-row">
+  <span class="todo-grip" title="Drag to reorder" aria-hidden="true">⠿</span>
   <input type="checkbox" class="todo-check" aria-label="Done"${t.done ? " checked" : ""}>
-  <input type="text" class="todo-text" aria-label="To-do item" value="${esc(t.text).replace(/"/g, "&quot;")}">
-  <button type="button" class="todo-del" aria-label="Delete this item">✕</button></li>`;
-function renderTodo() {
-  const open = TODOS.filter(t => !t.done), done = TODOS.filter(t => t.done);
+  <input type="text" class="todo-text" aria-label="${sub ? "Sub-item" : "To-do item"}" value="${esc(t.text).replace(/"/g, "&quot;")}">
+  ${sub ? "" : '<button type="button" class="todo-addsub" aria-label="Add a sub-item" title="Add a sub-item">+</button>'}
+  <button type="button" class="todo-del" aria-label="Delete this item">✕</button></div>`;
+const todoItem = t => {
+  const kids = todoKids(t.id);
+  return `<li class="todo-item todo-main${t.done ? " done" : ""}" data-id="${esc(t.id)}">${todoRow(t, false)}${kids.length ? `<ul class="todo-subs">${kids.map(k =>
+    `<li class="todo-item todo-sub${k.done ? " done" : ""}" data-id="${esc(k.id)}">${todoRow(k, true)}</li>`).join("")}</ul>` : ""}</li>`;
+};
+function renderTodo(focusId) {
+  const mains = TODOS.filter(todoIsMain), open = mains.filter(t => !t.done), done = mains.filter(t => t.done);
   layout("r/todo", null, `
     <p class="region">Section Overview</p>
     <h1>To-Do List</h1>
-    <p class="flag-note">${open.length} open, ${done.length} done. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."}</p>
+    <p class="flag-note">${open.length} open, ${done.length} done. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."} Drag ⠿ to reorder, and + adds a sub-item.</p>
     <form class="todo-add" id="todoForm">
       <input type="text" name="text" class="todo-text" aria-label="New to-do item" placeholder="Add a to-do item" autocomplete="off">
       <button type="submit" class="chip-zoom">Add</button>
@@ -869,20 +884,94 @@ function renderTodo() {
     e.preventDefault();
     const text = form.text.value.trim();
     if (!text) return;
-    TODOS.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text, done: false });
+    TODOS.push({ id: todoId(), text, done: false });
     saveTodos(); renderTodo();
     document.querySelector("#todoForm .todo-text").focus();
   });
   const find = el => TODOS.find(t => t.id === el.closest(".todo-item").dataset.id);
+  const addSub = (parent, after) => {
+    const t = { id: todoId(), text: "", done: false, parent: parent.id };
+    if (after) TODOS.splice(TODOS.indexOf(after) + 1, 0, t); else TODOS.push(t);
+    renderTodo(t.id);
+  };
   app.querySelectorAll(".todo-check").forEach(c => c.addEventListener("change", () => { find(c).done = c.checked; saveTodos(); renderTodo(); }));
-  app.querySelectorAll(".todo-item .todo-text").forEach(i => i.addEventListener("change", () => {
-    const t = find(i), text = i.value.trim();
-    if (text) t.text = text; else TODOS.splice(TODOS.indexOf(t), 1);
-    saveTodos(); if (!text) renderTodo();
-  }));
-  app.querySelectorAll(".todo-del").forEach(b => b.addEventListener("click", () => { TODOS.splice(TODOS.indexOf(find(b)), 1); saveTodos(); renderTodo(); }));
+  app.querySelectorAll(".todo-item .todo-text").forEach(i => {
+    i.addEventListener("change", () => { const t = find(i), text = i.value.trim(); if (t && text) { t.text = text; saveTodos(); } });
+    /* An emptied item goes away when it loses focus, unless it still has sub-items. */
+    i.addEventListener("blur", () => {
+      const t = find(i);
+      if (!t || i.value.trim()) return;
+      if (!t.parent && todoKids(t.id).length) { i.value = t.text; return; }
+      todoDrop([t.id]); saveTodos();
+      if (t.parent) { const ul = i.closest(".todo-subs"); i.closest(".todo-item").remove(); if (ul && !ul.children.length) ul.remove(); }
+      else renderTodo();
+    });
+    /* Enter in a sub-item starts the next one under the same main item. */
+    i.addEventListener("keydown", e => {
+      const t = find(i);
+      if (e.key !== "Enter" || !t || !t.parent || !i.value.trim()) return;
+      e.preventDefault(); t.text = i.value.trim(); saveTodos();
+      addSub(TODOS.find(p => p.id === t.parent), t);
+    });
+  });
+  app.querySelectorAll(".todo-addsub").forEach(b => b.addEventListener("click", () => addSub(find(b))));
+  app.querySelectorAll(".todo-del").forEach(b => b.addEventListener("click", () => { todoDrop([find(b).id]); saveTodos(); renderTodo(); }));
   const clear = document.getElementById("todoClear");
-  if (clear) clear.addEventListener("click", () => { TODOS = TODOS.filter(t => !t.done); saveTodos(); renderTodo(); });
+  if (clear) clear.addEventListener("click", () => { todoDrop(TODOS.filter(t => t.done).map(t => t.id)); saveTodos(); renderTodo(); });
+  app.querySelectorAll(".todo-grip").forEach(g => g.addEventListener("pointerdown", e => todoDrag(e, g)));
+  if (focusId) { const el = app.querySelector(`.todo-item[data-id="${focusId}"] .todo-text`); if (el) el.focus(); }
+}
+/* Drag by the grip (pointer events, so touch works too). A main item moves
+   with its sub-items among the main items of its own list. A sub-item moves
+   among sub-items, or onto a main item's row to become its first sub-item. */
+function todoDrag(e, grip) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  const li = grip.closest(".todo-item"), sub = li.classList.contains("todo-sub");
+  let tgt = null, pos = null;
+  const mark = (t, p) => {
+    if (tgt) tgt.classList.remove("drop-before", "drop-after", "drop-into");
+    tgt = t; pos = p;
+    if (tgt) tgt.classList.add("drop-" + pos);
+  };
+  const move = ev => {
+    if (ev.clientY < 40) window.scrollBy(0, -12); else if (ev.clientY > innerHeight - 40) window.scrollBy(0, 12);
+    const el = document.elementFromPoint(ev.clientX, ev.clientY);
+    const half = t => { const r = t.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2 ? "before" : "after"; };
+    if (!sub) {
+      const t = el && el.closest(".todo-main");
+      return t && t !== li && t.parentElement === li.parentElement ? mark(t, half(t)) : mark(null);
+    }
+    const t = el && el.closest(".todo-item");
+    if (!t || t === li) return mark(null);
+    if (t.classList.contains("todo-sub")) return mark(t, half(t));
+    return el.closest(".todo-row") ? mark(t, "into") : mark(null);
+  };
+  const end = ev => {
+    grip.removeEventListener("pointermove", move);
+    grip.removeEventListener("pointerup", end);
+    grip.removeEventListener("pointercancel", end);
+    li.classList.remove("dragging");
+    const t = tgt, p = pos; mark(null);
+    if (ev.type !== "pointerup" || !t) return;
+    const d = TODOS.find(x => x.id === li.dataset.id), at = TODOS.find(x => x.id === t.dataset.id);
+    if (!d || !at) return;
+    TODOS.splice(TODOS.indexOf(d), 1);
+    if (p === "into") {
+      d.parent = at.id;
+      const first = todoKids(at.id)[0];
+      TODOS.splice(first ? TODOS.indexOf(first) : TODOS.indexOf(at) + 1, 0, d);
+    } else {
+      if (sub) d.parent = at.parent;
+      TODOS.splice(TODOS.indexOf(at) + (p === "after" ? 1 : 0), 0, d);
+    }
+    saveTodos(); renderTodo();
+  };
+  grip.setPointerCapture(e.pointerId);
+  li.classList.add("dragging");
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", end);
+  grip.addEventListener("pointercancel", end);
 }
 
 function renderRegion(r, sec) {

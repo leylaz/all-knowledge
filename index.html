@@ -272,13 +272,32 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .rev-title { margin: 0 0 2px; font-family: var(--sans); font-weight: 600; }
 .todo-add { display: flex; gap: 8px; margin: 0 0 16px; font-family: var(--sans); }
 .todo-list { list-style: none; padding: 0; margin: 0 0 16px; font-family: var(--sans); }
-.todo-item { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--rule); padding: 6px 0; }
-.todo-item.done .todo-text { color: var(--muted); text-decoration: line-through; }
+.todo-main { border-top: 1px solid var(--rule); padding: 6px 0; }
+.todo-row { display: flex; align-items: center; gap: 8px; }
+.todo-subs { list-style: none; margin: 2px 0 0 26px; padding: 0; }
+.todo-sub { padding: 0; }
+.todo-sub .todo-text { padding: 1px 8px; font-size: .9rem; }
+.todo-item.done > .todo-row .todo-text { color: var(--muted); text-decoration: line-through; }
+.todo-grip { flex: none; color: var(--muted); opacity: .5; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; padding: 0 2px; font-size: .9rem; }
+.todo-row:hover .todo-grip { opacity: 1; }
+.todo-item.dragging { opacity: .4; }
+.todo-item.dragging .todo-grip { cursor: grabbing; }
+.todo-main.drop-before { box-shadow: inset 0 2px 0 var(--trace); }
+.todo-main.drop-after { box-shadow: inset 0 -2px 0 var(--trace); }
+.todo-sub.drop-before { box-shadow: 0 -2px 0 var(--trace); }
+.todo-sub.drop-after { box-shadow: 0 2px 0 var(--trace); }
+.todo-main.drop-into > .todo-row { background: var(--trace-soft); border-radius: 4px; }
 .todo-empty { color: var(--muted); }
 .todo-text { flex: 1; min-width: 0; font: inherit; font-size: .95rem; color: var(--ink); background: var(--paper); border: 1px solid transparent; border-radius: 4px; padding: 4px 8px; }
 .todo-add .todo-text, .todo-text:hover { border-color: var(--rule); }
 .todo-text:focus { border-color: var(--trace); outline: 2px solid var(--trace-soft); outline-offset: 0; }
-.todo-check { width: 1.05rem; height: 1.05rem; accent-color: var(--pad); }
+.todo-check { flex: none; -webkit-appearance: none; appearance: none; margin: 0; width: 1.15rem; height: 1.15rem; cursor: pointer; background: var(--muted); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5s-7.6-4.6-9.7-9.2C.9 8.1 2.8 4.5 6.4 4.5c2.1 0 3.6 1.2 5.6 3.5 2-2.3 3.5-3.5 5.6-3.5 3.6 0 5.5 3.6 4.1 6.8-2.1 4.6-9.7 9.2-9.7 9.2z' fill='none' stroke='%23000' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5s-7.6-4.6-9.7-9.2C.9 8.1 2.8 4.5 6.4 4.5c2.1 0 3.6 1.2 5.6 3.5 2-2.3 3.5-3.5 5.6-3.5 3.6 0 5.5 3.6 4.1 6.8-2.1 4.6-9.7 9.2-9.7 9.2z' fill='none' stroke='%23000' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; }
+.todo-check:hover { background: var(--pad); }
+.todo-check:checked { background: var(--pad); -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5s-7.6-4.6-9.7-9.2C.9 8.1 2.8 4.5 6.4 4.5c2.1 0 3.6 1.2 5.6 3.5 2-2.3 3.5-3.5 5.6-3.5 3.6 0 5.5 3.6 4.1 6.8-2.1 4.6-9.7 9.2-9.7 9.2z' fill='%23000' stroke='%23000' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5s-7.6-4.6-9.7-9.2C.9 8.1 2.8 4.5 6.4 4.5c2.1 0 3.6 1.2 5.6 3.5 2-2.3 3.5-3.5 5.6-3.5 3.6 0 5.5 3.6 4.1 6.8-2.1 4.6-9.7 9.2-9.7 9.2z' fill='%23000' stroke='%23000' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.todo-check:focus-visible { background: var(--trace); }
+.todo-sub .todo-check { width: 1rem; height: 1rem; }
+.todo-addsub { font: inherit; font-size: .95rem; line-height: 1; color: var(--muted); background: none; border: 1px solid transparent; border-radius: 4px; padding: 2px 7px; cursor: pointer; }
+.todo-addsub:hover { color: var(--trace); border-color: var(--trace); }
 .todo-del { font: inherit; font-size: .8rem; color: var(--muted); background: none; border: 1px solid transparent; border-radius: 4px; padding: 2px 7px; cursor: pointer; }
 .todo-del:hover { color: var(--pad); border-color: var(--pad); }
 .rev-desc { margin: 0 0 6px; color: var(--muted); font-size: .92rem; }
@@ -659,6 +678,6 @@ window.MathJax = {
 <script src="js/visual.js?v=ecd04d7a"></script>
 <script src="js/theme.js?v=1763bf15"></script>
 <script src="coding/crun.js?v=a9acf486"></script>
-<script src="js/app.js?v=d737f343"></script>
+<script src="js/app.js?v=dbed6a50"></script>
 </body>
 </html>
