@@ -1,11 +1,11 @@
-/* Section: Visual
+/* Section: GPU Hierarchy in Motion
    One region of the die plus its pages, in display order.
    To add a page, append an object to the list below (region: "gvis").
    The animations themselves live in js/visual.js. */
 
 section({
   id: "gvis",
-  name: "Visual",
+  name: "GPU Hierarchy in Motion",
   cap: "Threads, warps, blocks, and SMs side by side, with step-through and cycle-by-cycle animations",
   sections: [
     { id: "why", label: "Why Pictures" },

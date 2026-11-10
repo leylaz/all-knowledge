@@ -1,4 +1,4 @@
-/* GPU animations for the Visual region. A body places one with
+/* GPU animations for the GPU Hierarchy in Motion region. A body places one with
    <div class="anim" data-anim="name"></div>, and initAnims() builds it.
    "steps" anims show one SVG frame per step with Prev and Next (moving
    pieces use SMIL <animate>, which restarts each time a frame is drawn).
