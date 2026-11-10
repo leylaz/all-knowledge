@@ -192,8 +192,8 @@ const ANIMS = {
   "warp-switch": {
     kind: "cycles",
     title: "Timeline: Switching Between Warps",
-    intro: "Each warp runs y[i] = c3·x³ + c2·x² + c1·x + c0 in Horner form, as simplified SASS. The scheduler stays on its last warp while that warp is ready and otherwise takes the lowest-numbered ready one (greedy-then-oldest). An L1 hit takes around 40 cycles. Try 260 for an L2 hit and 500 for HBM.",
-    inputs: [["warps", "Resident warps", 8, 1, 1, 16], ["lat", "Load latency (cycles)", 40, 1, 4, 800]],
+    intro: "Each warp runs y[i] = c3·x³ + c2·x² + c1·x + c0 in Horner form, as simplified SASS. The scheduler stays on its last warp while that warp is ready and otherwise takes the lowest-numbered ready one (greedy-then-oldest). An L1 hit takes around 40 cycles. Try 260 for an L2 hit and 500 for HBM. In the whole-SM view, warp w lives in sub-partition w mod 4.",
+    inputs: [["warps", "Resident warps", 32, 1, 1, 64], ["lat", "Load latency (cycles)", 40, 1, 4, 800]],
     program: [
       ["IMAD R0 = ctaid.x × ntid.x + tid.x", "int", [], 4],
       ["LDG R1 = x[R0]", "ldst", [0], "mem"],
@@ -229,9 +229,10 @@ const ANIMS = {
    can issue when its operands are ready (a branch also blocks the warp
    until it resolves) and its unit is free. One warp instruction issues per
    cycle and holds its unit for 32 / lanes cycles. */
-function subpRun(a, v) {
+function subpRun(a, v, ids) {
   const P = a.program;
-  const masks = a.masks ? a.masks(v) : Array(v.warps).fill(AN_FULL);
+  const all = a.masks ? a.masks(v) : Array(v.warps).fill(AN_FULL);
+  const masks = ids.map(id => all[id]);
   const nW = masks.length;
   const seqs = masks.map(m => P.map((p, i) => ({ i, mask: p[4] === "if" ? m : p[4] === "else" ? (~m >>> 0) : AN_FULL })).filter(x => x.mask));
   const lat = p => p[3] === "mem" ? v.lat : p[3];
@@ -259,7 +260,7 @@ function subpRun(a, v) {
       const passes = u ? 32 / u.lanes : 1;
       if (u) {
         unitFree[p[1]] = c + passes;
-        for (let k = 0; k < passes; k++) (lanes[c + k] = lanes[c + k] || {})[p[1]] = { w: pick, pass: k, passes, mask: x.mask };
+        for (let k = 0; k < passes; k++) (lanes[c + k] = lanes[c + k] || {})[p[1]] = { w: ids[pick], pass: k, passes, mask: x.mask };
       }
       ready[pick][x.i] = c + passes - 1 + lat(p);
       if (p[3] === "mem") loads.push(ready[pick][x.i]);
@@ -269,10 +270,10 @@ function subpRun(a, v) {
       pc[pick]++;
       last = pick;
     }
-    cyc.push({ pick, ins, st, inflight: loads.filter(r => r > c).length });
+    cyc.push({ pick: pick >= 0 ? ids[pick] : -1, ins, st, inflight: loads.filter(r => r > c).length });
     if (pc.every((n, w) => n >= seqs[w].length) && c >= end) break;
   }
-  return { nW, cyc, lanes, cycles: cyc.length };
+  return { nW, ids, cyc, lanes, cycles: cyc.length };
 }
 
 const anMn = t => t.replace(/^\w+: /, "").replace(/^@\S+ /, "").split(" ")[0];
@@ -296,13 +297,14 @@ function subpSvg(a, s, c) {
   const rec = s.cyc[c], use = s.lanes[c] || {};
   let h = anT(0, 14, "Warps in this sub-partition", AN_S.title);
   rec.st.forEach((st, w) => {
-    const y = 24 + w * 22, on = rec.pick === w, col = anHue(w);
+    const id = s.ids[w], y = 24 + w * 22, on = rec.pick === id, col = anHue(id);
     h += anR(0, y, 198, 19, `fill:${on ? col : "var(--surface)"};stroke:${col};stroke-width:${on ? 1.5 : 1};opacity:${st.k === "done" ? .45 : 1}`) +
-      anT(6, y + 13, `W${w}`, `font-size:10.5px;font-weight:700;fill:${on ? AN_DARK : "var(--ink)"}`) +
+      anT(6, y + 13, `W${id}`, `font-size:10.5px;font-weight:700;fill:${on ? AN_DARK : "var(--ink)"}`) +
       anT(32, y + 13, anStateText(a, st), `font-size:10px;fill:${on ? AN_DARK : "var(--muted)"}`);
   });
   const X = 212, W = 468, mid = X + W / 2;
-  if (rec.pick >= 0) h += `<path d="M198,${33 + rec.pick * 22} C206,${33 + rec.pick * 22} 204,42 ${X},42" style="fill:none;stroke:var(--ink);stroke-width:1.2"/>`;
+  const row = s.ids.indexOf(rec.pick);
+  if (row >= 0) h += `<path d="M198,${33 + row * 22} C206,${33 + row * 22} 204,42 ${X},42" style="fill:none;stroke:var(--ink);stroke-width:1.2"/>`;
   const p = rec.ins && a.program[rec.ins.i];
   h += anR(X, 0, W, 22, AN_S.blue) + anT(mid, 15, "L0 Instruction Cache", AN_S.label, 1) +
     anR(X, 30, W, 24, rec.pick >= 0 ? `fill:${anHue(rec.pick)};stroke:var(--pad)` : AN_S.orange) +
@@ -332,46 +334,114 @@ function subpSvg(a, s, c) {
   return h;
 }
 
-/* One row per warp: a tick per issue, a thin bar while it waits on memory. */
-function subpStrip(s, c) {
-  const L = 26, Wd = 650, cw = Wd / s.cycles, H = s.nW * 10 + 20;
-  let h = "";
-  for (let w = 0; w < s.nW; w++) {
-    const y = 4 + w * 10;
-    h += anT(0, y + 8, `W${w}`, "font-size:8px;fill:var(--muted)");
-    let run = -1;
-    for (let k = 0; k <= s.cycles; k++) {
-      const m = k < s.cycles && s.cyc[k].st[w].k === "mem";
-      if (m && run < 0) run = k;
-      if (!m && run >= 0) { h += `<rect x="${L + run * cw}" y="${y + 3}" width="${(k - run) * cw}" height="2" style="fill:${anHue(w)};opacity:.5"/>`; run = -1; }
-      if (k < s.cycles && s.cyc[k].pick === w) h += `<rect x="${L + k * cw}" y="${y}" width="${Math.max(cw, 1.2)}" height="8" style="fill:${anHue(w)}"/>`;
+/* A sub-partition's record at cycle c, padded with "exited" once its run ends. */
+const anRec = (s, c) => c < s.cycles ? s.cyc[c] : { pick: -1, ins: null, st: s.ids.map(() => ({ k: "done", i: -1 })), inflight: 0 };
+
+/* The whole SM at cycle c: the 4 sub-partitions in a 2 × 2 grid, each a
+   smaller copy of the single view, with warp chips in place of the list. */
+function smSvg(a, runs, c) {
+  let h = anR(0, 0, 680, 18, AN_S.blue) + anT(340, 13, "L1 Instruction Cache (shared by the 4 sub-partitions)", AN_S.label, 1);
+  const order = ["int", "fp32", "fp64", "tc", "ldst", "sfu"];
+  const bw = k => k === "tc" ? 30 : SUBP_UNITS[k].cols * 18 + (SUBP_UNITS[k].cols > 1 ? 6 : 12);
+  let inflight = 0;
+  runs.forEach((s, sp) => {
+    const rec = anRec(s, c), use = (c < s.cycles && s.lanes[c]) || {};
+    const px = (sp % 2) * 344, py = 26 + Math.floor(sp / 2) * 256;
+    inflight += rec.inflight;
+    const p = rec.ins && a.program[rec.ins.i];
+    h += anR(px, py, 336, 248, AN_S.thin) + anT(px + 8, py + 15, `Sub-partition ${sp}`, "font-size:10px;font-weight:600;fill:var(--ink)") +
+      anR(px + 110, py + 4, 218, 16, rec.pick >= 0 ? `fill:${anHue(rec.pick)};stroke:var(--pad)` : AN_S.orange) +
+      anT(px + 219, py + 16, rec.pick >= 0 ? `Warp Scheduler: picks W${rec.pick}` : "Warp Scheduler: slot unused", rec.pick >= 0 ? AN_S.dark : AN_S.small, 1) +
+      anR(px + 8, py + 24, 320, 16, AN_S.orange) +
+      anT(px + 168, py + 36, p ? `Dispatch: ${p[0]}${rec.ins.mask !== AN_FULL ? ` (${anPop(rec.ins.mask)} of 32 threads)` : ""}` : "Dispatch: nothing this cycle", "font-size:9px;fill:var(--ink)", 1);
+    rec.st.forEach((st, l) => {
+      const id = s.ids[l], col = anHue(id), x = px + 8 + l * 20, y = py + 46;
+      const look = st.k === "issue" ? `fill:${col};stroke:${col}` : st.k === "ready" ? `fill:none;stroke:${col};stroke-width:1.5`
+        : st.k === "done" ? `fill:none;stroke:${col};opacity:.2` : `fill:none;stroke:${col};stroke-dasharray:2 2;opacity:.6`;
+      h += anR(x, y, 18, 14, look) + anT(x + 9, y + 10, `W${id}`, `font-size:7.5px;font-weight:600;fill:${st.k === "issue" ? AN_DARK : "var(--muted)"};opacity:${st.k === "done" ? .3 : 1}`, 1);
+    });
+    if (!s.ids.length) h += anT(px + 8, py + 57, "no resident warps", AN_S.small);
+    h += anR(px + 8, py + 66, 320, 12, AN_S.blue) + anT(px + 168, py + 75, "Register File, 64 KB", "font-size:8.5px;fill:var(--ink)", 1);
+    let x = px + (336 - order.reduce((t, k) => t + bw(k), 0) - 30) / 2;
+    for (const k of order) {
+      const u = SUBP_UNITS[k], lu = use[k];
+      h += anR(x, py + 84, bw(k), 162, lu ? `fill:var(--code-bg);stroke:${anHue(lu.w)};stroke-width:2` : AN_S.green) +
+        anT(x + bw(k) / 2, py + 95, k === "tc" ? "TC" : u.name, "font-size:8.5px;font-weight:600;fill:var(--ink)", 1);
+      for (let j = 0; j < u.lanes; j++) {
+        const lx = x + (bw(k) - u.cols * 18 + 2) / 2 + Math.floor(j / 8) * 18, ly = py + 100 + (j % 8) * 18;
+        if (!lu) { h += anR(lx, ly, 16, 16, AN_S.thin); continue; }
+        const t = lu.pass * u.lanes + j, on = (lu.mask >>> t) & 1, col = anHue(lu.w);
+        h += on ? anR(lx, ly, 16, 16, `fill:${col};stroke:${col}`) + anT(lx + 8, ly + 11.5, t, `font-size:8px;font-weight:700;fill:${AN_DARK}`, 1)
+          : anR(lx, ly, 16, 16, `fill:none;stroke:${col};stroke-dasharray:2 2`) + anT(lx + 8, ly + 11.5, t, "font-size:8px;fill:var(--muted);opacity:.6", 1);
+      }
+      x += bw(k) + 6;
     }
-  }
-  h += `<rect x="${L + c * cw - (cw < 2 ? .75 : 0)}" y="0" width="${Math.max(cw, 1.5)}" height="${H - 14}" style="fill:none;stroke:var(--pad);stroke-width:1.5"/>` +
-    anT(L, H - 2, "cycle 0", "font-size:8px;fill:var(--muted)") + anT(L + Wd, H - 2, `cycle ${s.cycles - 1}`, "font-size:8px;fill:var(--muted);text-anchor:end");
+  });
+  h += anR(0, 538, 680, 20, AN_S.blue) + anT(340, 552, `L1 Data Cache / Shared Memory, 256 KB, shared by the 4 sub-partitions${inflight ? ` · ${inflight} load${inflight > 1 ? "s" : ""} in flight` : ""}`, AN_S.label, 1) +
+    anR(0, 562, 680, 20, AN_S.blue) + anT(340, 576, "L2 (50 MB) and HBM3 (80 GB), shared by all 132 SMs", AN_S.label, 1);
+  return h;
+}
+
+/* One row per warp, grouped by sub-partition: a tick per issue, a thin bar
+   while the warp waits on memory. */
+function subpStrip(runs, cycles, c) {
+  const L = 30, Wd = 646, cw = Wd / cycles, n = runs.reduce((t, s) => t + s.nW, 0);
+  const rh = n > 16 ? 6 : 10, gap = runs.length > 1 ? 4 : 0;
+  let h = "", y = 2;
+  runs.forEach((s, sp) => {
+    s.ids.forEach((id, l) => {
+      const col = anHue(id);
+      if (rh === 10) h += anT(0, y + rh - 2, `W${id}`, "font-size:8px;fill:var(--muted)");
+      else if (l === 0) h += anT(0, y + 6, `SP ${sp}`, "font-size:8px;fill:var(--muted)");
+      let run = -1;
+      for (let k = 0; k <= s.cycles; k++) {
+        const m = k < s.cycles && s.cyc[k].st[l].k === "mem";
+        if (m && run < 0) run = k;
+        if (!m && run >= 0) { h += `<rect x="${L + run * cw}" y="${y + rh / 2 - 1}" width="${(k - run) * cw}" height="1.5" style="fill:${col};opacity:.5"/>`; run = -1; }
+        if (k < s.cycles && s.cyc[k].pick === id) h += `<rect x="${L + k * cw}" y="${y}" width="${Math.max(cw, 1.2)}" height="${rh - 2}" style="fill:${col}"/>`;
+      }
+      y += rh;
+    });
+    if (s.nW) y += gap;
+  });
+  const H = y + 14;
+  h += `<rect x="${L + c * cw - (cw < 2 ? .75 : 0)}" y="0" width="${Math.max(cw, 1.5)}" height="${y}" style="fill:none;stroke:var(--pad);stroke-width:1.5"/>` +
+    anT(L, H - 2, "cycle 0", "font-size:8px;fill:var(--muted)") + anT(L + Wd, H - 2, `cycle ${cycles - 1}`, "font-size:8px;fill:var(--muted);text-anchor:end");
   return { h, H, L, cw };
 }
 
 function anRange(lo, hi) { return lo === hi ? `thread ${lo}` : `threads ${lo}–${hi}`; }
 
-function subpStatus(a, s, c) {
-  const rec = s.cyc[c];
+function subpStatus(a, runs, cycles, c) {
   let t = `<strong>Cycle ${c}:</strong> `;
-  if (rec.pick >= 0) {
-    const p = a.program[rec.ins.i], prev = c ? s.cyc[c - 1].pick : -1;
-    t += `the scheduler picks <strong>W${rec.pick}</strong>${prev === rec.pick ? " again, since it is still ready" : prev >= 0 ? `, switching from W${prev},` : ""} and dispatches <code>${p[0]}</code>` +
-      (p[1] === "ctrl" ? " (a branch: it uses the issue slot but no lanes)" : "") + ". ";
-  } else t += "no warp can issue, so this cycle's issue slot goes unused. ";
-  const use = s.lanes[c] || {};
-  for (const k of Object.keys(use)) {
-    const u = SUBP_UNITS[k], lu = use[k], lo = lu.pass * u.lanes, hi = lo + u.lanes - 1;
-    let off = 0;
-    for (let th = lo; th <= hi; th++) if (!((lu.mask >>> th) & 1)) off++;
-    t += `${u.name} lanes run ${anRange(lo, hi)} of W${lu.w}${lu.passes > 1 ? ` (pass ${lu.pass + 1} of ${lu.passes})` : ""}${off ? `, ${off} masked off` : ""}. `;
+  if (runs.length === 1) {
+    const s = runs[0], rec = s.cyc[c];
+    if (rec.pick >= 0) {
+      const p = a.program[rec.ins.i], prev = c ? s.cyc[c - 1].pick : -1;
+      t += `the scheduler picks <strong>W${rec.pick}</strong>${prev === rec.pick ? " again, since it is still ready" : prev >= 0 ? `, switching from W${prev},` : ""} and dispatches <code>${p[0]}</code>` +
+        (p[1] === "ctrl" ? " (a branch: it uses the issue slot but no lanes)" : "") + ". ";
+    } else t += "no warp can issue, so this cycle's issue slot goes unused. ";
+    const use = s.lanes[c] || {};
+    for (const k of Object.keys(use)) {
+      const u = SUBP_UNITS[k], lu = use[k], lo = lu.pass * u.lanes, hi = lo + u.lanes - 1;
+      let off = 0;
+      for (let th = lo; th <= hi; th++) if (!((lu.mask >>> th) & 1)) off++;
+      t += `${u.name} lanes run ${anRange(lo, hi)} of W${lu.w}${lu.passes > 1 ? ` (pass ${lu.pass + 1} of ${lu.passes})` : ""}${off ? `, ${off} masked off` : ""}. `;
+    }
+  } else {
+    let n = 0;
+    const parts = runs.map((s, sp) => {
+      const rec = anRec(s, c);
+      if (rec.pick < 0) return `sub-partition ${sp} issues nothing`;
+      n++;
+      return `sub-partition ${sp} issues <code>${anMn(a.program[rec.ins.i][0])}</code> for W${rec.pick}`;
+    });
+    t += n ? parts.join(", ") + `, so the SM issues ${n} of a possible 4 warp instructions this cycle.` : "no sub-partition has a ready warp, so all 4 issue slots go unused.";
   }
-  const iss = s.cyc.filter(r => r.pick >= 0), work = iss.filter(r => a.program[r.ins.i][1] !== "ctrl");
+  const iss = runs.flatMap(s => s.cyc.filter(r => r.pick >= 0)), work = iss.filter(r => a.program[r.ins.i][1] !== "ctrl");
   const act = work.reduce((n, r) => n + anPop(r.ins.mask), 0);
-  return t + `<br>Whole run: ${iss.length} warp instructions in ${s.cycles} cycles, so the scheduler issued in ${Math.round(100 * iss.length / s.cycles)}% of cycles` +
+  return t + `<br>Whole run: ${iss.length} warp instructions in ${cycles} cycles, ` +
+    (runs.length === 1 ? `so the scheduler issued in ${Math.round(100 * iss.length / cycles)}% of cycles` : `an average of ${(iss.length / cycles).toFixed(2)} per cycle out of a peak of 4 (one per sub-partition)`) +
     (work.length ? `, and ${Math.round(100 * act / (32 * work.length))}% of thread slots did useful work (SIMT efficiency).` : ".");
 }
 
@@ -411,42 +481,52 @@ function animSteps(el, a) {
 function animCycles(el, a) {
   el.innerHTML = `<p class="calc-title">${a.title}</p><p class="calc-intro">${a.intro}</p>
     <form class="calc-form">${a.inputs.map(([id, label, val, step, min, max]) =>
-      `<label><span>${label}</span><input type="number" name="${id}" value="${val}" step="${step}" min="${min}" max="${max}"></label>`).join("")}</form>
+      `<label><span>${label}</span><input type="number" name="${id}" value="${val}" step="${step}" min="${min}" max="${max}"></label>`).join("")}
+      <label><span>View</span><select name="view"><option value="sm">Whole SM (4 sub-partitions)</option><option value="one">One sub-partition</option></select></label></form>
     <div class="anim-ctl"><button type="button" data-j="-1" title="Back to the last cycle where something changed">◀◀ Event</button><button type="button" data-d="-1">◀ Cycle</button>
       <button type="button" data-d="1">Cycle ▶</button><button type="button" data-j="1" title="Ahead to the next cycle where something changes">Event ▶▶</button>
       <label class="trace-step"><span>Cycle <strong class="anim-c">0</strong></span><input type="range" min="0" value="0" aria-label="Cycle"></label></div>
     <div class="anim-fig"></div>
     <div class="anim-strip" title="Click to jump to a cycle"></div>
     <p class="anim-cap" aria-live="polite"></p>
-    <p class="trace-key">Filled lane: the thread whose operation enters that lane this cycle. Dashed lane: masked-off thread. Strip: a tick for each issue, a thin bar while the warp waits on memory. Click it to jump.</p>`;
+    <p class="trace-key">Filled lane: the thread whose operation enters that lane this cycle. Dashed lane: masked-off thread. Strip: a tick for each issue, a thin bar while the warp waits on memory. Click it to jump. Whole-SM chips: filled is issuing, solid outline is ready, dashed is waiting, faded has exited.</p>`;
   const form = el.querySelector("form"), slider = el.querySelector("input[type=range]");
   const fig = el.querySelector(".anim-fig"), strip = el.querySelector(".anim-strip"), cap = el.querySelector(".anim-cap"), cLabel = el.querySelector(".anim-c");
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : lo));
-  let s = null, sig = [];
+  let runs = [], cycles = 1, sig = [];
   const go = c => {
-    c = clamp(c, 0, s.cycles - 1);
+    c = clamp(c, 0, cycles - 1);
     slider.value = String(c);
     cLabel.textContent = String(c);
-    fig.innerHTML = `<svg viewBox="0 0 680 434" role="img" aria-label="One H100 SM sub-partition at cycle ${c}" style="font-family:var(--sans)">${subpSvg(a, s, c)}</svg>`;
-    const st = subpStrip(s, c);
+    fig.innerHTML = runs.length > 1
+      ? `<svg viewBox="0 0 680 584" role="img" aria-label="One H100 SM, all 4 sub-partitions, at cycle ${c}" style="font-family:var(--sans)">${smSvg(a, runs, c)}</svg>`
+      : `<svg viewBox="0 0 680 434" role="img" aria-label="One H100 SM sub-partition at cycle ${c}" style="font-family:var(--sans)">${subpSvg(a, runs[0], c)}</svg>`;
+    const st = subpStrip(runs, cycles, c);
     strip.innerHTML = `<svg viewBox="0 0 680 ${st.H}" style="font-family:var(--sans)">${st.h}</svg>`;
     strip.onclick = e => {
       const r = strip.firstChild.getBoundingClientRect();
       go(Math.floor(((e.clientX - r.left) * 680 / r.width - st.L) / st.cw));
     };
-    cap.innerHTML = subpStatus(a, s, c);
+    cap.innerHTML = subpStatus(a, runs, cycles, c);
   };
   const run = () => {
     const v = { warps: a.warps };
     a.inputs.forEach(([id, , val, , min, max]) => { v[id] = clamp(Math.round(parseFloat(form[id].value)), min, max); });
-    s = subpRun(a, v);
-    slider.max = String(s.cycles - 1);
-    sig = s.cyc.map((r, c) => `${r.pick}|${r.st.map(x => x.k).join()}|${Object.keys(s.lanes[c] || {}).join()}`);
+    const sm = form.view.value === "sm", n = a.warps || v.warps;
+    if (!sm && n > 16) { v.warps = 16; form.warps.value = "16"; }
+    const ids = Array.from({ length: Math.min(n, sm ? 64 : 16) }, (_, w) => w);
+    runs = sm ? [0, 1, 2, 3].map(k => subpRun(a, v, ids.filter(w => w % 4 === k))) : [subpRun(a, v, ids)];
+    cycles = Math.max(...runs.map(s => s.cycles));
+    slider.max = String(cycles - 1);
+    sig = Array.from({ length: cycles }, (_, c) => runs.map(s => {
+      const r = anRec(s, c);
+      return `${r.pick}|${r.st.map(x => x.k).join()}|${Object.keys((c < s.cycles && s.lanes[c]) || {}).join()}`;
+    }).join("/"));
     go(+slider.value);
   };
   const jump = d => {
     let c = +slider.value;
-    if (d > 0) { do c++; while (c < s.cycles - 1 && sig[c] === sig[c - 1]); }
+    if (d > 0) { do c++; while (c < cycles - 1 && sig[c] === sig[c - 1]); }
     else { if (c > 0) c--; while (c > 0 && sig[c] === sig[c - 1]) c--; }
     go(c);
   };

@@ -81,7 +81,7 @@ section({
 </ul>
 <p>A warp instruction always covers 32 threads, but only the FP32 unit has 32 lanes. Narrower units take the warp in passes, one per cycle: 2 passes on INT32 or FP64, 4 on LD/ST, and 8 on the SFU. The unit is busy for those cycles, so a second instruction for it waits, but the scheduler can still issue to a different unit in the meantime.</p>
 <h3 id="sec-switching">Warp Switching, Cycle by Cycle</h3>
-<p>Every warp below runs the same six instructions. Step one cycle at a time to see the scheduler pick a warp and the lanes take its threads, or jump to the next cycle where anything changes. Then raise the load latency: with an L1 hit the warps cover each other's waits, but at HBM latency even 16 warps leave hundreds of idle cycles, because this kernel has only one load's worth of work per warp.</p>
+<p>Every warp below runs the same six instructions. Step one cycle at a time to see the scheduler pick a warp and the lanes take its threads, or jump to the next cycle where anything changes. The whole-SM view shows all 4 sub-partitions, each with its own scheduler, so the SM can issue up to 4 warp instructions per cycle. Switch to one sub-partition to read every lane and every warp's state. Then raise the load latency: with an L1 hit the warps cover each other's waits, but at HBM latency even 16 warps leave hundreds of idle cycles, because this kernel has only one load's worth of work per warp.</p>
 <div class="anim" data-anim="warp-switch"></div>
 <p>Things to notice:</p>
 <ul>
@@ -91,7 +91,7 @@ section({
 </ul>
 <p>This is a simplified model. NVIDIA doesn't publish the H100's scheduling policy or exact latencies, so the numbers here are typical values, not measurements.</p>
 <h3 id="sec-divergence">An If/Else Splits a Warp</h3>
-<p>All 32 threads of a warp share one instruction stream. When they disagree on a branch, the warp runs both paths one after the other, with the threads that didn't take the current path masked off. Masked lanes still go through the unit, so their slots are wasted. Set how many of W0's threads take the if, and compare W0 with W1, whose threads all agree.</p>
+<p>All 32 threads of a warp share one instruction stream. When they disagree on a branch, the warp runs both paths one after the other, with the threads that didn't take the current path masked off. Masked lanes still go through the unit, so their slots are wasted. Set how many of W0's threads take the if, and compare W0 with W1, whose threads all agree. In the whole-SM view they sit in sub-partitions 0 and 1, and the other two have no work.</p>
 <div class="anim" data-anim="warp-diverge"></div>
 <ul>
 <li>At 0 or 32, W0 runs one path only, just like W1. The cost of a branch comes from disagreement, not from the branch itself.</li>
