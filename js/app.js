@@ -1,7 +1,7 @@
 /* Rendering, routing, and search. No note content lives here. */
 /* ---------- Sign-in (Firebase) ----------
-   Signed in with Google, flags, solved marks, answers, and the to-do list
-   live in Firestore under data/users/<uid>/ (only that uid can read or
+   Signed in with Google, flags, solved marks, answers, the to-do list, and
+   the calendar live in Firestore under data/users/<uid>/ (only that uid can read or
    write there), so they follow you between devices. Signed out, they stay
    in this browser. Signing in copies this browser's data into the account,
    then clears it here. The config isn't secret; the Firestore rules are
@@ -36,11 +36,12 @@ function initAuth() {
     PRIVATE_UID = user.uid; PRIVATE_DB = firebase.firestore();
     try { await flagDoc().get(); }
     catch (e) { console.error("Can't reach your saved data; saving in this browser only:", e); alert("Signed in, but your saved data can't be reached (" + (e.code || e.message || e) + "). Saving in this browser only."); return; }
-    const local = { flags: FLAGS.slice(), sec: SEC_FLAGS.slice(), solved: Object.assign({}, SOLVED), answers: Object.assign({}, ANSWERS), todos: TODOS.slice() };
-    await Promise.all([loadDbFlags(), loadDbSecFlags(), loadDbSolved(), loadDbAnswers(), loadDbTodos()]);
+    const local = { flags: FLAGS.slice(), sec: SEC_FLAGS.slice(), solved: Object.assign({}, SOLVED), answers: Object.assign({}, ANSWERS), todos: TODOS.slice(), cal: CAL.slice() };
+    await Promise.all([loadDbFlags(), loadDbSecFlags(), loadDbSolved(), loadDbAnswers(), loadDbTodos(), loadDbCal()]);
     PRIVATE_OK = true;
     try { await mergeLocal(local); }
     catch (e) { console.error("Copying this browser's data into your account failed; it stays here:", e); }
+    undoReset();
     route();
   });
 }
@@ -55,6 +56,7 @@ async function mergeLocal(local) {
   if (add(FLAGS, local.flags, "snip")) writes.push(flagDoc().set({ flags: FLAGS.map(f => Object.assign({}, f)) }));
   if (add(SEC_FLAGS, local.sec, "key")) writes.push(secFlagDoc().set({ flags: SEC_FLAGS.map(f => Object.assign({}, f)) }));
   if (add(TODOS, local.todos, "id")) writes.push(todoDoc().set({ todos: TODOS.map(t => Object.assign({}, t)) }));
+  if (add(CAL, local.cal, "id")) writes.push(calDoc().set({ items: CAL.map(t => Object.assign({}, t)) }));
   const newSolved = Object.keys(local.solved).filter(k => !SOLVED[k]);
   if (newSolved.length) { newSolved.forEach(k => { SOLVED[k] = local.solved[k]; }); writes.push(solvedDoc().set({ solved: Object.assign({}, SOLVED) })); }
   for (const [snip, v] of Object.entries(local.answers)) {
@@ -63,7 +65,7 @@ async function mergeLocal(local) {
     writes.push(ansCol().doc(ansId(snip)).set(Object.assign({}, ANSWERS[snip])));
   }
   await Promise.all(writes);
-  for (const k of [FLAG_KEY, SEC_FLAG_KEY, SOLVED_KEY, ANS_KEY, TODO_KEY]) try { localStorage.removeItem(k); } catch (e) {}
+  for (const k of [FLAG_KEY, SEC_FLAG_KEY, SOLVED_KEY, ANS_KEY, TODO_KEY, CAL_KEY]) try { localStorage.removeItem(k); } catch (e) {}
 }
 
 /* ---------- Math (MathJax, loaded async from index.html) ---------- */
@@ -839,7 +841,8 @@ async function loadDbTodos() {
     TODOS = Array.isArray(t) ? t.slice() : [];
   } catch (e) { console.error("To-do list failed to load; using this browser's copy:", e); }
 }
-function saveTodos() {
+function saveTodos(quiet) {
+  if (!quiet) undoNote();
   const copy = TODOS.map(t => Object.assign({}, t));
   if (PRIVATE_OK) {
     TODO_SAVE = TODO_SAVE.then(() => todoDoc().set({ todos: copy })).catch(e => console.error("Saving the to-do list failed:", e));
@@ -853,12 +856,12 @@ function saveTodos() {
    unchanged. Display order is array order among an item's siblings. */
 const TODO_MAX_DEPTH = 8, TODO_INDENT = 26;
 const todoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-function todoTree() {
-  const byId = new Map(TODOS.map(t => [t.id, t])), kids = new Map(), par = new Map(), roots = [];
-  for (const t of TODOS) {
+function todoTree(list = TODOS) {
+  const byId = new Map(list.map(t => [t.id, t])), kids = new Map(), par = new Map(), roots = [];
+  for (const t of list) {
     let p = t.parent ? byId.get(t.parent) : null;
     /* A parent chain that loops back to t (only possible in damaged data) makes t top-level. */
-    for (let a = p, n = 0; a && n < TODOS.length; a = a.parent ? byId.get(a.parent) : null, n++) if (a === t) { p = null; break; }
+    for (let a = p, n = 0; a && n < list.length; a = a.parent ? byId.get(a.parent) : null, n++) if (a === t) { p = null; break; }
     par.set(t.id, p || null);
     if (p) { if (!kids.has(p.id)) kids.set(p.id, []); kids.get(p.id).push(t); } else roots.push(t);
   }
@@ -873,10 +876,47 @@ function todoDrop(ids) {
   for (const id of ids) { const t = TODOS.find(x => x.id === id); if (t) { gone.add(id); tr.below(t).forEach(k => gone.add(k)); } }
   TODOS = TODOS.filter(t => !gone.has(t.id));
 }
+/* Item text boxes are textareas that grow to fit, so long items wrap and
+   stay fully visible. Pasted line breaks become spaces. */
+const todoClean = s => s.replace(/\s+/g, " ").trim();
+function fitText(root) {
+  root.querySelectorAll("textarea.todo-text:not(.cal-new)").forEach(el => {
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + el.offsetHeight - el.clientHeight + "px";
+  });
+}
+window.addEventListener("resize", () => fitText(app));
+/* Leaving a text box saves at once, but the re-render waits until the click
+   that moved focus away has landed, so that click isn't lost. `fn` gets the
+   element that has focus by then (or the blur's relatedTarget). */
+let TODO_PTR = false;
+document.addEventListener("pointerdown", () => { TODO_PTR = true; }, true);
+document.addEventListener("pointerup", () => setTimeout(() => { TODO_PTR = false; }), true);
+function afterClick(e, fn) {
+  const go = () => { const a = document.activeElement; fn(a && a !== document.body ? a : e.relatedTarget); };
+  if (!TODO_PTR) return go();
+  document.addEventListener("pointerup", () => setTimeout(go), { once: true, capture: true });
+}
+/* Where focus should land after the to-do list re-renders: "form", an item's id, or null. */
+const todoFocusKey = el => !el || !app.contains(el) ? null : el.closest("#todoForm") ? "form" :
+  el.classList.contains("todo-text") && el.closest(".todo-item") ? el.closest(".todo-item").dataset.id : null;
+/* Keys in a to-do text box, the same on the to-do list and the calendar:
+   - Enter with text: `next` adds or saves the item and moves to the next box.
+   - Escape with text: `save` adds or saves the item, and the box is left.
+   - Enter or Escape in an empty box just leaves it. */
+function todoKeys(i, save, next) {
+  i.addEventListener("keydown", e => {
+    if ((e.key !== "Enter" && e.key !== "Escape") || e.isComposing) return;
+    e.preventDefault();
+    if (!i.value.trim()) return i.blur();
+    if (e.key === "Enter") return next();
+    save(); i.blur();
+  });
+}
 const todoRow = (t, depth) => `<div class="todo-row">
   <span class="todo-grip" title="Drag to move" aria-hidden="true">⠿</span>
   <input type="checkbox" class="todo-check" aria-label="Done"${t.done ? " checked" : ""}>
-  <input type="text" class="todo-text" aria-label="${depth > 1 ? "Sub-item" : "To-do item"}" value="${esc(t.text).replace(/"/g, "&quot;")}">
+  <textarea class="todo-text" rows="1" aria-label="${depth > 1 ? "Sub-item" : "To-do item"}">${esc(t.text)}</textarea>
   ${depth < TODO_MAX_DEPTH ? '<button type="button" class="todo-addsub" aria-label="Add a sub-item" title="Add a sub-item">+</button>' : ""}
   <button type="button" class="todo-del" aria-label="Delete this item">✕</button></div>`;
 const todoItem = (tr, t, depth) => {
@@ -894,43 +934,51 @@ function renderTodo(focusId) {
     <form class="todo-add" id="todoForm">
       <input type="text" name="text" class="todo-text" aria-label="New to-do item" placeholder="Add a to-do item" autocomplete="off">
       <button type="submit" class="chip-zoom">Add</button>
+      ${UNDO_BTN}
     </form>
     ${list(open, false)}${open.length ? "" : '<li class="todo-empty">Nothing to do yet.</li>'}</ul>
     ${done.length ? `<p class="rev-page">Done</p>${list(done, true)}</ul>
     <button type="button" class="chip-zoom" id="todoClear">Clear done</button>` : ""}`);
   const form = document.getElementById("todoForm");
-  form.addEventListener("submit", e => {
-    e.preventDefault();
-    const text = form.text.value.trim();
-    if (!text) return;
+  const addNew = (stay, blur) => {
+    const text = todoClean(form.text.value);
+    if (!text || form.text.dataset.used) return;
+    form.text.dataset.used = 1;
     TODOS.push({ id: todoId(), text, done: false });
-    saveTodos(); renderTodo();
-    document.querySelector("#todoForm .todo-text").focus();
-  });
+    saveTodos();
+    if (blur) return afterClick(blur, el => renderTodo(todoFocusKey(el)));
+    renderTodo(stay ? "form" : null);
+  };
+  form.addEventListener("submit", e => { e.preventDefault(); addNew(true); });
+  todoKeys(form.text, () => addNew(false), () => addNew(true));
+  /* Typing in the box and clicking anywhere else adds the item too. */
+  form.text.addEventListener("blur", e => addNew(false, e));
   const find = el => TODOS.find(t => t.id === el.closest(".todo-item").dataset.id);
+  /* A new item right after `after` in its layer, or the last sub-item of `parent` (null for the top layer). */
   const addSub = (parent, after) => {
-    const t = { id: todoId(), text: "", done: false, parent: parent.id };
+    const t = Object.assign({ id: todoId(), text: "", done: false }, parent ? { parent: parent.id } : {});
     if (after) TODOS.splice(TODOS.indexOf(after) + 1, 0, t); else TODOS.push(t);
     renderTodo(t.id);
   };
   app.querySelectorAll(".todo-check").forEach(c => c.addEventListener("change", () => { find(c).done = c.checked; saveTodos(); renderTodo(); }));
   app.querySelectorAll(".todo-item .todo-text").forEach(i => {
-    i.addEventListener("change", () => { const t = find(i), text = i.value.trim(); if (t && text) { t.text = text; saveTodos(); } });
+    i.addEventListener("input", () => fitText(i.parentElement));
+    i.addEventListener("change", () => { const t = find(i), text = todoClean(i.value); if (t && text) { t.text = text; saveTodos(); } });
     /* An emptied item goes away when it loses focus, unless it still has sub-items. */
-    i.addEventListener("blur", () => {
+    i.addEventListener("blur", e => {
       const t = find(i);
       if (!t || i.value.trim()) return;
-      if (todoTree().kidsOf(t.id).length) { i.value = t.text; return; }
+      if (todoTree().kidsOf(t.id).length) { i.value = t.text; fitText(i.parentElement); return; }
       todoDrop([t.id]); saveTodos();
       if (i.closest(".todo-sub")) { const ul = i.closest(".todo-subs"); i.closest(".todo-item").remove(); if (ul && !ul.children.length) ul.remove(); }
-      else renderTodo();
+      else afterClick(e, el => renderTodo(todoFocusKey(el)));
     });
-    /* Enter in a sub-item starts the next one in the same layer. */
-    i.addEventListener("keydown", e => {
+    /* Enter starts the next item in the same layer (a done top-level item is just saved and left). */
+    const save = () => { const t = find(i); if (t) { t.text = todoClean(i.value); saveTodos(); } fitText(i.parentElement); };
+    todoKeys(i, save, () => {
       const t = find(i), p = t && todoTree().par(t.id);
-      if (e.key !== "Enter" || !p || !i.value.trim()) return;
-      e.preventDefault(); t.text = i.value.trim(); saveTodos();
-      addSub(p, t);
+      save();
+      if (p || (t && !t.done)) addSub(p, t); else i.blur();
     });
   });
   app.querySelectorAll(".todo-addsub").forEach(b => b.addEventListener("click", () => addSub(find(b))));
@@ -938,7 +986,8 @@ function renderTodo(focusId) {
   const clear = document.getElementById("todoClear");
   if (clear) clear.addEventListener("click", () => { todoDrop(TODOS.filter(t => t.done).map(t => t.id)); saveTodos(); renderTodo(); });
   app.querySelectorAll(".todo-grip").forEach(g => g.addEventListener("pointerdown", e => todoDrag(e, g)));
-  if (focusId) { const el = app.querySelector(`.todo-item[data-id="${focusId}"] .todo-text`); if (el) el.focus(); }
+  fitText(app); undoButtons();
+  if (focusId) { const el = focusId === "form" ? form.text : app.querySelector(`.todo-item[data-id="${focusId}"] .todo-text`); if (el) el.focus(); }
 }
 /* Drag by the grip (pointer events, so touch works too). The item moves with
    everything under it, which keeps its layers relative to the item, and the
@@ -1016,6 +1065,392 @@ function todoDrag(e, grip) {
     if (p.parent) d.parent = p.parent.id; else delete d.parent;
     TODOS.splice(p.at === "into" ? TODOS.length : TODOS.indexOf(p.ref) + (p.at === "after" ? 1 : 0), 0, d);
     saveTodos(); renderTodo();
+  };
+  grip.setPointerCapture(e.pointerId);
+  li.classList.add("dragging");
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", end);
+  grip.addEventListener("pointercancel", end);
+}
+
+/* ---------- The calendar ----------
+   Its own section in the Interview Prep tab, at #/r/cal: a month or a week
+   in 7-day weeks (Sunday first). Each day holds to-do items with the to-do
+   list's rules (nesting up to TODO_MAX_DEPTH layers, + for a sub-item, Enter
+   for the next item in a layer, drag by ⠿), except that done items stay in
+   place. An item carries `day` (YYYY-MM-DD) and saves like the to-do list.
+   - "Copy from To-Do List" opens that list in a panel on the right. Dragging
+     between the panel and a day copies the item, with everything under it,
+     either way, and the side it came from stays as it is.
+   - "Carry Over" moves unfinished items from past days to today.
+   - Alt+Arrow moves to the next or previous day (← →) or week (↑ ↓), and
+     Alt+Shift+Arrow copies the item there. */
+const CAL_KEY = "intv-calendar", CAL_INDENT = 14;
+let CAL = [], CAL_SAVE = Promise.resolve(), CAL_DATE = null, CAL_VIEW = "month", CAL_PANEL = false;
+try { CAL = JSON.parse(localStorage.getItem(CAL_KEY) || "[]"); } catch (e) { CAL = []; }
+if (!Array.isArray(CAL)) CAL = [];
+/* ---------- Undo ----------
+   Every save of the to-do list or the calendar records the state before it,
+   so Undo steps back one change at a time (additions, deletions, moves,
+   checks, edits), with one history for both, since a calendar drag can add
+   to the to-do list. Ctrl+Z undoes too, outside a text box or in an empty
+   new-item box (anywhere else it's the box's own text undo). Signing in
+   starts the history over. */
+const UNDO_MAX = 100;
+let UNDO = [], UNDO_LAST = null;
+const UNDO_BTN = `<button type="button" class="chip-zoom undo-btn" title="Undo the last change (Ctrl+Z)">↶ Undo</button>`;
+const undoState = () => JSON.stringify({ todos: TODOS, cal: CAL });
+function undoButtons() { document.querySelectorAll(".undo-btn").forEach(b => { b.disabled = !UNDO.length; }); }
+function undoNote() {
+  const s = undoState();
+  if (UNDO_LAST !== null && s !== UNDO_LAST) { UNDO.push(UNDO_LAST); if (UNDO.length > UNDO_MAX) UNDO.shift(); }
+  UNDO_LAST = s;
+  undoButtons();
+}
+function undoReset() { UNDO = []; UNDO_LAST = undoState(); }
+function undo() {
+  if (!UNDO.length) return;
+  const s = UNDO.pop(), o = JSON.parse(s), a = document.activeElement;
+  TODOS = o.todos; CAL = o.cal; UNDO_LAST = s;
+  saveTodos(true); saveCal(true);
+  if (document.getElementById("todoForm")) renderTodo(todoFocusKey(a));
+  else if (app.querySelector(".cal-grid")) renderCal(calFocusKey(a));
+}
+undoReset();
+app.addEventListener("click", e => { if (e.target.closest(".undo-btn")) undo(); });
+document.addEventListener("keydown", e => {
+  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "z") return;
+  if (!document.getElementById("todoForm") && !app.querySelector(".cal-grid")) return;
+  const box = e.target.closest && e.target.closest("input, textarea");
+  if (box && !((box.classList.contains("cal-new") || box.closest("#todoForm")) && !box.value)) return;
+  e.preventDefault(); undo();
+});
+const calDoc = () => PRIVATE_DB.doc("data/users/" + PRIVATE_UID + "/" + CAL_KEY);
+async function loadDbCal() {
+  try {
+    const snap = await calDoc().get();
+    const t = snap.exists ? (snap.data() || {}).items : null;
+    CAL = Array.isArray(t) ? t.slice() : [];
+  } catch (e) { console.error("Calendar failed to load; using this browser's copy:", e); }
+}
+function saveCal(quiet) {
+  if (!quiet) undoNote();
+  const copy = CAL.map(t => Object.assign({}, t));
+  if (PRIVATE_OK) {
+    CAL_SAVE = CAL_SAVE.then(() => calDoc().set({ items: copy })).catch(e => console.error("Saving the calendar failed:", e));
+    return;
+  }
+  try { localStorage.setItem(CAL_KEY, JSON.stringify(copy)); } catch (e) {}
+}
+const calDay = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+const calDate = day => { const [y, m, d] = day.split("-").map(Number); return new Date(y, m - 1, d); };
+const calShift = (day, n) => { const d = calDate(day); d.setDate(d.getDate() + n); return calDay(d); };
+/* Removes the items and everything nested under them. */
+function calDrop(ids) {
+  const tr = todoTree(CAL), gone = new Set();
+  for (const id of ids) { const t = CAL.find(x => x.id === id); if (t) { gone.add(id); tr.below(t).forEach(k => gone.add(k)); } }
+  CAL = CAL.filter(t => !gone.has(t.id));
+}
+/* Copies d and everything under it out of `list` with fresh ids, root first.
+   The root comes back top-level, and `extra` is merged into every copy. */
+function todoClone(list, d, extra) {
+  const tr = todoTree(list), ids = new Map([d.id, ...tr.below(d)].map(id => [id, todoId()]));
+  return [d, ...list.filter(t => t !== d && ids.has(t.id))].map(t =>
+    Object.assign({ id: ids.get(t.id), text: t.text, done: !!t.done }, t === d ? {} : { parent: ids.get(t.parent) }, extra));
+}
+/* Unfinished top-level items on days before today, oldest day first. */
+const calOverdue = today => todoTree(CAL).roots.filter(t => !t.done && t.day < today).sort((a, b) => a.day < b.day ? -1 : a.day > b.day ? 1 : 0);
+/* Where focus should land after a re-render: an item's id, or "new:<day>" for a day's blank line. */
+const calFocusKey = el => !el || !app.contains(el) ? null :
+  el.classList.contains("cal-new") ? "new:" + el.closest(".cal-day").dataset.day :
+  el.classList.contains("todo-text") && el.closest(".cal-list") ? el.closest(".todo-item").dataset.id : null;
+/* The to-do list as the panel shows it: read-only, with grips to copy from. */
+const calPanelItem = (tr, t, depth) => {
+  const kids = tr.kidsOf(t.id);
+  return `<li class="todo-item ${depth > 1 ? "todo-sub" : "todo-main"}${t.done ? " done" : ""}" data-id="${esc(t.id)}" data-depth="${depth}"><div class="todo-row">
+    <span class="todo-grip" title="Drag into a day to copy" aria-hidden="true">⠿</span>
+    <input type="checkbox" class="todo-check" aria-label="Done" disabled${t.done ? " checked" : ""}>
+    <span class="todo-text">${esc(t.text)}</span></div>${kids.length ?
+    `<ul class="todo-subs">${kids.map(k => calPanelItem(tr, k, depth + 1)).join("")}</ul>` : ""}</li>`;
+};
+function renderCal(focus) {
+  const today = calDay(new Date()), at = CAL_DATE ? calDate(CAL_DATE) : calDate(today);
+  const y = at.getFullYear(), m = at.getMonth(), week = CAL_VIEW === "week";
+  /* The month view shows every week that touches the month, the week view the week holding CAL_DATE. */
+  const first = week ? new Date(y, m, at.getDate() - at.getDay()) : new Date(y, m, 1 - new Date(y, m, 1).getDay());
+  const days = week ? 7 : Math.ceil((new Date(y, m, 1).getDay() + new Date(y, m + 1, 0).getDate()) / 7) * 7;
+  const last = new Date(first.getFullYear(), first.getMonth(), first.getDate() + 6);
+  const md = d => d.toLocaleString("en-US", { month: "short", day: "numeric" });
+  const label = !week ? at.toLocaleString("en-US", { month: "long", year: "numeric" }) :
+    md(first) + " – " + (last.getMonth() === first.getMonth() ? last.getDate() : md(last)) + ", " + last.getFullYear();
+  const tr = todoTree(CAL), cells = [];
+  for (let i = 0; i < days; i++) {
+    const dt = new Date(first.getFullYear(), first.getMonth(), first.getDate() + i), day = calDay(dt);
+    /* A day is at least 4 lines tall (8 in the week view, CSS). The blank box
+       under its items fills what's left and keeps at least one line, so a day
+       grows as its items (wrapped lines included) fill it, and the whole week
+       grows with it. */
+    const roots = tr.roots.filter(t => t.day === day);
+    cells.push(`<div class="cal-day${!week && dt.getMonth() !== m ? " out" : ""}${day === today ? " today" : ""}" data-day="${day}">
+      <div class="cal-date">${week ? md(dt) : dt.getDate()}</div>
+      <div class="cal-body"><ul class="cal-list">${roots.map(t => todoItem(tr, t, 1)).join("")}</ul>
+      <textarea class="todo-text cal-new" rows="1" aria-label="New item for ${day}"></textarea></div></div>`);
+  }
+  const overdue = calOverdue(today).length;
+  const ttr = todoTree(TODOS), open = ttr.roots.filter(t => !t.done), done = ttr.roots.filter(t => t.done);
+  const plist = (items, isDone) => `<ul class="todo-list" data-done="${isDone ? 1 : 0}">${items.map(t => calPanelItem(ttr, t, 1)).join("")}</ul>`;
+  layout("r/cal", null, `
+    <p class="region">Section Overview</p>
+    <h1>Calendar</h1>
+    <p class="flag-note">${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."} Type on a day's lines to add an item. Enter adds it and moves to the next line, and Escape adds it and leaves the box. Drag ⠿ to move an item with everything under it, and + adds a sub-item (up to ${TODO_MAX_DEPTH} layers).</p>
+    <ul class="flag-note cal-keys">
+      <li>Alt+← / Alt+→ moves to the previous or next day, and Alt+↑ / Alt+↓ to the previous or next week.</li>
+      <li>Alt+Shift+Arrow copies the item you're in (with everything under it) to that day, and moves you to the copy, so pressing it again repeats it.</li>
+      <li>↑ at the start of a box or ↓ at its end moves between the boxes in a day.</li>
+    </ul>
+    <div class="cal-bar">
+      <button type="button" class="chip-zoom" id="calCopy" aria-pressed="${CAL_PANEL}">Copy from To-Do List</button>
+      <button type="button" class="chip-zoom" id="calCarry" title="Move unfinished items from past days to today"${overdue ? "" : " disabled"}>Carry Over${overdue ? ` (${overdue})` : ""}</button>
+      ${UNDO_BTN}
+      <div class="cal-nav">
+        <button type="button" class="chip-zoom" id="calMonth" aria-pressed="${!week}">Month</button>
+        <button type="button" class="chip-zoom" id="calWeek" aria-pressed="${week}">Week</button>
+        <button type="button" class="chip-zoom" id="calPrev" aria-label="Previous ${week ? "week" : "month"}">‹</button>
+        <span class="cal-month">${label}</span>
+        <button type="button" class="chip-zoom" id="calNext" aria-label="Next ${week ? "week" : "month"}">›</button>
+        <button type="button" class="chip-zoom" id="calToday">Today</button>
+      </div>
+    </div>
+    <div class="cal-scroll"><div class="cal-grid${week ? " cal-week" : ""}">
+      ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => `<div class="cal-head">${d}</div>`).join("")}
+      ${cells.join("")}
+    </div></div>
+    ${CAL_PANEL ? `<aside class="cal-panel" aria-label="To-Do List">
+      <div class="cal-panel-head"><h2>To-Do List</h2><button type="button" class="todo-del" id="calClose" aria-label="Close the to-do list">✕</button></div>
+      <p class="flag-note">Drag ⠿ to copy an item, with everything under it, into a day, or drag a day's item here to copy it into the to-do list. The side it came from stays as it is. Escape closes this panel.</p>
+      ${plist(open, false)}${open.length ? "" : '<p class="todo-empty">Nothing to do yet.</p>'}
+      ${done.length ? `<p class="rev-page">Done</p>${plist(done, true)}` : ""}
+    </aside>` : ""}`);
+  const page = app.querySelector(".page");
+  page.classList.add("cal-page");
+  page.classList.toggle("panel-open", CAL_PANEL);
+  page.classList.toggle("week-view", week);
+  const go = n => () => {
+    CAL_DATE = n === null ? null : week ? calShift(calDay(at), 7 * n) : calDay(new Date(y, m + n, 1));
+    renderCal();
+  };
+  document.getElementById("calPrev").addEventListener("click", go(-1));
+  document.getElementById("calNext").addEventListener("click", go(1));
+  document.getElementById("calToday").addEventListener("click", go(null));
+  const view = v => () => { CAL_VIEW = v; renderCal(); };
+  document.getElementById("calMonth").addEventListener("click", view("month"));
+  document.getElementById("calWeek").addEventListener("click", view("week"));
+  document.getElementById("calCopy").addEventListener("click", () => { CAL_PANEL = !CAL_PANEL; renderCal(); });
+  document.getElementById("calCarry").addEventListener("click", () => {
+    const tr = todoTree(CAL), moving = calOverdue(today);
+    for (const t of moving) [t.id, ...tr.below(t)].forEach(id => { CAL.find(x => x.id === id).day = today; });
+    /* At the end of today, in the order they were due. */
+    CAL = CAL.filter(t => !moving.includes(t)).concat(moving);
+    saveCal(); renderCal();
+  });
+  const close = document.getElementById("calClose");
+  if (close) close.addEventListener("click", () => { CAL_PANEL = false; renderCal(); });
+  const find = el => CAL.find(t => t.id === el.closest(".todo-item").dataset.id);
+  /* A new item right after `after` in its layer, or the last sub-item of `parent`. */
+  const addItem = (day, parent, after) => {
+    const t = Object.assign({ id: todoId(), day, text: "", done: false }, parent ? { parent: parent.id } : {});
+    if (after) CAL.splice(CAL.indexOf(after) + 1, 0, t); else CAL.push(t);
+    renderCal(t.id);
+  };
+  app.querySelectorAll(".cal-new").forEach(i => {
+    const day = i.closest(".cal-day").dataset.day;
+    const add = (next, blur) => {
+      const text = todoClean(i.value);
+      if (!text || i.dataset.used) return;
+      i.dataset.used = 1;
+      CAL.push({ id: todoId(), day, text, done: false });
+      saveCal();
+      if (blur) return afterClick(blur, el => renderCal(calFocusKey(el)));
+      renderCal(next);
+    };
+    /* Typing a long item grows the box, so the whole item stays visible. */
+    i.addEventListener("input", () => {
+      i.style.minHeight = "";
+      const flex = i.style.flex;
+      i.style.flex = "none"; i.style.height = "auto";
+      const h = i.scrollHeight;
+      i.style.flex = flex; i.style.height = "";
+      i.style.minHeight = h + "px";
+    });
+    todoKeys(i, () => add(null), () => add("new:" + day));
+    /* Typing on a line and clicking anywhere else adds the item too. */
+    i.addEventListener("blur", e => add(null, e));
+  });
+  app.querySelectorAll(".cal-list .todo-check").forEach(c => c.addEventListener("change", () => { find(c).done = c.checked; saveCal(); renderCal(); }));
+  app.querySelectorAll(".cal-list .todo-text").forEach(i => {
+    i.addEventListener("input", () => fitText(i.parentElement));
+    i.addEventListener("change", () => { const t = find(i), text = todoClean(i.value); if (t && text) { t.text = text; saveCal(); } });
+    /* An emptied item goes away when it loses focus, unless it still has sub-items. */
+    i.addEventListener("blur", e => {
+      const t = find(i);
+      if (!t || i.value.trim()) return;
+      if (todoTree(CAL).kidsOf(t.id).length) { i.value = t.text; fitText(i.parentElement); return; }
+      calDrop([t.id]); saveCal(); afterClick(e, el => renderCal(calFocusKey(el)));
+    });
+    /* Enter starts the next item in the same layer. */
+    const save = () => { const t = find(i); if (t) { t.text = todoClean(i.value); saveCal(); } fitText(i.parentElement); };
+    todoKeys(i, save, () => { const t = find(i); save(); if (t) addItem(t.day, todoTree(CAL).par(t.id), t); });
+  });
+  /* Keys between days. The box's text is saved first, since the re-render replaces it. */
+  app.querySelector(".cal-grid").addEventListener("keydown", e => {
+    const box = e.target.closest("textarea"), cell = box && box.closest(".cal-day");
+    if (!cell || e.ctrlKey || e.metaKey || e.isComposing) return;
+    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+    if (!step) return;
+    if (!e.altKey) {
+      /* ↑ at the very start or ↓ at the very end of a box: the previous or next box in the day. */
+      if (e.shiftKey || step === 1 || step === -1) return;
+      const boxes = [...cell.querySelectorAll("textarea")], k = boxes.indexOf(box) + (step < 0 ? -1 : 1);
+      const edge = step < 0 ? box.selectionStart === 0 && box.selectionEnd === 0 : box.selectionStart === box.value.length;
+      if (!edge || !boxes[k]) return;
+      e.preventDefault(); boxes[k].focus();
+      return;
+    }
+    e.preventDefault();
+    const to = calShift(cell.dataset.day, step), text = todoClean(box.value);
+    let t = box.classList.contains("cal-new") ? null : find(box);
+    if (t && text) t.text = text;
+    if (!t && text && !box.dataset.used) {
+      box.dataset.used = 1;
+      t = { id: todoId(), day: cell.dataset.day, text, done: false };
+      CAL.push(t);
+    }
+    let key = "new:" + to;
+    /* Alt+Shift copies a fresh (not done) item, so a repeat starts unchecked. */
+    if (e.shiftKey && t) {
+      const made = todoClone(CAL, t, { day: to, done: false });
+      CAL.push(...made);
+      key = made[0].id;
+    }
+    saveCal();
+    if (!app.querySelector(`.cal-day[data-day="${to}"]`)) CAL_DATE = to;
+    renderCal(key);
+  });
+  app.querySelectorAll(".cal-list .todo-addsub").forEach(b => b.addEventListener("click", () => { const t = find(b); addItem(t.day, t); }));
+  app.querySelectorAll(".cal-list .todo-del").forEach(b => b.addEventListener("click", () => { calDrop([find(b).id]); saveCal(); renderCal(); }));
+  app.querySelectorAll(".cal-list .todo-grip, .cal-panel .todo-grip").forEach(g => g.addEventListener("pointerdown", e => calDrag(e, g)));
+  fitText(app); undoButtons();
+  if (focus) {
+    const el = focus.startsWith("new:") ? app.querySelector(`.cal-day[data-day="${focus.slice(4)}"] .cal-new`) : app.querySelector(`.cal-list .todo-item[data-id="${focus}"] .todo-text`);
+    if (el) el.focus();
+  }
+}
+/* Escape outside a text box closes the to-do list panel (in a text box it
+   just leaves the box first). */
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape" || !CAL_PANEL || !document.querySelector(".cal-panel") || (e.target.closest && e.target.closest("input, textarea, select"))) return;
+  CAL_PANEL = false; renderCal();
+});
+/* Drag by the grip, with todoDrag's drop rules inside a day or the panel's
+   list. Anywhere else in a day drops at the end of its top layer, and
+   anywhere else in the panel at the end of the open list.
+   - Calendar item into a day: it moves, with everything under it.
+   - Panel item into a day: a copy, with everything under it and fresh ids.
+   - Calendar item into the panel: a copy goes into the to-do list, not done
+     (its sub-items keep their marks), so it lands in the open list. */
+function calDrag(e, grip) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  const li = grip.closest(".todo-item"), fromPanel = !!grip.closest(".cal-panel");
+  const src = fromPanel ? TODOS : CAL, d = src.find(x => x.id === li.dataset.id);
+  if (!d) return;
+  const maxDepth = TODO_MAX_DEPTH - todoTree(src).height(d) + 1;
+  const line = document.createElement("div");
+  line.className = "todo-drop-line";
+  let drop = null;
+  const show = (x0, x1, y) => { Object.assign(line.style, { left: x0 + "px", width: Math.max(0, x1 - x0) + "px", top: y - 1 + "px" }); if (!line.isConnected) document.body.appendChild(line); };
+  const none = () => { drop = null; line.remove(); };
+  /* The drop spot by a row r (layer dr) of `list`, whose top layer is `roots`. */
+  const spot = (list, roots, r, dr, box, base, indent, ev) => {
+    const tr = todoTree(list);
+    /* The dragged item leaves its old place, so it never counts as a neighbor. */
+    const kidsOf = id => tr.kidsOf(id).filter(k => k !== d), rk = kidsOf(r.id);
+    if (ev.clientY < box.top + box.height / 2) return { parent: tr.par(r.id), ref: r, at: "before", depth: dr, y: box.top };
+    if (rk.length) return { parent: r, ref: rk[0], at: "before", depth: dr + 1, y: box.bottom };
+    /* Layers open below r: r's sub-item, r's layer, and each ancestor's layer while r ends it. */
+    const opts = [{ parent: r, ref: null, at: "into", depth: dr + 1 }];
+    for (let a = r, da = dr; a; da--) {
+      const p = tr.par(a.id);
+      opts.push({ parent: p, ref: a, at: "after", depth: da });
+      const sibs = p ? kidsOf(p.id) : roots;
+      if (!p || sibs[sibs.length - 1] !== a) break;
+      a = p;
+    }
+    const want = Math.round((ev.clientX - base.left - 4) / indent) + 1;
+    const ok = opts.filter(o => o.depth <= maxDepth);
+    if (!ok.length) return null;
+    return Object.assign(ok.reduce((b, o) => Math.abs(o.depth - want) < Math.abs(b.depth - want) ? o : b), { y: box.bottom });
+  };
+  const move = ev => {
+    if (ev.clientY < 40) window.scrollBy(0, -12); else if (ev.clientY > innerHeight - 40) window.scrollBy(0, 12);
+    const el = document.elementFromPoint(ev.clientX, ev.clientY);
+    const panel = el && el.closest(".cal-panel"), cell = el && el.closest(".cal-day");
+    if (panel) {
+      if (fromPanel) return none();
+      const open = panel.querySelector('.todo-list[data-done="0"]'), row = el.closest(".todo-row");
+      const tr = todoTree(TODOS), roots = tr.roots.filter(t => !t.done);
+      if (!row) {
+        const b = open.getBoundingClientRect();
+        drop = { to: "todo", parent: null, ref: roots[roots.length - 1] || null, at: roots.length ? "after" : "into", depth: 1 };
+        return show(b.left, b.right, b.bottom);
+      }
+      const rli = row.parentElement, r = TODOS.find(x => x.id === rli.dataset.id), ul = rli.closest(".todo-list");
+      if (!r) return none();
+      const next = spot(TODOS, roots, r, +rli.dataset.depth, row.getBoundingClientRect(), ul.getBoundingClientRect(), TODO_INDENT, ev);
+      /* A copy arrives not done, so a top-level drop has to be in the open list. */
+      if (!next || next.depth > maxDepth || (!next.parent && ul.dataset.done === "1")) return none();
+      drop = Object.assign(next, { to: "todo" });
+      return show(ul.getBoundingClientRect().left + (next.depth - 1) * TODO_INDENT, ul.getBoundingClientRect().right, next.y);
+    }
+    if (!cell) return none();
+    const day = cell.dataset.day, base = cell.querySelector(".cal-list").getBoundingClientRect(), row = el.closest(".cal-list .todo-row");
+    const roots = todoTree(CAL).roots.filter(t => t !== d && t.day === day);
+    if (!row) {
+      drop = { to: "cal", day, parent: null, ref: roots[roots.length - 1] || null, at: roots.length ? "after" : "into", depth: 1 };
+      return show(base.left, base.right, base.bottom);
+    }
+    if (li.contains(row)) return none();
+    const rli = row.parentElement, r = CAL.find(x => x.id === rli.dataset.id);
+    if (!r) return none();
+    const next = spot(CAL, roots, r, +rli.dataset.depth, row.getBoundingClientRect(), base, CAL_INDENT, ev);
+    if (!next || next.depth > maxDepth) return none();
+    drop = Object.assign(next, { to: "cal", day });
+    show(base.left + (next.depth - 1) * CAL_INDENT, base.right, next.y);
+  };
+  const end = ev => {
+    grip.removeEventListener("pointermove", move);
+    grip.removeEventListener("pointerup", end);
+    grip.removeEventListener("pointercancel", end);
+    li.classList.remove("dragging");
+    const p = drop; none();
+    if (ev.type !== "pointerup" || !p) return;
+    const dest = p.to === "todo" ? TODOS : CAL;
+    let item = d, rest = [];
+    if (p.to === "todo") {
+      [item, ...rest] = todoClone(CAL, d, {});
+      item.done = false;
+    } else if (fromPanel) {
+      [item, ...rest] = todoClone(TODOS, d, { day: p.day });
+    } else {
+      const tr = todoTree(CAL);
+      [d.id, ...tr.below(d)].forEach(id => { CAL.find(x => x.id === id).day = p.day; });
+      CAL.splice(CAL.indexOf(d), 1);
+    }
+    if (p.parent) item.parent = p.parent.id; else delete item.parent;
+    dest.splice(p.at === "into" ? dest.length : dest.indexOf(p.ref) + (p.at === "after" ? 1 : 0), 0, item);
+    dest.push(...rest);
+    if (p.to === "todo") saveTodos(); else saveCal();
+    renderCal();
   };
   grip.setPointerCapture(e.pointerId);
   li.classList.add("dragging");
@@ -1148,6 +1583,7 @@ function route() {
   if (parts[0] === "review") { renderReview(); goToSection(parts[1]); return; }
   if (parts[0] === "flagged") { renderReview(); goToSection("questions"); return; }
   if (parts[0] === "todo" || (parts[0] === "r" && parts[1] === "todo")) { renderTodo(); window.scrollTo(0, 0); return; }
+  if (parts[0] === "cal" || (parts[0] === "r" && parts[1] === "cal")) { renderCal(); window.scrollTo(0, 0); return; }
   if (parts[0] === "drill") { renderDrill(); window.scrollTo(0, 0); return; }
   if (parts[0] === "r") {
     const r = REGIONS.find(x => x.id === parts[1]);
