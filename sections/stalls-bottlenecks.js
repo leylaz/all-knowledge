@@ -389,6 +389,40 @@ One instruction cache miss:
 <p><strong>Why per iteration.</strong> These are throughput bounds, so they need work that repeats: a steady state where start-up costs (cold caches, an untrained predictor, pipeline fill) are spread over many repetitions, and where iteration i + 1 overlaps iteration i the way the max assumes. A hot loop is the natural unit, its per-iteration counts are exact, and in most compute code it's where the time goes (the 90/10 rule, Hennessy &amp; Patterson, Ch. 1). Code with no hot loop keeps the same bounds with a different unit. For server-style code whose time is spread over thousands of functions (databases, browsers, compilers), count per instruction or per 1,000 instructions, \\( \\text{CPI} \\approx \\max_k B_k + \\sum_j \\text{MPKI}_j \\, P_j / 1000 \\), or per request or transaction. That's where the instruction cache, ITLB, and BTB rows below dominate: Google's warehouse-scale profiling (Kanev et al., ISCA 2015) found front-end stalls take a large share of cycles for exactly this reason. Code that runs once has no steady state; its critical path and warm-up set the time, and these bounds don't apply.</p>
 <p>Try it: the calculator below takes the main bound from each table that follows and adds the serialized penalties. Change one number at a time and watch which row becomes the bottleneck.</p>
 <div class="calc" data-calc="bounds"></div>
+<h4 id="sec-rate">Turning T Into a Rate</h4>
+<p><strong>Why.</strong> T is cycles per iteration, and an iteration is whatever the compiler or programmer made it. Unroll by 4 and T grows about 4×, switch from 128-bit to 256-bit vectors and it changes again, yet the program is no faster or slower. So T alone can't compare two versions of a loop, two machines, or a result against what the hardware could do. Dividing the work one iteration does by T gives a rate that stays put when the loop is rewritten.</p>
+<p><strong>What it tells you.</strong> A rate of useful work answers three questions T can't:</p>
+<ul>
+<li>How fast the program does its job, in units its user cares about (GFLOP/s, lookups per second, ns per lookup)</li>
+<li>How far it is from the ceiling for that work, as a percentage of the machine's peak rate, which says whether there's anything left to gain</li>
+<li>What kind of fix could close the gap, by comparing the binding bound with the ceiling (a dependency chain, a full structure, or a saturated bus each need a different fix)</li>
+</ul>
+<p>Dividing by the binding resource's own items (memory ops for a memory-pipe bound, fill-buffer entries for a fill-buffer bound) says nothing new: the binding resource runs at 100% by definition in this model, so the result only confirms which bound won.</p>
+<p><strong>How.</strong> With U units of useful work per iteration and a clock of f:</p>
+<div class="math">\\[ \\text{rate} = \\frac{U}{T} \\text{ per cycle} = \\frac{U \\, f}{T} \\text{ per second}, \\qquad \\text{efficiency} = \\frac{\\text{rate}}{\\text{peak rate for that work}} \\]</div>
+<p>The peak rate is the best the machine could do on this work if only its hardest limit applied, for example every FMA pipe busy, or DRAM bandwidth saturated. Its reciprocal, \\(\\dfrac{T}{U}\\) (cycles per element, ns per lookup), is the same number turned around and is how loop versions are usually compared.</p>
+<p><strong>Choosing the useful work.</strong> It's what the program exists to produce, counted per element of the problem rather than per instruction. Test a candidate unit by rewriting the loop in your head: unroll it, vectorize it wider, fuse two instructions into one. If the count per element changes, it's a cost of how the loop is written, not the work. Instructions, micro-ops, and memory operations all fail this test. What passes depends on the kernel:</p>
+<ul>
+<li>FLOPs for dense numerical code (SAXPY, dot products, matrix multiply, stencils)</li>
+<li>Lookups or probes for hash tables, joins, and index searches</li>
+<li>Nodes or edges for list, tree, and graph traversals</li>
+<li>Bytes for copies, compression, and parsing</li>
+<li>Requests or transactions for server code</li>
+</ul>
+<p><strong>When the useful work is FLOPs:</strong></p>
+<ul>
+<li>Count the FLOPs the algorithm needs per element, not the instructions: an FMA is 2 FLOPs (a multiply and an add), and a vector instruction does that once per lane. Address arithmetic, loop counters, and compares aren't FLOPs. For a known algorithm use the standard count (2 FLOPs per element for SAXPY or a dot product, 2n³ for an n × n matrix multiply) even if the code does extra work.</li>
+<li>The peak is FP pipes × lanes × 2 FLOPs per FMA, per cycle. Report the rate as a percentage of it.</li>
+<li>Then find the arithmetic intensity, I = FLOPs per byte moved from wherever the data lives (L1, L2, DRAM). The roofline ceiling is \\(\\min(\\text{peak FLOP/s}, \\; I \\times \\text{bandwidth})\\). Low intensity means the kernel can't reach FMA peak however it's written, so compare the rate with the roofline ceiling as well as with peak. That separates "badly scheduled" (far below the roofline) from "bandwidth-limited by nature" (at the roofline, far below peak).</li>
+</ul>
+<p><strong>When the useful work is lookups:</strong></p>
+<ul>
+<li>Count one per independent access the program asks for (one probe, one key). There are no FLOPs, so a FLOP rate would read near 0% and mean nothing. Report lookups per second or ns per lookup.</li>
+<li>There are two ceilings, and the lower one is the peak. The bandwidth ceiling is sustained bandwidth divided by the bytes moved per lookup, counting whole cache lines, not the entry size. The concurrency ceiling, from Little's law, is outstanding misses divided by miss latency (for example fill buffers ÷ DRAM latency).</li>
+<li>Compare the bytes the program uses (the entry, the key) with the bytes moved (whole lines). The ratio shows how much bandwidth goes to unused parts of lines, and whether packing the table or shrinking entries would help more than adding concurrency.</li>
+<li>If the rate is near the concurrency ceiling but far below the bandwidth ceiling, the core can't ask for enough at once: more misses in flight (software prefetch, batched probes) or a shorter latency (a smaller table that fits in a closer cache) helps, a wider core doesn't.</li>
+</ul>
+<p>Step 3 of each example below applies this: FLOPs in Example 1, lookups in Example 2, and nodes in Example 3.</p>
 <p>The three examples below each show one kind of bound winning. The worked example after them combines all three.</p>
 <details class="ex"><summary>Example 1: a bandwidth bound (N / W) on Apple M1 Firestorm</summary>
 <p><strong>Question.</strong> A single-precision SAXPY, <code>y[i] += a * x[i]</code>, runs on an Apple M1 performance core (Firestorm, 3.2 GHz), vectorized with 128-bit NEON and unrolled by 4 vectors. Both arrays are 4,096 floats (16 KB each), so they fit in the 128 KB L1 data cache. <code>v31</code> holds <code>a</code> in all four lanes. How many cycles per iteration, and what binds?</p>
@@ -415,12 +449,8 @@ One instruction cache miss:
 <tr><td>Loop-carried chains</td><td><code>x1</code>, <code>x2</code>, <code>x5</code>, 1 add each</td><td>1.00</td></tr>
 </table></div>
 <p>There's no loop-carried chain through <code>y</code>: each iteration reads and writes a different 64 B. So T ≈ 3 cycles per iteration.</p>
-<p><strong>Step 3: turn T into a rate.</strong> T is time per iteration. Dividing by what one iteration does turns it into a rate, and what you divide by decides what the rate tells you:</p>
-<ul>
-<li><strong>By the binding resource's items:</strong> \\(\\dfrac{12\\text{ memory ops}}{3\\text{ cycles}}\\) = 4 memory ops/cycle, 100% of the 4 memory pipes. That's true by definition, since the binding resource always runs at 100% in this model. It confirms which bound wins, and tells you nothing more.</li>
-<li><strong>By the useful work:</strong> one iteration updates 4 vectors × 4 lanes = 16 elements of <code>y</code>, each one FMA, a multiply and an add, so 32 FLOPs. \\(\\dfrac{32\\text{ FLOPs}}{3\\text{ cycles}}\\) ≈ 10.7 FLOPs/cycle, about 33% of the 4 pipes × 4 lanes × 2 = 32 FLOPs per cycle peak.</li>
-</ul>
-<p>The useful work is the better unit, for three reasons:</p>
+<p><strong>Step 3: turn T into a rate.</strong> The useful work is FLOPs. One iteration updates 4 vectors × 4 lanes = 16 elements of <code>y</code>, each one FMA, a multiply and an add, so 32 FLOPs. \\(\\dfrac{32\\text{ FLOPs}}{3\\text{ cycles}}\\) ≈ 10.7 FLOPs/cycle, about 33% of the 4 pipes × 4 lanes × 2 = 32 FLOPs per cycle peak.</p>
+<p>FLOPs are the right unit here, for three reasons:</p>
 <ol>
 <li>It's what the program exists to do. SAXPY updates <code>y</code>, and memory instructions are a cost of doing it, not the goal.</li>
 <li>It doesn't change with how the loop is written. <code>ldp</code>, wider vectors (SVE, AVX-512), or more unrolling all change the number of memory instructions, but every version does 1 FMA (2 FLOPs) per element. That's why loop versions are compared in cycles per element, here \\(\\dfrac{3\\text{ cycles}}{16\\text{ elements}}\\) ≈ 0.19 cycles/element.</li>
@@ -449,12 +479,8 @@ One instruction cache miss:
 <tr><td>DRAM bandwidth</td><td>\\(\\dfrac{64\\text{ B table line/iteration} + \\frac{64\\text{ B index line}}{16\\text{ iterations}}}{\\frac{70\\text{ GB/s}}{4.9\\text{ GHz}}}\\)</td><td>4.76</td></tr>
 </table></div>
 <p>So T ≈ 27.62 cycles per iteration. The index stream costs the fill buffers only \\(\\dfrac{\\frac{15\\text{ cycles}}{16\\text{ iterations}}}{16\\text{ entries}}\\) ≈ 0.06 cycles per iteration, because 15 of every 16 index loads hit L1 and the 16th hits L2. It matters more for the L2 miss slots and DRAM bandwidth, where it adds \\(\\dfrac{\\frac{64\\text{ B}}{16\\text{ iterations}}}{64\\text{ B/iteration}}\\) ≈ 6% to each, but neither is close to binding.</p>
-<p><strong>Step 3: turn T into a rate.</strong> As in Example 1, what you divide T by decides what the rate tells you:</p>
-<ul>
-<li><strong>By the binding resource's items:</strong> each iteration holds fill buffers for \\(441\\text{ cycles} + \\dfrac{15\\text{ cycles}}{16\\text{ iterations}}\\), and one iteration starts every \\(\\dfrac{441\\text{ cycles} + \\frac{15\\text{ cycles}}{16\\text{ iterations}}}{16\\text{ entries}}\\), so the two divide to exactly 16 in flight, 100% of the 16 fill buffers. True by definition, so it only confirms which bound wins.</li>
-<li><strong>By the useful work:</strong> one iteration is one lookup, so \\(\\dfrac{4.9 \\times 10^{9}\\text{ cycles/s}}{27.62\\text{ cycles/lookup}}\\) ≈ 177 million lookups/s, and \\(\\dfrac{27.62\\text{ cycles/lookup}}{4.9\\text{ GHz}}\\) ≈ 5.64 ns each. The ceiling is DRAM bandwidth: \\(\\dfrac{70\\text{ GB/s}}{64\\text{ B/lookup} + \\frac{64\\text{ B}}{16\\text{ lookups}}}\\) ≈ 1.03 billion lookups/s (4.76 cycles each), so the loop reaches \\(\\dfrac{4.76\\text{ cycles}}{27.62\\text{ cycles}}\\) ≈ 17% of it. It pulls only \\(\\dfrac{\\left(64\\text{ B/lookup} + \\frac{64\\text{ B}}{16\\text{ lookups}}\\right) \\times 4.9 \\times 10^{9}\\text{ cycles/s}}{27.62\\text{ cycles/lookup}}\\) ≈ 12.1 GB/s. The memory system isn't busy, the core just can't ask for more at once.</li>
-</ul>
-<p>Lookups are the better unit, for three reasons:</p>
+<p><strong>Step 3: turn T into a rate.</strong> The useful work is lookups. One iteration is one lookup, so \\(\\dfrac{4.9 \\times 10^{9}\\text{ cycles/s}}{27.62\\text{ cycles/lookup}}\\) ≈ 177 million lookups/s, and \\(\\dfrac{27.62\\text{ cycles/lookup}}{4.9\\text{ GHz}}\\) ≈ 5.64 ns each. The ceiling is DRAM bandwidth: \\(\\dfrac{70\\text{ GB/s}}{64\\text{ B/lookup} + \\frac{64\\text{ B}}{16\\text{ lookups}}}\\) ≈ 1.03 billion lookups/s (4.76 cycles each), so the loop reaches \\(\\dfrac{4.76\\text{ cycles}}{27.62\\text{ cycles}}\\) ≈ 17% of it. It pulls only \\(\\dfrac{\\left(64\\text{ B/lookup} + \\frac{64\\text{ B}}{16\\text{ lookups}}\\right) \\times 4.9 \\times 10^{9}\\text{ cycles/s}}{27.62\\text{ cycles/lookup}}\\) ≈ 12.1 GB/s. The memory system isn't busy, the core just can't ask for more at once.</p>
+<p>Lookups are the right unit here, for three reasons:</p>
 <ol>
 <li>A lookup is what the program exists to do. Fill buffers are a cost of doing it, not the goal.</li>
 <li>It doesn't change with how the loop is written. Unrolling, software prefetch, or batching probes changes the instructions and micro-ops per iteration, but every version does one lookup per index, so versions are compared in cycles per lookup.</li>
@@ -479,12 +505,8 @@ One instruction cache miss:
 <tr><td><strong>Loop-carried <code>rdi</code></strong></td><td>L<sub>load</sub></td><td><strong>5</strong></td><td><strong>15</strong></td></tr>
 </table></div>
 <p>So T ≈ 5 cycles per iteration from L1 and 15 from L2. The capacity bounds are small too: only one miss is ever outstanding, because the next address isn't known until the current load returns.</p>
-<p><strong>Step 3: turn T into a rate.</strong> As in Examples 1 and 2:</p>
-<ul>
-<li><strong>By the binding resource:</strong> here it's a chain, not a structure. One <code>next</code> load is always in progress, so the chain is busy 100% of the time. True by definition, so it only confirms which bound wins.</li>
-<li><strong>By the useful work:</strong> one iteration sums one node, so \\(\\dfrac{1\\text{ node}}{5\\text{ cycles}}\\) = 0.2 nodes per cycle from L1 (980 million per second at 4.9 GHz) and \\(\\dfrac{1\\text{ node}}{15\\text{ cycles}}\\) ≈ 0.067 nodes per cycle from L2 (327 million per second). Without the chain, each node needs 2 loads, and 3 load ports allow 1.5 nodes per cycle. So the loop reaches \\(\\dfrac{0.2\\text{ nodes/cycle}}{1.5\\text{ nodes/cycle}}\\) ≈ 13% of that from L1 and about 4% from L2.</li>
-</ul>
-<p>Nodes are the better unit, for three reasons:</p>
+<p><strong>Step 3: turn T into a rate.</strong> The useful work is nodes. One iteration sums one node, so \\(\\dfrac{1\\text{ node}}{5\\text{ cycles}}\\) = 0.2 nodes per cycle from L1 (980 million per second at 4.9 GHz) and \\(\\dfrac{1\\text{ node}}{15\\text{ cycles}}\\) ≈ 0.067 nodes per cycle from L2 (327 million per second). Without the chain, each node needs 2 loads, and 3 load ports allow 1.5 nodes per cycle. So the loop reaches \\(\\dfrac{0.2\\text{ nodes/cycle}}{1.5\\text{ nodes/cycle}}\\) ≈ 13% of that from L1 and about 4% from L2.</p>
+<p>Nodes are the right unit here, for three reasons:</p>
 <ol>
 <li>Summing nodes is what the program exists to do. The chain is a cost of reaching them.</li>
 <li>It doesn't change with how the loop is written. Walking 4 lists at once makes one iteration handle 4 nodes. Cycles per iteration stays about 15 from L2, while cycles per node drops from 15 to 3.75. Only the per-node rate shows the gain.</li>
