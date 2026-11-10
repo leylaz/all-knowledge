@@ -964,7 +964,18 @@ function todoDrag(e, grip) {
   const move = ev => {
     if (ev.clientY < 40) window.scrollBy(0, -12); else if (ev.clientY > innerHeight - 40) window.scrollBy(0, 12);
     const el = document.elementFromPoint(ev.clientX, ev.clientY), row = el && el.closest(".todo-row");
-    if (!row || !app.contains(row) || li.contains(row)) return none();
+    if (!row) {
+      /* Just below a list: the very bottom of layer 1 in that list. */
+      const ul = [...app.querySelectorAll(".todo-list")].find(u => {
+        const b = u.getBoundingClientRect();
+        return ev.clientX >= b.left && ev.clientX <= b.right && ev.clientY >= b.bottom - 4 && ev.clientY <= b.bottom + 40;
+      });
+      if (!ul || String(d.done ? 1 : 0) !== ul.dataset.done) return none();
+      const b = ul.getBoundingClientRect(), roots = tr.roots.filter(t => t !== d && String(t.done ? 1 : 0) === ul.dataset.done);
+      drop = roots.length ? { parent: null, ref: roots[roots.length - 1], at: "after", depth: 1 } : { parent: null, ref: null, at: "into", depth: 1 };
+      return show(b.left, b.right, b.bottom);
+    }
+    if (!app.contains(row) || li.contains(row)) return none();
     const rli = row.parentElement, r = byId(rli.dataset.id), dr = +rli.dataset.depth;
     const ul = rli.closest(".todo-list"), base = ul.getBoundingClientRect(), box = row.getBoundingClientRect();
     if (!r) return none();
