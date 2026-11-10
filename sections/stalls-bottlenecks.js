@@ -406,27 +406,27 @@ One instruction cache miss:
 <p><strong>Step 2: the bounds.</strong></p>
 <div class="tbl"><table>
 <tr><th>Bound</th><th>Formula</th><th>Cycles/iteration</th></tr>
-<tr><td>Decode</td><td>20 / 8</td><td>2.50</td></tr>
-<tr><td>Integer ALUs</td><td>3 / 6</td><td>0.50</td></tr>
-<tr><td>FMA pipes</td><td>4 / 4</td><td>1.00</td></tr>
-<tr><td>Load pipes</td><td>8 / 3</td><td>2.67</td></tr>
-<tr><td>Store pipes</td><td>4 / 2</td><td>2.00</td></tr>
-<tr><td><strong>All memory pipes</strong></td><td>12 / 4</td><td><strong>3.00</strong></td></tr>
+<tr><td>Decode</td><td>\\(\\dfrac{20\\text{ instructions}}{8\\text{ instructions/cycle}}\\)</td><td>2.50</td></tr>
+<tr><td>Integer ALUs</td><td>\\(\\dfrac{3\\text{ adds}}{6\\text{ adds/cycle}}\\)</td><td>0.50</td></tr>
+<tr><td>FMA pipes</td><td>\\(\\dfrac{4\\text{ FMAs}}{4\\text{ FMAs/cycle}}\\)</td><td>1.00</td></tr>
+<tr><td>Load pipes</td><td>\\(\\dfrac{8\\text{ loads}}{3\\text{ loads/cycle}}\\)</td><td>2.67</td></tr>
+<tr><td>Store pipes</td><td>\\(\\dfrac{4\\text{ stores}}{2\\text{ stores/cycle}}\\)</td><td>2.00</td></tr>
+<tr><td><strong>All memory pipes</strong></td><td>\\(\\dfrac{12\\text{ memory ops}}{4\\text{ memory ops/cycle}}\\)</td><td><strong>3.00</strong></td></tr>
 <tr><td>Loop-carried chains</td><td><code>x1</code>, <code>x2</code>, <code>x5</code>, 1 add each</td><td>1.00</td></tr>
 </table></div>
 <p>There's no loop-carried chain through <code>y</code>: each iteration reads and writes a different 64 B. So T ≈ 3 cycles per iteration.</p>
 <p><strong>Step 3: turn T into a rate.</strong> T is time per iteration. Dividing by what one iteration does turns it into a rate, and what you divide by decides what the rate tells you:</p>
 <ul>
-<li><strong>By the binding resource's items:</strong> 12 memory operations / 3 cycles = 4 per cycle, 100% of the 4 memory pipes. That's true by definition, since the binding resource always runs at 100% in this model. It confirms which bound wins, and tells you nothing more.</li>
-<li><strong>By the useful work:</strong> one iteration updates 4 vectors × 4 lanes = 16 elements of <code>y</code>, each one FMA, a multiply and an add, so 32 FLOPs. 32 FLOPs / 3 cycles ≈ 10.7 FLOPs per cycle, about 33% of the 4 pipes × 4 lanes × 2 = 32 FLOPs per cycle peak.</li>
+<li><strong>By the binding resource's items:</strong> \\(\\dfrac{12\\text{ memory ops}}{3\\text{ cycles}}\\) = 4 memory ops/cycle, 100% of the 4 memory pipes. That's true by definition, since the binding resource always runs at 100% in this model. It confirms which bound wins, and tells you nothing more.</li>
+<li><strong>By the useful work:</strong> one iteration updates 4 vectors × 4 lanes = 16 elements of <code>y</code>, each one FMA, a multiply and an add, so 32 FLOPs. \\(\\dfrac{32\\text{ FLOPs}}{3\\text{ cycles}}\\) ≈ 10.7 FLOPs/cycle, about 33% of the 4 pipes × 4 lanes × 2 = 32 FLOPs per cycle peak.</li>
 </ul>
 <p>The useful work is the better unit, for three reasons:</p>
 <ol>
 <li>It's what the program exists to do. SAXPY updates <code>y</code>, and memory instructions are a cost of doing it, not the goal.</li>
-<li>It doesn't change with how the loop is written. <code>ldp</code>, wider vectors (SVE, AVX-512), or more unrolling all change the number of memory instructions, but every version does 1 FMA (2 FLOPs) per element. That's why loop versions are compared in cycles per element, here 3 / 16 ≈ 0.19.</li>
+<li>It doesn't change with how the loop is written. <code>ldp</code>, wider vectors (SVE, AVX-512), or more unrolling all change the number of memory instructions, but every version does 1 FMA (2 FLOPs) per element. That's why loop versions are compared in cycles per element, here \\(\\dfrac{3\\text{ cycles}}{16\\text{ elements}}\\) ≈ 0.19 cycles/element.</li>
 <li>It connects to the roofline model. Each element moves 12 B (load <code>x</code>, load <code>y</code>, store <code>y</code>), so an iteration moves 192 B for 32 FLOPs, an arithmetic intensity of about 0.17 FLOPs per byte. That low intensity is why the kernel can't get near FMA peak.</li>
 </ol>
-<p><strong>The lesson.</strong> No single port class binds. Loads alone allow 2.67 cycles and stores alone 2.0, but they share 4 pipes, and the shared limit, 12 / 4, wins. A bandwidth bound has to be computed for every group of units that shares a limit, not only for each unit. More unrolling doesn't help (the ratio of memory operations to FLOPs stays the same), and neither do longer FMA chains. Only fewer memory operations per FLOP would, which SAXPY can't offer.</p>
+<p><strong>The lesson.</strong> No single port class binds. Loads alone allow 2.67 cycles and stores alone 2.0, but they share 4 pipes, and the shared limit, \\(\\dfrac{12\\text{ memory ops}}{4\\text{ memory ops/cycle}}\\), wins. A bandwidth bound has to be computed for every group of units that shares a limit, not only for each unit. More unrolling doesn't help (the ratio of memory operations to FLOPs stays the same), and neither do longer FMA chains. Only fewer memory operations per FLOP would, which SAXPY can't offer.</p>
 </details>
 <details class="ex"><summary>Example 2: a capacity bound (Little's law) on Intel Golden Cove</summary>
 <p><strong>Question.</strong> A hash-join probe on an Intel Core i9-12900K performance core (Golden Cove, 4.9 GHz) reads a precomputed index array sequentially and does one lookup per index into a 1 GB table: <code>sum += table[idx[i]]</code>. Each index is 4 B, and the index array is 64 B-aligned and much larger than the caches, so it streams from DRAM. The L2 streamer prefetches the index lines into L2 (not L1) well ahead of use, so the first index load in each 64 B line misses L1 and hits L2, and the other 15 hit L1. The table indices are random, so every table access misses to DRAM, and no hardware prefetcher can predict it. The table is mapped with 1 GB pages, so TLB misses are negligible. Each table entry is 8 B. DRAM latency is about 90 ns. The system has dual-channel DDR5-4800 (2 channels × 8 B/transfer × 4800 MT/s = 76.8 GB/s peak), which sustains about 70 GB/s. The loop is 5 micro-ops per iteration: 2 loads, the add, the index increment, and a fused compare-and-branch. How many cycles per lookup?</p>
@@ -440,27 +440,27 @@ One instruction cache miss:
 <p><strong>Step 2: the bounds.</strong> The iterations are independent: <code>sum</code> carries a 1-cycle add chain, and each table load depends only on its own index load.</p>
 <div class="tbl"><table>
 <tr><th>Bound</th><th>Formula</th><th>Cycles/iteration</th></tr>
-<tr><td>Allocate width</td><td>5 / 6</td><td>0.83</td></tr>
+<tr><td>Allocate width</td><td>\\(\\dfrac{5\\text{ µops}}{6\\text{ µops/cycle}}\\)</td><td>0.83</td></tr>
 <tr><td>Loop-carried <code>sum</code></td><td>1 add</td><td>1.00</td></tr>
-<tr><td>ROB</td><td>5 µops/iteration × 441 cycles / 512 entries</td><td>4.31</td></tr>
-<tr><td>Load buffer</td><td>2 loads/iteration × 441 cycles / 192 entries</td><td>4.59</td></tr>
-<tr><td><strong>L1 fill buffers</strong></td><td>(1 table miss/iteration × 441 cycles + 1 index miss / 16 iterations × 15 cycles) / 16 entries</td><td><strong>27.62</strong></td></tr>
-<tr><td>L2 misses</td><td>(1 table miss/iteration + 1 index line / 16 iterations) × 441 cycles / 48 entries</td><td>9.76</td></tr>
-<tr><td>DRAM bandwidth</td><td>(64 B table line/iteration + 64 B index line / 16 iterations)<br>÷ (70 GB/s ÷ 4.9 GHz)</td><td>4.76</td></tr>
+<tr><td>ROB</td><td>\\(\\dfrac{5\\text{ µops/iteration} \\times 441\\text{ cycles}}{512\\text{ entries}}\\)</td><td>4.31</td></tr>
+<tr><td>Load buffer</td><td>\\(\\dfrac{2\\text{ loads/iteration} \\times 441\\text{ cycles}}{192\\text{ entries}}\\)</td><td>4.59</td></tr>
+<tr><td><strong>L1 fill buffers</strong></td><td>\\(\\dfrac{1\\text{ table miss/iteration} \\times 441\\text{ cycles} + \\frac{1\\text{ index miss}}{16\\text{ iterations}} \\times 15\\text{ cycles}}{16\\text{ entries}}\\)</td><td><strong>27.62</strong></td></tr>
+<tr><td>L2 misses</td><td>\\(\\dfrac{\\left(1\\text{ table miss/iteration} + \\frac{1\\text{ index line}}{16\\text{ iterations}}\\right) \\times 441\\text{ cycles}}{48\\text{ entries}}\\)</td><td>9.76</td></tr>
+<tr><td>DRAM bandwidth</td><td>\\(\\dfrac{64\\text{ B table line/iteration} + \\frac{64\\text{ B index line}}{16\\text{ iterations}}}{\\frac{70\\text{ GB/s}}{4.9\\text{ GHz}}}\\)</td><td>4.76</td></tr>
 </table></div>
-<p>So T ≈ 27.62 cycles per iteration. The index stream costs the fill buffers only 15 cycles / 16 iterations / 16 entries ≈ 0.06 cycles per iteration, because 15 of every 16 index loads hit L1 and the 16th hits L2. It matters more for the L2 miss slots and DRAM bandwidth, where it adds 1 line / 16 iterations ≈ 6% to each, but neither is close to binding.</p>
+<p>So T ≈ 27.62 cycles per iteration. The index stream costs the fill buffers only \\(\\dfrac{\\frac{15\\text{ cycles}}{16\\text{ iterations}}}{16\\text{ entries}}\\) ≈ 0.06 cycles per iteration, because 15 of every 16 index loads hit L1 and the 16th hits L2. It matters more for the L2 miss slots and DRAM bandwidth, where it adds \\(\\dfrac{\\frac{64\\text{ B}}{16\\text{ iterations}}}{64\\text{ B/iteration}}\\) ≈ 6% to each, but neither is close to binding.</p>
 <p><strong>Step 3: turn T into a rate.</strong> As in Example 1, what you divide T by decides what the rate tells you:</p>
 <ul>
-<li><strong>By the binding resource's items:</strong> each iteration holds fill buffers for 441 cycles + 15 cycles / 16 iterations, and one iteration starts every (441 cycles + 15 cycles / 16 iterations) / 16 entries, so the two divide to exactly 16 in flight, 100% of the 16 fill buffers. True by definition, so it only confirms which bound wins.</li>
-<li><strong>By the useful work:</strong> one iteration is one lookup, so 4.9 × 10⁹ cycles/s ÷ 27.62 cycles/lookup ≈ 177 million lookups/s, and 27.62 cycles/lookup ÷ 4.9 GHz ≈ 5.64 ns each. The ceiling is DRAM bandwidth: 70 GB/s ÷ (64 B/lookup + 64 B / 16 lookups) ≈ 1.03 billion lookups/s (4.76 cycles each), so the loop reaches 4.76 cycles / 27.62 cycles ≈ 17% of it. It pulls only (64 B/lookup + 64 B / 16 lookups) × 4.9 × 10⁹ cycles/s ÷ 27.62 cycles/lookup ≈ 12.1 GB/s. The memory system isn't busy, the core just can't ask for more at once.</li>
+<li><strong>By the binding resource's items:</strong> each iteration holds fill buffers for \\(441\\text{ cycles} + \\dfrac{15\\text{ cycles}}{16\\text{ iterations}}\\), and one iteration starts every \\(\\dfrac{441\\text{ cycles} + \\frac{15\\text{ cycles}}{16\\text{ iterations}}}{16\\text{ entries}}\\), so the two divide to exactly 16 in flight, 100% of the 16 fill buffers. True by definition, so it only confirms which bound wins.</li>
+<li><strong>By the useful work:</strong> one iteration is one lookup, so \\(\\dfrac{4.9 \\times 10^{9}\\text{ cycles/s}}{27.62\\text{ cycles/lookup}}\\) ≈ 177 million lookups/s, and \\(\\dfrac{27.62\\text{ cycles/lookup}}{4.9\\text{ GHz}}\\) ≈ 5.64 ns each. The ceiling is DRAM bandwidth: \\(\\dfrac{70\\text{ GB/s}}{64\\text{ B/lookup} + \\frac{64\\text{ B}}{16\\text{ lookups}}}\\) ≈ 1.03 billion lookups/s (4.76 cycles each), so the loop reaches \\(\\dfrac{4.76\\text{ cycles}}{27.62\\text{ cycles}}\\) ≈ 17% of it. It pulls only \\(\\dfrac{\\left(64\\text{ B/lookup} + \\frac{64\\text{ B}}{16\\text{ lookups}}\\right) \\times 4.9 \\times 10^{9}\\text{ cycles/s}}{27.62\\text{ cycles/lookup}}\\) ≈ 12.1 GB/s. The memory system isn't busy, the core just can't ask for more at once.</li>
 </ul>
 <p>Lookups are the better unit, for three reasons:</p>
 <ol>
 <li>A lookup is what the program exists to do. Fill buffers are a cost of doing it, not the goal.</li>
 <li>It doesn't change with how the loop is written. Unrolling, software prefetch, or batching probes changes the instructions and micro-ops per iteration, but every version does one lookup per index, so versions are compared in cycles per lookup.</li>
-<li>The useful-work unit depends on the kernel. There are no FLOPs here, so FLOPs would be the wrong unit: it's FLOPs for SAXPY, lookups here, and nodes in Example 3. Bytes show the waste most clearly: each lookup moves 64 B + 64 B / 16 but uses only its 8 B entry and 4 B index, so of the 12.1 GB/s moved, only (8 B + 4 B)/lookup × 4.9 × 10⁹ cycles/s ÷ 27.62 cycles/lookup ≈ 2.13 GB/s is data the program reads. The index stream uses every byte it moves, so all the waste is in the table lines.</li>
+<li>The useful-work unit depends on the kernel. There are no FLOPs here, so FLOPs would be the wrong unit: it's FLOPs for SAXPY, lookups here, and nodes in Example 3. Bytes show the waste most clearly: each lookup moves \\(64\\text{ B} + \\dfrac{64\\text{ B}}{16\\text{ lookups}}\\) but uses only its 8 B entry and 4 B index, so of the 12.1 GB/s moved, only \\(\\dfrac{(8\\text{ B} + 4\\text{ B})\\text{/lookup} \\times 4.9 \\times 10^{9}\\text{ cycles/s}}{27.62\\text{ cycles/lookup}}\\) ≈ 2.13 GB/s is data the program reads. The index stream uses every byte it moves, so all the waste is in the table lines.</li>
 </ol>
-<p><strong>The lesson.</strong> A capacity bound is E × R / C, so only two things help:</p><ul><li>Shorter residency: a table that fits in the 30 MB L3 (about 70 cycles) gives (70 cycles + 15 cycles / 16 lookups) / 16 entries ≈ 4.43 cycles per lookup, still fill-buffer bound, with the L2 miss slots next at (70 cycles + 441 cycles / 16 lookups) / 48 entries ≈ 2.03 cycles</li><li>More entries: more fill buffers, which is why each Intel generation has added them (10 on Skylake, 12 on Sunny Cove, 16 on Golden Cove)</li></ul><p>A wider core does nothing, since allocate is already at 0.83 cycles.</p>
+<p><strong>The lesson.</strong> A capacity bound is \\(\\dfrac{E \\times R}{C}\\), so only two things help:</p><ul><li>Shorter residency: a table that fits in the 30 MB L3 (about 70 cycles) gives \\(\\dfrac{70\\text{ cycles} + \\frac{15\\text{ cycles}}{16\\text{ lookups}}}{16\\text{ entries}}\\) ≈ 4.43 cycles per lookup, still fill-buffer bound, with the L2 miss slots next at \\(\\dfrac{70\\text{ cycles} + \\frac{441\\text{ cycles}}{16\\text{ lookups}}}{48\\text{ entries}}\\) ≈ 2.03 cycles</li><li>More entries: more fill buffers, which is why each Intel generation has added them (10 on Skylake, 12 on Sunny Cove, 16 on Golden Cove)</li></ul><p>A wider core does nothing, since allocate is already at 0.83 cycles.</p>
 </details>
 <details class="ex"><summary>Example 3: a latency bound (dependency) on Intel Golden Cove</summary>
 <p><strong>Question.</strong> On the same Golden Cove core, a loop sums a field over a linked list. Each node is 16 B: <code>next</code> at offset 0, <code>val</code> at offset 8. How many cycles per node when the whole list fits in the 48 KB L1, and when it's spread over 1 MB (L2 resident)? What would help?</p>
@@ -474,15 +474,15 @@ One instruction cache miss:
 <p><strong>Step 2: the bounds.</strong></p>
 <div class="tbl"><table>
 <tr><th>Bound</th><th>Formula</th><th>L1 resident</th><th>L2 resident</th></tr>
-<tr><td>Allocate width</td><td>3 / 6</td><td>0.50</td><td>0.50</td></tr>
-<tr><td>Load ports</td><td>2 / 3</td><td>0.67</td><td>0.67</td></tr>
+<tr><td>Allocate width</td><td>\\(\\dfrac{3\\text{ µops}}{6\\text{ µops/cycle}}\\)</td><td>0.50</td><td>0.50</td></tr>
+<tr><td>Load ports</td><td>\\(\\dfrac{2\\text{ loads}}{3\\text{ loads/cycle}}\\)</td><td>0.67</td><td>0.67</td></tr>
 <tr><td><strong>Loop-carried <code>rdi</code></strong></td><td>L<sub>load</sub></td><td><strong>5</strong></td><td><strong>15</strong></td></tr>
 </table></div>
 <p>So T ≈ 5 cycles per iteration from L1 and 15 from L2. The capacity bounds are small too: only one miss is ever outstanding, because the next address isn't known until the current load returns.</p>
 <p><strong>Step 3: turn T into a rate.</strong> As in Examples 1 and 2:</p>
 <ul>
 <li><strong>By the binding resource:</strong> here it's a chain, not a structure. One <code>next</code> load is always in progress, so the chain is busy 100% of the time. True by definition, so it only confirms which bound wins.</li>
-<li><strong>By the useful work:</strong> one iteration sums one node, so 1 / 5 = 0.2 nodes per cycle from L1 (980 million per second at 4.9 GHz) and 1 / 15 ≈ 0.067 from L2 (327 million per second). Without the chain, each node needs 2 loads, and 3 load ports allow 1.5 nodes per cycle. So the loop reaches 0.2 / 1.5 ≈ 13% of that from L1 and about 4% from L2.</li>
+<li><strong>By the useful work:</strong> one iteration sums one node, so \\(\\dfrac{1\\text{ node}}{5\\text{ cycles}}\\) = 0.2 nodes per cycle from L1 (980 million per second at 4.9 GHz) and \\(\\dfrac{1\\text{ node}}{15\\text{ cycles}}\\) ≈ 0.067 nodes per cycle from L2 (327 million per second). Without the chain, each node needs 2 loads, and 3 load ports allow 1.5 nodes per cycle. So the loop reaches \\(\\dfrac{0.2\\text{ nodes/cycle}}{1.5\\text{ nodes/cycle}}\\) ≈ 13% of that from L1 and about 4% from L2.</li>
 </ul>
 <p>Nodes are the better unit, for three reasons:</p>
 <ol>
@@ -490,7 +490,7 @@ One instruction cache miss:
 <li>It doesn't change with how the loop is written. Walking 4 lists at once makes one iteration handle 4 nodes. Cycles per iteration stays about 15 from L2, while cycles per node drops from 15 to 3.75. Only the per-node rate shows the gain.</li>
 <li>Comparing it with the load-port peak shows what a latency bound costs: 87% to 96% of the load throughput sits idle, like the Zen 3 dot product's 12.5% of FMA peak, and no wider core recovers it.</li>
 </ol>
-<p><strong>The lesson.</strong> A latency bound ignores width and window size: a core twice as wide, or with twice the fill buffers, runs this loop at the same speed. Only two things help:</p><ul><li>Shorter latency: keep the list in L1, or allocate nodes contiguously so the hardware prefetcher brings in the next one before it's needed (this hides the miss, though the 5-cycle L1 chain stays)</li><li>A different dependency: walk 4 independent lists (or 4 segments of one) in the same loop, which gives 4 chains in flight and about 15 / 4 ≈ 3.75 cycles per node from L2, or store the values in an array so there's no chain at all</li></ul>
+<p><strong>The lesson.</strong> A latency bound ignores width and window size: a core twice as wide, or with twice the fill buffers, runs this loop at the same speed. Only two things help:</p><ul><li>Shorter latency: keep the list in L1, or allocate nodes contiguously so the hardware prefetcher brings in the next one before it's needed (this hides the miss, though the 5-cycle L1 chain stays)</li><li>A different dependency: walk 4 independent lists (or 4 segments of one) in the same loop, which gives 4 chains in flight and about \\(\\dfrac{15\\text{ cycles}}{4\\text{ nodes}}\\) ≈ 3.75 cycles per node from L2, or store the values in an array so there's no chain at all</li></ul>
 </details>
 <details class="ex"><summary>Worked example (interview level): bounding a dot product on Zen 3</summary>
 <p><strong>Question.</strong> "Here is a double-precision dot product, vectorized with AVX2, on an AMD Zen 3 core (Ryzen 9 5950X at 4.5 GHz). The arrays are 1,024 doubles each (8 KB each, so both fit in the 32 KB L1). How many cycles per iteration, what's the bottleneck, and how close to peak FLOP/s can it get? Then tell me what changes if the arrays are 16,384 doubles each (128 KB each) and don't fit in L1."</p>
@@ -520,35 +520,35 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
 <p><strong>Step 3: all the bounds.</strong></p>
 <div class="tbl"><table>
 <tr><th>Bound</th><th>Formula</th><th>Cycles/iteration</th></tr>
-<tr><td>Op cache</td><td>4 / 8</td><td>0.50</td></tr>
-<tr><td>Taken branches</td><td>1 / 1</td><td>1.00</td></tr>
-<tr><td>Dispatch</td><td>4 / 6</td><td>0.67</td></tr>
-<tr><td>FMA ports</td><td>1 / 2</td><td>0.50</td></tr>
-<tr><td>Load pipes (count)</td><td>2 / 3</td><td>0.67</td></tr>
-<tr><td>L1 bytes</td><td>64 / 64</td><td>1.00</td></tr>
+<tr><td>Op cache</td><td>\\(\\dfrac{4\\text{ macro-ops}}{8\\text{ macro-ops/cycle}}\\)</td><td>0.50</td></tr>
+<tr><td>Taken branches</td><td>\\(\\dfrac{1\\text{ taken branch}}{1\\text{ taken branch/cycle}}\\)</td><td>1.00</td></tr>
+<tr><td>Dispatch</td><td>\\(\\dfrac{4\\text{ macro-ops}}{6\\text{ macro-ops/cycle}}\\)</td><td>0.67</td></tr>
+<tr><td>FMA ports</td><td>\\(\\dfrac{1\\text{ FMA}}{2\\text{ FMAs/cycle}}\\)</td><td>0.50</td></tr>
+<tr><td>Load pipes (count)</td><td>\\(\\dfrac{2\\text{ loads}}{3\\text{ loads/cycle}}\\)</td><td>0.67</td></tr>
+<tr><td>L1 bytes</td><td>\\(\\dfrac{64\\text{ B}}{64\\text{ B/cycle}}\\)</td><td>1.00</td></tr>
 <tr><td><strong>Loop-carried FMA</strong></td><td>L<sub>FMA</sub></td><td><strong>4.00</strong></td></tr>
 </table></div>
-<p>T ≈ 4 cycles per iteration: 8 FLOPs / 4 cycles = 2 FLOPs per cycle, <strong>12.5% of peak</strong>. The hardware is idle 75% of the time waiting on one register. Serialized penalties: the loop-exit branch mispredicts once per call. 1,024 doubles at 4 per iteration is 256 iterations, so that's 13 / 256 ≈ 0.05 cycles per iteration, about 1%, negligible.</p>
+<p>T ≈ 4 cycles per iteration: \\(\\dfrac{8\\text{ FLOPs}}{4\\text{ cycles}}\\) = 2 FLOPs per cycle, <strong>12.5% of peak</strong>. The hardware is idle 75% of the time waiting on one register. Serialized penalties: the loop-exit branch mispredicts once per call. 1,024 doubles at 4 per iteration is 256 iterations, so that's \\(\\dfrac{13\\text{ cycles}}{256\\text{ iterations}}\\) ≈ 0.05 cycles per iteration, about 1%, negligible.</p>
 <p><strong>Step 4: fix the dependency.</strong> Use k independent accumulators (unroll by k, add them at the end). The rule of thumb from the text, k = L<sub>FMA</sub> × P<sub>FMA</sub> = 4 × 2 = 8, assumes the FMA ports are the next bound. They aren't: check what binds next. With k = 4 (unroll by 4), per unrolled iteration:</p>
 <div class="tbl"><table>
 <tr><th>Bound</th><th>Formula</th><th>Cycles per unrolled iteration (4 vectors)</th></tr>
-<tr><td>Op cache</td><td>10 / 8</td><td>1.25</td></tr>
-<tr><td>Taken branches</td><td>1 / 1</td><td>1.00</td></tr>
-<tr><td>Dispatch</td><td>10 / 6</td><td>1.67</td></tr>
-<tr><td>FMA ports</td><td>4 / 2</td><td>2.00</td></tr>
-<tr><td>Load pipes (count)</td><td>8 / 3</td><td>2.67</td></tr>
-<tr><td><strong>L1 bytes</strong></td><td>256 / 64</td><td><strong>4.00</strong></td></tr>
+<tr><td>Op cache</td><td>\\(\\dfrac{10\\text{ macro-ops}}{8\\text{ macro-ops/cycle}}\\)</td><td>1.25</td></tr>
+<tr><td>Taken branches</td><td>\\(\\dfrac{1\\text{ taken branch}}{1\\text{ taken branch/cycle}}\\)</td><td>1.00</td></tr>
+<tr><td>Dispatch</td><td>\\(\\dfrac{10\\text{ macro-ops}}{6\\text{ macro-ops/cycle}}\\)</td><td>1.67</td></tr>
+<tr><td>FMA ports</td><td>\\(\\dfrac{4\\text{ FMAs}}{2\\text{ FMAs/cycle}}\\)</td><td>2.00</td></tr>
+<tr><td>Load pipes (count)</td><td>\\(\\dfrac{8\\text{ loads}}{3\\text{ loads/cycle}}\\)</td><td>2.67</td></tr>
+<tr><td><strong>L1 bytes</strong></td><td>\\(\\dfrac{256\\text{ B}}{64\\text{ B/cycle}}\\)</td><td><strong>4.00</strong></td></tr>
 <tr><td><strong>Loop-carried FMA</strong></td><td>each accumulator once per iteration</td><td><strong>4.00</strong></td></tr>
 </table></div>
-<p>(10 macro-ops = 4 loads + 4 FMAs + <code>add</code> + fused <code>cmp</code>/<code>jne</code>.) T = 4 cycles per 4 vectors = 1 cycle per vector, <strong>4× faster</strong>, and the L1 bound and the dependency bound tie. More accumulators can't help, because L1 bytes now binds: the best k is L<sub>FMA</sub> divided by the next bound per vector, 4 / 1.0 = 4, not 8.</p>
+<p>(10 macro-ops = 4 loads + 4 FMAs + <code>add</code> + fused <code>cmp</code>/<code>jne</code>.) T = 4 cycles per 4 vectors = 1 cycle per vector, <strong>4× faster</strong>, and the L1 bound and the dependency bound tie. More accumulators can't help, because L1 bytes now binds: the best k is L<sub>FMA</sub> divided by the next bound per vector, \\(\\dfrac{4\\text{ cycles}}{1.0\\text{ cycles/vector}}\\) = 4, not 8.</p>
 <p><strong>Step 5: what's the ceiling?</strong> Each FMA needs two loads (32 B each), and the L1 delivers 64 B per cycle, so at most 1 FMA per cycle: 8 FLOPs per cycle, <strong>50% of peak</strong>, 36 GFLOP/s at 4.5 GHz. That's an answer interviewers like: a dot product can't reach FMA peak on this core even from L1, because its arithmetic intensity is 2 FLOPs per 16 B loaded.</p>
 <p><strong>Step 6: the arrays don't fit in L1.</strong> At 16,384 doubles each, the two arrays (256 KB together) live in the 512 KB L2. Each unrolled iteration now pulls 4 lines from L2:</p>
 <ul>
-<li>L2 to L1 bandwidth: 256 B / 32 B per cycle = <strong>8 cycles</strong>.</li>
-<li>Miss buffers: 4 lines × ~12 cycles / 24 = 2 cycles.</li>
+<li>L2 to L1 bandwidth: \\(\\dfrac{256\\text{ B}}{32\\text{ B/cycle}}\\) = <strong>8 cycles</strong>.</li>
+<li>Miss buffers: \\(\\dfrac{4\\text{ lines} \\times 12\\text{ cycles}}{24\\text{ buffers}}\\) = 2 cycles.</li>
 <li>Everything else is unchanged at ≤ 4 cycles.</li>
 </ul>
-<p>T ≈ 8 cycles per 4 vectors, 4 FLOPs per cycle, 25% of peak. Consistency check: at 32 B per cycle and about 12 cycles of latency, Little's law needs 32 × 12 / 64 = 6 lines in flight, well under 24 miss buffers, so bandwidth, not concurrency, is the limit (and the L2 prefetcher can keep that many in flight).</p>
+<p>T ≈ 8 cycles per 4 vectors, 4 FLOPs per cycle, 25% of peak. Consistency check: at 32 B per cycle and about 12 cycles of latency, Little's law needs \\(\\dfrac{32\\text{ B/cycle} \\times 12\\text{ cycles}}{64\\text{ B/line}}\\) = 6 lines in flight, well under 24 miss buffers, so bandwidth, not concurrency, is the limit (and the L2 prefetcher can keep that many in flight).</p>
 <p><strong>How to wrap up the answer:</strong></p><ul><li>4 cycles per iteration as written, bound by the FMA latency chain</li><li>4 accumulators make it 4× faster and move the bound to L1 bandwidth at 50% of peak</li><li>Out of L1, L2 bandwidth halves it again</li></ul><p>Nothing in the core's width matters at any point, which is the main lesson of max-of-bounds.</p>
 </details>
 
@@ -586,17 +586,17 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
 <li><strong>Bandwidth bounds.</strong>
 <div class="tbl"><table>
 <tr><th>Bound</th><th>Formula</th><th>Cycles/iteration</th></tr>
-<tr><td>Fetch bytes</td><td>62 / 32</td><td>1.94</td></tr>
-<tr><td>Taken branches</td><td>3 / 1</td><td>3.00</td></tr>
-<tr><td>Decode</td><td>16 / 4</td><td>4.00</td></tr>
-<tr><td>Op cache</td><td>14 / 8</td><td>1.75</td></tr>
-<tr><td>Dispatch</td><td>14 / 6</td><td>2.33</td></tr>
+<tr><td>Fetch bytes</td><td>\\(\\dfrac{62\\text{ B}}{32\\text{ B/cycle}}\\)</td><td>1.94</td></tr>
+<tr><td>Taken branches</td><td>\\(\\dfrac{3\\text{ taken branches}}{1\\text{ taken branch/cycle}}\\)</td><td>3.00</td></tr>
+<tr><td>Decode</td><td>\\(\\dfrac{16\\text{ instructions}}{4\\text{ instructions/cycle}}\\)</td><td>4.00</td></tr>
+<tr><td>Op cache</td><td>\\(\\dfrac{14\\text{ macro-ops}}{8\\text{ macro-ops/cycle}}\\)</td><td>1.75</td></tr>
+<tr><td>Dispatch</td><td>\\(\\dfrac{14\\text{ macro-ops}}{6\\text{ macro-ops/cycle}}\\)</td><td>2.33</td></tr>
 </table></div></li>
 <li><strong>Mispredicts (additive).</strong> 4 × 0.02 = 0.08 per iteration, each costing 3 cycles to resolve plus 13 to refill: T<sub>mp</sub> = 0.08 × (3 + 13) ≈ 1.3 cycles.</li>
 <li><strong>Op cache hit:</strong> max(1.94, 3.00, 1.75, 2.33) + 1.3 = 3.0 + 1.3 ≈ <strong>4.3 cycles</strong>, bound by taken branches. Fetch stops at each taken branch, so three fetch blocks per iteration cost at least 3 cycles however wide everything else is.</li>
 <li><strong>Op cache miss</strong> (the rest of the compiler evicts the loop between calls): decode binds, 4.0 + 1.3 ≈ <strong>5.3 cycles</strong>, plus a few cycles each time the front end switches between the two paths.</li>
 <li><strong>Layout fix.</strong> Profile-guided layout (PGO or BOLT) makes the two common forward branches fall through, leaving 1 taken branch. Now dispatch binds: 2.33 + 1.3 ≈ 3.6 cycles, <strong>about 16% less time</strong> than 4.3.</li>
-<li><strong>What binds next:</strong> mispredicts are now 1.3 / 3.6 = 36% of the time. A better predictor, or replacing the character-class branches with a table lookup (branchless code), is the next lever.</li>
+<li><strong>What binds next:</strong> mispredicts are now \\(\\dfrac{1.3\\text{ cycles}}{3.6\\text{ cycles}}\\) = 36% of the time. A better predictor, or replacing the character-class branches with a table lookup (branchless code), is the next lever.</li>
 </ol>
 </details>
 
@@ -631,11 +631,11 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
   jnz   loop                            ; fuses with sub, taken: p6 only</code></pre>
 <ol>
 <li><strong>Count.</strong> Fused (for rename): 3 FMA+load, 2 shifts, <code>add</code>, fused <code>sub</code>/<code>jnz</code> = 7. Unfused (for ports): 3 FMAs on {p0, p1}, 3 loads on {p2, p3}, 2 shifts on {p0, p6}, 1 branch on {p6}, 1 add on {p0, p1, p5, p6}. (Non-indexed addresses keep the FMAs micro-fused; <code>[rsi + rax]</code> would un-laminate them at rename on Skylake.)</li>
-<li><strong>Single-class bounds.</strong><ul><li>Rename 7 / 4 = 1.75</li><li>FMA 3 / 2 = 1.5</li><li>Shifts and branch 3 / 2 = 1.5</li><li>Branch alone 1 / 1 = 1</li><li>Loads 3 / 2 = 1.5</li></ul></li>
-<li><strong>Port subsets.</strong> Micro-ops that can run only on {p0, p1, p6}: 3 FMAs + 2 shifts + 1 branch = 6, on 3 ports: <strong>2.0</strong>. All four ALU ports: 7 / 4 = 1.75. The union of two classes binds even though each class alone looks fine, and p5 is idle most of the time.</li>
+<li><strong>Single-class bounds.</strong><ul><li>Rename \\(\\dfrac{7\\text{ fused µops}}{4\\text{ µops/cycle}}\\) = 1.75</li><li>FMA \\(\\dfrac{3\\text{ FMAs}}{2\\text{ FMAs/cycle}}\\) = 1.5</li><li>Shifts and branch \\(\\dfrac{3\\text{ µops}}{2\\text{ µops/cycle}}\\) = 1.5</li><li>Branch alone \\(\\dfrac{1\\text{ branch}}{1\\text{ branch/cycle}}\\) = 1</li><li>Loads \\(\\dfrac{3\\text{ loads}}{2\\text{ loads/cycle}}\\) = 1.5</li></ul></li>
+<li><strong>Port subsets.</strong> Micro-ops that can run only on {p0, p1, p6}: \\(\\dfrac{3\\text{ FMAs} + 2\\text{ shifts} + 1\\text{ branch}}{3\\text{ µops/cycle}}\\) = <strong>2.0</strong>. All four ALU ports: \\(\\dfrac{7\\text{ µops}}{4\\text{ µops/cycle}}\\) = 1.75. The union of two classes binds even though each class alone looks fine, and p5 is idle most of the time.</li>
 <li><strong>Dependency.</strong> Each of <code>ymm0</code> to <code>ymm2</code> is updated once per iteration, so B<sub>dep</sub> = 4. T = max(4, 2.0, …) = <strong>4 cycles</strong>: latency-bound, with half the port capacity unused.</li>
-<li><strong>Unroll by 3 with 9 accumulators.</strong> Per unrolled iteration: 9 FMAs, 6 shifts, 1 add, 1 branch (17 fused). Bounds:<ul><li>Dependency 4</li><li>{p0, p1, p6} = (9 + 6 + 1) / 3 = 5.33</li><li>Rename 17 / 4 = 4.25</li><li>Loads 9 / 2 = 4.5</li><li>All ALU ports 17 / 4 = 4.25</li></ul> T = 5.33 per 3 iterations = <strong>1.78 cycles per original iteration</strong>, 2.25× faster, now bound by the {p0, p1, p6} subset.</li>
-<li><strong>Why not 6 accumulators?</strong> Unroll by 2: dependency 4 per 2 iterations = 2.0 each, while the port subset allows (6 + 4 + 1) / 3 / 2 = 1.83. The accumulator count needed is L<sub>FMA</sub> × (FMAs per cycle at the port bound) = 4 × 3 / 1.78 ≈ 6.7, so 6 is just short.</li>
+<li><strong>Unroll by 3 with 9 accumulators.</strong> Per unrolled iteration: 9 FMAs, 6 shifts, 1 add, 1 branch (17 fused). Bounds:<ul><li>Dependency 4</li><li>{p0, p1, p6} = \\(\\dfrac{9\\text{ FMAs} + 6\\text{ shifts} + 1\\text{ branch}}{3\\text{ µops/cycle}}\\) = 5.33</li><li>Rename \\(\\dfrac{17\\text{ fused µops}}{4\\text{ µops/cycle}}\\) = 4.25</li><li>Loads \\(\\dfrac{9\\text{ loads}}{2\\text{ loads/cycle}}\\) = 4.5</li><li>All ALU ports \\(\\dfrac{17\\text{ µops}}{4\\text{ µops/cycle}}\\) = 4.25</li></ul> T = 5.33 per 3 iterations = <strong>1.78 cycles per original iteration</strong>, 2.25× faster, now bound by the {p0, p1, p6} subset.</li>
+<li><strong>Why not 6 accumulators?</strong> Unroll by 2: dependency 4 per 2 iterations = 2.0 each, while the port subset allows \\(\\dfrac{\\frac{6\\text{ FMAs} + 4\\text{ shifts} + 1\\text{ branch}}{3\\text{ µops/cycle}}}{2\\text{ iterations}}\\) = 1.83. The accumulator count needed is L<sub>FMA</sub> × (FMAs per cycle at the port bound) = \\(\\dfrac{4\\text{ cycles} \\times 3\\text{ FMAs/iteration}}{1.78\\text{ cycles/iteration}}\\) ≈ 6.7, so 6 is just short.</li>
 <li><strong>What binds next:</strong> the p0/p1/p6 subset. Moving shift work onto an instruction that can also use p5 (or onto the vector side) loosens it; past that, loads and rename bind at about 1.5 and 1.42 cycles per original iteration.</li>
 </ol>
 </details>
@@ -660,19 +660,19 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
 <p><strong>Question.</strong> A join kernel on AMD Zen 3 at 4.5 GHz does one independent DRAM miss per iteration (about 75 ns, so ≈ 340 cycles). Per iteration: 12 macro-ops, 2 loads (one misses), 1 store, 9 macro-ops that write an integer register, and 5 macro-ops that depend on the missing load. Zen 3: 256-entry ROB, 72-entry load queue, 64-entry store queue, 192 integer physical registers, about 96 integer scheduler entries (four 24-entry ALU queues), 24 L1 miss buffers, 6-wide dispatch. Which structure binds, and is enlarging it worth it?</p>
 <ol>
 <li><strong>Residency.</strong> A miss is always at the ROB head, so every retire-ordered entry stays about 340 cycles. Scheduler entries leave when they issue, so only the 5 dependents of the miss stay that long.</li>
-<li><strong>Bounds (E · R / C):</strong>
+<li><strong>Bounds \(\dfrac{E \times R}{C}\):</strong>
 <div class="tbl"><table>
 <tr><th>Structure</th><th>Formula</th><th>Cycles/iteration</th></tr>
-<tr><td><strong>Integer scheduler</strong></td><td>5 × 340 / 96</td><td><strong>17.7</strong></td></tr>
-<tr><td>Integer registers</td><td>9 × 340 / (192 − 16)</td><td>17.4</td></tr>
-<tr><td>ROB</td><td>12 × 340 / 256</td><td>15.9</td></tr>
-<tr><td>L1 miss buffers</td><td>1 × 340 / 24</td><td>14.2</td></tr>
-<tr><td>Load queue</td><td>2 × 340 / 72</td><td>9.4</td></tr>
-<tr><td>Store queue</td><td>1 × (340 + drain) / 64</td><td>≈ 5.4</td></tr>
-<tr><td>Dispatch</td><td>12 / 6</td><td>2.0</td></tr>
+<tr><td><strong>Integer scheduler</strong></td><td>\\(\\dfrac{5\\text{ macro-ops} \\times 340\\text{ cycles}}{96\\text{ entries}}\\)</td><td><strong>17.7</strong></td></tr>
+<tr><td>Integer registers</td><td>\\(\\dfrac{9\\text{ macro-ops} \\times 340\\text{ cycles}}{192\\text{ registers} - 16\\text{ registers}}\\)</td><td>17.4</td></tr>
+<tr><td>ROB</td><td>\\(\\dfrac{12\\text{ macro-ops} \\times 340\\text{ cycles}}{256\\text{ entries}}\\)</td><td>15.9</td></tr>
+<tr><td>L1 miss buffers</td><td>\\(\\dfrac{1\\text{ miss} \\times 340\\text{ cycles}}{24\\text{ buffers}}\\)</td><td>14.2</td></tr>
+<tr><td>Load queue</td><td>\\(\\dfrac{2\\text{ loads} \\times 340\\text{ cycles}}{72\\text{ entries}}\\)</td><td>9.4</td></tr>
+<tr><td>Store queue</td><td>\\(\\dfrac{1\\text{ store} \\times (340\\text{ cycles} + \\text{drain})}{64\\text{ entries}}\\)</td><td>≈ 5.4</td></tr>
+<tr><td>Dispatch</td><td>\\(\\dfrac{12\\text{ macro-ops}}{6\\text{ macro-ops/cycle}}\\)</td><td>2.0</td></tr>
 </table></div></li>
 <li><strong>The scheduler binds at about 17.7 cycles,</strong> just ahead of the register file. Counters would mostly say "ROB full" or "registers full"; the scheduler is the one that's easy to miss. In practice it's worse than this, because the dependents don't spread evenly over the four ALU queues.</li>
-<li><strong>Consistency:</strong> at T = 17.7, misses in flight = 340 / 17.7 ≈ 19 ≤ 24 miss buffers; ROB occupancy 12 × 340 / 17.7 ≈ 230 ≤ 256. Everything fits.</li>
+<li><strong>Consistency:</strong> at T = 17.7, misses in flight = \\(\\dfrac{1\\text{ miss} \\times 340\\text{ cycles}}{17.7\\text{ cycles}}\\) ≈ 19 ≤ 24 miss buffers, and ROB occupancy \\(\\dfrac{12\\text{ macro-ops} \\times 340\\text{ cycles}}{17.7\\text{ cycles}}\\) ≈ 230 ≤ 256. Everything fits.</li>
 <li><strong>Is a bigger scheduler worth it?</strong> Doubling it moves the bound to the registers at 17.4, a 2% gain. The structures are balanced (17.7, 17.4, 15.9, 14.2), which is what a good design looks like: to reach the miss-buffer bound of 14.2 you'd have to grow the scheduler, register file, and ROB together by about 25%. A software change is cheaper: if the code is restructured so only 2 macro-ops wait on the miss, the scheduler bound drops to 7.1 and the registers bind at 17.4, so you'd also need fewer register-writing instructions to gain anything.</li>
 </ol>
 </details>
@@ -702,13 +702,13 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
 <details class="ex"><summary>Worked example: hash probes into L3, with and without huge pages</summary>
 <p><strong>Question.</strong> On a Ryzen 9 5950X (Zen 3, 4.5 GHz, 32 MB L3 per 8-core chiplet), one core probes a 16 MB hash table at random, keys read sequentially from an array. Each probe is one load into the table, independent of the others, plus 8 macro-ops that load the key, hash it, and compare. Find the probe rate with 4 KB pages and with 2 MB pages. Then compare a table of linked buckets whose chains average 1.5 links. Zen 3: L2 512 KB at about 12 cycles, L3 at about 46 cycles, 32 B per cycle from L3 to L2, 24 L1 miss buffers, a 2,048-entry L2 data TLB, 6 page walkers. A page walk that misses the TLB takes about 30 cycles (upper levels in the page-walk cache, the leaf entry from L2 or L3).</p>
 <ol>
-<li><strong>Where the probe hits.</strong> 16 MB at random: L1 and L2 almost always miss (L2 holds 0.5 / 16 ≈ 3%), so about 97% of probes are served by L3.</li>
-<li><strong>Core bounds.</strong> Dispatch 9 / 6 = 1.5; load pipes 2 / 3 (key and probe) = 0.67. No loop-carried dependency beyond the index.</li>
-<li><strong>Miss buffers.</strong> 1 × (0.03 × 12 + 0.97 × 46) / 24 = 44.98 / 24 ≈ <strong>1.87 cycles</strong>.</li>
-<li><strong>L3 bandwidth.</strong> One 64 B line per probe at 32 B per cycle = <strong>2.0 cycles</strong>. This beats the miss-buffer bound: 1.87 cycles per line would need 34 B per cycle.</li>
-<li><strong>TLB with 4 KB pages.</strong> The table covers 4,096 pages and the L2 TLB covers 2,048 × 4 KB = 8 MB, so about half the probes miss the TLB. Walkers: 1 × 0.5 × 30 / 6 = <strong>2.5 cycles</strong>, the bottleneck.</li>
-<li><strong>With 2 MB pages</strong> the table is 8 pages and TLB misses vanish: T = max(1.5, 1.87, 2.0) = 2.0 cycles, bound by L3 bandwidth. 4.5 GHz / 2.5 = 1.8 G probes/s becomes 4.5 / 2.0 = 2.25 G probes/s, <strong>25% faster</strong>.</li>
-<li><strong>Contrast: the same table as linked buckets.</strong> If each probe follows a chain where the next address comes from the last load, the misses within a chain are dependent: about 46 cycles per link, plus walks. Probes are still independent of each other, so the miss buffers still overlap different chains, but each probe now holds a buffer for the whole chain: 1.5 × 46 / 24 ≈ 2.9 cycles. Each probe also moves 1.5 lines from L3, so L3 bandwidth rises to 1.5 × 2.0 = <strong>3.0 cycles</strong> and still binds, before walks. A single long chain with no other probes to overlap would be 46 cycles per link, about 23× slower than the open-addressed table.</li>
+<li><strong>Where the probe hits.</strong> 16 MB at random: L1 and L2 almost always miss (L2 holds \\(\\dfrac{0.5\\text{ MB}}{16\\text{ MB}}\\) ≈ 3%), so about 97% of probes are served by L3.</li>
+<li><strong>Core bounds.</strong> Dispatch \\(\\dfrac{9\\text{ macro-ops}}{6\\text{ macro-ops/cycle}}\\) = 1.5, and load pipes \\(\\dfrac{2\\text{ loads (key and probe)}}{3\\text{ loads/cycle}}\\) = 0.67. No loop-carried dependency beyond the index.</li>
+<li><strong>Miss buffers.</strong> \\(\\dfrac{1\\text{ miss} \\times (0.03 \\times 12\\text{ cycles} + 0.97 \\times 46\\text{ cycles})}{24\\text{ buffers}}\\) ≈ <strong>1.87 cycles</strong>.</li>
+<li><strong>L3 bandwidth.</strong> One 64 B line per probe: \\(\\dfrac{64\\text{ B}}{32\\text{ B/cycle}}\\) = <strong>2.0 cycles</strong>. This beats the miss-buffer bound: 1.87 cycles per line would need \\(\\dfrac{64\\text{ B}}{1.87\\text{ cycles}}\\) ≈ 34 B per cycle.</li>
+<li><strong>TLB with 4 KB pages.</strong> The table covers 4,096 pages and the L2 TLB covers 2,048 × 4 KB = 8 MB, so about half the probes miss the TLB. Walkers: \\(\\dfrac{1\\text{ probe} \\times 0.5 \\times 30\\text{ cycles}}{6\\text{ walkers}}\\) = <strong>2.5 cycles</strong>, the bottleneck.</li>
+<li><strong>With 2 MB pages</strong> the table is 8 pages and TLB misses vanish: T = max(1.5, 1.87, 2.0) = 2.0 cycles, bound by L3 bandwidth. \\(\\dfrac{4.5 \\times 10^{9}\\text{ cycles/s}}{2.5\\text{ cycles/probe}}\\) = 1.8 G probes/s becomes \\(\\dfrac{4.5 \\times 10^{9}\\text{ cycles/s}}{2.0\\text{ cycles/probe}}\\) = 2.25 G probes/s, <strong>25% faster</strong>.</li>
+<li><strong>Contrast: the same table as linked buckets.</strong> If each probe follows a chain where the next address comes from the last load, the misses within a chain are dependent: about 46 cycles per link, plus walks. Probes are still independent of each other, so the miss buffers still overlap different chains, but each probe now holds a buffer for the whole chain: \\(\\dfrac{1.5\\text{ links} \\times 46\\text{ cycles}}{24\\text{ buffers}}\\) ≈ 2.9 cycles. Each probe also moves 1.5 lines from L3, so L3 bandwidth rises to 1.5 × 2.0 = <strong>3.0 cycles</strong> and still binds, before walks. A single long chain with no other probes to overlap would be 46 cycles per link, about 23× slower than the open-addressed table.</li>
 </ol>
 </details>
 
@@ -733,9 +733,9 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
 <ol>
 <li><strong>Bytes per element.</strong> Read <code>b</code> and <code>c</code> (16 B), and write <code>a</code> (8 B), which with normal stores is first read for ownership (8 B more): 24 B read + 8 B written = <strong>32 B</strong>.</li>
 <li><strong>DRAM peak.</strong> 8 × 3,200 MT/s × 8 B = <strong>204.8 GB/s</strong>; sustained is typically 75% to 85% of that.</li>
-<li><strong>One core.</strong> For streaming, most of the 64 L2 misses in flight come from the prefetcher, so one core sustains at most 64 × 64 B / 110 ns ≈ 37 GB/s. N<sub>sat</sub> ≈ 204.8 / 37 ≈ <strong>6 cores</strong> if they're spread across chiplets. Everything beyond that only waits longer.</li>
-<li><strong>All 64 cores.</strong> Chip bound per core = 64 × 32 B × 3.0 GHz / 204.8 GB/s = <strong>30 cycles per element</strong>, about 120 cycles per 4-element AVX2 iteration, against core bounds of 1 to 2 cycles. The core is 98% idle.</li>
-<li><strong>8 threads on one chiplet.</strong> The chiplet's link carries 32 B × 1.6 GHz = 51.2 GB/s of reads and 25.6 GB/s of writes. Triad needs 24 B read per 32 B, so the read side binds: 51.2 / 0.75 ≈ <strong>68 GB/s</strong> total. Spread over 8 chiplets, the same 8 threads get min(8 × 37, 204.8) = 204.8 GB/s, <strong>3× more</strong>. Same code, same core count; only placement changed.</li>
+<li><strong>One core.</strong> For streaming, most of the 64 L2 misses in flight come from the prefetcher, so one core sustains at most \\(\\dfrac{64\\text{ lines} \\times 64\\text{ B}}{110\\text{ ns}}\\) ≈ 37 GB/s. N<sub>sat</sub> ≈ \\(\\dfrac{204.8\\text{ GB/s}}{37\\text{ GB/s}}\\) ≈ <strong>6 cores</strong> if they're spread across chiplets. Everything beyond that only waits longer.</li>
+<li><strong>All 64 cores.</strong> Chip bound per core = \\(\\dfrac{64\\text{ cores} \\times 32\\text{ B/element} \\times 3.0\\text{ GHz}}{204.8\\text{ GB/s}}\\) = <strong>30 cycles per element</strong>, about 120 cycles per 4-element AVX2 iteration, against core bounds of 1 to 2 cycles. The core is 98% idle.</li>
+<li><strong>8 threads on one chiplet.</strong> The chiplet's link carries 32 B × 1.6 GHz = 51.2 GB/s of reads and 25.6 GB/s of writes. Triad needs 24 B read per 32 B, so the read side binds: \\(\\dfrac{51.2\\text{ GB/s}}{\\frac{24\\text{ B read}}{32\\text{ B total}}}\\) ≈ <strong>68 GB/s</strong> total. Spread over 8 chiplets, the same 8 threads get min(8 × 37, 204.8) = 204.8 GB/s, <strong>3× more</strong>. Same code, same core count; only placement changed.</li>
 <li><strong>Cutting bytes.</strong> Non-temporal stores skip the read for ownership: 24 B per element instead of 32, so 33% more elements per second at the same bandwidth.</li>
 <li><strong>Frequency.</strong> At 64 cores the loop is DRAM-bound in ns, so raising the clock from 3.0 to 3.5 GHz makes it more cycles per element (35) and the same speed.</li>
 </ol>
@@ -769,21 +769,21 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
 <ol>
 <li><strong>Count.</strong> Per iteration: load <code>col[j]</code>, load <code>val[j]</code>, FMA with the <code>x</code> load as its memory operand, <code>inc j</code>, fused <code>cmp</code>/<code>jne</code>: 5 macro-ops, 3 loads, 1 FMA, 1 taken branch. Only <code>x</code> misses, to DRAM with probability 0.5. L<sub>DRAM</sub> = 110 ns × 3.5 GHz ≈ 385 cycles.</li>
 <li><strong>Dependencies.</strong> The <code>sum</code> chain is one FMA per iteration: B<sub>dep</sub> = 4. The <code>x</code> load depends on <code>col[j]</code>, an L1 hit, but not on earlier iterations, so the misses are independent and can overlap.</li>
-<li><strong>Bandwidth bounds.</strong><ul><li>Dispatch 5 / 6 = 0.83</li><li>Loads 3 / 3 = 1.0</li><li>FMA 1 / 2 = 0.5</li><li>Taken branches 1</li></ul></li>
+<li><strong>Bandwidth bounds.</strong><ul><li>Dispatch \\(\\dfrac{5\\text{ macro-ops}}{6\\text{ macro-ops/cycle}}\\) = 0.83</li><li>Loads \\(\\dfrac{3\\text{ loads}}{3\\text{ loads/cycle}}\\) = 1.0</li><li>FMA \\(\\dfrac{1\\text{ FMA}}{2\\text{ FMAs/cycle}}\\) = 0.5</li><li>Taken branches 1</li></ul></li>
 <li><strong>Capacity bounds</strong> (a miss is almost always at the ROB head, so retire-ordered residency ≈ 385):
 <div class="tbl"><table>
 <tr><th>Structure</th><th>Formula</th><th>Cycles/iteration</th></tr>
-<tr><td><strong>Load queue</strong></td><td>3 × 385 / 88</td><td><strong>13.1</strong></td></tr>
-<tr><td>L1 miss buffers</td><td>0.5 × 385 / 24</td><td>8.0</td></tr>
-<tr><td>ROB</td><td>5 × 385 / 320</td><td>6.0</td></tr>
-<tr><td>FP scheduler</td><td>1 × 385 / 64 (every FMA after a miss waits on the chain)</td><td>6.0</td></tr>
-<tr><td>FP registers</td><td>2 × 385 / (192 − 32)</td><td>4.8</td></tr>
-<tr><td>Integer registers</td><td>2 × 385 / (224 − 16)</td><td>3.7</td></tr>
+<tr><td><strong>Load queue</strong></td><td>\\(\\dfrac{3\\text{ loads} \\times 385\\text{ cycles}}{88\\text{ entries}}\\)</td><td><strong>13.1</strong></td></tr>
+<tr><td>L1 miss buffers</td><td>\\(\\dfrac{0.5\\text{ misses} \\times 385\\text{ cycles}}{24\\text{ buffers}}\\)</td><td>8.0</td></tr>
+<tr><td>ROB</td><td>\\(\\dfrac{5\\text{ macro-ops} \\times 385\\text{ cycles}}{320\\text{ entries}}\\)</td><td>6.0</td></tr>
+<tr><td>FP scheduler</td><td>\\(\\dfrac{1\\text{ FMA} \\times 385\\text{ cycles}}{64\\text{ entries}}\\) (every FMA after a miss waits on the chain)</td><td>6.0</td></tr>
+<tr><td>FP registers</td><td>\\(\\dfrac{2\\text{ writes} \\times 385\\text{ cycles}}{192\\text{ registers} - 32\\text{ registers}}\\)</td><td>4.8</td></tr>
+<tr><td>Integer registers</td><td>\\(\\dfrac{2\\text{ writes} \\times 385\\text{ cycles}}{224\\text{ registers} - 16\\text{ registers}}\\)</td><td>3.7</td></tr>
 </table></div></li>
 <li><strong>Max plus penalties.</strong> The row-end branch mispredicts about once per 10 iterations; it tests a counter, so it resolves quickly: 0.1 × ~13 ≈ 1.3 cycles. T ≈ 13.1 + 1.3 = <strong>14.4 cycles per nonzero</strong>, bound by the load queue: three loads per iteration all wait behind the oldest miss.</li>
-<li><strong>Consistency.</strong> At T = 14.4:<ul><li>Misses in flight 0.5 × 385 / 14.4 ≈ 13 ≤ 24</li><li>ROB 5 × 385 / 14.4 ≈ 134 ≤ 320</li><li>Load queue ≈ 80 ≤ 88</li></ul> One core is consistent.</li>
-<li><strong>Scale to the chip.</strong> DRAM bytes per iteration: 0.5 × 64 B for <code>x</code> + 8 B <code>val</code> + 4 B <code>col</code> = 44 B. One core moves 3.5 GHz / 14.4 × 44 B ≈ 10.7 GB/s; peak is 12 × 4,800 MT/s × 8 B = 460.8 GB/s, so N<sub>sat</sub> ≈ 43 cores. At 96 cores the chip bound is 96 × 44 B × 3.5 GHz / 460.8 GB/s ≈ <strong>32 cycles per nonzero</strong>, so step 6 fails at chip scale: DRAM bandwidth is the real bottleneck. Redo the latency: for the load-queue bound to match 32 − 1.3 ≈ 31 cycles, loaded latency must be about 385 × 31 / 13.1 ≈ 900 cycles (≈ 260 ns). Using idle latency would have overestimated chip throughput by 2.2×.</li>
-<li><strong>What binds next.</strong> Reordering the matrix (reverse Cuthill-McKee) so that only 10% of <code>x</code> loads miss cuts traffic to 6.4 + 12 = 18.4 B, and the chip bound to about 13.4 cycles. The per-core load-queue bound doesn't move: a window of 88 / 3 ≈ 29 iterations still holds about 3 misses, and retirement still waits on the oldest, so it stays near 13. The core then runs at about 13.1 + 1.3 ≈ 14.4 cycles and the chip allows 13.4, so the core binds again: T ≈ 14.4, 2.2× faster than the 32 cycles before at full chip. Further gains need fewer loads per nonzero (narrower column indices, blocked formats) or a core with a larger load queue.</li>
+<li><strong>Consistency.</strong> At T = 14.4:<ul><li>Misses in flight \\(\\dfrac{0.5\\text{ misses} \\times 385\\text{ cycles}}{14.4\\text{ cycles}}\\) ≈ 13 ≤ 24</li><li>ROB \\(\\dfrac{5\\text{ macro-ops} \\times 385\\text{ cycles}}{14.4\\text{ cycles}}\\) ≈ 134 ≤ 320</li><li>Load queue ≈ 80 ≤ 88</li></ul> One core is consistent.</li>
+<li><strong>Scale to the chip.</strong> DRAM bytes per iteration: 0.5 × 64 B for <code>x</code> + 8 B <code>val</code> + 4 B <code>col</code> = 44 B. One core moves \\(\\dfrac{3.5\\text{ GHz} \\times 44\\text{ B}}{14.4\\text{ cycles}}\\) ≈ 10.7 GB/s; peak is 12 × 4,800 MT/s × 8 B = 460.8 GB/s, so N<sub>sat</sub> ≈ 43 cores. At 96 cores the chip bound is \\(\\dfrac{96\\text{ cores} \\times 44\\text{ B} \\times 3.5\\text{ GHz}}{460.8\\text{ GB/s}}\\) ≈ <strong>32 cycles per nonzero</strong>, so step 6 fails at chip scale: DRAM bandwidth is the real bottleneck. Redo the latency: for the load-queue bound to match 32 − 1.3 ≈ 31 cycles, loaded latency must be about \\(\\dfrac{385\\text{ cycles} \\times 31\\text{ cycles}}{13.1\\text{ cycles}}\\) ≈ 900 cycles (≈ 260 ns). Using idle latency would have overestimated chip throughput by 2.2×.</li>
+<li><strong>What binds next.</strong> Reordering the matrix (reverse Cuthill-McKee) so that only 10% of <code>x</code> loads miss cuts traffic to 6.4 + 12 = 18.4 B, and the chip bound to about 13.4 cycles. The per-core load-queue bound doesn't move: a window of \\(\\dfrac{88\\text{ entries}}{3\\text{ loads/iteration}}\\) ≈ 29 iterations still holds about 3 misses, and retirement still waits on the oldest, so it stays near 13. The core then runs at about 13.1 + 1.3 ≈ 14.4 cycles and the chip allows 13.4, so the core binds again: T ≈ 14.4, 2.2× faster than the 32 cycles before at full chip. Further gains need fewer loads per nonzero (narrower column indices, blocked formats) or a core with a larger load queue.</li>
 </ol>
 </details>
 <p class="refs">Further reading:</p><ul class="refs"><li>Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 6th ed. (Appendix C for pipelining, Chapter 3 for out-of-order execution and branch prediction, Chapter 2 and Appendix B for caches, MSHRs, prefetching, and DRAM)</li><li>Yasin, "A Top-Down Method for Performance Analysis and Counters Architecture," ISPASS 2014</li><li>Williams, Waterman &amp; Patterson, "Roofline," CACM 2009</li><li>Little, "A Proof for the Queuing Formula: L = λW," Operations Research 1961</li><li>Agner Fog's microarchitecture guide and instruction tables for per-core port, latency, and buffer sizes</li></ul>
