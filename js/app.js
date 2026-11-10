@@ -174,6 +174,7 @@ function layout(curId, curSec, inner) {
   decorateSecFlags(curId);
   if (typeof initCalcs === "function") initCalcs(app);
   if (typeof initTraces === "function") initTraces(app);
+  if (typeof initAnims === "function") initAnims(app);
   decorateGlossary(curId);
   typesetMath();
 }

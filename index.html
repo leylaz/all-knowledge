@@ -72,6 +72,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "perf perf perf stall stall stall"; }
 .floor[data-tab="gpu"] { grid-template-areas:
     "gk gk gk gthr gthr gthr"
+    "gvis gvis gvis gvis gvis gvis"
     "gsm gsm gsm gwarp gwarp gwarp"
     "gmem gmem gmem gai gai gai"
     "gperf gperf gperf gperf gperf gperf"; }
@@ -158,6 +159,25 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .trace .d { color: var(--muted); } .trace .c { color: var(--accent-green); font-weight: 700; }
 .body .trace .now { outline: 1px solid var(--pad); outline-offset: -1px; }
 .trace-key { color: var(--muted); font-size: .82rem; }
+/* GPU animations (js/visual.js) */
+.anim { font-family: var(--sans); font-size: .9rem; line-height: 1.45; background: var(--surface); border: 1px solid var(--rule); border-top: 3px solid var(--trace); border-radius: 4px; padding: 14px 16px 6px; margin: 4px 0 20px; }
+.anim p { margin: 0 0 8px; }
+.anim .calc-title { font-weight: 700; font-size: 1rem; margin: 0 0 2px; }
+.anim .calc-intro { color: var(--muted); }
+.anim .calc-form { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0 0 8px; }
+.anim .calc-form label { display: flex; align-items: center; gap: 8px; }
+.anim .calc-form span { color: var(--muted); }
+.anim .calc-form input { width: 64px; font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 3px 6px; text-align: right; }
+.anim-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 10px; }
+.anim-ctl button { font: inherit; font-size: .85rem; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+.anim-ctl button:hover:not(:disabled) { border-color: var(--trace); color: var(--trace); }
+.anim-ctl button[aria-current="step"] { background: var(--trace); border-color: var(--trace); color: var(--surface); }
+.anim-ctl button:disabled { opacity: .4; cursor: default; }
+.anim-ctl .trace-step { flex: 1; min-width: 220px; margin: 0 0 0 8px; }
+.anim-fig, .anim-strip { overflow-x: auto; margin: 0 0 8px; }
+.anim-fig svg, .anim-strip svg { display: block; width: 100%; min-width: 560px; height: auto; }
+.anim-strip svg { cursor: pointer; }
+.anim-cap { min-height: 4.5em; }
 .trace-key b { font-family: var(--mono); margin-left: 8px; padding: 0 3px; border-radius: 2px; }
 
 /* Glossary hover cards */
@@ -593,7 +613,7 @@ window.MathJax = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-<script src="js/site.js?v=07dbe6f9"></script>
+<script src="js/site.js?v=91d5c8fb"></script>
 <script src="sections/instruction-sets.js?v=f24c74e3"></script>
 <script src="sections/pipeline-stages.js?v=e204b34c"></script>
 <script src="sections/front-end.js?v=ca728824"></script>
@@ -609,6 +629,7 @@ window.MathJax = {
 <script src="sections/stalls-bottlenecks.js?v=9d88012c"></script>
 <script src="sections/gpu-kernels.js?v=5f48f981"></script>
 <script src="sections/threads-and-launches.js?v=5761c535"></script>
+<script src="sections/visual.js?v=0d68c310"></script>
 <script src="sections/cuda-cores-sm.js?v=6af19d8d"></script>
 <script src="sections/warps-simt.js?v=31255544"></script>
 <script src="sections/gpu-memory-system.js?v=a270a0a8"></script>
@@ -634,8 +655,9 @@ window.MathJax = {
 <script src="js/glossary.js?v=6bc20cf8"></script>
 <script src="js/calc.js?v=6d8c6024"></script>
 <script src="js/trace.js?v=dee93611"></script>
+<script src="js/visual.js?v=9c5c94db"></script>
 <script src="js/theme.js?v=1763bf15"></script>
 <script src="coding/crun.js?v=a9acf486"></script>
-<script src="js/app.js?v=6ed3085f"></script>
+<script src="js/app.js?v=d737f343"></script>
 </body>
 </html>
