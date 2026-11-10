@@ -876,6 +876,29 @@ function todoDrop(ids) {
   for (const id of ids) { const t = TODOS.find(x => x.id === id); if (t) { gone.add(id); tr.below(t).forEach(k => gone.add(k)); } }
   TODOS = TODOS.filter(t => !gone.has(t.id));
 }
+/* Tab nests t under the item above it in its layer (as that item's last
+   sub-item), and Shift+Tab moves it out to just below its parent. Either way
+   it keeps everything under it, and a move past TODO_MAX_DEPTH layers is
+   refused. `peer(a, b)` says whether two top-level items share a list (the
+   open or Done list, or a calendar day). Returns whether t moved. */
+function todoShift(list, t, out, peer) {
+  const tr = todoTree(list), p = tr.par(t.id);
+  if (out) {
+    if (!p) return false;
+    list.splice(list.indexOf(t), 1);
+    if (tr.par(p.id)) t.parent = tr.par(p.id).id; else delete t.parent;
+    list.splice(list.indexOf(p) + 1, 0, t);
+    return true;
+  }
+  const sibs = p ? tr.kidsOf(p.id) : tr.roots.filter(r => peer(r, t)), above = sibs[sibs.indexOf(t) - 1];
+  let depth = 1;
+  for (let a = p; a; a = tr.par(a.id)) depth++;
+  if (!above || depth + tr.height(t) > TODO_MAX_DEPTH) return false;
+  list.splice(list.indexOf(t), 1);
+  t.parent = above.id;
+  list.push(t);
+  return true;
+}
 /* Item text boxes are textareas that grow to fit, so long items wrap and
    stay fully visible. Pasted line breaks become spaces. */
 const todoClean = s => s.replace(/\s+/g, " ").trim();
@@ -930,7 +953,7 @@ function renderTodo(focusId) {
   layout("r/todo", null, `
     <p class="region">Section Overview</p>
     <h1>To-Do List</h1>
-    <p class="flag-note">${open.length} open, ${done.length} done. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."} Drag ⠿ to move an item with everything under it, and + adds a sub-item (up to ${TODO_MAX_DEPTH} layers).</p>
+    <p class="flag-note">${open.length} open, ${done.length} done. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."} Drag ⠿ to move an item with everything under it, and + adds a sub-item (up to ${TODO_MAX_DEPTH} layers). Tab nests an item under the one above it, and Shift+Tab moves it back out.</p>
     <form class="todo-add" id="todoForm">
       <input type="text" name="text" class="todo-text" aria-label="New to-do item" placeholder="Add a to-do item" autocomplete="off">
       <button type="submit" class="chip-zoom">Add</button>
@@ -967,7 +990,7 @@ function renderTodo(focusId) {
     /* An emptied item goes away when it loses focus, unless it still has sub-items. */
     i.addEventListener("blur", e => {
       const t = find(i);
-      if (!t || i.value.trim()) return;
+      if (!t || i.value.trim() || i.dataset.shifting) return;
       if (todoTree().kidsOf(t.id).length) { i.value = t.text; fitText(i.parentElement); return; }
       todoDrop([t.id]); saveTodos();
       if (i.closest(".todo-sub")) { const ul = i.closest(".todo-subs"); i.closest(".todo-item").remove(); if (ul && !ul.children.length) ul.remove(); }
@@ -979,6 +1002,14 @@ function renderTodo(focusId) {
       const t = find(i), p = t && todoTree().par(t.id);
       save();
       if (p || (t && !t.done)) addSub(p, t); else i.blur();
+    });
+    i.addEventListener("keydown", e => {
+      if (e.key !== "Tab" || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+      e.preventDefault();
+      const t = find(i);
+      if (!t) return;
+      save(); i.dataset.shifting = 1;
+      if (todoShift(TODOS, t, e.shiftKey, (a, b) => !a.done === !b.done)) { saveTodos(); renderTodo(t.id); }
     });
   });
   app.querySelectorAll(".todo-addsub").forEach(b => b.addEventListener("click", () => addSub(find(b))));
@@ -1083,6 +1114,7 @@ function todoDrag(e, grip) {
      between the panel and a day copies the item, with everything under it,
      either way, and the side it came from stays as it is.
    - "Carry Over" moves unfinished items from past days to today.
+   - Tab and Shift+Tab nest an item or move it out (todoShift).
    - Alt+Arrow moves to the next or previous day (← →) or week (↑ ↓), and
      Alt+Shift+Arrow copies the item there. */
 const CAL_KEY = "intv-calendar", CAL_INDENT = 14;
@@ -1206,6 +1238,7 @@ function renderCal(focus) {
     <ul class="flag-note cal-keys">
       <li>Alt+← / Alt+→ moves to the previous or next day, and Alt+↑ / Alt+↓ to the previous or next week.</li>
       <li>Alt+Shift+Arrow copies the item you're in (with everything under it) to that day, and moves you to the copy, so pressing it again repeats it.</li>
+      <li>Tab nests an item under the one above it, and Shift+Tab moves it back out.</li>
       <li>↑ at the start of a box or ↓ at its end moves between the boxes in a day.</li>
     </ul>
     <div class="cal-bar">
@@ -1293,13 +1326,21 @@ function renderCal(focus) {
     /* An emptied item goes away when it loses focus, unless it still has sub-items. */
     i.addEventListener("blur", e => {
       const t = find(i);
-      if (!t || i.value.trim()) return;
+      if (!t || i.value.trim() || i.dataset.shifting) return;
       if (todoTree(CAL).kidsOf(t.id).length) { i.value = t.text; fitText(i.parentElement); return; }
       calDrop([t.id]); saveCal(); afterClick(e, el => renderCal(calFocusKey(el)));
     });
     /* Enter starts the next item in the same layer. */
     const save = () => { const t = find(i); if (t) { t.text = todoClean(i.value); saveCal(); } fitText(i.parentElement); };
     todoKeys(i, save, () => { const t = find(i); save(); if (t) addItem(t.day, todoTree(CAL).par(t.id), t); });
+    i.addEventListener("keydown", e => {
+      if (e.key !== "Tab" || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+      e.preventDefault();
+      const t = find(i);
+      if (!t) return;
+      save(); i.dataset.shifting = 1;
+      if (todoShift(CAL, t, e.shiftKey, (a, b) => a.day === b.day)) { saveCal(); renderCal(t.id); }
+    });
   });
   /* Keys between days. The box's text is saved first, since the re-render replaces it. */
   app.querySelector(".cal-grid").addEventListener("keydown", e => {
