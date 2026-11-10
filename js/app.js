@@ -826,7 +826,7 @@ function renderReview() {
 /* ---------- The to-do list ----------
    Its own section in the Interview Prep tab, at #/r/todo. Like flags, the
    owner's items live in the private db and everyone else's in this browser.
-   Done items move to their own list below until cleared, sub-items with them. */
+   Done items move to their own list below until cleared, nested items with them. */
 const TODO_KEY = "intv-todos";
 let TODOS = [], TODO_SAVE = Promise.resolve();
 try { TODOS = JSON.parse(localStorage.getItem(TODO_KEY) || "[]"); } catch (e) { TODOS = []; }
@@ -847,37 +847,56 @@ function saveTodos() {
   }
   try { localStorage.setItem(TODO_KEY, JSON.stringify(copy)); } catch (e) {}
 }
-/* Sub-items carry `parent` (the main item's id). Items without one, or whose
-   parent is gone, are main items, so lists saved before sub-items existed
-   load unchanged. Display order is array order, among main items and among
-   one main item's sub-items. */
+/* Items nest up to TODO_MAX_DEPTH layers (top-level items are layer 1). A
+   nested item carries `parent` (its parent's id). Items without one, or whose
+   parent is gone, are top-level, so lists saved before nesting existed load
+   unchanged. Display order is array order among an item's siblings. */
+const TODO_MAX_DEPTH = 8, TODO_INDENT = 26;
 const todoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-const todoIsMain = t => !t.parent || !TODOS.some(p => p.id === t.parent && !p.parent);
-const todoKids = id => TODOS.filter(t => t.parent === id);
-const todoDrop = ids => { TODOS = TODOS.filter(t => !ids.includes(t.id) && !ids.includes(t.parent)); };
-const todoRow = (t, sub) => `<div class="todo-row">
-  <span class="todo-grip" title="Drag to reorder" aria-hidden="true">⠿</span>
+function todoTree() {
+  const byId = new Map(TODOS.map(t => [t.id, t])), kids = new Map(), par = new Map(), roots = [];
+  for (const t of TODOS) {
+    let p = t.parent ? byId.get(t.parent) : null;
+    /* A parent chain that loops back to t (only possible in damaged data) makes t top-level. */
+    for (let a = p, n = 0; a && n < TODOS.length; a = a.parent ? byId.get(a.parent) : null, n++) if (a === t) { p = null; break; }
+    par.set(t.id, p || null);
+    if (p) { if (!kids.has(p.id)) kids.set(p.id, []); kids.get(p.id).push(t); } else roots.push(t);
+  }
+  const kidsOf = id => kids.get(id) || [];
+  const height = t => 1 + Math.max(0, ...kidsOf(t.id).map(height));
+  const below = t => kidsOf(t.id).flatMap(k => [k.id, ...below(k)]);
+  return { roots, kidsOf, par: id => par.get(id), height, below };
+}
+/* Removes the items and everything nested under them. */
+function todoDrop(ids) {
+  const tr = todoTree(), gone = new Set();
+  for (const id of ids) { const t = TODOS.find(x => x.id === id); if (t) { gone.add(id); tr.below(t).forEach(k => gone.add(k)); } }
+  TODOS = TODOS.filter(t => !gone.has(t.id));
+}
+const todoRow = (t, depth) => `<div class="todo-row">
+  <span class="todo-grip" title="Drag to move" aria-hidden="true">⠿</span>
   <input type="checkbox" class="todo-check" aria-label="Done"${t.done ? " checked" : ""}>
-  <input type="text" class="todo-text" aria-label="${sub ? "Sub-item" : "To-do item"}" value="${esc(t.text).replace(/"/g, "&quot;")}">
-  ${sub ? "" : '<button type="button" class="todo-addsub" aria-label="Add a sub-item" title="Add a sub-item">+</button>'}
+  <input type="text" class="todo-text" aria-label="${depth > 1 ? "Sub-item" : "To-do item"}" value="${esc(t.text).replace(/"/g, "&quot;")}">
+  ${depth < TODO_MAX_DEPTH ? '<button type="button" class="todo-addsub" aria-label="Add a sub-item" title="Add a sub-item">+</button>' : ""}
   <button type="button" class="todo-del" aria-label="Delete this item">✕</button></div>`;
-const todoItem = t => {
-  const kids = todoKids(t.id);
-  return `<li class="todo-item todo-main${t.done ? " done" : ""}" data-id="${esc(t.id)}">${todoRow(t, false)}${kids.length ? `<ul class="todo-subs">${kids.map(k =>
-    `<li class="todo-item todo-sub${k.done ? " done" : ""}" data-id="${esc(k.id)}">${todoRow(k, true)}</li>`).join("")}</ul>` : ""}</li>`;
+const todoItem = (tr, t, depth) => {
+  const kids = tr.kidsOf(t.id);
+  return `<li class="todo-item ${depth > 1 ? "todo-sub" : "todo-main"}${t.done ? " done" : ""}" data-id="${esc(t.id)}" data-depth="${depth}">${todoRow(t, depth)}${kids.length ?
+    `<ul class="todo-subs">${kids.map(k => todoItem(tr, k, depth + 1)).join("")}</ul>` : ""}</li>`;
 };
 function renderTodo(focusId) {
-  const mains = TODOS.filter(todoIsMain), open = mains.filter(t => !t.done), done = mains.filter(t => t.done);
+  const tr = todoTree(), open = tr.roots.filter(t => !t.done), done = tr.roots.filter(t => t.done);
+  const list = (items, isDone) => `<ul class="todo-list" data-done="${isDone ? 1 : 0}">${items.map(t => todoItem(tr, t, 1)).join("")}`;
   layout("r/todo", null, `
     <p class="region">Section Overview</p>
     <h1>To-Do List</h1>
-    <p class="flag-note">${open.length} open, ${done.length} done. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."} Drag ⠿ to reorder, and + adds a sub-item.</p>
+    <p class="flag-note">${open.length} open, ${done.length} done. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."} Drag ⠿ to move an item with everything under it, and + adds a sub-item (up to ${TODO_MAX_DEPTH} layers).</p>
     <form class="todo-add" id="todoForm">
       <input type="text" name="text" class="todo-text" aria-label="New to-do item" placeholder="Add a to-do item" autocomplete="off">
       <button type="submit" class="chip-zoom">Add</button>
     </form>
-    <ul class="todo-list">${open.map(todoItem).join("") || '<li class="todo-empty">Nothing to do yet.</li>'}</ul>
-    ${done.length ? `<p class="rev-page">Done</p><ul class="todo-list">${done.map(todoItem).join("")}</ul>
+    ${list(open, false)}${open.length ? "" : '<li class="todo-empty">Nothing to do yet.</li>'}</ul>
+    ${done.length ? `<p class="rev-page">Done</p>${list(done, true)}</ul>
     <button type="button" class="chip-zoom" id="todoClear">Clear done</button>` : ""}`);
   const form = document.getElementById("todoForm");
   form.addEventListener("submit", e => {
@@ -901,17 +920,17 @@ function renderTodo(focusId) {
     i.addEventListener("blur", () => {
       const t = find(i);
       if (!t || i.value.trim()) return;
-      if (!t.parent && todoKids(t.id).length) { i.value = t.text; return; }
+      if (todoTree().kidsOf(t.id).length) { i.value = t.text; return; }
       todoDrop([t.id]); saveTodos();
-      if (t.parent) { const ul = i.closest(".todo-subs"); i.closest(".todo-item").remove(); if (ul && !ul.children.length) ul.remove(); }
+      if (i.closest(".todo-sub")) { const ul = i.closest(".todo-subs"); i.closest(".todo-item").remove(); if (ul && !ul.children.length) ul.remove(); }
       else renderTodo();
     });
-    /* Enter in a sub-item starts the next one under the same main item. */
+    /* Enter in a sub-item starts the next one in the same layer. */
     i.addEventListener("keydown", e => {
-      const t = find(i);
-      if (e.key !== "Enter" || !t || !t.parent || !i.value.trim()) return;
+      const t = find(i), p = t && todoTree().par(t.id);
+      if (e.key !== "Enter" || !p || !i.value.trim()) return;
       e.preventDefault(); t.text = i.value.trim(); saveTodos();
-      addSub(TODOS.find(p => p.id === t.parent), t);
+      addSub(p, t);
     });
   });
   app.querySelectorAll(".todo-addsub").forEach(b => b.addEventListener("click", () => addSub(find(b))));
@@ -921,50 +940,70 @@ function renderTodo(focusId) {
   app.querySelectorAll(".todo-grip").forEach(g => g.addEventListener("pointerdown", e => todoDrag(e, g)));
   if (focusId) { const el = app.querySelector(`.todo-item[data-id="${focusId}"] .todo-text`); if (el) el.focus(); }
 }
-/* Drag by the grip (pointer events, so touch works too). A main item moves
-   with its sub-items among the main items of its own list. A sub-item moves
-   among sub-items, or onto a main item's row to become its first sub-item. */
+/* Drag by the grip (pointer events, so touch works too). The item moves with
+   everything under it, which keeps its layers relative to the item, and the
+   drop is refused if that would go past TODO_MAX_DEPTH layers.
+   - Upper half of a row: drop just above that item, in its layer.
+   - Lower half of a row with sub-items: drop as its first sub-item.
+   - Lower half of a row without sub-items: drop below it, and the pointer's
+     left-right position picks the layer, from one deeper (its sub-item) out to
+     any layer the row ends. A top-level drop has to stay in its own list
+     (open or Done). */
 function todoDrag(e, grip) {
   if (e.button !== 0) return;
   e.preventDefault();
-  const li = grip.closest(".todo-item"), sub = li.classList.contains("todo-sub");
-  let tgt = null, pos = null;
-  const mark = (t, p) => {
-    if (tgt) tgt.classList.remove("drop-before", "drop-after", "drop-into");
-    tgt = t; pos = p;
-    if (tgt) tgt.classList.add("drop-" + pos);
-  };
+  const li = grip.closest(".todo-item"), tr = todoTree(), byId = id => TODOS.find(x => x.id === id);
+  const d = byId(li.dataset.id);
+  if (!d) return;
+  const h = tr.height(d), maxDepth = TODO_MAX_DEPTH - h + 1;
+  const line = document.createElement("div");
+  line.className = "todo-drop-line";
+  let drop = null;
+  const show = (x0, x1, y) => { Object.assign(line.style, { left: x0 + "px", width: Math.max(0, x1 - x0) + "px", top: y - 1 + "px" }); if (!line.isConnected) document.body.appendChild(line); };
+  const none = () => { drop = null; line.remove(); };
   const move = ev => {
     if (ev.clientY < 40) window.scrollBy(0, -12); else if (ev.clientY > innerHeight - 40) window.scrollBy(0, 12);
-    const el = document.elementFromPoint(ev.clientX, ev.clientY);
-    const half = t => { const r = t.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2 ? "before" : "after"; };
-    if (!sub) {
-      const t = el && el.closest(".todo-main");
-      return t && t !== li && t.parentElement === li.parentElement ? mark(t, half(t)) : mark(null);
+    const el = document.elementFromPoint(ev.clientX, ev.clientY), row = el && el.closest(".todo-row");
+    if (!row || !app.contains(row) || li.contains(row)) return none();
+    const rli = row.parentElement, r = byId(rli.dataset.id), dr = +rli.dataset.depth;
+    const ul = rli.closest(".todo-list"), base = ul.getBoundingClientRect(), box = row.getBoundingClientRect();
+    if (!r) return none();
+    /* The dragged item leaves its old place, so it never counts as a neighbor. */
+    const kidsOf = id => tr.kidsOf(id).filter(k => k !== d), rk = kidsOf(r.id);
+    let next;
+    if (ev.clientY < box.top + box.height / 2) next = { parent: tr.par(r.id), ref: r, at: "before", depth: dr, y: box.top };
+    else if (rk.length) next = { parent: r, ref: rk[0], at: "before", depth: dr + 1, y: box.bottom };
+    else {
+      /* Layers open below r: r's sub-item, r's layer, and each ancestor's layer while r ends it. */
+      const opts = [{ parent: r, ref: null, at: "into", depth: dr + 1 }];
+      for (let a = r, da = dr; a; da--) {
+        const p = tr.par(a.id);
+        opts.push({ parent: p, ref: a, at: "after", depth: da });
+        const sibs = p ? kidsOf(p.id) : [];
+        if (!p || sibs[sibs.length - 1] !== a) break;
+        a = p;
+      }
+      const want = Math.round((ev.clientX - base.left - 8) / TODO_INDENT) + 1;
+      const ok = opts.filter(o => o.depth <= maxDepth);
+      if (!ok.length) return none();
+      next = ok.reduce((b, o) => Math.abs(o.depth - want) < Math.abs(b.depth - want) ? o : b);
+      next.y = box.bottom;
     }
-    const t = el && el.closest(".todo-item");
-    if (!t || t === li) return mark(null);
-    if (t.classList.contains("todo-sub")) return mark(t, half(t));
-    return el.closest(".todo-row") ? mark(t, "into") : mark(null);
+    if (next.depth > maxDepth) return none();
+    if (!next.parent && String(d.done ? 1 : 0) !== ul.dataset.done) return none();
+    drop = next;
+    show(base.left + (next.depth - 1) * TODO_INDENT, base.right, next.y);
   };
   const end = ev => {
     grip.removeEventListener("pointermove", move);
     grip.removeEventListener("pointerup", end);
     grip.removeEventListener("pointercancel", end);
     li.classList.remove("dragging");
-    const t = tgt, p = pos; mark(null);
-    if (ev.type !== "pointerup" || !t) return;
-    const d = TODOS.find(x => x.id === li.dataset.id), at = TODOS.find(x => x.id === t.dataset.id);
-    if (!d || !at) return;
+    const p = drop; none();
+    if (ev.type !== "pointerup" || !p) return;
     TODOS.splice(TODOS.indexOf(d), 1);
-    if (p === "into") {
-      d.parent = at.id;
-      const first = todoKids(at.id)[0];
-      TODOS.splice(first ? TODOS.indexOf(first) : TODOS.indexOf(at) + 1, 0, d);
-    } else {
-      if (sub) d.parent = at.parent;
-      TODOS.splice(TODOS.indexOf(at) + (p === "after" ? 1 : 0), 0, d);
-    }
+    if (p.parent) d.parent = p.parent.id; else delete d.parent;
+    TODOS.splice(p.at === "into" ? TODOS.length : TODOS.indexOf(p.ref) + (p.at === "after" ? 1 : 0), 0, d);
     saveTodos(); renderTodo();
   };
   grip.setPointerCapture(e.pointerId);

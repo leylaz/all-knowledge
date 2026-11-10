@@ -282,11 +282,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .todo-row:hover .todo-grip { opacity: 1; }
 .todo-item.dragging { opacity: .4; }
 .todo-item.dragging .todo-grip { cursor: grabbing; }
-.todo-main.drop-before { box-shadow: inset 0 2px 0 var(--trace); }
-.todo-main.drop-after { box-shadow: inset 0 -2px 0 var(--trace); }
-.todo-sub.drop-before { box-shadow: 0 -2px 0 var(--trace); }
-.todo-sub.drop-after { box-shadow: 0 2px 0 var(--trace); }
-.todo-main.drop-into > .todo-row { background: var(--trace-soft); border-radius: 4px; }
+.todo-drop-line { position: fixed; height: 3px; border-radius: 2px; background: var(--trace); pointer-events: none; z-index: 50; }
 .todo-empty { color: var(--muted); }
 .todo-text { flex: 1; min-width: 0; font: inherit; font-size: .95rem; color: var(--ink); background: var(--paper); border: 1px solid transparent; border-radius: 4px; padding: 4px 8px; }
 .todo-add .todo-text, .todo-text:hover { border-color: var(--rule); }
@@ -678,6 +674,6 @@ window.MathJax = {
 <script src="js/visual.js?v=ecd04d7a"></script>
 <script src="js/theme.js?v=1763bf15"></script>
 <script src="coding/crun.js?v=a9acf486"></script>
-<script src="js/app.js?v=dbed6a50"></script>
+<script src="js/app.js?v=34ea091e"></script>
 </body>
 </html>
