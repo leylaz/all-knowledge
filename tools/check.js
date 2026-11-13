@@ -62,7 +62,8 @@ REGIONS.forEach(r => checkAnchors("r/" + r.id, r));
 NOTES.forEach(n => checkAnchors(n.id, n));
 
 /* ---------- Interview pages: both tabs hold questions ---------- */
-for (const n of NOTES.filter(n => n.region === "intv"))
+const INTV_REGIONS = ["intv", "resume"]; /* keep in sync with js/site.js */
+for (const n of NOTES.filter(n => INTV_REGIONS.includes(n.region)))
   for (const [t, name] of [["c", "Conceptual"], ["m", "Math"]])
     if (!(n.body || "").includes(`data-qid="${n.id}-${t}1"`)) err(n.id, `the ${name} tab has no questions`);
 
@@ -74,12 +75,12 @@ if (!CODING.length) err("coding/interview.js", "no coding problems loaded");
 CODING.forEach((c, i) => {
   const where = `coding/interview.js problem ${i + 1} (${c.page}/${c.sec})`;
   const n = byId.get(c.page);
-  if (!n || n.region !== "intv") return err(where, "names no interview page");
+  if (!n || !INTV_REGIONS.includes(n.region)) return err(where, "names no interview page");
   if (!(n.sections || []).some(s => s.id === "k-" + c.sec)) err(where, `page has no topic section "${c.sec}"`);
   if (!["medium", "hard"].includes(c.lvl)) err(where, `level must be medium or hard, not "${c.lvl}"`);
   for (const k of ["q", "a", "impl", "skel", "sol"]) if (!c[k]) err(where, `missing ${k}`);
 });
-for (const n of NOTES.filter(n => n.region === "intv" && n.id !== "intv"))
+for (const n of NOTES.filter(n => INTV_REGIONS.includes(n.region) && n.id !== "intv"))
   if (!CODING.some(c => c.page === n.id)) err(n.id, "has no coding problems in coding/interview.js");
 
 /* ---------- Links ---------- */
@@ -121,7 +122,7 @@ for (const p of [...REGIONS.map(r => ["r/" + r.id, r]), ...NOTES.map(n => [n.id,
 /* ---------- Practice problems ---------- */
 for (const p of [...REGIONS.map(r => ["r/" + r.id, r]), ...NOTES.map(n => [n.id, n])]) {
   const [where, page] = p;
-  if (page.region === "intv" || where === "r/intv" || where === "r/todo" || where === "r/cal") continue;
+  if (INTV_REGIONS.includes(page.region) || where === "r/intv" || where === "r/resume" || where === "r/todo" || where === "r/cal") continue;
   const pr = page.practice;
   if (!pr || !(pr.guided || []).length || !(pr.interview || []).length) err(where, "needs Guided and Interview Level practice problems");
   else for (const x of [...pr.guided, ...pr.interview]) if (!x.q || !x.a) err(where, "a practice problem is missing its question or answer");

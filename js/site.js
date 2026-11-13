@@ -2,6 +2,10 @@
    Script order in index.html decides region order on the page. */
 const REGIONS = [];
 const NOTES = [];
+/* Regions whose pages are tabbed interview pages (Q/M cards, coding tab). */
+const INTV_REGIONS = ["intv", "resume"];
+const isIntv = id => INTV_REGIONS.includes(id);
+
 function section(region, notes) {
   REGIONS.push(region);
   for (const n of notes) NOTES.push(Object.assign({ region: region.id }, n));
@@ -16,5 +20,5 @@ const TABS = [
   { id: "sw", name: "Systems Software", regions: ["comp", "conc"] },
   { id: "chip", name: "Chip Design and Verification", regions: ["fab", "circ", "eda", "verif"] },
   { id: "ai", name: "AI", regions: ["gen", "llm", "aisys"] },
-  { id: "intv", name: "Interview Prep", regions: ["intv", "todo", "cal"] }
+  { id: "intv", name: "Interview Prep", regions: ["intv", "resume", "todo", "cal"] }
 ];

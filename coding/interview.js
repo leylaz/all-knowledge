@@ -5200,4 +5200,274 @@ a: `<p>Represent recency with timestamps. Inserting at the LRU position is a sta
 <p>Set dueling lets the hardware run the experiment itself. A few leader sets (32 of each here, about 6% of the cache) always use one policy, a single counter tracks which leader group misses less, and the remaining 960 sets follow the winner. The overhead is one 10-bit counter for the whole cache.</p>
 <p>In the checks, a 512 KB loop fits, so after the first pass everything hits under any policy (90% over 10 passes). On the 1.25 MB loop LRU gets nothing. BIP keeps 15 of the 20 lines that map to each set once warm, 71% hits over 20 passes. DIP gets 69%, losing a little in the LRU leader sets and while the duel settles. This line of work led to RRIP, the re-reference interval prediction family used in recent Intel last-level caches.</p>`
 });
+
+C("resume-mdp", "design", {
+lvl: "hard",
+q: `<p>Implement the store set predictor from Chrysos and Emer: a direct-mapped, untagged SSIT (PC to SSID) and an LFST (SSID to the inum of the last fetched store). Write these functions:</p>
+<ul>
+<li><code>ss_load_fetch</code>: return the inum the load must wait for, or -1.</li>
+<li><code>ss_store_fetch</code>: return the inum of the earlier store of its set it must wait for, or -1, then record this store as the set's last fetched store.</li>
+<li><code>ss_store_issue</code>: invalidate the LFST entry, but only if it still names this store.</li>
+<li><code>ss_violation</code>: apply the four assignment rules. A new set's SSID is <code>(load_pc &gt;&gt; 2) % LFST_SIZE</code>, and when both instructions have sets, the smaller SSID wins and the instruction in the other set moves to it.</li>
+<li><code>ss_clear</code>: invalidate every SSIT entry.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+
+#define SSIT_SIZE 1024   /* entries, indexed by (pc >> 2) % SSIT_SIZE */
+#define LFST_SIZE 64     /* store sets */
+
+typedef struct {
+    int ssit_valid[SSIT_SIZE], ssit[SSIT_SIZE];   /* SSID per PC slot */
+    int lfst_valid[LFST_SIZE], lfst[LFST_SIZE];   /* inum of last fetched store */
+} ss_t;
+
+static int slot(uint32_t pc) { return (pc >> 2) % SSIT_SIZE; }
+/* The SSID a PC maps to, or -1 if its SSIT entry is invalid. */
+static int ss_ssid(const ss_t *p, uint32_t pc) { return p->ssit_valid[slot(pc)] ? p->ssit[slot(pc)] : -1; }`,
+todo: String.raw`void ss_init(ss_t *p) {
+    /* TODO */
+}
+
+/* A load is fetched. Return the inum of the store it must wait for, or -1. */
+int ss_load_fetch(ss_t *p, uint32_t pc) {
+    /* TODO */
+    return -1;
+}
+
+/* A store with this inum is fetched. Return the inum of the earlier store
+   of its set it must wait for, or -1, and record it as the set's last store. */
+int ss_store_fetch(ss_t *p, uint32_t pc, int inum) {
+    /* TODO */
+    return -1;
+}
+
+/* A store issues. */
+void ss_store_issue(ss_t *p, uint32_t pc, int inum) {
+    /* TODO */
+}
+
+/* A load at load_pc was caught by the store at store_pc. Apply the
+   store set assignment rules. A new set's SSID is (load_pc >> 2) % LFST_SIZE. */
+void ss_violation(ss_t *p, uint32_t load_pc, uint32_t store_pc) {
+    /* TODO */
+}
+
+/* Cyclic clear: forget every SSIT entry. */
+void ss_clear(ss_t *p) {
+    /* TODO */
+}`,
+impl: String.raw`void ss_init(ss_t *p) {
+    for (int i = 0; i < SSIT_SIZE; i++) p->ssit_valid[i] = 0;
+    for (int i = 0; i < LFST_SIZE; i++) p->lfst_valid[i] = 0;
+}
+
+int ss_load_fetch(ss_t *p, uint32_t pc) {
+    int id = ss_ssid(p, pc);
+    return id >= 0 && p->lfst_valid[id] ? p->lfst[id] : -1;
+}
+
+int ss_store_fetch(ss_t *p, uint32_t pc, int inum) {
+    int id = ss_ssid(p, pc);
+    if (id < 0) return -1;
+    int wait = p->lfst_valid[id] ? p->lfst[id] : -1;   /* chain behind the previous store */
+    p->lfst[id] = inum;
+    p->lfst_valid[id] = 1;
+    return wait;
+}
+
+void ss_store_issue(ss_t *p, uint32_t pc, int inum) {
+    int id = ss_ssid(p, pc);
+    /* Clear only if a younger store of the set hasn't replaced this one. */
+    if (id >= 0 && p->lfst_valid[id] && p->lfst[id] == inum) p->lfst_valid[id] = 0;
+}
+
+static void set_ssid(ss_t *p, uint32_t pc, int id) {
+    p->ssit[slot(pc)] = id;
+    p->ssit_valid[slot(pc)] = 1;
+}
+
+void ss_violation(ss_t *p, uint32_t load_pc, uint32_t store_pc) {
+    int l = ss_ssid(p, load_pc), s = ss_ssid(p, store_pc);
+    if (l < 0 && s < 0) {                 /* rule 1: new set for both */
+        int id = (load_pc >> 2) % LFST_SIZE;
+        set_ssid(p, load_pc, id);
+        set_ssid(p, store_pc, id);
+    } else if (s < 0) {                   /* rule 2: store joins the load's set */
+        set_ssid(p, store_pc, l);
+    } else if (l < 0) {                   /* rule 3: load joins the store's set */
+        set_ssid(p, load_pc, s);
+    } else if (l != s) {                  /* rule 4: the smaller SSID wins */
+        if (l < s) set_ssid(p, store_pc, l);
+        else set_ssid(p, load_pc, s);
+    }
+}
+
+void ss_clear(ss_t *p) {
+    for (int i = 0; i < SSIT_SIZE; i++) p->ssit_valid[i] = 0;
+}`,
+tests: String.raw`int main(void) {
+    static ss_t p;
+    ss_init(&p);
+    const uint32_t LD1 = 0x1000, LD2 = 0x1104, LD3 = 0x1208;
+    const uint32_t ST1 = 0x2004, ST2 = 0x2010, ST3 = 0x2100;
+
+    /* Untrained: everything speculates. */
+    CHECK(ss_load_fetch(&p, LD1) == -1, "untrained load should not wait");
+
+    /* Rule 1: LD1 and ST1 get SSID (0x1000 >> 2) % 64 = 0. */
+    ss_violation(&p, LD1, ST1);
+    CHECK(ss_ssid(&p, LD1) == 0 && ss_ssid(&p, ST1) == 0, "rule 1: got %d and %d, expected 0 and 0", ss_ssid(&p, LD1), ss_ssid(&p, ST1));
+    CHECK(ss_store_fetch(&p, ST1, 7) == -1, "first store of a set waits for nothing");
+    int w = ss_load_fetch(&p, LD1);
+    CHECK(w == 7, "load should wait for inum 7, got %d", w);
+    ss_store_issue(&p, ST1, 7);
+    w = ss_load_fetch(&p, LD1);
+    CHECK(w == -1, "after the store issues the load is free, got %d", w);
+
+    /* Rule 2 and the in-order chain: ST2 joins set 0. */
+    ss_violation(&p, LD1, ST2);
+    CHECK(ss_ssid(&p, ST2) == 0, "rule 2: ST2 should join set 0, got %d", ss_ssid(&p, ST2));
+    CHECK(ss_store_fetch(&p, ST1, 10) == -1, "ST1 starts the chain");
+    w = ss_store_fetch(&p, ST2, 11);
+    CHECK(w == 10, "ST2 should wait for ST1 (inum 10), got %d", w);
+    w = ss_load_fetch(&p, LD1);
+    CHECK(w == 11, "the load waits for the last fetched store, 11, got %d", w);
+    ss_store_issue(&p, ST1, 10);          /* the older store must not clear 11 */
+    w = ss_load_fetch(&p, LD1);
+    CHECK(w == 11, "an older store's issue must not clear the entry, got %d", w);
+    ss_store_issue(&p, ST2, 11);
+    w = ss_load_fetch(&p, LD1);
+    CHECK(w == -1, "after the last store issues the load is free, got %d", w);
+
+    /* Rule 4 merging: LD2 and ST3 start set (0x1104 >> 2) % 64 = 1. */
+    ss_violation(&p, LD2, ST3);
+    CHECK(ss_ssid(&p, LD2) == 1 && ss_ssid(&p, ST3) == 1, "rule 1: expected set 1, got %d and %d", ss_ssid(&p, LD2), ss_ssid(&p, ST3));
+    ss_violation(&p, LD1, ST3);           /* set 0 wins, so ST3 moves */
+    CHECK(ss_ssid(&p, ST3) == 0 && ss_ssid(&p, LD2) == 1, "rule 4: ST3 should move to 0 and LD2 stay in 1, got %d and %d", ss_ssid(&p, ST3), ss_ssid(&p, LD2));
+    ss_violation(&p, LD2, ST3);           /* set 0 wins again, so LD2 moves */
+    CHECK(ss_ssid(&p, LD2) == 0, "rule 4: LD2 should move to 0, got %d", ss_ssid(&p, LD2));
+    ss_violation(&p, LD1, ST3);           /* same set: nothing changes */
+    CHECK(ss_ssid(&p, LD1) == 0 && ss_ssid(&p, ST3) == 0, "same-set violation should change nothing");
+
+    /* Rule 3: a load with no set joins the store's set. */
+    ss_violation(&p, LD3, ST2);
+    CHECK(ss_ssid(&p, LD3) == 0, "rule 3: LD3 should join set 0, got %d", ss_ssid(&p, LD3));
+    ss_store_fetch(&p, ST3, 20);
+    w = ss_load_fetch(&p, LD2);
+    CHECK(w == 20, "merged LD2 waits for ST3 (inum 20), got %d", w);
+
+    /* An untrained PC in its own slot doesn't wait. 0x3000 has never
+       violated, but its untagged slot is LD1's, so it inherits set 0. */
+    CHECK(ss_load_fetch(&p, 0x3008) == -1, "an unrelated load should not wait");
+    w = ss_load_fetch(&p, 0x3000);
+    CHECK(w == 20, "0x3000 aliases LD1's slot and should wait for 20, got %d", w);
+
+    /* Cyclic clear forgets every SSIT entry. */
+    ss_clear(&p);
+    CHECK(ss_ssid(&p, LD1) == -1 && ss_load_fetch(&p, LD2) == -1, "after a clear nothing is predicted");
+    CHECK(ss_store_fetch(&p, ST1, 30) == -1, "after a clear stores do not chain");
+    return REPORT();
+}`,
+a: `<p>The SSIT is just a valid bit and an SSID per PC slot, and the LFST a valid bit and an inum per set. A store reads its set's LFST entry before overwriting it, which builds the in-order chain: each store waits for the previous one, and a load waits only for the last. The issue check keeps an older store from erasing a younger store's record, and the tests catch that case.</p>
+<p>The violation rules are what prevent oscillation. Because rule 4 always picks the smaller SSID, an instruction only ever moves toward lower SSIDs, so the sets that two loads share converge into one after a few violations instead of passing a store back and forth.</p>
+<p>The alias check shows the price of an untagged table. PC 0x3000 never violated, but its slot, (0x3000 &gt;&gt; 2) % 1024 = 0, is the same as LD1's, so it inherits set 0 and waits for a store it has nothing to do with. That is why the SSIT is made large and cleared periodically.</p>`
+});
+
+C("resume-mdp", "eval", {
+lvl: "hard",
+q: `<p>Moshovos et al. measured how memory dependences grow with window size by counting, in a dynamic trace, every load that reads a byte last written by a store fewer than <code>window</code> instructions before it. Write <code>count_deps</code>, which returns that number of loads and fills <code>pairs</code> with each distinct (store PC, load PC) pair involved.</p>
+<ul>
+<li>Distance counts every instruction, ALU ones included: a store at index <em>s</em> and a load at index <em>l</em> are inside the window if <em>l</em> &minus; <em>s</em> &lt; <code>window</code>.</li>
+<li>Track dependences per byte: a load depends on the youngest store to each byte it reads, so an overwritten store doesn't count.</li>
+<li>Count a load once, even if several of its bytes come from different stores. Record a pair for each such store PC.</li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+
+#define MEM_BYTES 4096   /* every address + size fits below this */
+#define MAX_PAIRS 64
+
+typedef enum { ALU, LOAD, STORE } kind_t;
+typedef struct { kind_t kind; uint32_t pc, addr; int size; } op_t;
+typedef struct { uint32_t store_pc, load_pc; } pair_t;`,
+todo: String.raw`/* Count loads that depend on a store fewer than window instructions
+   older. Fill pairs[] with each distinct (store PC, load PC) pair seen,
+   set *npairs, and return the number of such loads. */
+int count_deps(const op_t *t, int n, int window, pair_t pairs[], int *npairs) {
+    /* TODO */
+    *npairs = 0;
+    return 0;
+}`,
+impl: String.raw`int count_deps(const op_t *t, int n, int window, pair_t pairs[], int *npairs) {
+    static int last_i[MEM_BYTES];         /* index of the youngest store to each byte */
+    static uint32_t last_pc[MEM_BYTES];
+    for (int b = 0; b < MEM_BYTES; b++) last_i[b] = -1;
+    int loads = 0;
+    *npairs = 0;
+    for (int i = 0; i < n; i++) {
+        if (t[i].kind == STORE) {
+            for (int b = t[i].addr; b < (int)t[i].addr + t[i].size; b++) { last_i[b] = i; last_pc[b] = t[i].pc; }
+        } else if (t[i].kind == LOAD) {
+            int dep = 0;
+            for (int b = t[i].addr; b < (int)t[i].addr + t[i].size; b++) {
+                if (last_i[b] < 0 || i - last_i[b] >= window) continue;
+                dep = 1;
+                int k = 0;
+                while (k < *npairs && !(pairs[k].store_pc == last_pc[b] && pairs[k].load_pc == t[i].pc)) k++;
+                if (k == *npairs && k < MAX_PAIRS) { pairs[k].store_pc = last_pc[b]; pairs[k].load_pc = t[i].pc; (*npairs)++; }
+            }
+            loads += dep;
+        }
+    }
+    return loads;
+}`,
+tests: String.raw`static op_t tr[512];
+
+/* for (i = 0; i < 100; i++) { alu; a[i] = ...; ... = a[i-3]; alu; }
+   4 instructions per iteration. The store is instruction 4i+1 and the load
+   4i+2, so the load of a[i-3] is 4*3 + 1 = 13 instructions after its store.
+   For i < 3 the load reads byte 1000, which nothing writes. */
+static int loop_trace(void) {
+    int n = 0;
+    for (int i = 0; i < 100; i++) {
+        tr[n++] = (op_t){ ALU, 0x0c, 0, 0 };
+        tr[n++] = (op_t){ STORE, 0x10, 4 * i, 4 };
+        tr[n++] = (op_t){ LOAD, 0x14, i >= 3 ? 4 * (i - 3) : 1000, 4 };
+        tr[n++] = (op_t){ ALU, 0x18, 0, 0 };
+    }
+    return n;
+}
+
+int main(void) {
+    pair_t pairs[MAX_PAIRS];
+    int np, d, n = loop_trace();
+
+    d = count_deps(tr, n, 13, pairs, &np);
+    CHECK(d == 0 && np == 0, "window 13: distance 13 is not inside, got %d loads, %d pairs", d, np);
+    d = count_deps(tr, n, 14, pairs, &np);
+    CHECK(d == 97, "window 14: loads for i = 3..99 depend, expected 97, got %d", d);
+    CHECK(np == 1 && pairs[0].store_pc == 0x10 && pairs[0].load_pc == 0x14, "window 14: expected one pair (0x10, 0x14), got %d", np);
+
+    /* An 8-byte load covering two 4-byte stores from different PCs. */
+    op_t w[] = { { STORE, 0x20, 2000, 4 }, { STORE, 0x24, 2004, 4 }, { ALU, 0x28, 0, 0 }, { LOAD, 0x2c, 2000, 8 } };
+    d = count_deps(w, 4, 3, pairs, &np);
+    CHECK(d == 1 && np == 1 && pairs[0].store_pc == 0x24, "window 3: only the store 2 back is inside, got %d loads, %d pairs", d, np);
+    d = count_deps(w, 4, 4, pairs, &np);
+    CHECK(d == 1 && np == 2, "window 4: one load, two static pairs, got %d loads, %d pairs", d, np);
+
+    /* A store overwritten by a younger store: the load depends only on the younger one. */
+    op_t o[] = { { STORE, 0x30, 3000, 4 }, { STORE, 0x34, 3000, 4 }, { LOAD, 0x38, 3000, 4 } };
+    d = count_deps(o, 3, 64, pairs, &np);
+    CHECK(d == 1 && np == 1 && pairs[0].store_pc == 0x34, "overwrite: expected pair (0x34, 0x38) only, got %d pairs, store 0x%x", np, np ? (unsigned)pairs[0].store_pc : 0);
+
+    /* A load that only partly overlaps a store still depends on it. */
+    op_t p[] = { { STORE, 0x40, 3500, 2 }, { LOAD, 0x44, 3501, 4 } };
+    d = count_deps(p, 2, 8, pairs, &np);
+    CHECK(d == 1, "partial overlap should count, got %d", d);
+    return REPORT();
+}`,
+a: `<p>Keeping the youngest writer of each byte (its trace index and PC) handles every overlap case at once: partial overlaps, one wide load covering two narrow stores, and a store hidden by a younger store to the same bytes. A load is then a dependence if any of its bytes has a writer closer than the window.</p>
+<p>The loop trace shows the window effect Moshovos et al. reported. The store and the load of a[i-3] are 13 instructions apart, so a 13-instruction window sees no dependences at all and a 14-instruction window sees one for nearly every iteration. Real programs have a spread of distances, so the count climbs steadily as the window grows, while the number of distinct static pairs stays small. That is what makes a PC-indexed predictor work, and what tells you how many SSIT entries a larger window needs.</p>`
+});
 })();

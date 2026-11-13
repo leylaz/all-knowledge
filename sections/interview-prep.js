@@ -90,7 +90,7 @@ ${window.INTV_CODING_HELP || ""}
 <li><strong>Fundamentals:</strong> <a href="#/intv-pipeline">Pipeline Flow and Width</a>, <a href="#/intv-renaming">Renaming and Dependences</a>, <a href="#/intv-rob">The ROB and Retirement</a>, <a href="#/intv-sched">Scheduling and Execution</a>, <a href="#/intv-arith">Arithmetic and Floating Point</a>, <a href="#/intv-isa">Instruction Sets and Encoding</a>.</li>
 <li><strong>Interactions:</strong> <a href="#/intv-branch">Branch Prediction and Speculation</a>, <a href="#/intv-fe">Front End and Fetch</a>, <a href="#/intv-lsq">Loads, Stores and Memory Ordering</a>, <a href="#/intv-mem">Caches, TLBs and DRAM</a>, <a href="#/intv-coh">Coherence and Consistency</a>, <a href="#/intv-icx">Interconnects, Links and Memory Interfaces</a>, <a href="#/intv-diag">Diagnosing Bottlenecks</a>, <a href="#/intv-proc">Reasoning About Real Processors</a>, <a href="#/intv-bench">Workloads, Benchmarks and the Roofline</a>.</li>
 <li><strong>Systems programming:</strong> <a href="#/intv-conc">Concurrency and Parallelism</a>, <a href="#/intv-alloc">Memory Allocation and the C Library</a>, <a href="#/intv-vm">Virtual Memory and the OS Boundary</a>. Expect to write code for these in an interview.</li>
-<li><strong>Your own experience:</strong> <a href="#/intv-sim">Building a Performance Model in C</a>, <a href="#/intv-design">Open-Ended Design Problems</a>. Connect every answer here to a decision or bug from your own simulator.</li>
+<li><strong>Your own experience:</strong> <a href="#/intv-sim">Building a Performance Model in C</a>, <a href="#/intv-design">Open-Ended Design Problems</a>, and the project pages in <a href="#/r/resume">Resume Deep Dives</a>. Connect every answer here to a decision or bug from your own simulator.</li>
 </ol>
 
 <h3 id="sec-numbers">Numbers Worth Knowing</h3>
@@ -4192,4 +4192,6 @@ Q(`<p>A manager asks you to prove that a proposed optimization improves every wo
 <p>Propose:</p><ul><li>A broad, representative suite (SPEC CPU, server and client traces, the customers’ key workloads)</li><li>Report the distribution of speedups including the worst case, not just the geomean</li><li>Deliberately test adversarial cases suggested by the mechanism</li><li>Explain the mechanism so the reasons it helps are clear</li><li>Add guardrails if regressions exist, such as throttling the feature when it detects it isn’t helping (as prefetchers do with accuracy feedback)</li></ul><p>Agree up front on the acceptance criterion, for example “geomean gain above 2% and no workload worse than −1%.”</p>`, "medium"),
 }
 ].map(tabbed));
+/* sections/resume-prep.js builds its pages with the same cards and tabs. */
+window.INTV_KIT = { Q, M, tabbed };
 })();

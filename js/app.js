@@ -301,7 +301,7 @@ function flagIndex() {
   if (FLAG_INDEX) return FLAG_INDEX;
   FLAG_INDEX = [];
   const t = document.createElement("template");
-  for (const n of NOTES.filter(x => x.region === "intv")) {
+  for (const n of NOTES.filter(x => isIntv(x.region))) {
     t.innerHTML = n.body;
     t.content.querySelectorAll(".prob[data-qid]").forEach(card =>
       FLAG_INDEX.push({ note: n, snip: cardSnip(card), html: card.outerHTML }));
@@ -341,7 +341,7 @@ const secFlag = key => SEC_FLAGS.find(f => f.key === key);
 /* The page a layout id names, if its subsections can be flagged. */
 function flaggablePage(curId) {
   const page = curId.startsWith("r/") ? REGIONS.find(r => "r/" + r.id === curId) : NOTES.find(n => n.id === curId);
-  return page && page.id !== "intv" && page.region !== "intv" ? page : null;
+  return page && !isIntv(page.id) && !isIntv(page.region) ? page : null;
 }
 function headText(h) {
   const c = h.cloneNode(true);
@@ -729,7 +729,7 @@ function drillPool() {
   for (const n of NOTES) fromPractice(n.id, n.title, n.region, n.practice);
   for (const c of flagIndex()) {
     const lvl = (c.html.match(/class="lvl (easy|medium|hard)"/) || [])[1] || "";
-    add(c.note.id, c.note.title, "intv", c.html, lvl);
+    add(c.note.id, c.note.title, c.note.region, c.html, lvl);
   }
   return DRILL_POOL;
 }
@@ -800,7 +800,7 @@ function renderReview() {
   const cidx = flagIndex();
   const flagged = new Set(FLAGS.map(f => f.snip)), foundQ = new Set();
   let qs = "";
-  for (const n of NOTES.filter(x => x.region === "intv")) {
+  for (const n of NOTES.filter(x => isIntv(x.region))) {
     const cards = cidx.filter(c => c.note === n && flagged.has(c.snip));
     if (!cards.length) continue;
     cards.forEach(c => foundQ.add(c.snip));
