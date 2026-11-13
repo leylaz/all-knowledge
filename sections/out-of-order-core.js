@@ -341,7 +341,7 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
     { id: "takeaways", label: "Takeaways" }
   ],
   body: `
-<p>When a load's address is ready, some older stores may not have computed theirs yet. Should the load go anyway? A memory dependence predictor answers that question for each load: which older stores, if any, it must wait for. This page follows Chrysos and Emer's store sets paper (ISCA 1998) section by section. Window-size data comes from Moshovos, Breach, Vijaykumar, and Sohi (ISCA 1997), real hardware from the Alpha 21264 hardware reference manual, and background from Hennessy and Patterson (chapter 3).</p>
+<p>Most loads never touch the bytes an older in-flight store is about to write, so letting them run ahead is almost always the right call. The rare exception is costly: a load that reads too early returns stale data, and the core must squash it along with every younger instruction. A memory dependence predictor learns which loads are the exceptions. It remembers the stores each load has collided with in the past and holds that load back only until those stores have issued, while every other load runs freely. This page follows Chrysos and Emer's store sets paper (ISCA 1998) section by section. Window-size data comes from Moshovos, Breach, Vijaykumar, and Sohi (ISCA 1997), real hardware from the Alpha 21264 hardware reference manual, and background from Hennessy and Patterson (chapter 3).</p>
 
 <h3 id="sec-why">Why Predict Memory Dependences</h3>
 <p>An out-of-order core must respect two kinds of data dependence:</p>
