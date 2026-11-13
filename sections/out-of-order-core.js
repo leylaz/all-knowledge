@@ -455,7 +455,18 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
 <ul>
 <li><strong>Most dependences span more than a few instructions.</strong> compress has almost no dependences within 8 instructions but about 34 per 1,000 instructions within 32, and those 24 extra instructions of window can hold many unrelated stores. A 1990s core with a window of a few tens of instructions saw few violations, which is why blind speculation was good enough then.</li>
 <li><strong>The rate keeps climbing into hundreds of instructions.</strong> From 128 to 512 instructions, every program gains another 10 to 28 dependences per 1,000 instructions.</li>
-<li><strong>More static pairs appear too.</strong> In gcc, the number of static store-load pairs behind 99.9% of these events goes from 255 pairs at a window of 8 to 8,001 pairs at 512 (their Table 4). A predictor for a larger window needs more entries.</li>
+<li><strong>More static pairs appear too.</strong> An <em>event</em> is one dynamic store-to-load dependence that the table above counts: a load at run time reads a value written by an older store fewer than n instructions back. A <em>static pair</em> is one (store PC, load PC) combination in the program's code, such as:
+<pre><code>p-&gt;count = x;   // store at PC 0x4a10
+...
+y = p-&gt;count;   // load at PC 0x4a1c</code></pre>
+<p>Every time this code runs with the two instructions close enough together, it produces another event, even though the predictor has already seen the pair. A loop that runs 1,000,000 times can produce 1,000,000 events from this single pair. The pair counts below are measured over the whole gcc run, not inside one window, which holds only a store or two and a load at a time:</p>
+<ol>
+<li>Collect every event, every dynamic dependence with a store-to-load distance under n instructions.</li>
+<li>Group the events by their (store PC, load PC) pair.</li>
+<li>Sort the pairs from most to fewest events.</li>
+<li>Take pairs from the top until they cover 99.9% of all events, and count them.</li>
+</ol>
+<p>That count goes from 255 pairs at a window of 8 instructions to 8,001 pairs at 512 instructions (their Table 4). gcc is large, and at a window of 8 instructions its close-range dependences come from 255 code locations, such as register spills and reloads or a struct field written and read back. At a window of 512 instructions, pairs farther apart also count, such as a store in a caller and a load in a callee, or a store in one loop iteration and a load several iterations later. A predictor indexed by PC therefore needs more entries for a larger window.</p></li>
 <li><strong>But the pairs have temporal locality.</strong> A small cache of recent conflicting pairs captures most events. With a 512-instruction window, a 512-entry cache misses less than 4% of the time for every program (their Table 5). This is the premise store sets also rely on: a few static pairs, repeated many times.</li>
 </ul>
 <p>On a real out-of-order model (a Multiscalar processor with 4 or 8 processing units, which form 4 or 8 sequential tasks in flight), blind speculation's violations per committed load rise with the larger configuration in every program. For example, compress goes from 0.073 to 0.136 violations per committed load and sc goes from 0.021 to 0.039 (their Table 9). Their own predictor cuts these to 0.00083 and 0.00205 for compress.</p>
