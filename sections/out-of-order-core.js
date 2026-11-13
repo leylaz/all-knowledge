@@ -202,7 +202,7 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
 <h3 id="sec-wakeup-select">Wakeup and Select</h3>
 <p><strong>Wakeup:</strong> a producer's destination tag is broadcast and waiting entries set ready bits. <strong>Select:</strong> pick ready entries up to the issue width per port, often oldest first. For back-to-back dependent issue, wakeup plus select must fit in one cycle.</p>
 <h3 id="sec-speculative-wakeup">Speculative Wakeup</h3>
-<p>Dependents of a load are woken assuming an L1 hit; on a miss they're replayed.</p>
+<p>Dependents of a load are woken assuming an L1 hit; on a miss they're replayed. How a core re-runs only the instructions that used a bad value is on <a href="#/replay">Selective Replay</a>.</p>
 <h3 id="sec-unified-distributed">Unified vs. Distributed</h3>
 <p>A unified queue uses entries better; per-port queues are smaller and faster. Cost grows with entries times broadcast tags.</p>`,
   practice: {
@@ -414,7 +414,7 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
 <tr><td>turb3d</td><td>6</td><td>16</td><td>213</td></tr>
 </table></div>
 <p>A rough product of the two naive-speculation columns shows why violations can't be ignored. wave5 loses about 24 violations per 1,000 instructions × 21 cycles per violation ≈ 504 cycles per 1,000 instructions of fetch time. At this machine's IPC of a few instructions per cycle, 1,000 instructions take only a few hundred cycles, so the lost fetch time is comparable to the program's whole run time.</p>
-<p><strong>Why not replay only the dependents?</strong> Tyson and Austin proposed re-executing just the violating load and the instructions that depend on it, instead of squashing everything younger. That would cut the trap penalty, but it has a cost the paper cares about: an instruction that might be replayed has to stay in the issue queue until it retires. The 21264 instead frees issue queue entries as soon as instructions issue, so newer instructions can compete for issue slots sooner. A smaller queue then finds as much ILP as a larger one would, which helps cycle time. Chrysos and Emer choose to keep early deallocation and make violations so rare that their penalty doesn't matter.</p>
+<p><strong>Why not replay only the dependents?</strong> Tyson and Austin proposed re-executing just the violating load and the instructions that depend on it, instead of squashing everything younger. Replay is not refetch. A squash throws away the load and every younger instruction, and fetch restarts at the load's PC, so even instructions that never touched the load's value go back through fetch, decode, rename, and issue. A replay leaves every instruction in the window. The load's correct value is broadcast again, and only the instructions that consumed the wrong one issue again, straight from the issue queue, with no trip through the front end. That would cut the trap penalty, but it has a cost the paper cares about: an instruction that might be replayed has to stay in the issue queue until it retires. The 21264 instead frees issue queue entries as soon as instructions issue, so newer instructions can compete for issue slots sooner. A smaller queue then finds as much ILP as a larger one would, which helps cycle time. Chrysos and Emer choose to keep early deallocation and make violations so rare that their penalty doesn't matter. The full replay mechanism and its costs are on <a href="#/replay">Selective Replay</a>.</p>
 
 <p><strong>Perfect prediction.</strong> An oracle makes each load wait for exactly the store it depends on, and for nothing else. The paper's Figure 3.1 compares the three policies. Approximate IPC values read from that bar chart:</p>
 <div class="tbl"><table>
@@ -716,6 +716,126 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
       {
         q: `<p>A store set predictor clears its SSIT valid bits every T cycles. After each clear, 350 active store-load pairs must each cause one violation to relearn, at 24 cycles per violation. Find the overhead as a fraction of run time for T = 2,000,000 cycles and T = 50,000 cycles. What limits how large T can be?</p>`,
         a: `<ol><li>Relearning cost per clear: 350 pairs × 1 violation/pair × 24 cycles/violation = 8,400 cycles.</li><li>T = 2,000,000 cycles: 8,400 cycles / 2,000,000 cycles = <strong>0.42%</strong>.</li><li>T = 50,000 cycles: 8,400 cycles / 50,000 cycles = <strong>16.8%</strong>, far too high.</li><li>T can't grow without limit, because clearing is the only way stale entries leave the untagged SSIT. Between clears, pairs that stopped conflicting (a phase change, or a store that conflicts only rarely) and aliased entries keep adding false dependences. The best T balances that growing false-dependence cost against the relearning cost, which falls as 1/T. The paper's 1,000,000-cycle interval sits in that range for SPEC95.</li></ol>`
+      }
+    ]
+  }
+},
+
+{
+  id: "replay",
+  region: "core",
+  title: "Selective Replay",
+  sections: [
+    { id: "refetch", label: "Squash and Refetch" },
+    { id: "setting", label: "Where the Idea Came From" },
+    { id: "reexec", label: "Re-execution Recovery" },
+    { id: "results", label: "What It Bought" },
+    { id: "hold", label: "The Cost: Holding Entries" },
+    { id: "later", label: "Replay in Later Cores" },
+    { id: "takeaways", label: "Takeaways" }
+  ],
+  body: `
+<p>When a speculative value turns out to be wrong, every instruction that used it must run again with the right value. There are two ways to get there. The core can squash everything younger and refetch it, or it can re-execute only the instructions that actually consumed the bad value. Tyson and Austin (MICRO 1997) built and measured the second approach, which they called <strong>re-execution recovery</strong>. Later work calls the same idea <strong>selective replay</strong>.</p>
+
+<h3 id="sec-refetch">Squash and Refetch</h3>
+<p>Squash recovery treats a bad load value like a mispredicted branch. In Tyson and Austin's words, "Mis-speculated loads may be treated the same as mis-speculated branches."</p>
+<ul>
+<li><strong>What happens:</strong> The core throws away the load and every younger instruction, restores the rename map, and restarts fetch at the load's PC.</li>
+<li><strong>Why it's correct:</strong> Every instruction that could have used the bad value is younger than the load, so it's in the squashed set.</li>
+<li><strong>Why it's expensive:</strong> Most of the squashed instructions never touched the bad value. They get refetched, decoded, renamed, and executed again anyway. On top of that, the front end has to refill before the first refetched instruction even reaches the scheduler.</li>
+<li><strong>Why designers like it:</strong> It reuses the branch recovery hardware, so it costs almost nothing extra.</li>
+</ul>
+
+<h3 id="sec-setting">Where the Idea Came From</h3>
+<p>Tyson and Austin needed cheap recovery for <strong>memory renaming</strong>, which makes a load look like a register read:</p>
+<ol>
+<li>At decode, the load's PC indexes a <strong>store/load cache</strong>. That cache returns an index into a <strong>value file</strong>, which is shared by a load and the store predicted to produce its data.</li>
+<li>At rename, the load reads the value file. It gets the value that store last wrote, or the store's LSQ entry if the store is still in flight. Dependents then start right away, before the load has computed its address.</li>
+<li>The load still accesses memory as usual. When the real value returns, the core compares it with the predicted one. A mismatch is a mis-speculation.</li>
+<li>Confidence counters at decode decide which loads get renamed at all.</li>
+</ol>
+<p>So the error here is a wrong value, not a store-load ordering violation found by an address search. The recovery problem is the same, though: one load handed a bad value to a tree of dependents. One difference matters. In memory renaming, the verifying memory access has already produced the correct value, so the load itself doesn't need to run again. After an ordering violation, the load has to re-read memory first.</p>
+
+<h3 id="sec-reexec">Re-execution Recovery</h3>
+<p>Tyson and Austin leave every instruction in place and use the scheduler's own wakeup network to find the dependents. In their words, the approach "leverages dependence information stored in the reservation stations of not-yet retired instruction[s] to permit re-execution of only those instructions dependent on a speculative load value."</p>
+<ol>
+<li>The verifying access returns a value that doesn't match the prediction.</li>
+<li>The core puts the correct value on the result bus under the load's destination tag, just like a normal completion.</li>
+<li>Every waiting instruction whose operand tag matches captures the new value and re-executes. It then broadcasts its new result, which re-triggers its own dependents, and so on down the chain.</li>
+<li>Memory dependences need extra help. When a store re-executes, the LSQ rechecks it against younger loads and re-issues any that read from it. A load whose address operand was regenerated also re-executes.</li>
+</ol>
+<p>Nothing is refetched, and younger instructions that never used the load's value keep their results.</p>
+<p><strong>An instruction can run more than twice.</strong> No instruction knows how many of its operands will be regenerated, so it simply re-executes each time a new one arrives. If both operands of an add come from the bad load through chains of different lengths, the add runs once with the first corrected operand and again with the second. The paper says an instruction "may possibly re-execute multiple times, once for every re-generated operand that arrives."</p>
+<p><strong>When it's safe to let go.</strong> An instruction can't free its reservation station entry when it issues, because a corrected operand might still arrive. The paper's rule is retirement: "At retirement, any re-executed instruction will be the oldest instruction in the machine, thus it cannot receive any more re-generated values, and the instruction may be safely retired."</p>
+
+<div class="tbl"><table>
+<tr><th></th><th>Squash and refetch</th><th>Selective replay</th></tr>
+<tr><td>What runs again</td><td>The load and every younger instruction</td><td>Only instructions downstream of the bad value</td></tr>
+<tr><td>Front end</td><td>Refetch, decode, and rename again</td><td>Not involved</td></tr>
+<tr><td>Extra hardware</td><td>Almost none (branch recovery path)</td><td>Re-broadcast on the result bus, LSQ recheck for re-executed stores</td></tr>
+<tr><td>Scheduler entries</td><td>Freed at issue</td><td>Held until the instruction can't be replayed</td></tr>
+<tr><td>Penalty grows with</td><td>Front-end depth and window occupancy</td><td>Depth of the dependence chain</td></tr>
+</table></div>
+
+<h3 id="sec-results">What It Bought</h3>
+<p>The simulator was SimpleScalar's sim-outorder: 8-wide issue and commit, a 256-entry RUU ("re-order buffer that implements renamed register storage and holds results of pending instructions"), and a 128-entry LSQ. Store forwarding took 1 cycle, and a branch mispredict cost 8 cycles. The workload was 10 SPEC95 programs.</p>
+<ul>
+<li><strong>Squash recovery hurt:</strong> With a moderate confidence threshold (their SQ-422), many programs saw only small speedups and CC1 slowed down by more than 5%. As they put it, "Many of the programs had more data mis-speculations than branch mis-predictions!"</li>
+<li><strong>Raising the threshold only partly helped:</strong> A stricter threshold (SQ-844) mis-speculated less, but CC1 still gained very little.</li>
+<li><strong>Re-execution fixed it:</strong> The same threshold with re-execution (RE-422) sped up every program, by as much as 14% for M88ksim and over 6% on average.</li>
+<li><strong>Most squashed work was independent:</strong> Re-execution used less than 1/3 of the execution bandwidth squash recovery did. So, on average, fewer than 1 in 3 of the instructions in flight after a mis-speculation depended on the bad load.</li>
+<li><strong>Cheap recovery allows bolder speculation:</strong> With re-execution, they could rename lower-confidence loads too (RE-211), and that did better for most programs. Going further (thresholds 111 and 000) raised mis-speculation too much.</li>
+<li><strong>Slower forwarding raises the payoff:</strong> With a 3-cycle store forward, renaming with re-execution gained up to 41% for M88ksim and more than 16% overall.</li>
+</ul>
+<p>The lesson goes beyond renaming: <strong>recovery cost sets how aggressively you can speculate.</strong> When a wrong guess is cheap, the predictor can accept a lower hit rate in exchange for covering more instructions.</p>
+
+<h3 id="sec-hold">The Cost: Holding Entries</h3>
+<p>In sim-outorder, the RUU is both the reorder buffer and the reservation stations. Every instruction keeps its RUU entry until commit no matter what, so holding it for possible re-execution costs no capacity. That's why the cost never shows up in Tyson and Austin's results.</p>
+<p>Real cores split the two. The ROB is large and cheap per entry. The issue queue is small, because every entry compares its operand tags on every wakeup broadcast. The Alpha 21264 has a 20-entry integer queue and a 15-entry FP queue, and it frees an entry as soon as its instruction issues. Selective replay breaks that: an entry has to stay from dispatch all the way to the point where it can no longer be replayed.</p>
+<p>Little's law shows the size of the cost. Occupancy equals dispatch rate × time per entry. Under early deallocation, time per entry is dispatch-to-issue, often a handful of cycles. Under replay-until-retire, it's dispatch-to-retire, which includes every cache miss ahead of the instruction in program order. The queue either grows, which hurts the wakeup and select timing loop, or fills and stalls dispatch. This is the argument Chrysos and Emer make on the <a href="#/mdp/bounds">Memory Dependence Prediction</a> page. They keep early deallocation and use a predictor good enough that violations, and their full squash cost, almost never happen.</p>
+<p>The way out is to shorten how long an entry has to wait. An instruction only needs its entry until every older speculative value it could depend on has been confirmed. If confirmation comes a few cycles after issue, the hold is short too.</p>
+
+<h3 id="sec-later">Replay in Later Cores</h3>
+<p>That short-hold version is exactly where replay ended up: <a href="#/scheduler/speculative-wakeup">speculative wakeup</a> on load hits. The scheduler wakes a load's dependents as if the load will hit in L1, so they issue in time to catch its data on the bypass. If the load misses, those dependents read garbage and must issue again. The hit/miss answer arrives a few cycles after the load issues, so entries are held only that long, not until retire.</p>
+<p>Kim and Lipasti (HPCA 2004) compare the ways to do this:</p>
+<ul>
+<li><strong>Squashing replay:</strong> Re-issue everything that issued in the load's shadow, dependent or not. It's simple, but it wastes issue slots.</li>
+<li><strong>Selective replay:</strong> Re-issue only the load's dependence chain, Tyson and Austin's idea applied to scheduling. It needs a way to tell which instructions depend on which in-flight loads.</li>
+</ul>
+<p>Store-load ordering violations, the hard case Chrysos and Emer studied, are still usually handled by a full squash. The load has to re-read memory, the violation shows up long after issue, and a good dependence predictor keeps violations rare.</p>
+
+<h3 id="sec-takeaways">Takeaways</h3>
+<ul>
+<li>Replay re-runs only the instructions downstream of a bad value, from the scheduler, without going back to fetch. Refetch re-runs everything younger.</li>
+<li>Tyson and Austin re-broadcast the correct value on the result bus and let the normal wakeup network find the dependents. An instruction may run once per regenerated operand.</li>
+<li>In their study, fewer than 1 in 3 in-flight instructions depended on a mis-speculated load. Re-execution turned a slowdown into speedups on every program and allowed lower-confidence speculation.</li>
+<li>The price is scheduler occupancy. An entry must stay until no corrected operand can reach it. Their RUU model hid this cost, but in a core with a small issue queue that frees entries at issue, it's real.</li>
+<li>Replay works best when confirmation comes quickly, as with load hit speculation. For rare, late-detected errors such as ordering violations, prediction plus squash is usually the better trade.</li>
+</ul>
+<p class="refs">References: Tyson and Austin, "Improving the Accuracy and Performance of Memory Communication Through Renaming," MICRO 1997 · Chrysos and Emer, "Memory Dependence Prediction using Store Sets," ISCA 1998 · Kim and Lipasti, "Understanding Scheduling Replay Schemes," HPCA 2004 · Hennessy and Patterson, Computer Architecture: A Quantitative Approach, chapter 3</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A 6-wide core finds that a load got a wrong value. At that moment 180 younger instructions are in flight, and 40 of them depend on the load, directly or through other instructions. The longest dependence chain after the load is 7 single-cycle instructions. A refetch reaches the scheduler 13 cycles after the redirect. Compare the work wasted and the time to recover under squash and refetch versus selective replay. Ignore overlap with other work.</p>`,
+        a: `<ol><li>Squash: all 180 younger instructions are thrown away and must be fetched again. The first one reaches the scheduler after 13 cycles. Re-dispatching all of them at 6 instructions/cycle takes 180 instructions / 6 instructions/cycle = 30 cycles. So the window is back where it was after about 13 cycles + 30 cycles = <strong>43 cycles</strong>, and <strong>180 instructions</strong> run a second time.</li><li>Replay: the correct value is broadcast, and only the 40 dependents issue again. The last one gets its correct value once the longest chain re-executes: 7 instructions × 1 cycle/instruction = <strong>7 cycles</strong>. The wasted work is <strong>40 issue slots</strong>.</li><li>Replay re-executes 40 instructions / 180 instructions ≈ 22% of what squash does, and it never touches the front end. The other 140 instructions keep their results.</li><li>What replay costs instead: all 180 instructions had to keep their scheduler entries after issuing, since any of them could have been a dependent until the load was checked.</li></ol>`
+      },
+      {
+        q: `<p>A load L writes r1 with a wrong value. Three instructions use it:</p><ul><li>I1: add r2 = r1 + 8 (1 cycle)</li><li>I2: mul r3 = r1 × r6 (3 cycles)</li><li>I3: sub r4 = r2 − r3 (1 cycle)</li></ul><p>All three have already executed with the wrong r1. Using Tyson and Austin's re-execution recovery, the correct r1 is broadcast at the end of cycle 0. Each instruction issues the cycle after an operand arrives, and its result is broadcast at the end of its last execute cycle. Trace the replay. How many times does I3 execute during recovery?</p>`,
+        a: `<ol><li>Cycle 0: the correct r1 goes out on the result bus. I1 and I2 both match the tag and capture it.</li><li>Cycle 1: I1 and I2 issue. I1 finishes and broadcasts the new r2 at the end of cycle 1. I2 needs 3 cycles (cycles 1, 2, and 3).</li><li>Cycle 2: I3 captures the new r2 and issues. Its r3 is still the stale value from the first wrong execution, so it broadcasts another wrong r4.</li><li>Cycle 3: I2 finishes and broadcasts the correct r3 at the end of the cycle.</li><li>Cycle 4: I3 captures r3 and issues again, now with both operands correct. It broadcasts the correct r4.</li><li>I3 executes <strong>2 times</strong> during recovery, once per regenerated operand. Any consumer of r4 also runs twice, so the extra work can multiply down the chain. A design that waited for both operands would need to know in advance which operands will be regenerated, and the paper notes that's "non-trivial."</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A core dispatches 6 µops/cycle into a 96-entry unified issue queue. On average a µop spends 8 cycles between dispatch and issue, and 30 cycles between issue and retire. Find the average issue queue occupancy when entries are freed at issue, and when they're held until retire for selective replay. What sustained dispatch rate can the second design support? Then propose a fix.</p>`,
+        a: `<ol><li>Freed at issue: by Little's law, occupancy = 6 µops/cycle × 8 cycles = <strong>48 entries</strong>. The 96-entry queue is half full on average, with room for bursts.</li><li>Held until retire: occupancy = 6 µops/cycle × (8 cycles + 30 cycles) = 6 µops/cycle × 38 cycles = <strong>228 entries</strong>, which is more than the 96 entries available.</li><li>So the queue fills and dispatch stalls. The sustained rate falls to 96 entries / 38 cycles ≈ <strong>2.53 µops/cycle</strong>, about 42% of the 6 µops/cycle width. The issue-to-retire time also gets longer, because a full queue hides fewer misses.</li><li>Fix: hold each entry only until every older speculative value it could depend on is confirmed, not until retire. If confirmation comes 4 cycles after issue, occupancy = 6 µops/cycle × (8 cycles + 4 cycles) = 72 entries, which fits. Errors confirmed later than that, such as ordering violations, fall back to a full squash. Growing the queue to 228 entries is the other option, but it slows the wakeup and select loop.</li></ol>`
+      },
+      {
+        q: `<p>Renaming a load correctly saves 3 cycles on the critical path. A wrong rename costs 22 cycles with squash recovery or 4 cycles with selective replay. Above what mis-speculation rate does renaming a load class stop paying, under each recovery scheme? How does this change the confidence threshold a designer picks?</p>`,
+        a: `<ol><li>With mis-speculation rate p, renaming pays when the expected gain beats the expected loss: (1 − p) × 3 cycles > p × cost.</li><li>Squash: (1 − p) × 3 cycles = p × 22 cycles gives p = 3 cycles / (3 cycles + 22 cycles) = <strong>12%</strong>.</li><li>Replay: (1 − p) × 3 cycles = p × 4 cycles gives p = 3 cycles / (3 cycles + 4 cycles) ≈ <strong>42.9%</strong>.</li><li>With squash, only load classes that are wrong less than 12% of the time are worth renaming, so the confidence threshold must be strict and coverage stays low. With replay, classes that are wrong up to about 42.9% of the time still pay, so a lower threshold covers far more loads. This is the pattern Tyson and Austin saw when re-execution let them move to a lower-confidence setting.</li><li>Caveat: replay cost isn't really constant. It grows with the depth of the dependence chain and with issue queue pressure, so measure it per load class rather than assuming one number.</li></ol>`
+      },
+      {
+        q: `<p>Tyson and Austin's re-execution recovery gave speedups on every program in their simulator. A colleague wants to add the same scheme to a core with small, separate integer and FP issue queues that free entries at issue, and to use it for store-load ordering violations too. What would you warn them about?</p>`,
+        a: `<p>First, the result doesn't carry over directly. Their simulator used an RUU, where reservation stations and ROB entries are the same, so holding an entry until retire cost no capacity. In a core that frees issue queue entries at issue, every entry that might be replayed has to stay much longer. The queue either grows, which hurts the wakeup and select cycle time, or fills and stalls dispatch. That's the reason Chrysos and Emer kept early deallocation.</p><p>Second, ordering violations are a harder case than value mis-speculation. In memory renaming, the verifying memory access already holds the correct value, so the core only re-broadcasts it. After an ordering violation, the load must read memory again, or get the store's forwarded data, before anything can re-execute. The violation also shows up only when the older store's address resolves, which can be long after the load issued. Entries would need to stay for that whole time.</p><p>Third, memory dependences complicate the chain. A re-executed store can change data or addresses that younger loads already used, so the LSQ has to recheck it and possibly replay more loads. A re-executed address computation can send a load to a new address.</p><p>Better plan: use selective replay where errors are confirmed quickly, as with L1 hit speculation. For ordering violations, use a strong dependence predictor so they're rare, and squash when one does happen. Measure squash rate × squash cost against the IPC lost to a larger or more crowded queue before committing either way.</p>`
       }
     ]
   }
