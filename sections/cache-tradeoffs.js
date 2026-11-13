@@ -2617,7 +2617,10 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
   region: "ctr",
   title: "Banking and Bank Size",
   sections: [
-    { id: "changes", label: "What It Changes" },
+    { id: "why", label: "Why Caches Are Banked" },
+    { id: "timing", label: "Single-Cycle and Two-Cycle Bank Access" },
+    { id: "conflicts", label: "Bank Conflicts" },
+    { id: "configs", label: "Bank Configurations" },
     { id: "few", label: "Few, Large Banks" },
     { id: "many", label: "Many, Small Banks" },
     { id: "slices", label: "Distributed LLC Slices" },
@@ -2627,8 +2630,439 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
     { id: "workload", label: "By Workload" }
   ],
   body: `
-<h3 id="sec-changes">What It Changes</h3>
-<p>A banked cache splits its array into independent pieces, letting several accesses proceed at once. Bank size trades access speed against overhead.</p>
+<h3 id="sec-why">Why Caches Are Banked</h3>
+<p>A cache's data array is a grid of SRAM cells. A read works in four steps:</p>
+<ol>
+<li>The row decoder turns the index bits into one active <strong>wordline</strong>, a wire running across the whole row.</li>
+<li>The wordline turns on every cell in that row. Each cell starts pulling down one of the two <strong>bitlines</strong> in its column, which were precharged high.</li>
+<li>Sense amplifiers at the bottom of each column wait for a small voltage difference (around 100 mV) between the two bitlines and amplify it into a full logic value.</li>
+<li>The column mux picks the bytes asked for, and the bitlines are precharged again before the next read.</li>
+</ol>
+<p>Every step slows down and burns more energy as the array grows:</p>
+<ul>
+<li><strong>Wordlines:</strong> a wordline is a distributed RC wire. Both its resistance and its capacitance grow with its length, so its delay grows with the <em>square</em> of the number of columns it crosses. Halving the width cuts wordline delay by about 4×.</li>
+<li><strong>Bitlines:</strong> every cell in a column hangs its access transistor on the bitline, so bitline capacitance grows with the number of rows. One tiny cell must pull that capacitance down by 100 mV before the sense amplifier can fire, so the time to develop the signal grows linearly with the rows.</li>
+<li><strong>Energy:</strong> each read charges and discharges every bitline the active wordline touches. A wider, taller array moves more capacitance on every access, even when the core wants only 8 bytes.</li>
+<li><strong>Ports:</strong> an array has one decoder and one set of sense amplifiers, so it serves one access at a time. Giving every cell a second port adds a wordline (taller cell) and a bitline pair (wider cell), so area grows roughly with the square of the port count and every wire gets longer.</li>
+</ul>
+<p>Banking attacks all four at once. The array is cut into independent banks, and each bank gets its own decoder, sense amplifiers, and precharge logic. A few address bits pick the bank, and only that bank switches:</p>
+<div class="tbl"><svg viewBox="0 0 680 352" role="img" aria-label="A 32 KB data array built two ways. On the left, one monolithic array of 512 rows by 512 columns with one row decoder and one row of sense amplifiers. Every access drives a wordline that crosses 512 cells and bitlines loaded by 512 cells, and the array serves one access per cycle. On the right, 16 banks of 2 KB, each 128 rows by 128 columns with its own decoder and sense amplifiers. Bank 1 serves port 0 and bank 9 serves port 1 in the same cycle through a crossbar, while the other 14 banks stay idle." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="14" style="fill:var(--ink);font-size:13px;font-weight:600">The same 32 KB of SRAM as one array or as 16 banks</text>
+<text x="0" y="40" style="fill:var(--ink);font-size:12px;font-weight:600">Monolithic: 512 rows × 512 columns</text>
+<rect x="0" y="54" width="24" height="210" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:1"/>
+<text transform="translate(16,159) rotate(-90)" text-anchor="middle" style="fill:var(--muted);font-size:10px">row decoder</text>
+<rect x="28" y="54" width="262" height="210" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<rect x="28" y="268" width="262" height="20" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:1"/>
+<text x="159" y="282" text-anchor="middle" style="fill:var(--muted);font-size:10px">sense amplifiers and column mux</text>
+<path d="M28,120H290" style="fill:none;stroke:var(--trace);stroke-width:2.5"/>
+<text x="130" y="112" text-anchor="middle" style="fill:var(--trace);font-size:10px">wordline: crosses 512 cells</text>
+<path d="M250,54V264" style="fill:none;stroke:var(--accent-red);stroke-width:2;stroke-dasharray:5 3"/>
+<text x="244" y="210" text-anchor="end" style="fill:var(--accent-red);font-size:10px">bitline: 512 cells</text>
+<text x="244" y="223" text-anchor="end" style="fill:var(--accent-red);font-size:10px">hang on it</text>
+<text x="145" y="318" text-anchor="middle" style="fill:var(--muted);font-size:11px">1 access per cycle, and every access</text>
+<text x="145" y="332" text-anchor="middle" style="fill:var(--muted);font-size:11px">charges the long lines</text>
+<text x="340" y="40" style="fill:var(--ink);font-size:12px;font-weight:600">Banked: 16 banks of 128 rows × 128 columns</text>
+<rect x="340" y="54" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="349" y="54" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="349" y="94" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="384" y="77" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 0</text>
+<rect x="425" y="54" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="434" y="54" width="70" height="38" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="434" y="94" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="469" y="70" text-anchor="middle" style="fill:var(--ink);font-size:10px">bank 1</text>
+<text x="469" y="84" text-anchor="middle" style="fill:var(--trace);font-size:10px;font-weight:600">→ port 0</text>
+<rect x="510" y="54" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="519" y="54" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="519" y="94" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="554" y="77" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 2</text>
+<rect x="595" y="54" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="604" y="54" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="604" y="94" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="639" y="77" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 3</text>
+<rect x="340" y="106" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="349" y="106" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="349" y="146" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="384" y="129" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 4</text>
+<rect x="425" y="106" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="434" y="106" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="434" y="146" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="469" y="129" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 5</text>
+<rect x="510" y="106" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="519" y="106" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="519" y="146" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="554" y="129" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 6</text>
+<rect x="595" y="106" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="604" y="106" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="604" y="146" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="639" y="129" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 7</text>
+<rect x="340" y="158" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="349" y="158" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="349" y="198" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="384" y="181" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 8</text>
+<rect x="425" y="158" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="434" y="158" width="70" height="38" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="434" y="198" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="469" y="174" text-anchor="middle" style="fill:var(--ink);font-size:10px">bank 9</text>
+<text x="469" y="188" text-anchor="middle" style="fill:var(--trace);font-size:10px;font-weight:600">→ port 1</text>
+<rect x="510" y="158" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="519" y="158" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="519" y="198" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="554" y="181" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 10</text>
+<rect x="595" y="158" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="604" y="158" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="604" y="198" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="639" y="181" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 11</text>
+<rect x="340" y="210" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="349" y="210" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="349" y="250" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="384" y="233" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 12</text>
+<rect x="425" y="210" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="434" y="210" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="434" y="250" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="469" y="233" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 13</text>
+<rect x="510" y="210" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="519" y="210" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="519" y="250" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="554" y="233" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 14</text>
+<rect x="595" y="210" width="7" height="38" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="604" y="210" width="70" height="38" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="604" y="250" width="70" height="6" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:0.8"/>
+<text x="639" y="233" text-anchor="middle" style="fill:var(--muted);font-size:10px">bank 15</text>
+<rect x="340" y="264" width="334" height="22" rx="3" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:1"/>
+<text x="507" y="279" text-anchor="middle" style="fill:var(--ink);font-size:11px">crossbar: any bank to any load port</text>
+<g style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5"><rect x="380" y="300" width="100" height="20" rx="3"/><rect x="534" y="300" width="100" height="20" rx="3"/></g>
+<path d="M430,286V300M584,286V300" style="fill:none;stroke:var(--trace);stroke-width:1.5"/>
+<g style="fill:var(--ink);font-size:11px" text-anchor="middle"><text x="430" y="314">port 0</text><text x="584" y="314">port 1</text></g>
+<text x="507" y="340" text-anchor="middle" style="fill:var(--muted);font-size:11px">2 accesses per cycle when they pick different banks</text>
+</svg></div>
+<ul>
+<li><strong>Speed:</strong> in the figure, each bank's wordline crosses 128 cells instead of 512 (4× shorter, about 16× less wordline RC delay), and each bitline carries 128 cells instead of 512 (4× less capacitance).</li>
+<li><strong>Energy:</strong> one bank of 16 swings its bitlines per access. The other 15 stay precharged and idle, and can be clock-gated.</li>
+<li><strong>Bandwidth:</strong> two accesses to different banks proceed in the same cycle, each through its own decoder and sense amplifiers. Banking gives an L1D 2 or 3 loads per cycle with single-ported cells, and Hennessy &amp; Patterson list multibanked caches among their optimizations for cache bandwidth.</li>
+</ul>
+<p>A <strong>subarray</strong> and a <strong>bank</strong> are different things. Even a "monolithic" cache is physically cut into many subarrays to keep wires short (CACTI's Ndwl and Ndbl parameters), but all of them fire together to serve one access, so they help latency and not bandwidth. A bank is independently addressable: it has its own address input and can serve a different request than its neighbors in the same cycle. That independence is what costs a crossbar, conflict detection, and the problems below.</p>
+
+<h3 id="sec-timing">Single-Cycle and Two-Cycle Bank Access</h3>
+<p>Banking only adds bandwidth if a bank is free when the next access to it arrives. How long a bank stays busy after an access starts is its <strong>bank busy time</strong> (Hennessy &amp; Patterson use the term for vector memory banks, and it applies the same way to cache banks).</p>
+<ul>
+<li><strong>Single-cycle bank access:</strong> decode, wordline, bitline sensing, and precharge all fit in one core cycle. The bank is free again the next cycle, so the only conflict is two accesses to the same bank <em>in the same cycle</em>.</li>
+<li><strong>Two-cycle bank access:</strong> at high clock rates the bank can't finish in one cycle. The pipeline can latch the decoded wordline and give sensing its own stage, but the bitlines must be precharged before the next read on them, so a bank often can't start a new access every cycle. With a busy time of 2 cycles, an access conflicts with anything sent to its bank in the same cycle <em>or the cycle after</em>:</li>
+</ul>
+<div class="tbl"><svg viewBox="0 0 680 372" role="img" aria-label="A 4-bank toy cache with 2 load ports. Loads A and B issue in cycle 0 to banks 0 and 1, C and D in cycle 1 to banks 0 and 2, E and F in cycle 2 to banks 3 and 1. With a 1-cycle bank busy time every load gets its bank on the cycle it issues and the last access ends in cycle 2. With a 2-cycle busy time, A holds bank 0 through cycle 1, so C, which issued in cycle 1, must wait until cycle 2, even though A and C never issued in the same cycle. The last access ends in cycle 3." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="14" style="fill:var(--ink);font-size:12px;font-weight:600">4-bank toy with 2 load ports: A and B issue in cycle 0, C and D in cycle 1, E and F in cycle 2</text>
+<text x="0" y="46" style="fill:var(--ink);font-size:12px;font-weight:600">Case 1: 1-cycle bank busy time</text>
+<text x="119" y="64" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 0</text>
+<text x="199" y="64" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 1</text>
+<text x="279" y="64" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 2</text>
+<text x="359" y="64" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 3</text>
+<text x="439" y="64" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 4</text>
+<text x="0" y="87" style="fill:var(--muted);font-size:10px">bank 0</text>
+<rect x="80" y="72" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="160" y="72" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="240" y="72" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="320" y="72" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="400" y="72" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="113" style="fill:var(--muted);font-size:10px">bank 1</text>
+<rect x="80" y="98" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="160" y="98" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="240" y="98" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="320" y="98" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="400" y="98" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="139" style="fill:var(--muted);font-size:10px">bank 2</text>
+<rect x="80" y="124" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="160" y="124" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="240" y="124" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="320" y="124" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="400" y="124" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="165" style="fill:var(--muted);font-size:10px">bank 3</text>
+<rect x="80" y="150" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="160" y="150" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="240" y="150" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="320" y="150" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="400" y="150" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="80" y="72" width="78" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="119" y="87" text-anchor="middle" style="fill:var(--ink);font-size:11px">A</text>
+<rect x="80" y="98" width="78" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="119" y="113" text-anchor="middle" style="fill:var(--ink);font-size:11px">B</text>
+<rect x="160" y="72" width="78" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="199" y="87" text-anchor="middle" style="fill:var(--ink);font-size:11px">C</text>
+<rect x="160" y="124" width="78" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="199" y="139" text-anchor="middle" style="fill:var(--ink);font-size:11px">D</text>
+<rect x="240" y="150" width="78" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="279" y="165" text-anchor="middle" style="fill:var(--ink);font-size:11px">E</text>
+<rect x="240" y="98" width="78" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="279" y="113" text-anchor="middle" style="fill:var(--ink);font-size:11px">F</text>
+<text x="496" y="86" style="fill:var(--ink);font-size:11px;font-weight:600">No waits.</text>
+<text x="496" y="101" style="fill:var(--muted);font-size:11px">A and C use bank 0 in</text>
+<text x="496" y="116" style="fill:var(--muted);font-size:11px">back-to-back cycles with</text>
+<text x="496" y="131" style="fill:var(--muted);font-size:11px">no conflict, because the</text>
+<text x="496" y="146" style="fill:var(--muted);font-size:11px">bank is free again the</text>
+<text x="496" y="161" style="fill:var(--muted);font-size:11px">cycle after an access.</text>
+<text x="0" y="206" style="fill:var(--ink);font-size:12px;font-weight:600">Case 2: 2-cycle bank busy time</text>
+<text x="119" y="224" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 0</text>
+<text x="199" y="224" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 1</text>
+<text x="279" y="224" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 2</text>
+<text x="359" y="224" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 3</text>
+<text x="439" y="224" text-anchor="middle" style="fill:var(--muted);font-size:10px">cycle 4</text>
+<text x="0" y="247" style="fill:var(--muted);font-size:10px">bank 0</text>
+<rect x="80" y="232" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="160" y="232" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="240" y="232" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="320" y="232" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="400" y="232" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="273" style="fill:var(--muted);font-size:10px">bank 1</text>
+<rect x="80" y="258" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="160" y="258" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="240" y="258" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="320" y="258" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="400" y="258" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="299" style="fill:var(--muted);font-size:10px">bank 2</text>
+<rect x="80" y="284" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="160" y="284" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="240" y="284" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="320" y="284" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="400" y="284" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="325" style="fill:var(--muted);font-size:10px">bank 3</text>
+<rect x="80" y="310" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="160" y="310" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="240" y="310" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="320" y="310" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="400" y="310" width="78" height="22" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="80" y="232" width="158" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="159" y="247" text-anchor="middle" style="fill:var(--ink);font-size:11px">A</text>
+<rect x="80" y="258" width="158" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="159" y="273" text-anchor="middle" style="fill:var(--ink);font-size:11px">B</text>
+<rect x="240" y="232" width="158" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<text x="319" y="247" text-anchor="middle" style="fill:var(--ink);font-size:11px">C (waited)</text>
+<rect x="160" y="284" width="158" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="239" y="299" text-anchor="middle" style="fill:var(--ink);font-size:11px">D</text>
+<rect x="240" y="310" width="158" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="319" y="325" text-anchor="middle" style="fill:var(--ink);font-size:11px">E</text>
+<rect x="240" y="258" width="158" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="319" y="273" text-anchor="middle" style="fill:var(--ink);font-size:11px">F</text>
+<text x="496" y="246" style="fill:var(--ink);font-size:11px;font-weight:600">C waits 1 cycle.</text>
+<text x="496" y="261" style="fill:var(--muted);font-size:11px">C issued in cycle 1, but</text>
+<text x="496" y="276" style="fill:var(--muted);font-size:11px">A holds bank 0 through</text>
+<text x="496" y="291" style="fill:var(--muted);font-size:11px">cycle 1. Loads now clash</text>
+<text x="496" y="306" style="fill:var(--muted);font-size:11px">across adjacent cycles,</text>
+<text x="496" y="321" style="fill:var(--muted);font-size:11px">not just within one.</text>
+<g style="fill:var(--muted);font-size:11px"><rect x="0" y="350" width="16" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/><text x="22" y="360">bank busy with that load</text><rect x="190" y="350" width="16" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/><text x="212" y="360">load delayed by a busy bank</text></g>
+</svg></div>
+<p>A longer busy time widens the conflict window. With k accesses per cycle, B banks, and a busy time of t cycles, a new access competes with the k × t − 1 others in flight, so for random addresses:</p>
+<p>P(conflict) ≈ 1 − (1 − 1/B)<sup>k × t − 1</sup></p>
+<ul>
+<li>16 banks, 2 accesses/cycle, 1-cycle busy time: 1 − (15/16)<sup>1</sup> ≈ 6.3%.</li>
+<li>16 banks, 2 accesses/cycle, 2-cycle busy time: 1 − (15/16)<sup>3</sup> ≈ 17.6%, almost 3× worse.</li>
+</ul>
+<p>The bank count also sets a hard floor on throughput: B banks with busy time t serve at most B / t accesses per cycle. Even a perfectly spread stream at 2 loads per cycle needs at least 4 banks once t = 2 cycles, and in practice several times that to keep random conflicts rare.</p>
+<p>Some accesses hold a bank for two cycles even in a single-cycle design:</p>
+<ul>
+<li><strong>Line-split loads:</strong> a load that crosses a 64 B line boundary needs two line reads, which the cache does as two passes (Intel's "cache-line split").</li>
+<li><strong>Partial stores under ECC:</strong> when ECC covers 8 bytes, a 1-byte store must read the 8 bytes, merge, recompute the code, and write back. The read-modify-write occupies the bank for two accesses.</li>
+<li><strong>Wide accesses:</strong> a 32 B vector load in a cache with 8 B banks uses 4 banks at once, which a scalar load to any of them then conflicts with.</li>
+<li><strong>Fills:</strong> writing a 64 B line from L2 into 8 B banks touches 8 of the 16 banks in the same cycle, so loads that cycle wait.</li>
+</ul>
+
+<h3 id="sec-conflicts">Bank Conflicts</h3>
+<p>A <strong>bank conflict</strong> is two or more accesses that need the same bank at the same time. Only one can use the bank's single decoder and sense amplifiers, so the rest wait or replay. The hardware checks every cycle:</p>
+<div class="tbl"><svg viewBox="0 0 680 252" role="img" aria-label="Bank-conflict detection in a 16-bank L1D whose bank is address bits 6 to 3. Port 0 issues a load to 0x7008 and port 1 a load to 0x9088. Both have bits 6 to 3 equal to 0001, so both want bank 1, and they are in different lines, 0x7000 and 0x9080. The comparator flags a conflict, the arbiter grants the older load on port 0, and the load on port 1 is replayed, along with any dependents already woken to use its result. A load to 0x7010 would have picked bank 2 and gone through in parallel." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrBank" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<text x="0" y="14" style="fill:var(--ink);font-size:13px;font-weight:600">16 banks of 8 B, bank = address bits 6–3</text>
+<rect x="0" y="40" width="150" height="40" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="10" y="56" style="fill:var(--ink);font-size:11px;font-weight:600">port 0: load 0x7008</text>
+<text x="10" y="72" style="fill:var(--muted);font-size:10px">line 0x7000</text>
+<text x="162" y="56" style="fill:var(--muted);font-size:11px">bits 6–3 = <tspan style="fill:var(--accent-red);font-weight:600;font-family:var(--mono)">0001</tspan></text>
+<text x="162" y="72" style="fill:var(--ink);font-size:11px">→ bank 1</text>
+<rect x="0" y="110" width="150" height="40" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="10" y="126" style="fill:var(--ink);font-size:11px;font-weight:600">port 1: load 0x9088</text>
+<text x="10" y="142" style="fill:var(--muted);font-size:10px">line 0x9080</text>
+<text x="162" y="126" style="fill:var(--muted);font-size:11px">bits 6–3 = <tspan style="fill:var(--accent-red);font-weight:600;font-family:var(--mono)">0001</tspan></text>
+<text x="162" y="142" style="fill:var(--ink);font-size:11px">→ bank 1</text>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5"><path d="M290,60 H320 V88 H352" marker-end="url(#arrBank)"/><path d="M290,130 H320 V108 H352" marker-end="url(#arrBank)"/><path d="M482,98 H510" marker-end="url(#arrBank)"/></g>
+<rect x="354" y="70" width="128" height="56" rx="3" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:1"/>
+<g style="fill:var(--ink);font-size:11px" text-anchor="middle"><text x="418" y="88">same bank bits?</text><text x="418" y="103">different lines?</text><text x="418" y="118" style="fill:var(--accent-red);font-weight:600">both yes: conflict</text></g>
+<rect x="512" y="70" width="162" height="56" rx="3" style="fill:var(--pad-soft);stroke:var(--rule);stroke-width:1"/>
+<g style="fill:var(--ink);font-size:11px" text-anchor="middle"><text x="593" y="94">arbiter</text><text x="593" y="110">older load wins</text></g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5"><path d="M560,126 V138 H487 V150" marker-end="url(#arrBank)"/><path d="M630,126 V150" marker-end="url(#arrBank)"/></g>
+<rect x="420" y="152" width="134" height="40" rx="3" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:2"/>
+<text x="487" y="168" text-anchor="middle" style="fill:var(--accent-green);font-size:11px;font-weight:600">port 0 reads bank 1</text><text x="487" y="184" text-anchor="middle" style="fill:var(--muted);font-size:10px">normal hit latency</text>
+<rect x="570" y="152" width="110" height="40" rx="3" style="fill:var(--surface);stroke:var(--accent-red);stroke-width:2"/>
+<text x="625" y="168" text-anchor="middle" style="fill:var(--accent-red);font-size:11px;font-weight:600">port 1 replays</text><text x="625" y="184" text-anchor="middle" style="fill:var(--muted);font-size:10px">with dependents</text>
+<text x="0" y="218" style="fill:var(--muted);font-size:11px">A load to 0x7010 has bits 6–3 = 0010, picks bank 2, and would have gone through alongside port 0.</text>
+<text x="0" y="236" style="fill:var(--muted);font-size:11px">A second load inside line 0x7000 is usually served by the same bank read, so it doesn't count as a conflict.</text>
+</svg></div>
+<ol>
+<li>Each port extracts its access's bank bits.</li>
+<li>Comparators check every pair of ports for equal bank bits. Many designs also compare the line (or row) address, because two loads to the same line can share one bank read and don't conflict. Sandy Bridge worked this way: loads with the same bits 6–3 conflicted only if they were in different lines (Agner Fog's microarchitecture guide).</li>
+<li>An arbiter grants the bank to one access, usually the oldest.</li>
+<li>The loser is delayed a cycle or sent back to the scheduler to replay.</li>
+</ol>
+<p>The real cost is the replay, not the one cycle. An out-of-order scheduler wakes a load's dependents speculatively, assuming the L1 hit latency (4 to 5 cycles on recent cores). When the load loses a bank conflict, those dependents have already issued, so they must be cancelled and reissued too. One conflict can waste several issue slots, and Haswell removed L1D bank conflicts while serving 2 loads plus 1 store per cycle.</p>
+<p>Where conflicts come from:</p>
+<ul>
+<li><strong>Load vs load:</strong> two loads issued together pick the same bank, the case in the figure.</li>
+<li><strong>Load vs store:</strong> committed stores drain from the store buffer into the data array and need a bank too. A store-heavy loop competes with its own loads.</li>
+<li><strong>Load vs fill or eviction:</strong> a line arriving from L2 or a dirty line leaving takes banks for a cycle or more.</li>
+<li><strong>Random collisions:</strong> with k accesses per cycle over B banks and random addresses, P(conflict) = 1 − B! / ((B − k)! × B<sup>k</sup>), the birthday problem. For 16 banks, 3 loads per cycle conflict about 18% of the time.</li>
+<li><strong>Systematic collisions:</strong> far worse than random. If two arrays start at addresses that differ by a multiple of the bank span (16 banks × 8 B = 128 B on Sandy Bridge), <code>a[i]</code> and <code>b[i]</code> pick the same bank on <em>every</em> iteration, and a strided walk whose stride is a multiple of the bank span does the same.</li>
+</ul>
+<p>Fixes, from hardware to software:</p>
+<ul>
+<li>More banks, so random collisions are rarer.</li>
+<li>Same-line merging, so the common case of neighboring elements is free.</li>
+<li>XOR-hashing upper address bits into the bank number, so aligned arrays and power-of-two strides spread out.</li>
+<li>Bank prediction, letting the scheduler avoid picking two loads to the same bank together (Yoaz and colleagues, ISCA 1999).</li>
+<li>Padding and offsetting arrays in software, the same fix GPU programmers use for <a href="#/gpu-smem/banks">shared-memory bank conflicts</a>.</li>
+</ul>
+
+<h3 id="sec-configs">Bank Configurations</h3>
+<p>The design choice that decides which patterns conflict is <em>which address bits pick the bank</em>. The figure shows the options for a 32 KB, 8-way L1D with 64 B lines and 16 banks:</p>
+<div class="tbl"><svg viewBox="0 0 680 300" role="img" aria-label="Which address bits pick the bank in a 32 KB, 8-way L1D with 64-byte lines and 64 sets, so bits 5 to 0 are the line offset, bits 11 to 6 the set index, and bits 12 and up the tag. With 16 banks, word interleaving uses bits 6 to 3, line interleaving uses bits 9 to 6, high-order interleaving uses bits 11 to 8, and XOR hashing uses bits 9 to 6 XOR bits 15 to 12." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="14" style="fill:var(--ink);font-size:13px;font-weight:600">32 KB, 8-way, 64 B lines, 64 sets: which bits pick 1 of 16 banks</text>
+<text x="128.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">15</text>
+<text x="163.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">14</text>
+<text x="198.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">13</text>
+<text x="233.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">12</text>
+<text x="268.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">11</text>
+<text x="303.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">10</text>
+<text x="338.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">9</text>
+<text x="373.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">8</text>
+<text x="408.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">7</text>
+<text x="443.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">6</text>
+<text x="478.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">5</text>
+<text x="513.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">4</text>
+<text x="548.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">3</text>
+<text x="583.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">2</text>
+<text x="618.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">1</text>
+<text x="653.5" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px">0</text>
+<path d="M113,56 V50 H249 V56" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<text x="181" y="68" text-anchor="middle" style="fill:var(--muted);font-size:10px">tag (continues up)</text>
+<path d="M253,56 V50 H459 V56" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<text x="356" y="68" text-anchor="middle" style="fill:var(--muted);font-size:10px">set index</text>
+<path d="M463,56 V50 H669 V56" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<text x="566" y="68" text-anchor="middle" style="fill:var(--muted);font-size:10px">line offset</text>
+<text x="0" y="100" style="fill:var(--ink);font-size:11px;font-weight:600">word-interleaved</text>
+<rect x="112" y="84" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="147" y="84" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="182" y="84" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="217" y="84" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="252" y="84" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="287" y="84" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="322" y="84" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="357" y="84" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="392" y="84" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="427" y="84" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="462" y="84" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="497" y="84" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="532" y="84" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="567" y="84" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="602" y="84" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="637" y="84" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="144" style="fill:var(--ink);font-size:11px;font-weight:600">line-interleaved</text>
+<rect x="112" y="128" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="147" y="128" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="182" y="128" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="217" y="128" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="252" y="128" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="287" y="128" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="322" y="128" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="357" y="128" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="392" y="128" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="427" y="128" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="462" y="128" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="497" y="128" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="532" y="128" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="567" y="128" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="602" y="128" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="637" y="128" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="188" style="fill:var(--ink);font-size:11px;font-weight:600">high-order</text>
+<rect x="112" y="172" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="147" y="172" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="182" y="172" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="217" y="172" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="252" y="172" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="287" y="172" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="322" y="172" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="357" y="172" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="392" y="172" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="427" y="172" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="462" y="172" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="497" y="172" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="532" y="172" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="567" y="172" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="602" y="172" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="637" y="172" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="232" style="fill:var(--ink);font-size:11px;font-weight:600">XOR-hashed</text>
+<rect x="112" y="216" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:1.5"/>
+<rect x="147" y="216" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:1.5"/>
+<rect x="182" y="216" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:1.5"/>
+<rect x="217" y="216" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:1.5"/>
+<rect x="252" y="216" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="287" y="216" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="322" y="216" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="357" y="216" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="392" y="216" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="427" y="216" width="33" height="24" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="462" y="216" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="497" y="216" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="532" y="216" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="567" y="216" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="602" y="216" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<rect x="637" y="216" width="33" height="24" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="112" y="256" style="fill:var(--muted);font-size:10px">bank = bits 9–6 XOR bits 15–12</text>
+<g style="fill:var(--muted);font-size:11px"><rect x="0" y="276" width="16" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/><text x="22" y="286">bank-select bits</text><rect x="140" y="276" width="16" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:1.5"/><text x="162" y="286">upper bits XORed in</text></g>
+</svg></div>
+<h4>Word-Interleaved</h4>
+<p><strong>How it works.</strong> The bank bits sit just above the word offset (bits 6–3 for 8 B banks), so consecutive 8 B words land in consecutive banks and one line spreads across 8 of them. Each bank stores a column of words, and a scalar load reads one bank. Sandy Bridge's L1D and NVIDIA's shared memory (32 banks of 4 B) work this way.</p>
+<ul>
+<li><strong>Sequential scalar loads:</strong> neighbors are in different banks, or in the same line and merged. Conflict-free.</li>
+<li><strong>Wide SIMD loads:</strong> a 32 B load takes 4 banks, so two 32 B loads conflict unless they cover disjoint banks.</li>
+<li><strong>Several arrays at the same alignment:</strong> <code>a[i] + b[i]</code> with page-aligned arrays picks the same bank every iteration, the worst case.</li>
+<li><strong>Strides:</strong> any stride that is a multiple of the bank span (128 B here) hits one bank. Column walks of row-major matrices with a power-of-two row size do this.</li>
+<li><strong>Fills:</strong> a 64 B fill writes 8 banks at once, blocking loads to half the cache for that cycle.</li>
+</ul>
+<h4>Line-Interleaved</h4>
+<p><strong>How it works.</strong> The bank bits sit just above the line offset (bits 9–6), so a whole line lives in one bank and consecutive lines go to consecutive banks. Hennessy &amp; Patterson call this sequential interleaving. It suits caches whose requests are whole lines: L2s, LLC banks, and fill paths.</p>
+<ul>
+<li><strong>Sequential streams:</strong> consecutive lines in different banks, so a stream of line requests (prefetches, L1 misses) runs at full rate.</li>
+<li><strong>Two loads to neighboring elements:</strong> same line, same bank. Free with same-line merging and a conflict without it, which is why L1Ds rarely use pure line interleaving.</li>
+<li><strong>Fills and evictions:</strong> touch only one bank, leaving the other 15 free for loads.</li>
+<li><strong>Strides:</strong> multiples of 16 lines × 64 B = 1 KB hit one bank, so power-of-two strides of 1 KB or more serialize.</li>
+<li><strong>Many independent misses:</strong> spread across banks, good for memory-level parallelism at L2.</li>
+</ul>
+<h4>High-Order</h4>
+<p><strong>How it works.</strong> The bank bits are the top of the set index (bits 11–8), so each bank holds a contiguous range of sets: here 4 sets, or 256 B of each 4 KB of address space. Hennessy &amp; Patterson describe it as the alternative to low-order interleaving in memory systems.</p>
+<ul>
+<li><strong>Sequential streams:</strong> stay in one bank for 4 lines before moving on, so two loads from one stream nearly always conflict.</li>
+<li><strong>Independent regions:</strong> data that happens to sit in different ranges goes to different banks, but the hardware can't arrange that.</li>
+<li><strong>Power:</strong> unused banks stay idle for long stretches, which helps if banks can be put to sleep.</li>
+<li><strong>Verdict:</strong> poor for bandwidth and rarely used for cache banking.</li>
+</ul>
+<h4>XOR-Hashed</h4>
+<p><strong>How it works.</strong> The low bank bits (word or line) are XORed with higher address bits (here bits 9–6 XOR bits 15–12), so addresses that agree in the low bits but differ higher up spread out. The XOR gates add a gate delay ahead of bank decode. Intel's LLC slice hash is the large-scale version.</p>
+<ul>
+<li><strong>Aligned arrays:</strong> <code>a</code> and <code>b</code> at different 4 KB pages differ in bits 15–12, so they usually pick different banks.</li>
+<li><strong>Power-of-two strides:</strong> a 4 KB stride changes bits 15–12 on each step and walks across banks instead of hammering one.</li>
+<li><strong>Sequential streams:</strong> unchanged within a 4 KB page, still conflict-free.</li>
+<li><strong>Random:</strong> no better than plain interleaving. Pathological patterns still exist but no common loop hits them.</li>
+</ul>
+<h4>Way-Partitioned</h4>
+<p><strong>How it works.</strong> Each way (or pair of ways) gets its own bank. It suits phased caches, mostly L2 and LLC, that read tags first and then only the hit way's data, so each data access activates one bank.</p>
+<ul>
+<li><strong>Energy:</strong> one bank of data switches per hit, a large saving in a 16-way LLC.</li>
+<li><strong>Conflicts:</strong> two accesses conflict only if they hit the same way, which depends on replacement history, not address alignment, so aligned arrays and strides don't cause systematic conflicts.</li>
+<li><strong>L1D:</strong> a poor fit, because an L1D reads all ways in parallel with the tags, so every bank is busy on every access.</li>
+</ul>
+<h4>Summary by Access Pattern</h4>
+<div class="tbl"><table><tr><th>Pattern</th><th>Word-Interleaved</th><th>Line-Interleaved</th><th>High-Order</th><th>XOR-Hashed</th></tr>
+<tr><td>Sequential scalar loads (STREAM, <code>memcpy</code>)</td><td>Conflict-free</td><td>Same line, needs merging</td><td>Conflicts</td><td>Same line, needs merging</td></tr>
+<tr><td>Line requests, prefetches, fills</td><td>Fill blocks 8 banks</td><td>Best, one bank each</td><td>Conflicts within a stream</td><td>Best, one bank each</td></tr>
+<tr><td>Several page-aligned arrays (<code>a[i] + b[i]</code>)</td><td>Conflict every cycle</td><td>Conflict every cycle</td><td>Conflict every cycle</td><td>Usually spread</td></tr>
+<tr><td>Power-of-two strides (transpose, FFT)</td><td>One bank at 128 B and up</td><td>One bank at 1 KB and up</td><td>One bank at 4 KB and up</td><td>Spread below 64 KB</td></tr>
+<tr><td>Random or gathers (hash tables, 508.namd_r)</td><td>Birthday rate</td><td>Birthday rate</td><td>Birthday rate</td><td>Birthday rate</td></tr>
+<tr><td>Pointer chasing (505.mcf_r)</td><td>Rarely matters</td><td>Rarely matters</td><td>Rarely matters</td><td>Rarely matters</td></tr>
+</table></div>
+<p>Pointer chasing barely notices banking because each load's address depends on the previous load, so two of them seldom issue in the same cycle. The <a href="#/cache-banking/slices">sliced LLC</a> is the same idea one level out: a hashed line-interleaved configuration whose banks sit across the die.</p>
 
 <h3 id="sec-few">Few, Large Banks</h3>
 <p><strong>Motivation.</strong> The densest, cheapest array. Every bank needs its own decoders, sense amplifiers, and drivers, so fewer banks put more of the area into storage.</p>
