@@ -33,7 +33,7 @@ section({
   id: "resume-mdp",
   title: "Memory Dependence Predictor",
   body: `
-<p>Background: <a href="#/mdp">Memory Dependence Prediction</a> (the store sets paper section by section), <a href="#/lsq">Load and Store Queues</a>, <a href="#/flush-recovery">Pipeline Flush and Recovery</a>. General memory dependence questions are also on <a href="#/intv-lsq/mdp">Loads, Stores and Memory Ordering</a>. Core sizes come from <a href="#/r/intv/numbers">Numbers Worth Knowing</a>.</p>
+<p>Background: <a href="#/r/mdep">Memory Dependence Prediction</a> (the store sets paper section by section), <a href="#/lsq">Load and Store Queues</a>, <a href="#/flush-recovery">Pipeline Flush and Recovery</a>. General memory dependence questions are also on <a href="#/intv-lsq/mdp">Loads, Stores and Memory Ordering</a>. Core sizes come from <a href="#/r/intv/numbers">Numbers Worth Knowing</a>.</p>
 <h3 id="sec-pitch">The Pitch</h3>` +
 Q(`<p>Give the 60-second pitch for a memory dependence predictor project: what problem it solves, what you built, and why it matters more on a current core than it did on a 1990s one.</p>`,
 `<p><strong>Problem:</strong> a load's address is often ready before the addresses of older stores. If it waits for all of them, it is usually waiting for nothing (a false dependence). If it goes early and one of those stores writes its bytes, it read stale data, and the core must flush the load and everything younger (a memory-order violation).</p>

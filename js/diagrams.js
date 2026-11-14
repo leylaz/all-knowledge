@@ -126,7 +126,7 @@ const CORE_TRACE = [
   [330, 852, 420, 905, "ooo", "exec-units", ["ALUs"], "4 integer ALUs"],
   [420, 852, 510, 905, "ooo", "exec-units", ["AGUs"], "3 address generation units, next to load/store and the L1D (placement inferred)", true],
   [510, 775, 645, 905, "lsu", "lsq", ["LSQ"], "Load and store queues (placement inferred)", true],
-  [645, 775, 830, 830, "lsu", "mdp", ["MDP"], "Memory dependence predictor (placement inferred)", true],
+  [645, 775, 830, 830, "lsu", "r/mdep", ["MDP"], "Memory dependence predictor (placement inferred)", true],
   [645, 830, 830, 905, "lsu", "tlb", ["dTLB"], "L1 and L2 data TLBs (placement inferred)", true],
   [330, 905, 645, 1005, "sram", "dcache", ["L1 D-cache"], "L1 data cache, 32 KB"],
   [645, 905, 830, 1005, "lsu", "page-walk/walk", ["Page", "walker"], "Page table walker"],
