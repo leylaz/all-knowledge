@@ -3,6 +3,8 @@
    link to the page that covers it. Keys are matched case-sensitively as
    whole words. `page` is a page id, optionally "/<section id>". */
 const GLOSSARY = {
+  "RAT": { def: "Register alias table: maps each architectural register to the physical register holding its newest value. Read by sources and written by destinations at rename.", page: "renaming/rat-hardware" },
+  "CDB": { def: "Common data bus: in Tomasulo's algorithm, the bus that carries a finished result's tag and value to every waiting reservation station and register. Modern cores split it into tag buses and result buses.", page: "wakeup/cdb" },
   "AMAT": { def: "Average memory access time: hit time + miss rate × miss penalty, applied level by level.", page: "cache-size" },
   "BTB": { def: "Branch target buffer: a cache from branch PC to predicted target, so fetch can redirect before the branch is decoded.", page: "fe-targets/btb" },
   "FTQ": { def: "Fetch target queue: the queue of predicted fetch blocks between the branch predictor and instruction fetch.", page: "fe-decoupled/ftq" },

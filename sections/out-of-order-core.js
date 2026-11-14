@@ -113,6 +113,9 @@ section({
   sections: [
     { id: "pieces", label: "Pieces" },
     { id: "lifecycle-mapping", label: "Lifecycle of a Mapping" },
+    { id: "rat-hardware", label: "The RAT in Hardware" },
+    { id: "same-group", label: "Same-Group Dependences" },
+    { id: "rat-cost", label: "What Renaming Costs" },
     { id: "recovery", label: "Recovery" },
     { id: "limits", label: "What Limits It" }
   ],
@@ -122,10 +125,97 @@ section({
 <ul><li><strong>Register alias table (RAT):</strong> maps each architectural register to its current physical register.</li><li><strong>Free list:</strong> physical registers available for new destinations.</li><li><strong>Retirement RAT:</strong> the committed, non-speculative mapping.</li></ul>
 <h3 id="sec-lifecycle-mapping">Lifecycle of a Mapping</h3>
 <p>At rename, sources read the RAT, the destination takes a register from the free list, and the <em>previous</em> mapping is saved in the ROB entry. At commit, that previous register is freed, because no instruction younger than this one can still name it.</p>
+<h3 id="sec-rat-hardware">The RAT in Hardware</h3>
+<p>Rename handles a group of W instructions per cycle (W is the rename width). For each instruction it must do three things in the same cycle:</p>
+<ol><li>Look up the physical register for each source.</li><li>Look up the current mapping of the destination, so the ROB entry can save it as the "previous" register to free at commit.</li><li>Pop a physical register from the free list and write the new mapping for the destination.</li></ol>
+<p>There are two ways to build the table.</p>
+<ul>
+<li><strong>SRAM (indexed) RAT:</strong> one entry per architectural register, holding a physical register number of ⌈log₂(PRF size)⌉ bits. A source lookup is a plain read indexed by the architectural register number. The MIPS R10000 and most current cores work this way.</li>
+<li><strong>CAM RAT:</strong> one entry per <em>physical</em> register, holding the architectural register it currently names plus a valid bit. A lookup searches every entry for a valid match, and the matching row number is the physical register. Renaming a destination sets the new row's valid bit and clears the old row's. The Alpha 21264 used this form. A checkpoint is only the vector of valid bits (one bit per physical register), which is cheap, but the search width grows with the physical register file, so it stopped scaling once PRFs reached hundreds of entries.</li>
+</ul>
+<p>Port count for an SRAM RAT with two sources per instruction:</p>
+<ul><li>Read ports: 2W for sources plus W for the destinations' old mappings, 3W in all.</li><li>Write ports: W, one per new destination mapping.</li></ul>
+<p>A 4-wide renamer therefore needs a 12-read, 4-write table. The table itself is tiny (16 x86-64 integer registers × 8 bits for a 192-entry PRF = 128 bits), but those 16 ports dominate the cell, and the free list must also hand out W registers per cycle.</p>
+<h3 id="sec-same-group">Same-Group Dependences</h3>
+<p>The RAT is read at the start of the cycle and written at the end. If slot 0 of a group writes r1 and slot 2 reads r1, the RAT read for slot 2 returns r1's mapping from <em>before</em> the group, which is stale. The renamer fixes this with comparisons on architectural register names, which are known right after decode, so they run in parallel with the RAT read.</p>
+<p>Take this group, with r1→p7, r2→p8, r3→p9, r4→p10, r5→p11, r6→p12 in the RAT and p40 to p43 at the head of the free list:</p>
+<pre><code>slot 0: r1 = r2 + r3     new dest p40
+slot 1: r4 = r1 + r5     new dest p41
+slot 2: r1 = r4 + r1     new dest p42
+slot 3: r6 = r1 + r2     new dest p43</code></pre>
+<p>Each slot's free-list register is known at the start of the cycle (the free list pops W at once), so the comparisons only have to pick which one to use.</p>
+<ol>
+<li><strong>Source check (RAW inside the group).</strong> Each source of slot i is compared with the destination of every older slot 0 to i − 1. A priority selector picks the <em>youngest</em> older match, and a mux chooses that slot's new physical register over the RAT read. With no match, the RAT read wins. Slot 3's source r1 matches slot 0 and slot 2. The youngest is slot 2, so slot 3 reads p42, not p7 (stale) and not p40 (overwritten).</li>
+<li><strong>Old-mapping check (for the ROB).</strong> The "previous" register saved in slot 2's ROB entry must be p40, the register slot 0 just gave r1, not p7 from the RAT. This uses the same destination-versus-older-destination compares. If slot 2 saved p7, p7 would be freed twice (once by slot 0's commit, once by slot 2's) and p40 would leak.</li>
+<li><strong>Write check (WAW inside the group).</strong> Slot 0 and slot 2 both write r1 in the same cycle. Only the youngest writer may update the RAT, so slot 0's write enable is suppressed. Any slot whose destination matches a <em>younger</em> slot's destination is suppressed. The same comparator outputs serve this check and the old-mapping check, read in the other direction.</li>
+</ol>
+<p>After the group: slot 1 reads p40 and p11, slot 2 reads p41 and p40, slot 3 reads p42 and p8. The RAT ends with r1→p42, r4→p41, r6→p43, and the ROB saves old mappings p7, p10, p40, p12.</p>
+<div class="tbl"><svg viewBox="0 0 680 330" role="img" aria-label="Same-group source check for slot 3. The rename group holds slot 0: r1 = r2 + r3 with new destination p40, slot 1: r4 = r1 + r5 with p41, slot 2: r1 = r4 + r1 with p42, and slot 3: r6 = r1 + r2 with p43. Slot 3's source r1 is compared with the destinations of slots 0, 1, and 2. Slots 0 and 2 match, slot 1 does not. A priority select picks slot 2, the youngest older match. A mux has four inputs: p40, p41, and p42 from the free list and p7 from the RAT read. The priority select drives the mux, which outputs p42 as slot 3's first source." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrRN" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<g style="stroke-width:1.5">
+<rect x="10" y="30" width="230" height="130" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="10" y="215" width="220" height="50" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="10" y="275" width="220" height="50" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="290" y="44" width="80" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="290" y="86" width="80" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="290" y="128" width="80" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="410" y="44" width="100" height="112" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<path d="M550,80 L600,105 L600,235 L550,260 Z" style="fill:var(--surface);stroke:var(--pad)"/>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M240,58 H288" marker-end="url(#arrRN)"/><path d="M240,100 H288" marker-end="url(#arrRN)"/><path d="M240,142 H288" marker-end="url(#arrRN)"/>
+<path d="M370,58 H408" marker-end="url(#arrRN)"/><path d="M370,100 H408" marker-end="url(#arrRN)"/><path d="M370,142 H408" marker-end="url(#arrRN)"/>
+<path d="M510,100 H575 V90" marker-end="url(#arrRN)"/>
+<path d="M230,240 H548" marker-end="url(#arrRN)"/>
+<path d="M230,300 H520 V120 H548" marker-end="url(#arrRN)"/><path d="M520,160 H548" marker-end="url(#arrRN)"/><path d="M520,200 H548" marker-end="url(#arrRN)"/>
+<path d="M600,170 H650" marker-end="url(#arrRN)"/>
+</g>
+<text x="18" y="22" style="fill:var(--pad);font-size:12px;font-weight:600">Rename group</text>
+<g style="fill:var(--ink);font-size:11px;font-family:var(--mono)">
+<text x="20" y="62">0: r1 = r2 + r3  p40</text>
+<text x="20" y="90">1: r4 = r1 + r5  p41</text>
+<text x="20" y="118">2: r1 = r4 + r1  p42</text>
+<text x="20" y="146">3: r6 = r1 + r2  p43</text>
+<text x="330" y="62" text-anchor="middle">r1 = r1?</text>
+<text x="330" y="104" text-anchor="middle">r1 = r4?</text>
+<text x="330" y="146" text-anchor="middle">r1 = r1?</text>
+<text x="20" y="254">read r1 → p7</text>
+<text x="20" y="314">pops p40 p41 p42 p43</text>
+<text x="526" y="156">p40</text><text x="526" y="196">p41</text><text x="526" y="236">p42</text><text x="470" y="236">p7</text>
+<text x="612" y="162">p42</text>
+</g>
+<g style="fill:var(--ink);font-size:12px">
+<text x="20" y="234" style="font-weight:600">RAT (SRAM)</text>
+<text x="20" y="294" style="font-weight:600">Free list</text>
+<text x="460" y="80" text-anchor="middle" style="font-weight:600">Priority</text>
+<text x="460" y="96" text-anchor="middle">youngest</text>
+<text x="460" y="112" text-anchor="middle">older match</text>
+<text x="460" y="136" text-anchor="middle">→ slot 2</text>
+<text x="575" y="175" text-anchor="middle" style="font-weight:600">mux</text>
+</g>
+<g style="fill:var(--muted);font-size:11px">
+<text x="290" y="36">slot 3 src r1 vs</text>
+<text x="376" y="54">1</text><text x="376" y="96">0</text><text x="376" y="138">1</text>
+<text x="250" y="54">s0</text><text x="250" y="96">s1</text><text x="250" y="138">s2</text>
+<text x="604" y="186">slot 3 src</text>
+</g>
+</svg></div>
+<h3 id="sec-rat-cost">What Renaming Costs</h3>
+<p>Let W be the rename width, A the number of architectural registers, and P the PRF size.</p>
+<ul>
+<li><strong>RAT storage:</strong> A × ⌈log₂ P⌉ bits for an SRAM RAT, about P × (⌈log₂ A⌉ + 1) bits for a CAM RAT. Both are small. Storage is never the problem.</li>
+<li><strong>RAT ports:</strong> 3W read plus W write. Cell area grows roughly with the square of the port count (each port adds a wordline and a bitline), so the RAT cell grows about as W². Going from 4-wide (16 ports) to 6-wide (24 ports) makes each cell about (24 ports / 16 ports)² ≈ 2.25× larger.</li>
+<li><strong>Same-group comparators:</strong> each comparator is ⌈log₂ A⌉ bits wide.
+<ul><li>Source checks: slot i compares each of its 2 sources with i older destinations, so 2 × (0 + 1 + … + (W − 1)) = W(W − 1) comparators.</li><li>Destination checks: one per pair of slots, W(W − 1)/2 comparators, shared by the old-mapping and WAW checks.</li><li>Total: 1.5 × W(W − 1). For a 4-wide group with 16 architectural registers, that is 1.5 × 4 × 3 = 18 comparators of 4 bits each.</li></ul></li>
+<li><strong>Delay:</strong> the comparisons overlap the RAT read, but the priority mux after them has W inputs for the youngest slot and sits on the critical path. Its depth grows with log₂ W, and its wiring grows with W².</li>
+<li><strong>Checkpoints:</strong> each one is a full copy of the SRAM RAT (A × ⌈log₂ P⌉ bits) or of the CAM valid vector (P bits). A branch in the middle of a group needs a checkpoint of the state <em>after that branch</em>, which is the RAT plus only the older slots' writes, so checkpoint logic must also see the per-slot write enables.</li>
+</ul>
+<p>Since the comparator count grows as W² and the port count's area cost also grows as W², wide cores split rename across two pipeline stages, or rename a wide group as two half-groups with a bypass between them.</p>
 <h3 id="sec-recovery">Recovery</h3>
 <p>On a misprediction, restore the RAT from a branch checkpoint, walk the ROB backward undoing mappings, or copy the retirement RAT. How every other structure recovers too is in <a href="#/flush-recovery">Pipeline Flush and Recovery</a>.</p>
 <h3 id="sec-limits">What Limits It</h3>
-<ul><li>Free-list size bounds instructions in flight</li><li>Rename width bounds throughput</li><li>Checkpoints bound branch depth</li></ul>`,
+<ul><li>Free-list size bounds instructions in flight</li><li>Rename width bounds throughput, and the RAT ports and same-group comparators grow as its square</li><li>Checkpoints bound branch depth</li></ul>
+<p>After rename, each instruction waits in an issue queue until its sources are ready. The hardware that tracks readiness is on <a href="#/wakeup">Wakeup and Bypass Timing</a>.</p>`,
   practice: {
     guided: [
       {
@@ -133,12 +223,25 @@ section({
 I1: r2 = r1 * r3
 I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, and which register each instruction frees at commit.</p>`,
         a: `<ol><li>I0: sources p2, p3. r1 gets p10 (old p1). <code>p10 = p2 + p3</code></li><li>I1: sources r1 = p10, r3 = p3. r2 gets p11 (old p2). <code>p11 = p10 * p3</code></li><li>I2: sources r2 = p11, r1 = p10. r1 gets p12 (old p10). <code>p12 = p11 - p10</code></li><li>Final RAT: r1→p12, r2→p11, r3→p3.</li><li>At commit: I0 frees p1, I1 frees p2, I2 frees p10.</li><li>The WAW on r1 (I0, I2), the WAR on r1 (I1 reads, I2 writes), and the WAR on r2 (I0 reads, I1 writes) are gone. Only RAW edges remain: I0→I1, I0→I2, I1→I2.</li></ol>`
+      },
+      {
+        q: `<p>A 6-wide renamer (AMD Zen 4's rename width) gets these six instructions in one cycle:</p><pre><code>s0: r3 = r1 + r2
+s1: r1 = r3 + r3
+s2: r3 = r1 + r4
+s3: r5 = r3 + r1
+s4: r3 = r5 + r2
+s5: r2 = r3 + r1</code></pre><p class="given">Assume the RAT holds r1→p3, r2→p9, r3→p14, r4→p21, r5→p30 at the start of the cycle, and the free list pops p50, p51, p52, p53, p54, p55 to slots 0 to 5 in order. Each instruction has one destination and two sources.</p><p>Give every slot's physical sources, the old mapping each ROB entry saves, which RAT writes are suppressed, and the RAT at the end of the cycle.</p>`,
+        a: `<ol><li>s0: no older slots, so sources come from the RAT: p3, p9. Dest p50. Old r3 mapping from the RAT: p14.</li><li>s1: both sources are r3, which matches s0's destination, so both read p50. Dest p51. Old r1: no older slot writes r1, so the RAT's p3.</li><li>s2: r1 matches s1 (p51), r4 has no match (RAT p21). Dest p52. Old r3: s0 writes r3, so the old mapping is p50, not the RAT's p14.</li><li>s3: r3 matches s0 and s2, and the youngest is s2, so p52. r1 matches s1, so p51. Dest p53. Old r5: RAT p30.</li><li>s4: r5 matches s3 (p53), r2 has no match (RAT p9). Dest p54. Old r3: youngest older writer is s2, so p52.</li><li>s5: r3 matches s0, s2, and s4. The youngest is s4, so p54. r1 matches s1, so p51. Dest p55. Old r2: RAT p9.</li><li>Write check: r3 is written by s0, s2, and s4, so s0's and s2's RAT writes are suppressed and only s4 writes r3.</li><li>Final RAT: r1→p51, r2→p55, r3→p54, r4→p21, r5→p53.</li><li>Check: the old mappings saved are p14, p3, p50, p30, p52, p9. Each of p14, p3, p30, p9 was live before the group, and p50 and p52 are freed by s2's and s4's commits, after s0 and s2 have both committed. Every register is freed exactly once.</li></ol>`
       }
     ],
     interview: [
       {
         q: `<p>32 architectural integer registers, 180 physical. How many instructions with integer destinations can be in flight at most? And why not free the old mapping when the new producer writes back?</p>`,
         a: `<p>32 physical registers always hold committed state, so at most 180 − 32 = <strong>148</strong> in-flight destinations.</p><p>Freeing at writeback is unsafe for two reasons: older in-flight instructions may still need to read the old register, and if the new producer is squashed, the old mapping must be restored. Once the redefining instruction commits, neither can happen.</p>`
+      },
+      {
+        q: `<p>An AArch64 core widens rename from 6 to 8 instructions per cycle. Estimate how the same-group comparator logic and the RAT cell area grow, and name what sets the cycle time.</p><p class="given">Assume 32 architectural integer registers (5-bit names), two sources and one destination per instruction, an SRAM RAT, and cell area proportional to the square of the port count.</p>`,
+        a: `<ol><li>Comparators: 1.5 × W(W − 1). 6-wide: 1.5 × 6 slots × 5 slots = 45 comparators. 8-wide: 1.5 × 8 slots × 7 slots = 84 comparators, which is 84 comparators / 45 comparators ≈ <strong>1.87×</strong>.</li><li>In bits: 45 comparators × 5 bits = 225 bit compares versus 84 comparators × 5 bits = 420 bit compares.</li><li>RAT ports: 3W read + W write. 6-wide: 18 + 6 = 24 ports. 8-wide: 24 + 8 = 32 ports. Cell area: (32 ports / 24 ports)² ≈ <strong>1.78×</strong> per entry.</li><li>Cycle time: the comparisons overlap the RAT read, so the critical path is RAT read (or compare) → priority select → mux. The youngest slot's mux grows from 6 inputs (5 older slots + RAT) to 8 inputs (7 older slots + RAT), adding about one gate level, and the wires from every slot's destination to every younger slot's mux grow with W². Designs that can't fit this in one cycle split rename into two stages or rename two half-groups back to back.</li></ol>`
       },
       {
         q: `<p>Compare RAT checkpoints and ROB walk for misprediction recovery.</p>`,
@@ -200,7 +303,7 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
   body: `
 <p>Renamed instructions wait in issue queues until their operands are ready.</p>
 <h3 id="sec-wakeup-select">Wakeup and Select</h3>
-<p><strong>Wakeup:</strong> a producer's destination tag is broadcast and waiting entries set ready bits. <strong>Select:</strong> pick ready entries up to the issue width per port, often oldest first. For back-to-back dependent issue, wakeup plus select must fit in one cycle.</p>
+<p><strong>Wakeup:</strong> a producer's destination tag is broadcast and waiting entries set ready bits. <strong>Select:</strong> pick ready entries up to the issue width per port, often oldest first. For back-to-back dependent issue, wakeup plus select must fit in one cycle. The circuits, the CDB, how cost grows with the register file, and how issue lines up with bypassing are on <a href="#/wakeup">Wakeup and Bypass Timing</a>.</p>
 <h3 id="sec-speculative-wakeup">Speculative Wakeup</h3>
 <p>Dependents of a load are woken assuming an L1 hit; on a miss they're replayed. How a core re-runs only the instructions that used a bad value is on <a href="#/replay">Selective Replay</a>.</p>
 <h3 id="sec-unified-distributed">Unified vs. Distributed</h3>
@@ -216,6 +319,191 @@ I2: r1 = r2 - r1</code></pre><p>Give the renamed instructions, the final RAT, an
       {
         q: `<p>Loads take 4 cycles on an L1 hit, and dependents are woken assuming a hit. The hit rate is 90%. What happens on a miss, what does it cost, and how would you reduce it?</p>`,
         a: `<p>Dependents issued in the load's shadow find no data and must be cancelled and replayed. The cost is wasted issue slots and extra latency, and with squash-all replay, unrelated instructions get replayed too.</p><p>Fixes: a hit/miss predictor that delays wakeup for loads likely to miss, selective replay of only dependent instructions, and keeping replayed instructions in the queue until they are confirmed.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "wakeup",
+  region: "core",
+  title: "Wakeup and Bypass Timing",
+  sections: [
+    { id: "entry", label: "What an Entry Holds" },
+    { id: "broadcast", label: "Broadcasting a Tag" },
+    { id: "match", label: "The Match Circuit" },
+    { id: "cdb", label: "Tomasulo's Common Data Bus" },
+    { id: "cost", label: "Cost as the Register File Grows" },
+    { id: "select", label: "Select and the Critical Loop" },
+    { id: "bypass", label: "Issuing Before the Value Exists" },
+    { id: "latency", label: "Multi-Cycle Producers and Loads" },
+    { id: "dispatch", label: "The Dispatch Race" },
+    { id: "matrix", label: "Matrix Schedulers" },
+    { id: "pipelined", label: "When the Loop Doesn't Fit in a Cycle" }
+  ],
+  body: `
+<p>A renamed instruction sits in an issue queue until its sources are ready. <strong>Wakeup</strong> is the hardware that tells it so. <strong>Select</strong> picks which ready entries go this cycle. This page goes through both at the circuit level, then shows how the scheduler issues a consumer <em>before</em> its operand exists, so the operand arrives through the bypass network just in time. The short version is on <a href="#/scheduler">Scheduler Queues</a>, and in-order forwarding is on <a href="#/data-hazards/forwarding">Data Hazards</a>.</p>
+<h3 id="sec-entry">What an Entry Holds</h3>
+<p>Each issue-queue (reservation station) entry holds:</p>
+<ul><li><code>valid</code>: the entry is in use</li><li><code>op</code>: the operation (often kept in a separate payload RAM that is read only after select)</li><li><code>src0_tag</code>, <code>src1_tag</code>: the physical register numbers of the sources, ⌈log₂(PRF size)⌉ bits each</li><li><code>src0_rdy</code>, <code>src1_rdy</code>: one ready bit per source</li><li><code>dst_tag</code>: the destination physical register</li></ul>
+<p>The ready bits are sticky flip-flops. Once set, they stay set until the entry is freed, squashed, or cancelled by a load replay.</p>
+<h3 id="sec-broadcast">Broadcasting a Tag</h3>
+<ul>
+<li>There is one <strong>tag bus</strong> per issue slot, so a machine that issues W instructions per cycle has W tag buses. Each carries a producer's <code>dst_tag</code> and a valid bit, and runs past every entry in the queue.</li>
+<li>Every source field has one comparator per bus. The queue has entries × 2 sources × W buses comparators, and all of them evaluate every cycle.</li>
+<li>The update rule for each source is <code>src_rdy_next = src_rdy | match_bus0 | match_bus1 | …</code>.</li>
+<li>The tag goes out when the producer is <em>selected</em>, not when it finishes. That is what lets a dependent instruction issue in the very next cycle (see <a href="#/wakeup/bypass">Issuing Before the Value Exists</a>).</li>
+</ul>
+<h3 id="sec-match">The Match Circuit</h3>
+<p>Each comparator is a CAM match line:</p>
+<ol><li>At the start of the cycle the match line is precharged high.</li><li>Each tag bit drives an XOR of the bus bit and the stored bit. The XOR output gates a pull-down transistor on the match line.</li><li>Any mismatched bit discharges the line. The line stays high only if every bit matches, and the bus valid bit gates the result.</li><li>The W match lines for a source are ORed together and with the current ready bit, and the result is written into the ready flip-flop.</li><li>The entry's request is <code>valid & src0_rdy & src1_rdy</code>.</li></ol>
+<div class="tbl"><svg viewBox="0 0 680 290" role="img" aria-label="Wakeup logic for one source of one issue queue entry, with two tag buses. Tag bus 0 carries p17 with valid set, and tag bus 1 carries p33 with valid set. The entry's stored source tag is p17. Comparator 0 compares bus 0 with the stored tag and outputs 1, a match. Comparator 1 compares bus 1 with the stored tag and outputs 0. Both outputs and the current ready bit go into an OR gate, whose output is written into the src0 ready flip-flop. The flip-flop feeds back into the OR gate and forward into an AND gate with the entry's valid bit and src1 ready bit, which produces the entry's request to select. Notes below say each comparator is a precharged match line discharged by any mismatched bit, and that the queue has entries times 2 sources times W buses comparators." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrWK" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<g style="stroke-width:1.5">
+<rect x="20" y="30" width="150" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="20" y="90" width="150" height="34" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="20" y="150" width="150" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="230" y="48" width="70" height="40" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="230" y="126" width="70" height="40" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="350" y="82" width="60" height="50" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="450" y="87" width="80" height="40" rx="3" style="fill:var(--pad-soft);stroke:var(--pad)"/>
+<rect x="570" y="80" width="90" height="54" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M170,47 H200 V60 H228" marker-end="url(#arrWK)"/>
+<path d="M170,107 H200 V78 H228" marker-end="url(#arrWK)"/>
+<path d="M200,107 V136 H228" marker-end="url(#arrWK)"/>
+<path d="M170,167 H200 V154 H228" marker-end="url(#arrWK)"/>
+<path d="M300,68 H325 V98 H348" marker-end="url(#arrWK)"/>
+<path d="M300,146 H325 V116 H348" marker-end="url(#arrWK)"/>
+<path d="M410,107 H448" marker-end="url(#arrWK)"/>
+<path d="M530,107 H568" marker-end="url(#arrWK)"/>
+<path d="M540,107 V190 H380 V134" marker-end="url(#arrWK)"/>
+<path d="M615,175 V136" marker-end="url(#arrWK)"/>
+<path d="M660,107 H676"/>
+</g>
+<g style="fill:var(--ink);font-size:12px">
+<text x="30" y="52" style="font-family:var(--mono);font-size:11px">bus 0: p17, valid</text>
+<text x="30" y="112" style="font-family:var(--mono);font-size:11px">src0_tag: p17</text>
+<text x="30" y="172" style="font-family:var(--mono);font-size:11px">bus 1: p33, valid</text>
+<text x="265" y="73" text-anchor="middle" style="font-weight:600">=</text>
+<text x="265" y="151" text-anchor="middle" style="font-weight:600">=</text>
+<text x="380" y="112" text-anchor="middle" style="font-weight:600">OR</text>
+<text x="490" y="104" text-anchor="middle" style="font-weight:600">src0_rdy</text>
+<text x="490" y="119" text-anchor="middle">flip-flop</text>
+<text x="615" y="102" text-anchor="middle" style="font-weight:600">AND</text>
+<text x="615" y="120" text-anchor="middle">request</text>
+</g>
+<g style="fill:var(--muted);font-size:11px">
+<text x="306" y="62">1</text><text x="306" y="140">0</text>
+<text x="390" y="204">old ready bit</text>
+<text x="575" y="190">valid, src1_rdy</text>
+<text x="20" y="20">tag buses from select (one per issue slot)</text>
+</g>
+<g style="fill:var(--ink);font-size:11px">
+<text x="20" y="236">Each "=" is a match line: precharged high, pulled low by any mismatched bit (one XOR per tag bit).</text>
+<text x="20" y="254">One entry has 2 sources × W buses comparators. The whole queue has entries × 2 × W.</text>
+<text x="20" y="272">All of them evaluate every cycle that any bus is valid.</text>
+</g>
+</svg></div>
+<h3 id="sec-cdb">Tomasulo's Common Data Bus</h3>
+<p>The tag bus descends from the Common Data Bus (CDB) of Tomasulo's algorithm in the IBM 360/91, as described in Hennessy and Patterson, chapter 3. There, the names were reservation-station numbers rather than physical registers. Each reservation station holds:</p>
+<ul><li><strong>Op:</strong> the operation</li><li><strong>Vj, Vk:</strong> the source values, once known</li><li><strong>Qj, Qk:</strong> the reservation station that will produce each source, or 0 if the value is already in V</li><li><strong>Busy:</strong> the station is in use</li></ul>
+<p>Each register in the register file also has a status field Qi: the reservation station that will write it, or 0 if the register holds the current value.</p>
+<p>When a result is ready:</p>
+<ol>
+<li>The functional unit requests the CDB. If two units finish in the same cycle, one must wait, because there is only one bus.</li>
+<li>The winner drives the tag (its reservation-station number) <em>and the full result value</em> onto the CDB in the same cycle.</li>
+<li>Every reservation station compares Qj and Qk with the tag. On a match it latches the value into Vj or Vk and clears the Q field.</li>
+<li>Every register whose Qi matches latches the value and clears Qi. Store buffers waiting for data do the same.</li>
+<li>A station whose Qj and Qk are both 0 can start executing in the next cycle.</li>
+</ol>
+<p>Three consequences follow, and modern cores changed all three.</p>
+<ul>
+<li><strong>Wakeup and data travel together.</strong> A consumer can't start until the producer has finished and won the bus, so every dependence costs the producer's latency plus the CDB cycle. Modern cores broadcast the tag early, at select time, and deliver the value later through the bypass network.</li>
+<li><strong>One result per cycle.</strong> A single CDB is a structural hazard once several units can finish together. Adding CDBs multiplies both the comparators and the value wires.</li>
+<li><strong>Every entry stores values.</strong> Each source needs a 64-bit (or 256-bit or 512-bit for vector) latch writable from every CDB, and each CDB runs its full value width past every entry. This "value-capture" scheduler survived into Intel's P6 family. Cores built around a physical register file, like the Pentium 4 and Intel cores from Sandy Bridge on, keep only tags in the queue and broadcast only tags, so each bus is ⌈log₂(PRF size)⌉ bits wide instead of a full value width.</li>
+</ul>
+<p>So in a PRF-based core the old CDB has split in two: narrow <strong>tag buses</strong> driven at select time for wakeup, and wide <strong>result buses</strong> driven at the end of execution, which feed the bypass network and the PRF write ports.</p>
+<h3 id="sec-cost">Cost as the Register File Grows</h3>
+<p>Let N be the number of queue entries, W the number of tag buses, P the PRF size, and b = ⌈log₂ P⌉ the tag width.</p>
+<ul>
+<li><strong>Tag storage:</strong> N entries × 2 sources × b bits.</li>
+<li><strong>Comparators:</strong> N × 2 × W comparators, each b bits wide, so N × 2 × W × b XOR cells.</li>
+<li><strong>Ready table (scoreboard):</strong> one bit per physical register, P bits in all, set by every tag bus (W write ports) and read at dispatch (2 read ports per dispatched instruction).</li>
+<li><strong>Delay:</strong> Palacharla, Jouppi, and Smith (ISCA 1997) split wakeup delay into tag drive, tag match, and the OR of the match lines. Tag drive dominates in large windows. The bus is a wire whose length grows with N, and each entry gets taller with W (one bus track and one comparator per bus), and wire RC delay grows with the square of length, so tag drive grows faster than linearly in N, and faster still at larger W. Tag match grows only slightly with b.</li>
+<li><strong>Energy:</strong> almost every comparison mismatches, and a mismatch discharges a precharged match line, so nearly all N × 2 × W match lines burn energy every cycle that buses are active. Gating the comparators of empty entries and of sources that are already ready (Folegnani and González, ISCA 2001) removes much of that.</li>
+</ul>
+<p>The PRF size enters only through b, which grows with log₂ P. For a 64-entry queue with 4 tag buses (512 comparators):</p>
+<div class="tbl"><table>
+<tr><th>PRF size</th><th>Tag width b</th><th>XOR cells (N × 2 × W × b)</th><th>Relative</th></tr>
+<tr><td>64 registers</td><td>6 bits</td><td>3,072</td><td>1.00×</td></tr>
+<tr><td>128 registers</td><td>7 bits</td><td>3,584</td><td>1.17×</td></tr>
+<tr><td>256 registers</td><td>8 bits</td><td>4,096</td><td>1.33×</td></tr>
+<tr><td>512 registers</td><td>9 bits</td><td>4,608</td><td>1.50×</td></tr>
+</table></div>
+<p>Doubling the PRF adds one bit per comparator, a modest increase. Doubling the queue or the issue width doubles the comparator count and lengthens or loads every bus. The cost of more registers falls elsewhere: on the PRF's own ports and bitlines (<a href="#/prf-sizing">Sizing the Physical Register File</a>), on the ready table, and on every structure that stores a tag (RAT, ROB, payload RAM).</p>
+<h3 id="sec-select">Select and the Critical Loop</h3>
+<ul>
+<li>Every entry whose request is high competes. A priority encoder or tree arbiter grants up to one request per functional unit (or per port) each cycle.</li>
+<li>Priority is usually oldest first. A compacting queue keeps entries in age order so position gives age. A non-compacting queue keeps an N × N age matrix.</li>
+<li>The granted entry reads its payload (op, destination) and drives its <code>dst_tag</code> onto a tag bus, which closes the loop.</li>
+</ul>
+<p>The loop select → tag bus → match → ready bit → request → select must fit in one cycle for dependent single-cycle instructions to issue back to back. Its delay grows with N and W, which is why large windows are split into several smaller queues, each with its own select logic.</p>
+<h3 id="sec-bypass">Issuing Before the Value Exists</h3>
+<p>The scheduler never checks a value. A ready bit doesn't mean "my operand is in a register." It means "if I issue now, my operand will be at my functional unit's input when I reach execute." The scheduler knows each producer's latency and broadcasts its tag exactly early enough to make that true. The value then arrives through a bypass path instead of the register file.</p>
+<p>Take a pipeline with four stages after the queue: select (S), register read (RR), execute (EX), and writeback (WB), which writes the PRF. A is a single-cycle add. B and D both read A's result p20. B wins select in cycle 1. D loses select in cycle 1 to an older instruction and goes in cycle 2.</p>
+<div class="tbl"><table>
+<tr><th>Instruction</th><th>Cycle 0</th><th>Cycle 1</th><th>Cycle 2</th><th>Cycle 3</th><th>Cycle 4</th></tr>
+<tr><td><code>A: p20 = p5 + p6</code></td><td>S, broadcast p20</td><td>RR</td><td>EX, p20 computed</td><td>WB, p20 written to PRF</td><td></td></tr>
+<tr><td><code>B: p21 = p20 + p7</code></td><td>woken at the end of the cycle</td><td>S, broadcast p21</td><td>RR, PRF still holds stale p20</td><td>EX, p20 from the EX → EX bypass</td><td>WB</td></tr>
+<tr><td><code>D: p22 = p20 + p8</code></td><td>woken at the end of the cycle</td><td>requests, loses select</td><td>S</td><td>RR, A writes p20 this cycle</td><td>EX, p20 from the WB → EX bypass</td></tr>
+</table></div>
+<ul>
+<li><strong>B</strong> is selected one cycle after A. It reaches EX in cycle 3, right after A's result leaves the ALU at the end of cycle 2. Its register read in cycle 2 returns garbage for p20, and the bypass mux replaces it with A's ALU output.</li>
+<li><strong>D</strong> reads the PRF in cycle 3, the same cycle A writes it. Either the file writes in the first half of the cycle and reads in the second, or a second bypass level carries A's value from the writeback latch.</li>
+<li>Any consumer that reads the PRF in cycle 4 or later finds p20 there.</li>
+</ul>
+<p>Each functional unit's input has a mux with one input from the PRF and one per (functional unit × bypass level). There are two ways to drive its select lines.</p>
+<ol><li><strong>Tag compare at register read:</strong> compare the consumer's source tags with the destination tags in every unit's EX and WB latches, and take the newest match. This is the same forwarding unit an in-order pipeline uses.</li><li><strong>Timing known at issue:</strong> the scheduler knows which bus woke the source and how many cycles ago, which maps directly to one bypass input. A source that was ready long before needs the PRF.</li></ol>
+<p>The bypass network's cost grows as (functional units)² × levels × value width in wires, because every unit's result must reach every unit's input. Wide cores cluster their units: the Alpha 21264 split its integer units into two clusters, and a value crossing between them cost one extra cycle.</p>
+<h3 id="sec-latency">Multi-Cycle Producers and Loads</h3>
+<ul>
+<li><strong>Fixed latency L:</strong> broadcast the tag L − 1 cycles after select. For a 3-cycle multiply selected in cycle 0: RR in cycle 1, EX in cycles 2 to 4. The tag goes out in cycle 0 + (3 − 1) = 2, the consumer is selected in cycle 3, reads registers in cycle 4, and executes in cycle 5, right after the result appears. Single-cycle ops are the case L − 1 = 0. The delay is a shift register on the bus side or a countdown in each consumer entry.</li>
+<li><strong>Variable latency (dividers):</strong> the unit announces a few cycles ahead when it will finish, and the tag goes out then.</li>
+<li><strong>Loads:</strong> the latency isn't known at select, because the access may miss. The scheduler assumes an L1 hit (4 cycles to use on AMD Zen 4) and wakes dependents speculatively. If the load misses, the dependents already issued in its shadow are cancelled: their ready bits clear, they stay in the queue, and the load's fill re-broadcasts the tag later. How cores limit the damage is on <a href="#/replay">Selective Replay</a>.</li>
+</ul>
+<h3 id="sec-dispatch">The Dispatch Race</h3>
+<p>A new entry initializes its ready bits from the ready table, which reflects broadcasts up to the end of the previous cycle. A broadcast in the <em>same</em> cycle would miss the entry, because its tags aren't in the CAM yet. Dispatch therefore also compares the incoming source tags with the current cycle's tag buses and ORs the result into the initial ready bits. A source whose producer is in the same dispatch group simply starts not ready.</p>
+<h3 id="sec-matrix">Matrix Schedulers</h3>
+<ul>
+<li>Instead of tags, keep an N × N bit matrix. Row = consumer entry, column = producer entry.</li>
+<li>At dispatch, set the bits for the queue entries the new instruction depends on. This needs a map from physical register to the queue entry that produces it.</li>
+<li>When an entry is granted, clear its column: one wire per entry, no tag compare.</li>
+<li>An entry is ready when its row is all zeros, a wide NOR.</li>
+</ul>
+<p>The matrix costs N² bits regardless of P, while the CAM costs N × 2 × W × b. They cross at N = 2 × W × b entries. For the 64-entry, 4-bus queue with a 256-entry PRF above, both come to 4,096 cells, and the matrix grows faster with N. That is one reason matrix schedulers are built as several small queues. The design is from Goshima et al. (MICRO 2001) and is widely reported in Intel and AMD cores.</p>
+<h3 id="sec-pipelined">When the Loop Doesn't Fit in a Cycle</h3>
+<p>If wakeup and select take two cycles, a dependent single-cycle instruction issues every other cycle and a chain runs at half speed. Stark, Brown, and Patt (MICRO 2000) recover most of the loss with speculative wakeup from grandparents: an instruction becomes a candidate when its parents' parents have issued, betting that the parents will be selected next. A wrong bet costs a cancel, the same mechanism loads already need.</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A fused multiply-add with a 4-cycle latency (Intel Golden Cove and AMD Zen 4 both list 4 cycles) is selected in cycle 10. A dependent FMA uses its result as the addend. When must the producer broadcast its tag, and in which cycles is the consumer selected, read, and executed?</p><p class="given">Assume the pipeline after the queue is one select stage, one register-read stage, then execute, the consumer is selected in the first cycle it is ready, and wakeup and select fit in one cycle.</p>`,
+        a: `<ol><li>Producer: select in cycle 10, register read in cycle 11, execute in cycles 12 to 15. The result exists at the end of cycle 15.</li><li>The consumer must execute in cycle 16, so it must read registers in cycle 15 and be selected in cycle 14. It must be woken by the end of cycle 13.</li><li>Broadcast cycle = select cycle + (latency − 1) = cycle 10 + (4 cycles − 1 cycle) = <strong>cycle 13</strong>.</li><li>Consumer: selected in cycle 14, register read in cycle 15 (the PRF doesn't have the value yet), execute in cycle 16 with the addend taken from the FMA unit's bypass.</li><li>If the tag went out at writeback (cycle 16) instead, the consumer would be selected in cycle 17 and execute in cycle 19, 3 cycles later on every link of the chain.</li></ol>`
+      },
+      {
+        q: `<p>Intel Golden Cove is reported to have a 97-entry scheduler and a 280-entry integer PRF. Count the wakeup comparators and XOR cells, then compare two upgrades: growing the PRF to 512 entries, or doubling the scheduler to 194 entries.</p><p class="given">Assume 8 tag buses, two sources per entry, and one comparator per source per bus.</p>`,
+        a: `<ol><li>Tag width: ⌈log₂ 280⌉ = 9 bits.</li><li>Comparators: 97 entries × 2 sources/entry × 8 buses = 1,552 comparators.</li><li>XOR cells: 1,552 comparators × 9 bits = <strong>13,968</strong>.</li><li>PRF to 512: ⌈log₂ 512⌉ = 9 bits, the same width. Comparator count and size are <strong>unchanged</strong>. The cost goes to the PRF itself and the ready table (512 bits instead of 280 bits).</li><li>Scheduler to 194: 194 entries × 2 sources/entry × 8 buses × 9 bits = <strong>27,936</strong> XOR cells, 2× the logic, plus tag buses twice as long, so wakeup delay grows faster than 2×.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>You are choosing between a CAM scheduler and a matrix scheduler for one queue. Derive the queue size at which their cell counts cross, evaluate it for a design, and say what the cell counts leave out.</p><p class="given">Assume 8 tag buses, a 280-entry PRF, two sources per entry, and that the CAM costs one XOR cell per tag bit per comparator while the matrix costs one bit per (consumer, producer) pair.</p>`,
+        a: `<ol><li>CAM: N entries × 2 sources × 8 buses × ⌈log₂ 280⌉ bits = N × 2 × 8 × 9 = 144 × N cells.</li><li>Matrix: N × N bits.</li><li>Crossover: N² = 144 × N, so N = <strong>144 entries</strong>. Below that the matrix is smaller. At 97 entries: matrix 97 × 97 = 9,409 bits versus CAM 97 × 144 = 13,968 cells.</li><li>What the counts leave out:<ul><li>The CAM also stores 2 tags per entry (97 entries × 2 sources × 9 bits = 1,746 bits) and needs the ready table at dispatch.</li><li>The matrix needs a map from physical register to producing queue entry at dispatch, plus the ready table for producers that have already left the queue.</li><li>Delay: the CAM's tag buses lengthen with N, and the matrix's per-row NOR widens with N. The matrix's N² growth is why it is split into several small queues.</li><li>The matrix has no tag width, so it doesn't care how big the PRF gets.</li></ul></li></ol>`
+      },
+      {
+        q: `<p>A chain of 12 dependent single-cycle adds runs through a scheduler. How long does the chain take if tags are broadcast at select, versus at writeback as in the original Tomasulo CDB, and what hardware does the first option require?</p><p class="given">Assume the pipeline after the queue is select, register read, execute, and writeback, each one cycle, the adds never lose select, and wakeup plus select fit in one cycle.</p>`,
+        a: `<ol><li>Broadcast at select: each add is selected the cycle after its producer, so the chain issues at 1 cycle/add. 12 adds × 1 cycle/add = <strong>12 cycles</strong> from the first add's execute to the end of the last add's execute.</li><li>Broadcast at writeback: a producer selected in cycle t writes back in cycle t + 3, and its consumer is selected in cycle t + 4. That is 4 cycles/add, so 12 adds × 4 cycles/add = <strong>48 cycles</strong>, 4× slower.</li><li>Hardware for the first option:<ul><li>An EX → EX bypass, because the consumer's register read happens before the producer has a result.</li><li>A WB → EX bypass (or write-before-read in the PRF), for consumers that lose select by one cycle.</li><li>Mux control for the bypass, by tag compares at register read or by timing known at issue.</li><li>A cancel mechanism for producers whose latency turns out longer than assumed, such as loads that miss.</li></ul></li></ol>`
       }
     ]
   }
