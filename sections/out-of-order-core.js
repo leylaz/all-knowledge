@@ -585,22 +585,195 @@ y = p-&gt;count;   // load at PC 0x4a1c</code></pre>
 <li>Later the same load violates with a second store. X is copied into the second store's SSIT entry, so three SSIT entries now point at X. From then on, when both stores and the load are fetched, the second store waits for the first and the load waits for the second.</li>
 </ol>
 <p>Why only one SSID per store? Letting an SSIT entry hold two SSIDs would need extra LFST read ports, and a load could then depend on two stores, which makes the scheduler larger. The cost is a new problem, covered next.</p>
-<p><strong>Two loads waiting on one store, step by step.</strong> Suppose load0 and store0 already share SSID X, and then load1 violates with store0. Store0 has a set and load1 doesn't, so load1 joins store0's set (rule 3 in the next section). Now SSIT[load0 PC], SSIT[load1 PC], and SSIT[store0 PC] all hold X. The paper gives the table operations. Where it is silent about the hardware, the steps below say so and give the usual design.</p>
+<p><strong>Two loads waiting on one store, step by step.</strong> Suppose load0 and store0 already share SSID X, and then load1 violates with store0. Store0 has a set and load1 doesn't, so load1 joins store0's set (rule 3 in the next section). Now SSIT[load0 PC], SSIT[load1 PC], and SSIT[store0 PC] all hold X. The paper gives the table operations. Where it is silent about the hardware, the steps below say so and give the usual design. The example core renames 4 instructions per cycle and uses ROB indices as inums. Its LFST has 128 entries, the size in the DEC patent's preferred embodiment, so an SSID is 7 bits.</p>
 <ol>
-<li><strong>Store0 is fetched.</strong> The paper says only that "recently fetched" loads and stores access the SSIT. It names no pipeline stage, and the related DEC patent (US 6,108,770) places the assignment of instruction identifiers in a stage after decode and before the instruction queue, which is rename and allocate in a modern core. The paper calls the SSIT "a PC indexed table" without saying virtual or physical. In practice it's the virtual fetch PC, which the front end already has, and an untagged predictor costs only performance when it indexes wrong.
+<li><strong>Store0 is fetched and renamed.</strong> The paper says only that "recently fetched" loads and stores access the SSIT. It names no pipeline stage, and the related DEC patent (US 6,108,770) places the assignment of instruction identifiers in a stage after decode and before the instruction queue, which is rename and allocate in a modern core. The paper calls the SSIT "a PC indexed table" without saying virtual or physical. In practice it's the virtual fetch PC, which the front end already has, and an untagged predictor costs only performance when it indexes wrong.
 <ul>
 <li><strong>SSIT read:</strong> it needs only the PC, so it can start at fetch or decode. Store0 gets SSID X.</li>
 <li><strong>LFST read:</strong> LFST[X] is invalid, so store0 depends on no earlier store.</li>
 <li><strong>LFST write:</strong> store0 writes its inum into LFST[X]. The paper defines an inum as "a hardware pointer that uniquely identifies the instance of each instruction in flight", and a ROB index fits. The write doesn't happen at fetch, before store0 has an inum. It happens in the stage that assigns inums, in program order. A ROB index is known at allocation, because the ROB fills in order: the slots of a rename group get tail, tail + 1, and so on.</li>
-<li><strong>Same rename group:</strong> if store0 and a load in its set are renamed in the same cycle, the load can't read store0's inum from the LFST yet. The paper doesn't cover this. Rename would need a comparison within the group that bypasses the inum, the same way it handles a register dependence inside one group.</li>
-</ul></li>
-<li><strong>Load0 is fetched.</strong> It reads SSIT[load0 PC] and gets X, then reads LFST[X] and gets store0's inum. The paper says only that the scheduler imposes the dependence "in a similar manner to the way it imposes register dependence constraints", and that each load specifies exactly one dependence. That one-dependence rule keeps the hardware cheap. The usual design gives the load's issue queue entry one extra source tag holding store0's inum, with its ready bit cleared. A design with a dependence matrix instead sets one bit in the load's row, in store0's column. The load can issue only when its address register is ready and this bit is set.</li>
-<li><strong>Load1 is fetched.</strong> It does the same and gets the same inum. Loads only read the LFST and never write it, so any number of loads can wait on one store, each holding its own copy of the tag. This is why merging works with such simple tables.</li>
-<li><strong>Store0 issues.</strong> The loads wait for the store to <em>issue</em>, not to complete or commit. In the paper's model, a store issues once its address and data registers are both ready, and split stores aren't modeled. Two things happen:
+</ul>
+<p><strong>A load in the same rename group.</strong> If store0 and load0 are renamed in the same cycle, load0 can't read store0's inum from the LFST, because store0 is writing it in that same cycle. The paper doesn't cover this. Rename needs a check inside the group, built the same way as the check that finds register dependences between instructions renamed together. For each load or store in slot j, the logic:</p>
+<ol>
+<li>Compares slot j's SSID with the SSID of every older slot in the group that holds a store. A 4-wide group has 6 pairs of slots, so it needs 6 comparators of 7 bits each.</li>
+<li>Picks the youngest matching older slot with a priority encoder. That store is the last fetched store of the set as slot j sees it.</li>
+<li>Chooses the dependence with a mux: the matching slot's inum (tail + its slot number) if there is a match, and otherwise the value read from LFST[SSID].</li>
+<li>Writes the LFST once per set. If two stores of one set are in the group, only the younger one writes its inum, the same way only the youngest writer of an architectural register updates the RAT.</li>
+</ol>
+<p>Stores use the same logic to find the older store they chain behind. The figure shows the check for load0 in slot 2, with the ROB tail at entry 40:</p>
+<div class="tbl"><svg viewBox="0 0 680 340" role="img" aria-label="Same-group check for load0. A rename group holds store0 in slot 0 with SSID X and inum 40, an add in slot 1 with no SSID and inum 41, load0 in slot 2 with SSID X and inum 42, and load9 in slot 3 with SSID Y and inum 43. Load0's SSID is compared with slot 0 and slot 1. Slot 0 is a store with SSID X, so it matches. Slot 1 does not. A priority select picks slot 0, the youngest older match. The LFST read for X returns invalid. A mux picks the bypassed inum 40 over the LFST value, so load0 depends on inum 40. Separately, store0 writes inum 40 into LFST X, and if two stores of one set are in a group only the younger writes.">
+<defs><marker id="arrMD1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<text x="10" y="18" style="fill:var(--muted);font-size:12px;font-weight:600">Rename group, ROB tail = 40 (each slot's inum is tail + slot number)</text>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
+<rect x="10" y="28" width="159" height="64" rx="3"/><rect x="177" y="28" width="159" height="64" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="344" y="28" width="159" height="64" rx="3"/><rect x="511" y="28" width="159" height="64" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+</g>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle">
+<text x="89" y="48" style="font-weight:600">Slot 0: store0</text><text x="89" y="65">SSID X</text><text x="89" y="82">inum 40</text>
+<text x="256" y="48" style="font-weight:600">Slot 1: add</text><text x="256" y="65">no SSID</text><text x="256" y="82">inum 41</text>
+<text x="423" y="48" style="font-weight:600">Slot 2: load0</text><text x="423" y="65">SSID X</text><text x="423" y="82">inum 42</text>
+<text x="590" y="48" style="font-weight:600">Slot 3: load9</text><text x="590" y="65">SSID Y</text><text x="590" y="82">inum 43</text>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M60,92 V124" marker-end="url(#arrMD1)"/><path d="M230,92 V124" marker-end="url(#arrMD1)"/>
+<path d="M400,92 V110 H120 V124" marker-end="url(#arrMD1)"/><path d="M300,110 V124" marker-end="url(#arrMD1)"/>
+<path d="M470,92 V124" marker-end="url(#arrMD1)"/>
+<path d="M90,168 V198" marker-end="url(#arrMD1)"/><path d="M270,168 V198" marker-end="url(#arrMD1)"/>
+<path d="M520,168 V260" marker-end="url(#arrMD1)"/>
+<path d="M350,218 H460 V260" marker-end="url(#arrMD1)"/>
+<path d="M490,296 V314" marker-end="url(#arrMD1)"/>
+</g>
+<text x="310" y="105" style="fill:var(--muted);font-size:11px">load0's SSID X</text>
+<g style="stroke-width:1.5">
+<rect x="10" y="126" width="160" height="42" rx="3" style="fill:var(--surface);stroke:var(--accent-green)"/>
+<rect x="190" y="126" width="160" height="42" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="400" y="126" width="160" height="42" rx="3" style="fill:var(--pad-soft);stroke:var(--pad)"/>
+<rect x="10" y="200" width="340" height="36" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="10" y="262" width="340" height="56" rx="3" style="fill:var(--pad-soft);stroke:var(--pad)"/>
+<path d="M420,262 H560 L540,296 H440 Z" style="fill:var(--surface);stroke:var(--muted)"/>
+</g>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle">
+<text x="90" y="143">Slot 0 a store with</text><text x="90" y="159">SSID X? Yes</text>
+<text x="270" y="143">Slot 1 a store with</text><text x="270" y="159">SSID X? No</text>
+<text x="480" y="143">LFST[X] read</text><text x="480" y="159">invalid</text>
+<text x="180" y="223">Priority select: youngest older match is slot 0</text>
+<text x="490" y="284">mux</text>
+<text x="180" y="280">LFST write: LFST[X] gets inum 40 (store0)</text>
+<text x="180" y="296">With two stores of one set in a group,</text>
+<text x="180" y="311">only the younger one writes</text>
+<text x="490" y="332" style="font-weight:600">load0 depends on inum 40</text>
+</g>
+<text x="358" y="212" style="fill:var(--muted);font-size:11px">match, inum 40</text>
+</svg></div>
+</li>
+<li><strong>Load0 is renamed and dispatched.</strong> It reads SSIT[load0 PC] and gets X, then reads LFST[X] (or the bypass) and gets store0's inum, 40. The paper says only that the scheduler imposes the dependence "in a similar manner to the way it imposes register dependence constraints", and that each load specifies exactly one dependence. That one-dependence rule keeps the hardware cheap. The usual design gives each issue queue entry one extra source field for a store inum, with a valid bit and a ready bit, next to the two register source tags. The figure shows the queue just after load0 is dispatched. Store0 is still waiting for its data register p17, so load0's mem ready bit is 0.
+<div class="tbl"><svg viewBox="0 0 680 400" role="img" aria-label="The issue queue and its neighbors. Rename and allocate, which holds the RAT, SSIT, and LFST, allocates ROB entry 42 for load0 and dispatches entries into the issue queue. Each entry has fields v, op, dest, src1 with ready bit r, src2 with ready bit r, mem, mv, mr, and inum. Store0, inum 40, has src1 p12 ready, src2 p17 not ready, and no mem dependence. An add, inum 41, has dest p20, src1 p5 ready, src2 p6 not ready. Load0, inum 42, has dest p21, src1 p12 ready, mem 40 with mv 1 and mr 0. Ready entries send requests to select logic, which grants them. Granted entries go to payload RAM and register file read, then execute in ALUs and AGUs, then loads and stores enter the load and store queues. Select drives the wakeup buses, carrying destination tags and store inums, back to every issue queue entry.">
+<defs><marker id="arrMD2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M610,40 V24 H350 V38" marker-end="url(#arrMD2)"/>
+<path d="M80,110 V148" marker-end="url(#arrMD2)"/>
+<path d="M150,75 H168" marker-end="url(#arrMD2)"/>
+<path d="M530,56 H548" marker-end="url(#arrMD2)"/><path d="M550,74 H532" marker-end="url(#arrMD2)"/>
+<path d="M610,84 V102" marker-end="url(#arrMD2)"/><path d="M610,148 V166" marker-end="url(#arrMD2)"/><path d="M610,212 V230" marker-end="url(#arrMD2)"/>
+</g>
+<text x="360" y="18" style="fill:var(--muted);font-size:11px">wakeup buses: destination tags and store inums</text>
+<g style="stroke-width:1.5">
+<rect x="10" y="40" width="140" height="70" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="10" y="150" width="140" height="56" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="170" y="40" width="360" height="170" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="550" y="40" width="120" height="44" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="550" y="104" width="120" height="44" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="550" y="168" width="120" height="44" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="550" y="232" width="120" height="44" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+</g>
+<rect x="392" y="66" width="84" height="116" style="fill:var(--pad-soft);stroke:none"/>
+<g style="fill:none;stroke:var(--rule);stroke-width:1">
+<path d="M178,86 H514 M178,110 H514 M178,134 H514 M178,158 H514"/>
+<path d="M196,66 V182 M240,66 V182 M276,66 V182 M316,66 V182 M334,66 V182 M374,66 V182 M392,66 V182 M432,66 V182 M454,66 V182 M476,66 V182"/>
+</g>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle">
+<text x="80" y="62" style="font-weight:600">Rename and</text><text x="80" y="78" style="font-weight:600">allocate</text><text x="80" y="98">RAT, SSIT, LFST</text>
+<text x="80" y="173" style="font-weight:600">ROB</text><text x="80" y="192">entry 42: load0</text>
+<text x="610" y="66" style="font-weight:600">Select logic</text>
+<text x="610" y="122">Payload RAM,</text><text x="610" y="138">register read</text>
+<text x="610" y="186" style="font-weight:600">Execute</text><text x="610" y="202">ALUs, AGUs</text>
+<text x="610" y="250">Load and</text><text x="610" y="266">store queues</text>
+</g>
+<text x="178" y="58" style="fill:var(--pad);font-size:12px;font-weight:600">Issue queue</text>
+<g style="fill:var(--muted);font-size:10px;font-weight:600" text-anchor="middle">
+<text x="187" y="80">v</text><text x="218" y="80">op</text><text x="258" y="80">dest</text><text x="296" y="80">src1</text><text x="325" y="80">r</text><text x="354" y="80">src2</text><text x="383" y="80">r</text><text x="412" y="80">mem</text><text x="443" y="80">mv</text><text x="465" y="80">mr</text><text x="495" y="80">inum</text>
+</g>
+<g style="fill:var(--ink);font-size:11px;font-family:var(--mono)" text-anchor="middle">
+<text x="187" y="102">1</text><text x="218" y="102">st</text><text x="258" y="102">-</text><text x="296" y="102">p12</text><text x="325" y="102">1</text><text x="354" y="102">p17</text><text x="383" y="102">0</text><text x="412" y="102">-</text><text x="443" y="102">0</text><text x="465" y="102">-</text><text x="495" y="102">40</text>
+<text x="187" y="126">1</text><text x="218" y="126">add</text><text x="258" y="126">p20</text><text x="296" y="126">p5</text><text x="325" y="126">1</text><text x="354" y="126">p6</text><text x="383" y="126">0</text><text x="412" y="126">-</text><text x="443" y="126">0</text><text x="465" y="126">-</text><text x="495" y="126">41</text>
+<text x="187" y="150">1</text><text x="218" y="150">ld</text><text x="258" y="150">p21</text><text x="296" y="150">p12</text><text x="325" y="150">1</text><text x="354" y="150">-</text><text x="383" y="150">-</text><text x="412" y="150">40</text><text x="443" y="150">1</text><text x="465" y="150">0</text><text x="495" y="150">42</text>
+<text x="346" y="176">...</text>
+</g>
+<text x="178" y="200" style="fill:var(--muted);font-size:11px">store0's data p17 isn't ready, so load0 waits (mr = 0)</text>
+<g style="fill:var(--ink);font-size:11px">
+<text x="10" y="300">v: entry valid</text>
+<text x="10" y="318">op: operation</text>
+<text x="10" y="336">dest: destination physical register</text>
+<text x="10" y="354">src1, src2: source physical register tags</text>
+<text x="10" y="372">r: that source's ready bit</text>
+<text x="300" y="300">mem: inum of the store to wait for (from the LFST)</text>
+<text x="300" y="318">mv: mem valid (a store dependence was predicted)</text>
+<text x="300" y="336">mr: mem ready (that store has issued)</text>
+<text x="300" y="354">inum: this entry's own ROB index</text>
+<text x="300" y="372">Requests select when both r = 1 and (mv = 0 or mr = 1)</text>
+</g>
+</svg></div>
+<p>Around the queue, rename allocates the ROB entry (whose index is the inum) and a load or store queue entry, then dispatches the instruction into a free queue entry. Every cycle, entries whose operands are all ready send requests to select, and select grants the oldest few. Granted entries read their operands from the payload RAM and register file, execute, and loads and stores then work in the load and store queues. Select also drives the wakeup buses back to every entry, which is how waiting entries learn that their producers have issued.</p>
+</li>
+<li><strong>Load1 is fetched and renamed, later.</strong> It reads SSIT[load1 PC], gets X, reads LFST[X], and gets the same inum, 40. Its entry looks like load0's, with mem = 40, mv = 1, and mr = 0. Loads only read the LFST and never write it, so any number of loads can wait on one store, each holding its own copy of the tag. This is why merging works with such simple tables.</li>
+<li><strong>Store0 issues.</strong> The loads wait for the store to <em>issue</em>, not to complete or commit. In the paper's model, a store issues once its address and data registers are both ready. Here that happens when p17 arrives. Three things follow.
 <ul>
-<li><strong>Wakeup:</strong> the paper doesn't describe it beyond the comparison with register dependences. In the usual design, store0's inum is broadcast to the issue queue like a destination register tag, either on the existing tag buses or on a separate bus. Load0 and load1 both match and set their ready bits, and each is selected once its address register is also ready. When the load executes, it gets the data from the store queue by forwarding (see <a href="#/lsq/loads">Load and Store Queues</a>).</li>
+<li><strong>Broadcast:</strong> the paper doesn't describe it beyond the comparison with register dependences. In the usual design, select places store0's inum on a tag bus, just as it places an ALU instruction's destination tag. The bus wires run past every entry in the queue, because in a unified queue any entry can hold a load or store. Each entry compares the bus tag with its mem field and ANDs the result with mv and the bus valid bit, so only entries with a predicted store dependence can set mr. Every other entry, including all non-memory instructions, ignores the bus. Cores with a separate scheduler for memory operations put these comparators only in that scheduler.</li>
+<li><strong>Which wires:</strong> either a separate memory tag bus, with one extra comparator per entry, or the existing register tag buses. A store writes no register, so its slot on the register bus is free, and a type bit tells the entries whether the tag is a physical register or an inum. A scheduler built as a dependence matrix instead raises the store's column wire, and no comparator is needed.</li>
+<li><strong>Dependents of the loads:</strong> an instruction that uses load0's result doesn't get a memory bit. It waits on load0's destination tag, p21, through ordinary register wakeup when load0 is scheduled. The memory dependence links only the store and the loads that predicted it.</li>
+</ul>
+<p>The figure shows the broadcast reaching four entries:</p>
+<div class="tbl"><svg viewBox="0 0 680 320" role="img" aria-label="Store0's inum broadcast. Select logic grants store0 and drives inum 40 onto a memory tag bus that runs past four issue queue entries. Load0, inum 42, holds mem 40 and mv 1, so its comparator matches, the AND with mv passes, and mr is set to 1, making load0 ready. Load1, inum 47, holds mem 40 and mv 1, so mr is set to 1, but it still waits for its address register p30. An add, inum 44, has mv 0, so the comparator result is ignored and it waits only on registers. Store8, inum 45, from another set, holds mem 38 and mv 1, so its comparator does not match and mr stays 0.">
+<defs><marker id="arrMD3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<g style="fill:none;stroke:var(--rule);stroke-width:1;stroke-dasharray:4 3"><rect x="130" y="2" width="120" height="292" rx="4"/><rect x="260" y="2" width="120" height="292" rx="4"/><rect x="390" y="2" width="120" height="292" rx="4"/><rect x="520" y="2" width="120" height="292" rx="4"/></g>
+<rect x="10" y="50" width="110" height="44" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle"><text x="65" y="68" style="font-weight:600">Select logic</text><text x="65" y="84">grants store0</text></g>
+<path d="M120,72 H660" style="fill:none;stroke:var(--trace);stroke-width:3"/>
+<text x="130" y="64" style="fill:var(--trace);font-size:11px;font-weight:600">memory tag bus: inum 40, valid</text>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M142,72 V140 H158" marker-end="url(#arrMD3)"/><path d="M272,72 V140 H288" marker-end="url(#arrMD3)"/><path d="M402,72 V140 H418" marker-end="url(#arrMD3)"/><path d="M532,72 V140 H548" marker-end="url(#arrMD3)"/>
+<path d="M171,112 V125" marker-end="url(#arrMD3)"/><path d="M301,112 V125" marker-end="url(#arrMD3)"/><path d="M431,112 V125" marker-end="url(#arrMD3)"/><path d="M561,112 V125" marker-end="url(#arrMD3)"/>
+<path d="M171,153 V166" marker-end="url(#arrMD3)"/><path d="M301,153 V166" marker-end="url(#arrMD3)"/><path d="M431,153 V166" marker-end="url(#arrMD3)"/><path d="M561,153 V166" marker-end="url(#arrMD3)"/>
+<path d="M217,112 V166" marker-end="url(#arrMD3)"/><path d="M347,112 V166" marker-end="url(#arrMD3)"/><path d="M477,112 V166" marker-end="url(#arrMD3)"/><path d="M607,112 V166" marker-end="url(#arrMD3)"/>
+<path d="M190,192 V208" marker-end="url(#arrMD3)"/><path d="M320,192 V208" marker-end="url(#arrMD3)"/><path d="M450,192 V208" marker-end="url(#arrMD3)"/><path d="M580,192 V208" marker-end="url(#arrMD3)"/>
+<path d="M190,236 V252" marker-end="url(#arrMD3)"/><path d="M320,236 V252" marker-end="url(#arrMD3)"/><path d="M450,236 V252" marker-end="url(#arrMD3)"/><path d="M580,236 V252" marker-end="url(#arrMD3)"/>
+</g>
+<g style="stroke-width:1.5">
+<rect x="135" y="8" width="110" height="34" rx="3" style="fill:var(--surface);stroke:var(--accent-green)"/>
+<rect x="265" y="8" width="110" height="34" rx="3" style="fill:var(--surface);stroke:var(--accent-green)"/>
+<rect x="395" y="8" width="110" height="34" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="525" y="8" width="110" height="34" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+</g>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1">
+<rect x="150" y="86" width="44" height="26" rx="2"/><rect x="200" y="86" width="34" height="26" rx="2"/>
+<rect x="280" y="86" width="44" height="26" rx="2"/><rect x="330" y="86" width="34" height="26" rx="2"/>
+<rect x="410" y="86" width="44" height="26" rx="2"/><rect x="460" y="86" width="34" height="26" rx="2"/>
+<rect x="540" y="86" width="44" height="26" rx="2"/><rect x="590" y="86" width="34" height="26" rx="2"/>
+</g>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5">
+<circle cx="171" cy="140" r="13"/><circle cx="301" cy="140" r="13"/><circle cx="431" cy="140" r="13"/><circle cx="561" cy="140" r="13"/>
+<rect x="150" y="168" width="84" height="24" rx="3"/><rect x="280" y="168" width="84" height="24" rx="3"/><rect x="410" y="168" width="84" height="24" rx="3"/><rect x="540" y="168" width="84" height="24" rx="3"/>
+</g>
+<g style="stroke-width:1.5">
+<rect x="140" y="210" width="100" height="26" rx="3" style="fill:var(--surface);stroke:var(--accent-green)"/>
+<rect x="270" y="210" width="100" height="26" rx="3" style="fill:var(--surface);stroke:var(--accent-green)"/>
+<rect x="400" y="210" width="100" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="530" y="210" width="100" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+</g>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle">
+<text x="190" y="30" style="font-weight:600">load0, inum 42</text><text x="320" y="30" style="font-weight:600">load1, inum 47</text><text x="450" y="30" style="font-weight:600">add, inum 44</text><text x="580" y="30" style="font-weight:600">store8, inum 45</text>
+<g style="font-family:var(--mono);font-size:11px"><text x="172" y="103">40</text><text x="217" y="103">1</text><text x="302" y="103">40</text><text x="347" y="103">1</text><text x="432" y="103">-</text><text x="477" y="103">0</text><text x="562" y="103">38</text><text x="607" y="103">1</text></g>
+<text x="171" y="144">=</text><text x="301" y="144">=</text><text x="431" y="144">=</text><text x="561" y="144">=</text>
+<g style="font-size:11px"><text x="192" y="184">AND mv</text><text x="322" y="184">AND mv</text><text x="452" y="184">AND mv</text><text x="582" y="184">AND mv</text></g>
+<text x="190" y="228">mr = 1</text><text x="320" y="228">mr = 1</text><text x="450" y="228">unused</text><text x="580" y="228">mr stays 0</text>
+</g>
+<g style="fill:var(--ink);font-size:11px" text-anchor="middle">
+<text x="190" y="268">ready: requests</text><text x="190" y="283">select next cycle</text>
+<text x="320" y="268">still waits for</text><text x="320" y="283">address reg p30</text>
+<text x="450" y="268">waits only on</text><text x="450" y="283">its registers</text>
+<text x="580" y="268">waits for</text><text x="580" y="283">store inum 38</text>
+</g>
+<text x="10" y="312" style="fill:var(--muted);font-size:11px">In each entry: mem (left box) and mv (right box). This comparator sits beside the entry's 2 register-tag comparators.</text>
+</svg></div>
+<ul>
 <li><strong>LFST invalidation:</strong> "After a store instruction issues, it accesses the LFST and invalidates the entry if it still refers to itself." A load fetched after this sees no valid store and doesn't wait. If a newer store of set X had already overwritten the entry, the entry stays, so later loads wait for that newer store.</li>
-</ul></li>
+</ul>
+<p><strong>Split stores.</strong> Many cores, Intel's since the P6, split a store into a store-address µop (STA) and a store-data µop (STD) that issue independently. The paper's footnote says it doesn't model this. A load that predicted a dependence almost always reads the bytes the store writes, so it needs both halves: the address to match the store in the store queue, and the data to forward. Waiting on both separately would take two mem fields and two comparators per entry, the extra scheduler cost the one-dependence rule avoids. Two designs keep one tag per load:</p>
+<ul>
+<li><strong>Wake on the later half:</strong> the store queue entry has an address-valid bit and a data-valid bit. When the second of the two is set, the store queue broadcasts the store's inum. The load still has one mem field and one comparator, and it issues only once forwarding can succeed.</li>
+<li><strong>Wake on the STA, then block:</strong> the load waits only for the store address. Once it issues, the store queue search tells it whether it really aliases. If it doesn't, it reads the cache and is done, so false dependences cost less. If it does and the data isn't ready, the load can't forward. It is blocked in the load queue until the STD writes the data, then reissues. The cost is that reissue for loads that truly alias.</li>
+</ul>
+</li>
 </ol>
 
 <h3 id="sec-assignment">Store Set Assignment and Merging</h3>
