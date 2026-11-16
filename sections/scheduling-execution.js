@@ -99,6 +99,112 @@ section({
   ],
   body: `
 <p>A renamed instruction sits in an issue queue until its sources are ready. <strong>Wakeup</strong> is the hardware that tells it so. <strong>Select</strong> picks which ready entries go this cycle. This page goes through both at the circuit level, then shows how the scheduler issues a consumer <em>before</em> its operand exists, so the operand arrives through the bypass network just in time. The short version is on <a href="#/scheduler">Scheduler Queues</a>, and in-order forwarding is on <a href="#/data-hazards/forwarding">Data Hazards</a>.</p>
+<p>The figure shows where the queues sit, drawn as three queues split by operation type (see <a href="#/scheduler/unified-distributed">Unified vs. Distributed</a>). Rename and dispatch insert entries from the top. Each queue's select logic drains ready entries into its functional units at the bottom. Every select also drives a tag bus that runs past every entry in every queue, and that broadcast is the wakeup this page is about.</p>
+<div class="tbl"><svg viewBox="0 0 680 510" role="img" aria-label="Issue queues with the structures that fill and drain them. At the top, Rename, which allocates ROB, issue queue, and load-store queue entries, feeds Dispatch. Dispatch also reads the ready table, one bit per physical register, and routes each instruction by operation type into one of three issue queues: IQ 0 for integer, IQ 1 for loads and stores, and IQ 2 for FP and vector. Each queue holds entries, some ready and requesting, some still waiting, some free. Below each queue, its select logic receives the requests and grants entries to two functional units: select 0 to ALU 0 and ALU 1, select 1 to AGU 0 and AGU 1, select 2 to FP 0 and FP 1. Each select also drives a tag bus, drawn as one line under all three queues, and arrows from that line wake up entries in every queue. The functional units write to the result buses, which feed the PRF write ports and the bypass network back to the functional unit inputs." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrIQ" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrIQt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker></defs>
+<g style="stroke-width:1.5">
+<rect x="20" y="20" width="140" height="40" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="200" y="20" width="280" height="40" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="530" y="20" width="130" height="40" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="40" y="96" width="150" height="114" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="245" y="96" width="150" height="114" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="450" y="96" width="150" height="114" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="60" y="262" width="110" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="265" y="262" width="110" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="470" y="262" width="110" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="45" y="330" width="65" height="30" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="120" y="330" width="65" height="30" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="250" y="330" width="65" height="30" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="325" y="330" width="65" height="30" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="455" y="330" width="65" height="30" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="530" y="330" width="65" height="30" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="40" y="395" width="560" height="34" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+</g>
+<g style="stroke-width:1">
+<rect x="50" y="118" width="130" height="12" style="fill:var(--pad-soft);stroke:var(--pad)"/>
+<rect x="50" y="133" width="130" height="12" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="50" y="148" width="130" height="12" style="fill:var(--pad-soft);stroke:var(--pad)"/>
+<rect x="50" y="163" width="130" height="12" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="50" y="178" width="130" height="12" style="fill:none;stroke:var(--muted);stroke-dasharray:3 3"/>
+<rect x="50" y="193" width="130" height="12" style="fill:none;stroke:var(--muted);stroke-dasharray:3 3"/>
+<rect x="255" y="118" width="130" height="12" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="255" y="133" width="130" height="12" style="fill:var(--pad-soft);stroke:var(--pad)"/>
+<rect x="255" y="148" width="130" height="12" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="255" y="163" width="130" height="12" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="255" y="178" width="130" height="12" style="fill:var(--pad-soft);stroke:var(--pad)"/>
+<rect x="255" y="193" width="130" height="12" style="fill:none;stroke:var(--muted);stroke-dasharray:3 3"/>
+<rect x="460" y="118" width="130" height="12" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="460" y="133" width="130" height="12" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="460" y="148" width="130" height="12" style="fill:var(--pad-soft);stroke:var(--pad)"/>
+<rect x="460" y="163" width="130" height="12" style="fill:none;stroke:var(--muted);stroke-dasharray:3 3"/>
+<rect x="460" y="178" width="130" height="12" style="fill:none;stroke:var(--muted);stroke-dasharray:3 3"/>
+<rect x="460" y="193" width="130" height="12" style="fill:none;stroke:var(--muted);stroke-dasharray:3 3"/>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M160,40 H198" marker-end="url(#arrIQ)"/>
+<path d="M530,40 H482" marker-end="url(#arrIQ)"/>
+<path d="M230,60 V78 H115 V94" marker-end="url(#arrIQ)"/>
+<path d="M320,60 V94" marker-end="url(#arrIQ)"/>
+<path d="M450,60 V78 H525 V94" marker-end="url(#arrIQ)"/>
+<path d="M75,210 V260" marker-end="url(#arrIQ)"/>
+<path d="M280,210 V260" marker-end="url(#arrIQ)"/>
+<path d="M485,210 V260" marker-end="url(#arrIQ)"/>
+<path d="M77,290 V328" marker-end="url(#arrIQ)"/>
+<path d="M152,290 V328" marker-end="url(#arrIQ)"/>
+<path d="M282,290 V328" marker-end="url(#arrIQ)"/>
+<path d="M357,290 V328" marker-end="url(#arrIQ)"/>
+<path d="M487,290 V328" marker-end="url(#arrIQ)"/>
+<path d="M562,290 V328" marker-end="url(#arrIQ)"/>
+<path d="M77,360 V393" marker-end="url(#arrIQ)"/>
+<path d="M152,360 V393" marker-end="url(#arrIQ)"/>
+<path d="M282,360 V393" marker-end="url(#arrIQ)"/>
+<path d="M357,360 V393" marker-end="url(#arrIQ)"/>
+<path d="M487,360 V393" marker-end="url(#arrIQ)"/>
+<path d="M562,360 V393" marker-end="url(#arrIQ)"/>
+<path d="M600,412 H640 V345 H597" marker-end="url(#arrIQ)"/>
+</g>
+<g style="fill:none;stroke:var(--trace);stroke-width:1.5">
+<path d="M40,236 H600" style="stroke-width:3"/>
+<path d="M155,262 V236"/><path d="M360,262 V236"/><path d="M565,262 V236"/>
+<path d="M115,236 V212" marker-end="url(#arrIQt)"/>
+<path d="M320,236 V212" marker-end="url(#arrIQt)"/>
+<path d="M525,236 V212" marker-end="url(#arrIQt)"/>
+</g>
+<g style="fill:var(--trace)"><circle cx="155" cy="236" r="3.5"/><circle cx="360" cy="236" r="3.5"/><circle cx="565" cy="236" r="3.5"/></g>
+<g style="fill:var(--ink);font-size:12px">
+<text x="90" y="37" text-anchor="middle" style="font-weight:600">Rename</text>
+<text x="340" y="37" text-anchor="middle" style="font-weight:600">Dispatch</text>
+<text x="595" y="37" text-anchor="middle" style="font-weight:600">Ready table</text>
+<text x="115" y="110" text-anchor="middle" style="font-weight:600">IQ 0: integer</text>
+<text x="320" y="110" text-anchor="middle" style="font-weight:600">IQ 1: load/store</text>
+<text x="525" y="110" text-anchor="middle" style="font-weight:600">IQ 2: FP/vector</text>
+<text x="115" y="280" text-anchor="middle" style="font-weight:600">select 0</text>
+<text x="320" y="280" text-anchor="middle" style="font-weight:600">select 1</text>
+<text x="525" y="280" text-anchor="middle" style="font-weight:600">select 2</text>
+<text x="77" y="349" text-anchor="middle">ALU 0</text>
+<text x="152" y="349" text-anchor="middle">ALU 1</text>
+<text x="282" y="349" text-anchor="middle">AGU 0</text>
+<text x="357" y="349" text-anchor="middle">AGU 1</text>
+<text x="487" y="349" text-anchor="middle">FP 0</text>
+<text x="562" y="349" text-anchor="middle">FP 1</text>
+<text x="320" y="416" text-anchor="middle">Result buses: PRF write ports and the bypass network</text>
+</g>
+<g style="fill:var(--muted);font-size:10px">
+<text x="90" y="52" text-anchor="middle">allocate ROB, IQ, LSQ</text>
+<text x="340" y="52" text-anchor="middle">route by op type, set initial ready bits</text>
+<text x="595" y="52" text-anchor="middle">1 bit per phys reg</text>
+<text x="70" y="252" text-anchor="end">request</text>
+<text x="217" y="268" text-anchor="middle" style="fill:var(--trace)">tag buses</text>
+<text x="217" y="280" text-anchor="middle" style="fill:var(--trace)">to all queues</text>
+<text x="115" y="314" text-anchor="middle">grant, issue</text>
+<text x="645" y="375">bypass</text>
+</g>
+<g style="fill:var(--ink);font-size:11px">
+<text x="20" y="456">Insert: dispatch writes up to the rename width of entries per cycle, steered by op type.</text>
+<text x="20" y="474">Drain: each select grants up to one entry per port per cycle. The entry is freed at issue,</text>
+<text x="20" y="492">or held until a load's hit is confirmed. Shaded rows are ready and requesting, dashed rows are free.</text>
+</g>
+</svg></div>
 <h3 id="sec-entry">What an Entry Holds</h3>
 <p>Each issue-queue (reservation station) entry holds:</p>
 <ul><li><code>valid</code>: the entry is in use</li><li><code>op</code>: the operation (often kept in a separate payload RAM that is read only after select)</li><li><code>src0_tag</code>, <code>src1_tag</code>: the physical register numbers of the sources, ⌈log₂(PRF size)⌉ bits each</li><li><code>src0_rdy</code>, <code>src1_rdy</code>: one ready bit per source</li><li><code>dst_tag</code>: the destination physical register</li></ul>
