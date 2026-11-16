@@ -434,7 +434,7 @@ slot 3: r6 = r1 + r2     new dest p43</code></pre>
 <h3 id="sec-recovery">Recovery</h3>
 <p>On a misprediction or fault, the RAT must return to its state just before the oldest squashed instruction. There are three ways to get there:</p>
 <ul>
-<li><strong>Checkpoint:</strong> save a copy of the RAT (or the CAM valid vector) at each branch and restore it in one cycle. The number of checkpoints bounds how many unresolved branches can be in flight.</li>
+<li><strong>Checkpoint:</strong> save a copy of the RAT (or the CAM valid vector) at each branch and restore it in one cycle. The number of checkpoints bounds how many unresolved branches can be in flight. Each branch holds its checkpoint from rename until it resolves, so when every checkpoint is taken, the next branch can't save one and rename stalls until an older branch resolves (see <a href="#/flush-recovery/checkpoints">Checkpointing</a>).</li>
 <li><strong>ROB walk:</strong> walk from the youngest ROB entry back to the squash point. Each entry writes its saved old mapping back into the RAT and returns its new register to the free list. This is the same old-mapping field that <a href="#/renaming/free-at-rename">Why Not Free at Rename</a> keeps alive, and the walk takes time in proportion to the number of squashed instructions.</li>
 <li><strong>Retirement RAT copy:</strong> wait until the faulting instruction reaches the ROB head, then copy the retirement RAT into the RAT. It's simple, but it waits for every older instruction to commit, so cores use it for exceptions rather than branches.</li>
 </ul>
@@ -1130,7 +1130,7 @@ s5: r2 = r3 + r1</code></pre><p class="given">Assume the RAT holds r1→p3, r2�
 <p>The rename map dominates. For x86-64's 16 integer registers and a 280-entry integer register file (Golden Cove's size), the integer map alone is 16 × 9 = 144 bits, and the vector map adds as much again. The copy must be written in a single cycle, so each checkpoint is a full-width, shadow copy wired next to the RAT, not a slow RAM.</p>
 <p>Where to take checkpoints is the design choice:</p>
 <ul>
-<li><strong>At every branch:</strong> recovery is always one cycle, but checkpoints run out in branch-dense code and stall rename. The R10000 had 4, which limited it to 4 unresolved branches.</li>
+<li><strong>At every branch:</strong> recovery is always one cycle, but checkpoints run out in branch-dense code and stall rename. A branch takes a checkpoint when it's renamed and frees it only when it resolves, either by discarding it (correct prediction) or by copying it back (mispredict). So with N checkpoints, branch N + 1 has nowhere to save its map and rename stalls until an older branch resolves. The window past the oldest unresolved branch is then capped near N × (instructions per branch), whatever the ROB size. The R10000 had 4, which limited it to 4 unresolved branches. With a branch every 5 to 6 instructions, that's roughly 20 to 24 instructions, short of its 32-entry active list.</li>
 <li><strong>Only at low-confidence branches:</strong> a confidence estimator picks the branches likely to mispredict. A mispredict at an uncheckpointed branch restores the nearest checkpoint and walks the few ROB entries between it and the branch, or, in Akkary and colleagues' design, re-executes from the older checkpoint.</li>
 <li><strong>No checkpoints:</strong> every recovery walks the ROB. Cheapest in area, slowest to recover, and the walk time grows with the window.</li>
 </ul>
