@@ -1,18 +1,19 @@
-/* Section: Memory Dependence Prediction
+/* Section: Memory Ordering
    One region of the die plus its pages, in display order.
    To add a page, append an object to the list below (region: "mdep"). */
 
 section({
   id: "mdep",
-  name: "Memory Dependence Prediction",
-  cap: "Which loads may pass older stores, from wait bits to store sets",
+  name: "Memory Ordering",
+  cap: "Which loads may pass older stores, from the LSQ to store sets",
   sections: [
     { id: "pages", label: "Pages in This Region" }
   ],
   body: `
-<p>A memory dependence predictor decides which loads may run ahead of older stores whose addresses aren't known yet. Get it wrong one way and a load reads stale data, so the core flushes it and everything younger. Get it wrong the other way and a load waits for stores it has nothing to do with. This region follows Chrysos and Emer's store sets paper (ISCA 1998) section by section, one page per step of the argument. Window-size data comes from Moshovos, Breach, Vijaykumar, and Sohi (ISCA 1997), real hardware from the Alpha 21264 hardware reference manual, and background from Hennessy and Patterson (chapter 3). The queues that detect violations are on <a href="#/lsq">Load and Store Queues</a>, and the cheaper recovery the paper chose not to use is on <a href="#/replay">Selective Replay</a>.</p>
+<p>An out-of-order core lets loads run ahead of older stores, and the load and store queues catch the cases where that broke memory order. A memory dependence predictor decides which loads may run ahead of older stores whose addresses aren't known yet. Get it wrong one way and a load reads stale data, so the core flushes it and everything younger. Get it wrong the other way and a load waits for stores it has nothing to do with. After the queues, this region follows Chrysos and Emer's store sets paper (ISCA 1998) section by section, one page per step of the argument. Window-size data comes from Moshovos, Breach, Vijaykumar, and Sohi (ISCA 1997), real hardware from the Alpha 21264 hardware reference manual, and background from Hennessy and Patterson (chapter 3). The cheaper recovery the paper chose not to use is on <a href="#/replay">Selective Replay</a>.</p>
 <h3 id="sec-pages">Pages in This Region</h3>
 <ul>
+<li><a href="#/lsq">Load and Store Queues</a>: how stores wait to commit, how loads search older stores, how violations are caught, and store coalescing.</li>
 <li><a href="#/mdp">Why Predict Memory Dependences</a>: register vs memory dependences, the two bad default choices, and the two goals of a predictor.</li>
 <li><a href="#/mdp-metrics">Metrics, Bounds, and Window Size</a>: how predictors are scored, what no speculation, naive speculation, and perfect prediction are worth, and why all of it grows with the window.</li>
 <li><a href="#/mdp-early">Early Predictors</a>: the Alpha 21264's wait bits and the earlier schemes store sets built on.</li>
@@ -36,6 +37,47 @@ section({
     ]
   }
 }, [
+{
+  id: "lsq",
+  region: "mdep",
+  title: "Load and Store Queues",
+  sections: [
+    { id: "stores", label: "Stores" },
+    { id: "loads", label: "Loads" },
+    { id: "catching-violations", label: "Catching Violations" },
+    { id: "store-coalescing", label: "Store Coalescing" }
+  ],
+  body: `
+<p>The LQ and SQ track memory operations in program order so they can execute out of order without breaking memory semantics.</p>
+<h3 id="sec-stores">Stores</h3>
+<p>Stores don't write the cache until they commit; after retirement they drain from the store buffer into L1. What happens to a retired store while it waits, including losing its line to another core, is on <a href="#/senior-stores">Senior Stores and Coherence</a>.</p>
+<h3 id="sec-loads">Loads</h3>
+<p>A load searches the SQ for older stores to the same address and forwards data when one fully covers it. If an older store's address is unknown, the load waits or speculates.</p>
+<h3 id="sec-catching-violations">Catching Violations</h3>
+<p>When a store's address resolves, it searches the LQ for younger loads to the same address that already executed; a hit means flush and re-execute.</p>
+<p>Invalidations from other cores also search the LQ, to keep loads in the order the memory model requires (see <a href="#/consistency/impl">Speculating Past the Model</a>).</p>
+<h3 id="sec-store-coalescing">Store Coalescing</h3>
+<p>Merging retired stores to the same line saves L1 write bandwidth, but must not make stores visible in an order the memory model forbids.</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Store queue, oldest first: St A (0x100, 8 bytes, data ready), St B (address unknown), St C (0x108, 4 bytes, data ready). A younger 8-byte load L reads 0x100. Walk through what happens.</p>`,
+        a: `<ol><li>L searches older stores, youngest first. St C covers 0x108–0x10B: no overlap with 0x100–0x107.</li><li>St B's address is unknown. L must wait, or speculate past it based on the memory dependence predictor.</li><li>If it speculates, St A fully covers L, so A's data is forwarded.</li><li>If B later resolves to 0x104, it overlaps L: ordering violation, flush L and everything younger, re-execute.</li><li>If B resolves to 0x200, the speculation was correct.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A 4-byte store to 0x100 is followed by an 8-byte load from 0x100. Can the store forward? On this core, a load that can't forward waits about 15 cycles for the store to commit and write the cache.</p>`,
+        a: `<p>Not fully: the store covers only half the load. Most designs block the load until the store commits and writes the cache, then read the merged line. This "store-forwarding stall" costs about 15 cycles here. More complex designs merge store bytes with cache data. Compilers try to avoid narrow-store, wide-load patterns.</p>`
+      },
+      {
+        q: `<p>Why does an x86 core check the load queue against coherence invalidations?</p>`,
+        a: `<p>TSO requires loads to appear in program order. If a younger load executed early and the line is then invalidated by another core's write before an older load completes, the younger load may hold a value that is stale relative to the older one. The core detects this on the invalidation and squashes the younger load. Weaker models such as ARM allow more load-load reordering, but same-address ordering still must hold.</p>`
+      }
+    ]
+  }
+},
+
 {
   id: "mdp",
   region: "mdep",
