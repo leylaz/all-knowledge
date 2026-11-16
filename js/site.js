@@ -14,7 +14,7 @@ function section(region, notes) {
 /* Home-page tabs, in display order. Every region sits in exactly one tab,
    and the first tab is the default home page. */
 const TABS = [
-  { id: "cpu", name: "CPU Core", regions: ["isa", "pipe", "fe", "core", "sched", "mdep", "arith"] },
+  { id: "cpu", name: "CPU Core", regions: ["isa", "pipe", "fe", "core", "ren", "sched", "mdep", "arith"] },
   { id: "memsys", name: "Memory System", regions: ["mem", "ctr", "vm", "coh", "icx"] },
   { id: "perf", name: "Performance Modeling", regions: ["perf", "stall", "proc"] },
   { id: "gpu", name: "GPUs", regions: ["gk", "gthr", "gvis", "gsm", "gwarp", "gmem", "gai", "gperf"] },

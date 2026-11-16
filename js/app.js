@@ -321,12 +321,23 @@ const SIDE_STAR = ' <span class="side-flag" aria-label="flagged">★</span>';
 let SEC_FLAGS = [], SEC_FLAG_SAVE = Promise.resolve(), SEC_NOTE_TIMER = null;
 try { SEC_FLAGS = JSON.parse(localStorage.getItem(SEC_FLAG_KEY) || "[]"); } catch (e) { SEC_FLAGS = []; }
 if (!Array.isArray(SEC_FLAGS)) SEC_FLAGS = [];
+/* Subsections that moved to another page keep their flags. Old key → new key. */
+const SEC_FLAG_MOVES = {
+  "renaming/rat-hardware": "rat-design/rat-hardware",
+  "renaming/rat-ports": "rat-design/rat-ports",
+  "renaming/rat-circuit": "rat-circuit/circuit-terms",
+  "renaming/rat-cost": "rename-cost/rat-cost",
+  "renaming/port-workarounds": "rename-cost/port-workarounds"
+};
+const moveSecFlags = () => SEC_FLAGS.forEach(f => { if (SEC_FLAG_MOVES[f.key]) f.key = SEC_FLAG_MOVES[f.key]; });
+moveSecFlags();
 const secFlagDoc = () => PRIVATE_DB.doc("data/users/" + PRIVATE_UID + "/" + SEC_FLAG_KEY);
 async function loadDbSecFlags() {
   try {
     const snap = await secFlagDoc().get();
     const f = snap.exists ? (snap.data() || {}).flags : null;
     SEC_FLAGS = Array.isArray(f) ? f.slice() : [];
+    moveSecFlags();
   } catch (e) { console.error("Subsection flags failed to load; using this browser's copy:", e); }
 }
 function saveSecFlags() {

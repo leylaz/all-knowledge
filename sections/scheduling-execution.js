@@ -11,7 +11,7 @@ section({
     { id: "pages", label: "Pages in This Region" }
   ],
   body: `
-<p>Once a µop is renamed and has its ROB entry (the <a href="#/r/core">Out-of-Order Core</a> region), it waits in a scheduler until its operands are ready, then issues to an execution unit. This region covers that stretch of the pipeline. The schedulers decide how much of the window's parallelism the core actually uses, and their wakeup and select loop is one of the tightest timing paths in the core (Hennessy and Patterson, chapter 3, and Palacharla, Jouppi, and Smith, ISCA 1997).</p>
+<p>Once a µop is renamed (the <a href="#/r/ren">Register Renaming</a> region) and has its ROB entry (the <a href="#/r/core">Out-of-Order Core</a> region), it waits in a scheduler until its operands are ready, then issues to an execution unit. This region covers that stretch of the pipeline. The schedulers decide how much of the window's parallelism the core actually uses, and their wakeup and select loop is one of the tightest timing paths in the core (Hennessy and Patterson, chapter 3, and Palacharla, Jouppi, and Smith, ISCA 1997).</p>
 <h3 id="sec-dispatch-to-writeback">From Dispatch to Writeback</h3>
 <ol>
 <li><strong>Dispatch:</strong> the µop takes a scheduler entry holding its source tags and a ready bit per source.</li>
