@@ -49,10 +49,12 @@ function tabbed(page) {
   return Object.assign({}, page, { sections, body, tabs: true });
 }
 
-section({
+/* The topic pages are split into one region per home tab, in tab order.
+   The CPU Core region also holds the guide to every interview page. */
+const INTRO = {
   id: "intv",
-  name: "CPU Performance Interview Prep",
-  cap: "Reasoning questions for CPU modeling and performance architecture roles, with answers to reveal",
+  name: "CPU Core Questions",
+  cap: "Pipeline, renaming, ROB, scheduling, arithmetic, ISA, branch prediction, front end, and memory ordering, plus how to use every interview page",
   sections: [
     { id: "how", label: "How to Use These Pages" },
     { id: "answer", label: "How to Answer Out Loud" },
@@ -108,7 +110,8 @@ ${window.INTV_CODING_HELP || ""}
 </table></div>
 <p>Rules of thumb: DRAM latency is about 80–100 ns, which is 400–500 cycles at 5 GHz. A branch misprediction costs about 15–20 cycles on recent big cores when the branch resolves promptly. A cache line is 64 bytes.</p>
 <p class="refs">Sources:</p><ul class="refs"><li>Intel 64 and IA-32 Architectures Optimization Reference Manual</li><li>AMD Software Optimization Guide for the Zen 4 microarchitecture</li><li>AMD Software Optimization Guide for the Zen 5 microarchitecture (publication 58455)</li><li>Intel Architecture Day 2021</li><li>Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em> (6th ed.), Chapter 3</li></ul>`
-}, [
+};
+const PAGES = [
 {
   id: "intv-pipeline",
   title: "Pipeline Flow and Width",
@@ -4277,7 +4280,20 @@ Q(`<p>A manager asks you to prove that a proposed optimization improves every wo
 `<p>Be direct: you can’t prove it for all workloads. Some workload can almost always be constructed where it hurts (a prefetcher that pollutes the cache, a predictor that thrashes, a larger structure that adds a cycle of latency). What you can show is how likely and how large a regression is, on workloads that matter.</p>
 <p>Propose:</p><ul><li>A broad, representative suite (SPEC CPU, server and client traces, the customers’ key workloads)</li><li>Report the distribution of speedups including the worst case, not just the geomean</li><li>Deliberately test adversarial cases suggested by the mechanism</li><li>Explain the mechanism so the reasons it helps are clear</li><li>Add guardrails if regressions exist, such as throttling the feature when it detects it isn’t helping (as prefetchers do with accuracy feedback)</li></ul><p>Agree up front on the acceptance criterion, for example “geomean gain above 2% and no workload worse than −1%.”</p>`, "medium"),
 }
-].map(tabbed));
+].map(tabbed);
+let placed = 0;
+const pages = ids => (placed += ids.length, ids).map(id => PAGES.find(p => p.id === "intv-" + id));
+const GUIDE = `<p>How these pages work, how to answer out loud, and the core numbers the questions use are in the <a href="#/r/intv/how">interview guide</a>.</p>`;
+section(INTRO, pages(["pipeline", "renaming", "rob", "sched", "arith", "isa", "branch", "fe", "lsq"]));
+section({ id: "iqmem", name: "Memory System Questions", cap: "Caches, TLBs, DRAM, coherence, consistency, and interconnects", body: GUIDE },
+  pages(["mem", "coh", "icx"]));
+section({ id: "iqperf", name: "Performance Modeling Questions", cap: "Real processors, benchmarks, diagnosing bottlenecks, building a model in C, and open-ended design", body: GUIDE },
+  pages(["proc", "bench", "diag", "sim", "design"]));
+section({ id: "iqos", name: "Operating System Questions", cap: "Virtual memory at the OS boundary, and memory allocation in the C library", body: GUIDE },
+  pages(["vm", "alloc"]));
+section({ id: "iqsw", name: "Systems Software Questions", cap: "Concurrency and parallelism in C", body: GUIDE },
+  pages(["conc"]));
+if (placed !== PAGES.length) throw new Error("interview-prep.js: a page is missing from the regions above");
 /* sections/resume-prep.js builds its pages with the same cards and tabs. */
 window.INTV_KIT = { Q, M, tabbed };
 })();

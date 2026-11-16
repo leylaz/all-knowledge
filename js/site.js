@@ -3,7 +3,7 @@
 const REGIONS = [];
 const NOTES = [];
 /* Regions whose pages are tabbed interview pages (Q/M cards, coding tab). */
-const INTV_REGIONS = ["intv", "resume"];
+const INTV_REGIONS = ["intv", "iqmem", "iqperf", "iqos", "iqsw", "resume"];
 const isIntv = id => INTV_REGIONS.includes(id);
 
 function section(region, notes) {
@@ -22,5 +22,5 @@ const TABS = [
   { id: "sw", name: "Systems Software", regions: ["comp", "conc"] },
   { id: "chip", name: "Chip Design and Verification", regions: ["fab", "circ", "eda", "verif"] },
   { id: "ai", name: "AI", regions: ["gen", "llm", "aisys"] },
-  { id: "intv", name: "Interview Prep", regions: ["intv", "resume", "todo", "cal"] }
+  { id: "intv", name: "Interview Prep", regions: ["todo", "cal", "intv", "iqmem", "iqperf", "iqos", "iqsw", "resume"] }
 ];

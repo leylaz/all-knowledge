@@ -62,7 +62,7 @@ REGIONS.forEach(r => checkAnchors("r/" + r.id, r));
 NOTES.forEach(n => checkAnchors(n.id, n));
 
 /* ---------- Interview pages: both tabs hold questions ---------- */
-const INTV_REGIONS = ["intv", "resume"]; /* keep in sync with js/site.js */
+const INTV_REGIONS = ["intv", "iqmem", "iqperf", "iqos", "iqsw", "resume"]; /* keep in sync with js/site.js */
 for (const n of NOTES.filter(n => INTV_REGIONS.includes(n.region)))
   for (const [t, name] of [["c", "Conceptual"], ["m", "Math"]])
     if (!(n.body || "").includes(`data-qid="${n.id}-${t}1"`)) err(n.id, `the ${name} tab has no questions`);
@@ -122,7 +122,7 @@ for (const p of [...REGIONS.map(r => ["r/" + r.id, r]), ...NOTES.map(n => [n.id,
 /* ---------- Practice problems ---------- */
 for (const p of [...REGIONS.map(r => ["r/" + r.id, r]), ...NOTES.map(n => [n.id, n])]) {
   const [where, page] = p;
-  if (INTV_REGIONS.includes(page.region) || where === "r/intv" || where === "r/resume" || where === "r/todo" || where === "r/cal") continue;
+  if (INTV_REGIONS.includes(page.region) || INTV_REGIONS.includes(where.slice(2)) || where === "r/todo" || where === "r/cal") continue;
   const pr = page.practice;
   if (!pr || !(pr.guided || []).length || !(pr.interview || []).length) err(where, "needs Guided and Interview Level practice problems");
   else for (const x of [...pr.guided, ...pr.interview]) if (!x.q || !x.a) err(where, "a practice problem is missing its question or answer");

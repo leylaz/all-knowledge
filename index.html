@@ -93,10 +93,13 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "gen gen gen llm llm llm"
     "aisys aisys aisys aisys aisys aisys"; }
 .floor[data-tab="intv"] { grid-template-areas:
+    "todo todo todo cal cal cal"
     "intv intv intv intv intv intv"
-    "resume resume resume resume resume resume"
-    "todo todo todo todo todo todo"
-    "cal cal cal cal cal cal"; }
+    "iqmem iqmem iqmem iqperf iqperf iqperf"
+    "iqos iqos iqos iqsw iqsw iqsw"
+    "resume resume resume resume resume resume"; }
+.block.mini { padding: 8px 14px; }
+.block.mini h2 { margin: 0; font-size: .98rem; }
 .home-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--rule); margin: 0 0 24px; font-family: var(--sans); }
 .home-tab { font-size: .98rem; font-weight: 600; color: var(--muted); text-decoration: none; border-bottom: 3px solid transparent; margin-bottom: -1px; padding: 8px 14px; }
 .home-tab:hover { color: var(--trace); }
@@ -676,7 +679,7 @@ window.MathJax = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-<script src="js/site.js?v=655c9399"></script>
+<script src="js/site.js?v=2b3727bd"></script>
 <script src="sections/instruction-sets.js?v=f24c74e3"></script>
 <script src="sections/pipeline-stages.js?v=e204b34c"></script>
 <script src="sections/front-end.js?v=ca728824"></script>
@@ -714,11 +717,11 @@ window.MathJax = {
 <script src="sections/neural-generative-models.js?v=6531a78e"></script>
 <script src="sections/language-models.js?v=78de0d74"></script>
 <script src="sections/ai-systems.js?v=7250e3d2"></script>
+<script src="sections/todo-list.js?v=3261ae22"></script>
+<script src="sections/calendar.js?v=ca5b721f"></script>
 <script src="coding/interview.js?v=50fc452b"></script>
-<script src="sections/interview-prep.js?v=5c0309e4"></script>
+<script src="sections/interview-prep.js?v=36d64d89"></script>
 <script src="sections/resume-prep.js?v=4e77fce6"></script>
-<script src="sections/todo-list.js?v=f09abaa7"></script>
-<script src="sections/calendar.js?v=401c069c"></script>
 <script src="js/diagrams.js?v=fdc3e20d"></script>
 <script src="js/glossary.js?v=64e8ccb9"></script>
 <script src="js/calc.js?v=6d8c6024"></script>
@@ -726,6 +729,6 @@ window.MathJax = {
 <script src="js/visual.js?v=ecd04d7a"></script>
 <script src="js/theme.js?v=1763bf15"></script>
 <script src="coding/crun.js?v=a9acf486"></script>
-<script src="js/app.js?v=a41efa54"></script>
+<script src="js/app.js?v=d5a6ed31"></script>
 </body>
 </html>

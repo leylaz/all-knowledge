@@ -102,9 +102,9 @@ function renderHome(tab = TABS[0]) {
     ${tab.id === "chip" && typeof stackHTML === "function" ? stackHTML() : ""}
     <div class="die"><div class="floor" data-tab="${tab.id}">
       ${REGIONS.filter(r => tab.regions.includes(r.id)).map(r => `
-        <section class="block" style="grid-area:${r.id}" data-region="${r.id}">
+        <section class="block${r.mini ? " mini" : ""}" style="grid-area:${r.id}" data-region="${r.id}">
           <h2><a href="#/r/${r.id}">${r.name}</a></h2>
-          <p class="cap">${r.cap}</p>
+          ${r.mini ? "" : `<p class="cap">${r.cap}</p>`}
           <ul>${NOTES.filter(n => n.region === r.id).map(n =>
             `<li data-id="${n.id}"><a href="#/${n.id}">${n.title}</a></li>`).join("")}</ul>
         </section>`).join("")}
@@ -136,7 +136,7 @@ function sideNav(curId, curSec) {
       ${isCurR ? subFor(r, "r/" + r.id) : ""}
       <ul>${r.id === "intv" ? `<li><a class="${curId === "drill" ? "cur" : ""}" href="#/drill">Random Drill</a></li>` : ""}${NOTES.filter(n => n.region === r.id).map(n =>
         `<li><a class="${curId === n.id && !curSec ? "cur" : ""}" href="#/${n.id}">${n.title}</a>${curId === n.id ? subFor(n, n.id) : ""}</li>`).join("")}</ul>
-    </div>${r.id === "intv" ? `<div class="grp">
+    </div>${r.id === "iqsw" /* after the last question region */ ? `<div class="grp">
       <a class="rg ${curId === "review" && !curSec ? "cur" : ""}" href="#/review">Review</a>
       <ul><li><a class="${curId === "review" && !curSec ? "cur" : ""}" href="#/review">Flagged for Review</a>${curId === "review" ? subFor(REVIEW_PAGE, "review") : ""}</li></ul>
     </div>` : ""}`; }).join("")}
@@ -753,7 +753,7 @@ function renderDrill() {
   const c = pick[Math.floor(Math.random() * pick.length)];
   const opt = (v, label, cur) => `<option value="${v}"${v === cur ? " selected" : ""}>${label}</option>`;
   layout("drill", null, `
-    <p class="region"><a href="#/r/intv" style="text-decoration:none">${REGIONS.find(r => r.id === "intv").name}</a></p>
+    <p class="region"><a href="#/t/intv" style="text-decoration:none">Interview Prep</a></p>
     <h1>Random Drill</h1>
     <p class="flag-note"><span id="solvedCount">${pool.filter(c => SOLVED[c.snip]).length}</span> of ${pool.length} questions solved. ${PRIVATE_OK ? "Saved to your account." : "Saved in this browser only."}</p>
     <form class="drill-bar" id="drillForm">
