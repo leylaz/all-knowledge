@@ -133,6 +133,94 @@ section({
 <li><strong>SRAM (indexed) RAT:</strong> one entry per architectural register, holding a physical register number of ⌈log₂(PRF size)⌉ bits. A source lookup is a plain read indexed by the architectural register number. The MIPS R10000 and most current cores work this way.</li>
 <li><strong>CAM RAT:</strong> one entry per <em>physical</em> register, holding the architectural register it currently names plus a valid bit. A lookup searches every entry for a valid match, and the matching row number is the physical register. Renaming a destination sets the new row's valid bit and clears the old row's. The Alpha 21264 used this form. A checkpoint is only the vector of valid bits (one bit per physical register), which is cheap, but the search width grows with the physical register file, so it stopped scaling once PRFs reached hundreds of entries.</li>
 </ul>
+<div class="tbl"><svg viewBox="0 0 680 270" role="img" aria-label="SRAM RAT lookup. The table has one row per architectural register, r0 to r15, each holding a physical register number: r0 holds p3, r1 p7, r2 p8, r3 p9, r4 p10, r5 p11, and r15 p30. Slot source r3 goes into a decoder, which raises the word line for row r3. The row is read out and the source is renamed to p9. The table is 16 rows of 8 bits for a 192-entry PRF, and a checkpoint copies all of it.">
+<defs><marker id="arrRS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<g style="stroke-width:1.5">
+<rect x="10" y="105" width="80" height="30" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="110" y="36" width="50" height="192" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="200" y="36" width="130" height="192" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="201" y="109" width="128" height="22" style="fill:var(--trace-soft);stroke:none"/>
+<rect x="400" y="105" width="70" height="30" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+</g>
+<g style="fill:none;stroke:var(--rule);stroke-width:1">
+<path d="M200,60 H330"/><path d="M200,84 H330"/><path d="M200,108 H330"/><path d="M200,132 H330"/><path d="M200,156 H330"/><path d="M200,180 H330"/><path d="M200,204 H330"/><path d="M240,36 V228"/>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M90,120 H108" marker-end="url(#arrRS)"/>
+<path d="M160,120 H198" marker-end="url(#arrRS)"/>
+<path d="M330,120 H398" marker-end="url(#arrRS)"/>
+</g>
+<text x="10" y="18" style="fill:var(--pad);font-size:12px;font-weight:600">SRAM RAT: one row per architectural register</text>
+<g style="fill:var(--muted);font-size:11px;font-family:var(--mono)" text-anchor="middle">
+<text x="220" y="52">r0</text><text x="220" y="76">r1</text><text x="220" y="100">r2</text><text x="220" y="124">r3</text><text x="220" y="148">r4</text><text x="220" y="172">r5</text><text x="220" y="196">⋮</text><text x="220" y="220">r15</text>
+</g>
+<g style="fill:var(--ink);font-size:11px;font-family:var(--mono)" text-anchor="middle">
+<text x="285" y="52">p3</text><text x="285" y="76">p7</text><text x="285" y="100">p8</text><text x="285" y="124" style="font-weight:600">p9</text><text x="285" y="148">p10</text><text x="285" y="172">p11</text><text x="285" y="196">⋮</text><text x="285" y="220">p30</text>
+<text x="50" y="124">src r3</text>
+<text x="435" y="124" style="font-weight:600">p9</text>
+</g>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle">
+<text x="135" y="124" style="font-weight:600">dec</text>
+<text x="365" y="112">read</text>
+</g>
+<g style="fill:var(--muted);font-size:11px">
+<text x="180" y="110" text-anchor="middle" style="font-size:9px">word line</text>
+<text x="200" y="248">16 rows × 8 bits = 128 bits (192-entry PRF)</text>
+<text x="200" y="264">checkpoint: copy all 128 bits</text>
+<text x="490" y="102">lookup = one indexed read</text>
+<text x="490" y="118">rename dest = write the row</text>
+<text x="490" y="134">old value of the row goes</text>
+<text x="490" y="150">to the ROB as "previous"</text>
+</g>
+</svg></div>
+<div class="tbl"><svg viewBox="0 0 680 290" role="img" aria-label="CAM RAT lookup. The table has one row per physical register, p0 to p191, each holding an architectural register name and a valid bit. Rows shown: p0 holds r0 valid, p7 holds r1 not valid, p8 holds r2 valid, p9 holds r3 valid, p40 holds r1 valid, and p191 is free and not valid. Slot source r1 is broadcast to every row. Only p40 matches, because p7 also names r1 but its valid bit is clear. An encoder turns the one-hot match lines into the row number p40. Renaming r1 to p40 set the valid bit of p40 and cleared the valid bit of p7. The valid column, 192 bits, is the whole checkpoint, and every lookup compares all 192 rows.">
+<defs><marker id="arrRC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<g style="stroke-width:1.5">
+<rect x="10" y="121" width="80" height="30" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="150" y="40" width="180" height="192" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="151" y="161" width="178" height="22" style="fill:var(--trace-soft);stroke:none"/>
+<rect x="370" y="40" width="50" height="192" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="460" y="121" width="70" height="30" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+</g>
+<g style="fill:none;stroke:var(--rule);stroke-width:1">
+<path d="M150,64 H330"/><path d="M150,88 H330"/><path d="M150,112 H330"/><path d="M150,136 H330"/><path d="M150,160 H330"/><path d="M150,184 H330"/><path d="M150,208 H330"/>
+<path d="M190,40 V232"/><path d="M240,40 V232"/><path d="M270,40 V232"/>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M90,136 H110"/><path d="M110,52 V220"/>
+<path d="M110,52 H148" marker-end="url(#arrRC)"/><path d="M110,76 H148" marker-end="url(#arrRC)"/><path d="M110,100 H148" marker-end="url(#arrRC)"/><path d="M110,124 H148" marker-end="url(#arrRC)"/><path d="M110,172 H148" marker-end="url(#arrRC)"/><path d="M110,220 H148" marker-end="url(#arrRC)"/>
+<path d="M330,52 H368" marker-end="url(#arrRC)"/><path d="M330,76 H368" marker-end="url(#arrRC)"/><path d="M330,100 H368" marker-end="url(#arrRC)"/><path d="M330,124 H368" marker-end="url(#arrRC)"/><path d="M330,220 H368" marker-end="url(#arrRC)"/>
+<path d="M420,136 H458" marker-end="url(#arrRC)"/>
+</g>
+<path d="M330,172 H368" marker-end="url(#arrRC)" style="fill:none;stroke:var(--trace);stroke-width:2"/>
+<text x="10" y="18" style="fill:var(--pad);font-size:12px;font-weight:600">CAM RAT: one row per physical register</text>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle">
+<text x="170" y="34">row</text><text x="215" y="34">arch</text><text x="255" y="34">v</text><text x="300" y="34">match</text>
+</g>
+<g style="fill:var(--muted);font-size:11px;font-family:var(--mono)" text-anchor="middle">
+<text x="170" y="56">p0</text><text x="170" y="80">p7</text><text x="170" y="104">p8</text><text x="170" y="128">p9</text><text x="170" y="152">⋮</text><text x="170" y="176">p40</text><text x="170" y="200">⋮</text><text x="170" y="224">p191</text>
+</g>
+<g style="fill:var(--ink);font-size:11px;font-family:var(--mono)" text-anchor="middle">
+<text x="215" y="56">r0</text><text x="215" y="80">r1</text><text x="215" y="104">r2</text><text x="215" y="128">r3</text><text x="215" y="152">⋮</text><text x="215" y="176" style="font-weight:600">r1</text><text x="215" y="200">⋮</text><text x="215" y="224">–</text>
+<text x="255" y="56">1</text><text x="255" y="80">0</text><text x="255" y="104">1</text><text x="255" y="128">1</text><text x="255" y="152">⋮</text><text x="255" y="176" style="font-weight:600">1</text><text x="255" y="200">⋮</text><text x="255" y="224">0</text>
+<text x="300" y="56">0</text><text x="300" y="80">0</text><text x="300" y="104">0</text><text x="300" y="128">0</text><text x="300" y="152">⋮</text><text x="300" y="176" style="font-weight:600">1</text><text x="300" y="200">⋮</text><text x="300" y="224">0</text>
+<text x="50" y="140">src r1</text>
+<text x="495" y="140" style="font-weight:600">p40</text>
+</g>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle">
+<text x="395" y="140" style="font-weight:600">enc</text>
+</g>
+<g style="fill:var(--muted);font-size:11px">
+<text x="104" y="44" text-anchor="end">broadcast</text>
+<text x="545" y="124">rename r1 → p40:</text>
+<text x="545" y="140">set p40 v, clear p7 v</text>
+<text x="150" y="252">v column = 192 bits = the whole checkpoint</text>
+<text x="150" y="268">every lookup compares all 192 rows</text>
+<g style="font-size:10px"><text x="10" y="176">p7 also names r1</text>
+<text x="10" y="190">but its v = 0, so</text>
+<text x="10" y="204">it doesn't match</text></g>
+</g>
+</svg></div>
 <p>Port count for an SRAM RAT with two sources per instruction:</p>
 <ul><li>Read ports: 2W for sources plus W for the destinations' old mappings, 3W in all.</li><li>Write ports: W, one per new destination mapping.</li></ul>
 <p>A 4-wide renamer therefore needs a 12-read, 4-write table. The table itself is tiny (16 x86-64 integer registers × 8 bits for a 192-entry PRF = 128 bits), but those 16 ports dominate the cell, and the free list must also hand out W registers per cycle.</p>
