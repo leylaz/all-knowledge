@@ -422,6 +422,357 @@ I3: ld  r5, [r6]      # wrong path</code></pre>
 <text x="10" y="390" style="fill:var(--muted);font-size:10px">More architectural registers add rows: a wider decoder per port and longer bit lines. Ports come only from accesses per cycle.</text>
 </svg></div>
 <p>The 16 x86-64 integer registers set the number of rows, not the number of ports. A port is one independent access per cycle. It has its own address input and decoder, its own word line along every row, and its own bit line down every column, so any port can reach any row. The port count is set by how many accesses happen in one cycle, which is 3 reads and 1 write per renamed instruction, no matter which registers they name. AArch64's 31 integer registers need 31 rows (5-bit addresses, 5-to-32 decoders, bit lines about twice as long), but a 4-wide renamer still needs exactly 12 + 4 = 16 ports. The two 16s in the x86-64 case are a coincidence.</p>
+<h4>Address Input and Decoder</h4>
+<p>The renamer never searches the RAT. The architectural register number in an instruction field is already the row address. In x86-64 it is a 3-bit ModRM or opcode field plus one REX bit, 4 bits in all for 16 registers. Each port's address input is a 4-bit latch in the pipeline register between decode and rename, loaded at the start of the rename cycle. Slot 0's rs1 field goes to R0, rs2 to R1, and rd to both R2 and W0.</p>
+<p>The decoder turns the 4 bits into 16 outputs, exactly one of them high (one-hot). Each output is a 4-input AND with one input per address bit: the bit itself where the row number has a 1 and its complement where it has a 0. Row r1 (0001) is ā3 · ā2 · ā1 · a0, so it is the only gate whose four inputs are all 1 when the address is 0001. Its output is R0's word line for row r1.</p>
+<div class="tbl"><svg viewBox="0 0 680 410" role="img" aria-label="Read port R0's address input and decoder for slot 0, renaming r3 ← r1 + r12. The rs1 field of the instruction, 0001 for r1, is captured in R0's 4-bit address latch at the start of the cycle. Each latched bit drives two rails, the bit and its complement, giving eight rails. Sixteen 4-input AND gates, one per RAT row, each tap one rail per bit: row r taps a_i where bit i of r is 1 and the complement where it is 0. Only row r1's gate sees four high inputs, so only the r1 word line goes high. Every other gate taps at least one low rail. The output is one-hot: exactly one of the 16 word lines is raised, and it selects row r1 of the RAT.">
+<defs><marker id="arrD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<text x="10" y="18" style="fill:var(--pad);font-size:12px;font-weight:600">Read port R0: address latch and 4→16 decoder</text>
+<rect x="10" y="34" width="130" height="44" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<text x="75" y="51" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-weight:600">slot 0: r3 ← r1 + r12</text>
+<text x="75" y="68" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">rs1 field = 0001</text>
+<path d="M140,56 H168" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrD)"/>
+<rect x="170" y="40" width="160" height="32" rx="2" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:1.5"/>
+<text x="250" y="53" text-anchor="middle" style="fill:var(--ink);font-size:9px">R0 address latch</text>
+<text x="190" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<text x="230" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<text x="270" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<text x="310" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<text x="180" y="88" text-anchor="middle" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">a3</text>
+<path d="M180,96 V373" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<path d="M180,72 V80" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<text x="200" y="88" text-anchor="middle" style="fill:var(--accent-green);font-size:9px;font-family:var(--mono)">ā3</text>
+<path d="M200,96 V373" style="fill:none;stroke:var(--accent-green);stroke-width:2"/>
+<path d="M200,72 V80" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<text x="220" y="88" text-anchor="middle" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">a2</text>
+<path d="M220,96 V373" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<path d="M220,72 V80" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<text x="240" y="88" text-anchor="middle" style="fill:var(--accent-green);font-size:9px;font-family:var(--mono)">ā2</text>
+<path d="M240,96 V373" style="fill:none;stroke:var(--accent-green);stroke-width:2"/>
+<path d="M240,72 V80" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<text x="260" y="88" text-anchor="middle" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">a1</text>
+<path d="M260,96 V373" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<path d="M260,72 V80" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<text x="280" y="88" text-anchor="middle" style="fill:var(--accent-green);font-size:9px;font-family:var(--mono)">ā1</text>
+<path d="M280,96 V373" style="fill:none;stroke:var(--accent-green);stroke-width:2"/>
+<path d="M280,72 V80" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<text x="300" y="88" text-anchor="middle" style="fill:var(--accent-green);font-size:9px;font-family:var(--mono)">a0</text>
+<path d="M300,96 V373" style="fill:none;stroke:var(--accent-green);stroke-width:2"/>
+<path d="M300,72 V80" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<text x="320" y="88" text-anchor="middle" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">ā0</text>
+<path d="M320,96 V373" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<path d="M320,72 V80" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<text x="166" y="113" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r0</text>
+<path d="M174,110 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="200" cy="110" r="3" style="fill:var(--accent-green)"/>
+<circle cx="240" cy="110" r="3" style="fill:var(--accent-green)"/>
+<circle cx="280" cy="110" r="3" style="fill:var(--accent-green)"/>
+<circle cx="320" cy="110" r="3" style="fill:var(--muted)"/>
+<path d="M360,104 H368 A6,6 0 0 1 368,116 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,110 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="108" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="130" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r1</text>
+<path d="M174,127 H360" style="fill:none;stroke:var(--accent-green);stroke-width:1.5"/>
+<circle cx="200" cy="127" r="3" style="fill:var(--accent-green)"/>
+<circle cx="240" cy="127" r="3" style="fill:var(--accent-green)"/>
+<circle cx="280" cy="127" r="3" style="fill:var(--accent-green)"/>
+<circle cx="300" cy="127" r="3" style="fill:var(--accent-green)"/>
+<path d="M360,121 H368 A6,6 0 0 1 368,133 H360 Z" style="fill:var(--accent-green);stroke:var(--accent-green);stroke-width:1"/>
+<path d="M374,127 H500" style="fill:none;stroke:var(--accent-green);stroke-width:2.5"/>
+<text x="380" y="125" style="fill:var(--accent-green);font-size:8px;font-family:var(--mono)">1</text>
+<text x="166" y="147" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r2</text>
+<path d="M174,144 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="200" cy="144" r="3" style="fill:var(--accent-green)"/>
+<circle cx="240" cy="144" r="3" style="fill:var(--accent-green)"/>
+<circle cx="260" cy="144" r="3" style="fill:var(--muted)"/>
+<circle cx="320" cy="144" r="3" style="fill:var(--muted)"/>
+<path d="M360,138 H368 A6,6 0 0 1 368,150 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,144 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="142" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="164" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r3</text>
+<path d="M174,161 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="200" cy="161" r="3" style="fill:var(--accent-green)"/>
+<circle cx="240" cy="161" r="3" style="fill:var(--accent-green)"/>
+<circle cx="260" cy="161" r="3" style="fill:var(--muted)"/>
+<circle cx="300" cy="161" r="3" style="fill:var(--accent-green)"/>
+<path d="M360,155 H368 A6,6 0 0 1 368,167 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,161 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="159" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="181" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r4</text>
+<path d="M174,178 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="200" cy="178" r="3" style="fill:var(--accent-green)"/>
+<circle cx="220" cy="178" r="3" style="fill:var(--muted)"/>
+<circle cx="280" cy="178" r="3" style="fill:var(--accent-green)"/>
+<circle cx="320" cy="178" r="3" style="fill:var(--muted)"/>
+<path d="M360,172 H368 A6,6 0 0 1 368,184 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,178 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="176" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="198" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r5</text>
+<path d="M174,195 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="200" cy="195" r="3" style="fill:var(--accent-green)"/>
+<circle cx="220" cy="195" r="3" style="fill:var(--muted)"/>
+<circle cx="280" cy="195" r="3" style="fill:var(--accent-green)"/>
+<circle cx="300" cy="195" r="3" style="fill:var(--accent-green)"/>
+<path d="M360,189 H368 A6,6 0 0 1 368,201 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,195 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="193" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="215" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r6</text>
+<path d="M174,212 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="200" cy="212" r="3" style="fill:var(--accent-green)"/>
+<circle cx="220" cy="212" r="3" style="fill:var(--muted)"/>
+<circle cx="260" cy="212" r="3" style="fill:var(--muted)"/>
+<circle cx="320" cy="212" r="3" style="fill:var(--muted)"/>
+<path d="M360,206 H368 A6,6 0 0 1 368,218 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,212 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="210" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="232" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r7</text>
+<path d="M174,229 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="200" cy="229" r="3" style="fill:var(--accent-green)"/>
+<circle cx="220" cy="229" r="3" style="fill:var(--muted)"/>
+<circle cx="260" cy="229" r="3" style="fill:var(--muted)"/>
+<circle cx="300" cy="229" r="3" style="fill:var(--accent-green)"/>
+<path d="M360,223 H368 A6,6 0 0 1 368,235 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,229 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="227" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="249" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r8</text>
+<path d="M174,246 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="180" cy="246" r="3" style="fill:var(--muted)"/>
+<circle cx="240" cy="246" r="3" style="fill:var(--accent-green)"/>
+<circle cx="280" cy="246" r="3" style="fill:var(--accent-green)"/>
+<circle cx="320" cy="246" r="3" style="fill:var(--muted)"/>
+<path d="M360,240 H368 A6,6 0 0 1 368,252 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,246 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="244" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="266" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r9</text>
+<path d="M174,263 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="180" cy="263" r="3" style="fill:var(--muted)"/>
+<circle cx="240" cy="263" r="3" style="fill:var(--accent-green)"/>
+<circle cx="280" cy="263" r="3" style="fill:var(--accent-green)"/>
+<circle cx="300" cy="263" r="3" style="fill:var(--accent-green)"/>
+<path d="M360,257 H368 A6,6 0 0 1 368,269 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,263 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="261" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="283" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r10</text>
+<path d="M174,280 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="180" cy="280" r="3" style="fill:var(--muted)"/>
+<circle cx="240" cy="280" r="3" style="fill:var(--accent-green)"/>
+<circle cx="260" cy="280" r="3" style="fill:var(--muted)"/>
+<circle cx="320" cy="280" r="3" style="fill:var(--muted)"/>
+<path d="M360,274 H368 A6,6 0 0 1 368,286 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,280 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="278" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="300" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r11</text>
+<path d="M174,297 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="180" cy="297" r="3" style="fill:var(--muted)"/>
+<circle cx="240" cy="297" r="3" style="fill:var(--accent-green)"/>
+<circle cx="260" cy="297" r="3" style="fill:var(--muted)"/>
+<circle cx="300" cy="297" r="3" style="fill:var(--accent-green)"/>
+<path d="M360,291 H368 A6,6 0 0 1 368,303 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,297 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="295" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="317" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r12</text>
+<path d="M174,314 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="180" cy="314" r="3" style="fill:var(--muted)"/>
+<circle cx="220" cy="314" r="3" style="fill:var(--muted)"/>
+<circle cx="280" cy="314" r="3" style="fill:var(--accent-green)"/>
+<circle cx="320" cy="314" r="3" style="fill:var(--muted)"/>
+<path d="M360,308 H368 A6,6 0 0 1 368,320 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,314 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="312" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="334" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r13</text>
+<path d="M174,331 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="180" cy="331" r="3" style="fill:var(--muted)"/>
+<circle cx="220" cy="331" r="3" style="fill:var(--muted)"/>
+<circle cx="280" cy="331" r="3" style="fill:var(--accent-green)"/>
+<circle cx="300" cy="331" r="3" style="fill:var(--accent-green)"/>
+<path d="M360,325 H368 A6,6 0 0 1 368,337 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,331 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="329" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="351" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r14</text>
+<path d="M174,348 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="180" cy="348" r="3" style="fill:var(--muted)"/>
+<circle cx="220" cy="348" r="3" style="fill:var(--muted)"/>
+<circle cx="260" cy="348" r="3" style="fill:var(--muted)"/>
+<circle cx="320" cy="348" r="3" style="fill:var(--muted)"/>
+<path d="M360,342 H368 A6,6 0 0 1 368,354 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,348 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="346" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="166" y="368" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r15</text>
+<path d="M174,365 H360" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<circle cx="180" cy="365" r="3" style="fill:var(--muted)"/>
+<circle cx="220" cy="365" r="3" style="fill:var(--muted)"/>
+<circle cx="260" cy="365" r="3" style="fill:var(--muted)"/>
+<circle cx="300" cy="365" r="3" style="fill:var(--accent-green)"/>
+<path d="M360,359 H368 A6,6 0 0 1 368,371 H360 Z" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<path d="M374,365 H500" style="fill:none;stroke:var(--muted);stroke-width:1;opacity:0.6"/>
+<text x="380" y="363" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="367" y="100" text-anchor="middle" style="fill:var(--muted);font-size:9px">AND</text>
+<text x="430" y="100" text-anchor="middle" style="fill:var(--muted);font-size:9px">R0 word lines</text>
+<rect x="500" y="102" width="60" height="271" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.5"/>
+<rect x="500" y="119" width="60" height="17" style="fill:var(--trace-soft);stroke:var(--accent-green);stroke-width:1.5"/>
+<text x="530" y="131" text-anchor="middle" style="fill:var(--ink);font-size:9px">row r1</text>
+<text x="530" y="246" text-anchor="middle" style="fill:var(--muted);font-size:9px">RAT</text><text x="530" y="258" text-anchor="middle" style="fill:var(--muted);font-size:9px">16 rows</text>
+<text x="572" y="126" style="fill:var(--ink);font-size:9px">Only r1 sees 1 on</text>
+<text x="572" y="138" style="fill:var(--ink);font-size:9px">all four inputs</text>
+<text x="572" y="195" style="fill:var(--muted);font-size:9px">Every other row taps</text>
+<text x="572" y="207" style="fill:var(--muted);font-size:9px">at least one 0 rail</text>
+<text x="572" y="219" style="fill:var(--muted);font-size:9px">(gray dot), so its</text>
+<text x="572" y="231" style="fill:var(--muted);font-size:9px">word line stays low</text>
+<text x="572" y="297" style="fill:var(--muted);font-size:9px">31 registers: 5 bits,</text>
+<text x="572" y="309" style="fill:var(--muted);font-size:9px">10 rails, 32 gates</text>
+<text x="572" y="321" style="fill:var(--muted);font-size:9px">of 5 inputs each</text>
+<text x="10" y="397" style="fill:var(--muted);font-size:10px">Colored: 1. Gray: 0. Dots: the rail each gate taps. Row r taps aᵢ where bit i of r is 1 and āᵢ where it is 0. R1, R2, and W0 each have a copy of all this.</text>
+</svg></div>
+<ul><li><strong>Size grows with rows:</strong> k address bits need 2k rails and 2<sup>k</sup> gates of k inputs. 16 registers need 4 bits and 16 gates of 4 inputs. AArch64's 31 registers need 5 bits and 32 gates of 5 inputs (encoding 31 names SP or XZR, which isn't a renamed row).</li><li><strong>Delay grows slowly:</strong> real decoders predecode. Two 2-to-4 predecoders turn the 4 bits into two one-hot groups of 4 lines, and each row ANDs one line from each group with a 2-input gate. A buffer chain then drives the word line, sized for its load of one access transistor per column. Doubling the rows adds one address bit, which adds at most about one gate level.</li><li><strong>One decoder per port:</strong> a 4-wide renamer has 16 decoders, each a full 4-to-16 copy. R2 and W0 both decode 0011, and each raises its own word line in row r3, so they don't conflict. R2 reads the old mapping early in the cycle and W0 writes the new one at the end (see <a href="#/renaming/same-group">Same-Group Dependences</a>).</li></ul>
+<h4>Word Lines and Bit Lines</h4>
+<p>A <strong>word line</strong> is a wire running across one row. It connects to the gate of one port's access transistor in every cell of that row, so raising it connects the whole row to that port. A <strong>bit line</strong> is a wire running down one column. It connects to the same bit position in every row and ends at the port's sense amplifier (a read port) or write driver (a write port). A port's decoder raises exactly one of its word lines, so each of its bit lines sees exactly one cell. That is why a port does one access per cycle, and why a second access in the same cycle needs a second word line in every row and a second bit line in every column. <a href="#/cache-banking/why">Why Caches Are Banked</a> covers how wire length sets the delay of both.</p>
+<div class="tbl"><svg viewBox="0 0 680 450" role="img" aria-label="Word lines and bit lines. Left: one port's wires in a 4-row by 4-column corner of the RAT. Each row has a word line running across every column, driven by the port's decoder, and each column has a bit line running down every row to the port's sense amplifier. R0's decoder raises the word line of row r1, so every cell in row r1 connects to its column's bit line, and the sense amplifiers read r1's bits, 1 0 1 1, while rows r0, r2, and r3 stay disconnected. Right: one RAT bit cell with one write port and one read port. Four transistors in two cross-coupled inverters hold the bit Q and its complement QB. The W0 word line gates two access transistors that connect Q and QB to the W0 bit line pair, WBL and WBLB, which the write drivers force to the new value. The R0 word line gates one transistor in a two-transistor stack from the R0 bit line, RBL, to ground. The other transistor in the stack is gated by QB. RBL starts high, and when R0's word line rises it is pulled low if the cell holds 0 and stays high if it holds 1.">
+<text x="10" y="18" style="fill:var(--pad);font-size:12px;font-weight:600">Word lines select a row, bit lines carry a column's bit</text>
+<text x="10" y="36" style="fill:var(--ink);font-size:10px;font-weight:600">One port (R0) in a 4 × 4 corner of the RAT</text>
+<rect x="22" y="68" width="26" height="152" rx="2" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:1.5"/>
+<text transform="translate(39,144) rotate(-90)" text-anchor="middle" style="fill:var(--muted);font-size:9px">R0 decoder</text>
+<text x="76" y="72" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r0</text>
+<text x="76" y="112" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r1</text>
+<text x="76" y="152" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r2</text>
+<text x="76" y="192" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r3</text>
+<path d="M124,62 V234" style="fill:none;stroke:var(--accent-green);stroke-width:1.5"/>
+<rect x="112" y="234" width="24" height="16" rx="2" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:1.2"/><text x="124" y="245" text-anchor="middle" style="fill:var(--muted);font-size:8px">SA</text>
+<text x="124" y="266" text-anchor="middle" style="fill:var(--accent-green);font-size:11px;font-weight:600;font-family:var(--mono)">1</text>
+<text x="110" y="58" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 0</text>
+<path d="M174,62 V234" style="fill:none;stroke:var(--accent-green);stroke-width:1.5"/>
+<rect x="162" y="234" width="24" height="16" rx="2" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:1.2"/><text x="174" y="245" text-anchor="middle" style="fill:var(--muted);font-size:8px">SA</text>
+<text x="174" y="266" text-anchor="middle" style="fill:var(--accent-green);font-size:11px;font-weight:600;font-family:var(--mono)">0</text>
+<text x="160" y="58" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 1</text>
+<path d="M224,62 V234" style="fill:none;stroke:var(--accent-green);stroke-width:1.5"/>
+<rect x="212" y="234" width="24" height="16" rx="2" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:1.2"/><text x="224" y="245" text-anchor="middle" style="fill:var(--muted);font-size:8px">SA</text>
+<text x="224" y="266" text-anchor="middle" style="fill:var(--accent-green);font-size:11px;font-weight:600;font-family:var(--mono)">1</text>
+<text x="210" y="58" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 2</text>
+<path d="M274,62 V234" style="fill:none;stroke:var(--accent-green);stroke-width:1.5"/>
+<rect x="262" y="234" width="24" height="16" rx="2" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:1.2"/><text x="274" y="245" text-anchor="middle" style="fill:var(--muted);font-size:8px">SA</text>
+<text x="274" y="266" text-anchor="middle" style="fill:var(--accent-green);font-size:11px;font-weight:600;font-family:var(--mono)">1</text>
+<text x="260" y="58" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 3</text>
+<path d="M48,76 H290" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<rect x="94" y="70" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="107" y="92" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<path d="M120,84 H122" style="stroke:var(--muted);stroke-width:1"/>
+<rect x="144" y="70" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="157" y="92" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<path d="M170,84 H172" style="stroke:var(--muted);stroke-width:1"/>
+<rect x="194" y="70" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="207" y="92" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<path d="M220,84 H222" style="stroke:var(--muted);stroke-width:1"/>
+<rect x="244" y="70" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="257" y="92" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<path d="M270,84 H272" style="stroke:var(--muted);stroke-width:1"/>
+<path d="M48,116 H290" style="fill:none;stroke:var(--accent-green);stroke-width:2.5"/>
+<rect x="94" y="110" width="26" height="26" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-green);stroke-width:1"/>
+<text x="107" y="132" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<path d="M120,124 H124" style="stroke:var(--accent-green);stroke-width:2"/><circle cx="124" cy="124" r="2.5" style="fill:var(--accent-green)"/>
+<rect x="144" y="110" width="26" height="26" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-green);stroke-width:1"/>
+<text x="157" y="132" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<path d="M170,124 H174" style="stroke:var(--accent-green);stroke-width:2"/><circle cx="174" cy="124" r="2.5" style="fill:var(--accent-green)"/>
+<rect x="194" y="110" width="26" height="26" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-green);stroke-width:1"/>
+<text x="207" y="132" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<path d="M220,124 H224" style="stroke:var(--accent-green);stroke-width:2"/><circle cx="224" cy="124" r="2.5" style="fill:var(--accent-green)"/>
+<rect x="244" y="110" width="26" height="26" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-green);stroke-width:1"/>
+<text x="257" y="132" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<path d="M270,124 H274" style="stroke:var(--accent-green);stroke-width:2"/><circle cx="274" cy="124" r="2.5" style="fill:var(--accent-green)"/>
+<path d="M48,156 H290" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<rect x="94" y="150" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="107" y="172" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<path d="M120,164 H122" style="stroke:var(--muted);stroke-width:1"/>
+<rect x="144" y="150" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="157" y="172" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<path d="M170,164 H172" style="stroke:var(--muted);stroke-width:1"/>
+<rect x="194" y="150" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="207" y="172" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<path d="M220,164 H222" style="stroke:var(--muted);stroke-width:1"/>
+<rect x="244" y="150" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="257" y="172" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<path d="M270,164 H272" style="stroke:var(--muted);stroke-width:1"/>
+<path d="M48,196 H290" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<rect x="94" y="190" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="107" y="212" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<path d="M120,204 H122" style="stroke:var(--muted);stroke-width:1"/>
+<rect x="144" y="190" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="157" y="212" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<path d="M170,204 H172" style="stroke:var(--muted);stroke-width:1"/>
+<rect x="194" y="190" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="207" y="212" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<path d="M220,204 H222" style="stroke:var(--muted);stroke-width:1"/>
+<rect x="244" y="190" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
+<text x="257" y="212" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<path d="M270,204 H272" style="stroke:var(--muted);stroke-width:1"/>
+<text x="294" y="119" style="fill:var(--accent-green);font-size:9px">word line</text>
+<text x="294" y="131" style="fill:var(--accent-green);font-size:9px">high</text>
+<text x="294" y="246" style="fill:var(--accent-green);font-size:9px">bit lines</text>
+<text x="294" y="266" style="fill:var(--accent-green);font-size:9px">= r1</text>
+<text x="10" y="290" style="fill:var(--muted);font-size:9.5px">Word line: a wire along one row, through every</text>
+<text x="10" y="303" style="fill:var(--muted);font-size:9.5px">column. High connects that row's cells to</text>
+<text x="10" y="316" style="fill:var(--muted);font-size:9.5px">this port’s bit lines.</text>
+<text x="10" y="329" style="fill:var(--muted);font-size:9.5px">Bit line: a wire down one column, past every row.</text>
+<text x="10" y="342" style="fill:var(--muted);font-size:9.5px">It carries the bit of the one row whose word line</text>
+<text x="10" y="355" style="fill:var(--muted);font-size:9.5px">is high, so a port does one access per cycle.</text>
+<path d="M328,30 V440" style="stroke:var(--rule);stroke-width:1"/>
+<text x="340" y="36" style="fill:var(--ink);font-size:10px;font-weight:600">Inside one bit cell: write port W0 and read port R0</text>
+<path d="M340,72 H670" style="fill:none;stroke:var(--trace);stroke-width:2.5"/>
+<text x="372" y="67" style="fill:var(--trace);font-size:9px">W0 word line (WWL)</text>
+<path d="M340,300 H670" style="fill:none;stroke:var(--accent-green);stroke-width:2.5"/>
+<text x="372" y="313" style="fill:var(--accent-green);font-size:9px">R0 word line (RWL)</text>
+<path d="M360,58 V330" style="fill:none;stroke:var(--trace);stroke-width:2"/>
+<path d="M566,58 V330" style="fill:none;stroke:var(--trace);stroke-width:2"/>
+<path d="M650,58 V330" style="fill:none;stroke:var(--accent-green);stroke-width:2"/>
+<text x="360" y="345" text-anchor="middle" style="fill:var(--trace);font-size:9px;font-family:var(--mono)">WBL</text>
+<text x="566" y="345" text-anchor="middle" style="fill:var(--trace);font-size:9px;font-family:var(--mono)">WBLB</text>
+<text x="650" y="345" text-anchor="middle" style="fill:var(--accent-green);font-size:9px;font-family:var(--mono)">RBL</text>
+<text x="463" y="53" text-anchor="middle" style="fill:var(--trace);font-size:9px">W0 write drivers: new bit on WBL, its inverse on WBLB</text>
+<text x="650" y="362" text-anchor="end" style="fill:var(--accent-green);font-size:9px">→ R0 sense amp</text>
+<text x="463" y="362" text-anchor="middle" style="fill:var(--trace);font-size:9px">W0 bit line pair</text>
+<rect x="424" y="112" width="68" height="78" rx="4" style="fill:none;stroke:var(--rule);stroke-dasharray:3 3"/>
+<path d="M442,119 L442,141 L470,130 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/><circle cx="473" cy="130" r="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M474,161 L474,183 L446,172 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/><circle cx="443" cy="172" r="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M416,130 H442 M476,130 H500 M500,172 H477 M440,172 H416 M416,130 V172 M500,130 V172" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<text x="458" y="204" text-anchor="middle" style="fill:var(--muted);font-size:9px">latch: 4 transistors</text>
+<text x="412" y="126" text-anchor="end" style="fill:var(--ink);font-size:9px;font-weight:600">Q</text>
+<text x="504" y="126" text-anchor="start" style="fill:var(--ink);font-size:9px;font-weight:600">QB</text>
+<path d="M360,151 H372 M398,151 H416" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M372,151 H378 V146 M398,151 H392 V146 M375,146 H395" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M378,142 H392" style="fill:none;stroke:var(--trace);stroke-width:1.8"/>
+<path d="M385,142 V72" style="fill:none;stroke:var(--trace);stroke-width:1.3"/>
+<circle cx="360" cy="151" r="2.5" style="fill:var(--trace)"/>
+<circle cx="416" cy="151" r="2.5" style="fill:var(--ink)"/>
+<circle cx="385" cy="72" r="2.5" style="fill:var(--trace)"/>
+<path d="M500,151 H526 M552,151 H566" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M526,151 H532 V146 M552,151 H546 V146 M529,146 H549" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M532,142 H546" style="fill:none;stroke:var(--trace);stroke-width:1.8"/>
+<path d="M539,142 V72" style="fill:none;stroke:var(--trace);stroke-width:1.3"/>
+<circle cx="566" cy="151" r="2.5" style="fill:var(--trace)"/>
+<circle cx="500" cy="151" r="2.5" style="fill:var(--ink)"/>
+<circle cx="539" cy="72" r="2.5" style="fill:var(--trace)"/>
+<path d="M650,258 H644" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M618,258 H624 V263 M644,258 H638 V263 M621,263 H641" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M624,267 H638" style="fill:none;stroke:var(--accent-green);stroke-width:1.8"/>
+<path d="M631,267 V300" style="fill:none;stroke:var(--accent-green);stroke-width:1.3"/>
+<circle cx="650" cy="258" r="2.5" style="fill:var(--accent-green)"/>
+<circle cx="631" cy="300" r="2.5" style="fill:var(--accent-green)"/>
+<path d="M618,258 H612" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M586,258 H592 V253 M612,258 H606 V253 M589,253 H609" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M592,249 H606" style="fill:none;stroke:var(--ink);stroke-width:1.8"/>
+<path d="M599,249 V228" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M500,172 V228 H599" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<circle cx="500" cy="172" r="2.5" style="fill:var(--ink)"/>
+<path d="M586,258 H580 V266 M572,266 H588 M575,270 H585 M578,274 H582" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<text x="604" y="222" text-anchor="middle" style="fill:var(--muted);font-size:9px">gate: QB</text>
+<text x="340" y="384" style="fill:var(--accent-green);font-size:9px">Read: RBL starts high, then R0 raises RWL.</text>
+<text x="340" y="397" style="fill:var(--accent-green);font-size:9px">Q = 0, so QB = 1: both on, RBL falls.</text>
+<text x="340" y="410" style="fill:var(--accent-green);font-size:9px">Q = 1, so QB = 0: stack off, RBL stays high.</text>
+<text x="340" y="423" style="fill:var(--trace);font-size:9px">Write: WWL high lets the drivers on WBL</text>
+<text x="340" y="436" style="fill:var(--trace);font-size:9px">and WBLB overpower the latch and flip Q.</text>
+</svg></div>
+<ul><li><strong>Read port:</strong> the bit line is precharged high. The port's word line turns on the top transistor of a two-transistor stack, and the stored bit decides whether the bottom one conducts. If the cell holds 0, the stack pulls the bit line low, and if it holds 1, the bit line stays high. The latch only drives a transistor gate, so 12 ports can read the same cell in one cycle without disturbing it or each other.</li><li><strong>Write port:</strong> the driver puts the new bit on one bit line and its inverse on the other, and the word line turns on two access transistors that connect them to Q and QB. The drivers are stronger than the latch, so they flip it. A write port therefore has a bit line pair, not a single bit line.</li></ul>
+<p>Per cell, the 4-wide RAT's 16 ports add up to:</p>
+<ul><li>Word lines: 12 read ports × 1 word line/port + 4 write ports × 1 word line/port = 16 word lines.</li><li>Bit lines: 12 read ports × 1 bit line/port + 4 write ports × 2 bit lines/port = 20 bit lines.</li><li>Transistors: 4 latch transistors + 12 read ports × 2 transistors/port + 4 write ports × 2 transistors/port = 36 transistors, against 6 for a single-ported SRAM cell.</li></ul>
+<p>The cell is 16 wire tracks tall and 20 wide, which is why its area grows about as the square of the port count. Nothing in it depends on the number of rows. AArch64's 31 rows use the same cell, just more of them, with each bit line passing 31 cells instead of 16 and so carrying about twice the capacitance.</p>
 <p>The 3W read count assumes rename reads each destination's old mapping and stores it in the ROB. A design with a retirement RAT can skip that read. When an instruction commits, the retirement RAT's entry for its destination is exactly the register being replaced, so commit reads that entry, frees it, and writes the new mapping. The front-end RAT then needs only 2W read ports, and the W extra reads move to the retirement RAT at commit, off the rename critical path. The catch is recovery: without old mappings in the ROB, the core can't walk the ROB backward and must restore from checkpoints or the retirement RAT.</p>
 <p>Ports also cost far more area than rows, which <a href="#/renaming/rat-cost">What Renaming Costs</a> works out.</p>
 <h3 id="sec-same-group">Same-Group Dependences</h3>
