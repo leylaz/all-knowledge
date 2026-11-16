@@ -721,7 +721,7 @@ slot 3: r6 = r1 + r2     new dest p43</code></pre>
 <ul><li><strong>Size grows with rows:</strong> k address bits need 2k rails and 2<sup>k</sup> gates of k inputs. 16 registers need 4 bits and 16 gates of 4 inputs. AArch64's 31 registers need 5 bits and 32 gates of 5 inputs (encoding 31 names SP or XZR, which isn't a renamed row).</li><li><strong>Delay grows slowly:</strong> real decoders predecode. Two 2-to-4 predecoders turn the 4 bits into two one-hot groups of 4 lines, and each row ANDs one line from each group with a 2-input gate. A buffer chain then drives the word line, sized for its load of one access transistor per column. Doubling the rows adds one address bit, which adds at most about one gate level.</li><li><strong>One decoder per port:</strong> a 4-wide renamer has 16 decoders, each a full 4-to-16 copy. R2 and W0 both decode 0011, and each raises its own word line in row r3, so they don't conflict. R2 reads the old mapping early in the cycle and W0 writes the new one at the end (see <a href="#/renaming/same-group">Same-Group Dependences</a>).</li></ul>
 <h4>Word Lines and Bit Lines</h4>
 <p>A port's decoder raises exactly one of its word lines, so each of its bit lines sees exactly one cell, the one in the selected row. That is why a port does one access per cycle, and why a second access in the same cycle needs a second word line in every row and a second bit line in every column. <a href="#/cache-banking/why">Why Caches Are Banked</a> covers how wire length sets the delay of both.</p>
-<div class="tbl"><svg viewBox="0 0 680 450" role="img" aria-label="Word lines and bit lines. Left: one port's wires in a 4-row by 4-column corner of the RAT. Each row has a word line running across every column, driven by the port's decoder, and each column has a bit line running down every row to the port's sense amplifier. R0's decoder raises the word line of row r1, so every cell in row r1 connects to its column's bit line, and the sense amplifiers read r1's bits, 1 0 1 1, while rows r0, r2, and r3 stay disconnected. Right: one RAT bit cell with one write port and one read port. Four transistors in two cross-coupled inverters hold the bit Q and its complement QB. The W0 word line gates two access transistors that connect Q and QB to the W0 bit line pair, WBL and WBLB, which the write drivers force to the new value. The R0 word line gates one transistor in a two-transistor stack from the R0 bit line, RBL, to ground. The other transistor in the stack is gated by QB. RBL starts high, and when R0's word line rises it is pulled low if the cell holds 0 and stays high if it holds 1.">
+<div class="tbl"><svg viewBox="0 0 680 450" role="img" aria-label="Word lines and bit lines. Left: one port's wires in a 4-row by 4-column corner of the RAT. Each row's cells store the low 4 bits of its physical register number, columns ordered bit 3 to bit 0: r0 holds p3 (0011), r1 p7 (0111), r2 p8 (1000), and r3 p9 (1001). Each row has a word line running across every column, driven by the port's decoder, and each column has a bit line running down every row to the port's sense amplifier. R0's decoder raises the word line of row r1, so every cell in row r1 connects to its column's bit line, and the sense amplifiers read r1's bits, 0 1 1 1, while rows r0, r2, and r3 stay disconnected. Right: one RAT bit cell with one write port and one read port. Four transistors in two cross-coupled inverters hold the bit Q and its complement QB. The W0 word line gates two access transistors that connect Q and QB to the W0 bit line pair, WBL and WBLB, which the write drivers force to the new value. The R0 word line gates one transistor in a two-transistor stack from the R0 bit line, RBL, to ground. The other transistor in the stack is gated by QB. RBL starts high, and when R0's word line rises it is pulled low if the cell holds 0 and stays high if it holds 1.">
 <text x="10" y="18" style="fill:var(--pad);font-size:12px;font-weight:600">Word lines select a row, bit lines carry a column's bit</text>
 <text x="10" y="36" style="fill:var(--ink);font-size:10px;font-weight:600">One port (R0) in a 4 × 4 corner of the RAT</text>
 <rect x="22" y="68" width="26" height="152" rx="2" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:1.5"/>
@@ -732,39 +732,39 @@ slot 3: r6 = r1 + r2     new dest p43</code></pre>
 <text x="76" y="192" text-anchor="end" style="fill:var(--muted);font-size:9px;font-family:var(--mono)">r3</text>
 <path d="M124,62 V234" style="fill:none;stroke:var(--accent-green);stroke-width:1.5"/>
 <rect x="112" y="234" width="24" height="16" rx="2" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:1.2"/><text x="124" y="245" text-anchor="middle" style="fill:var(--muted);font-size:8px">SA</text>
-<text x="124" y="266" text-anchor="middle" style="fill:var(--accent-green);font-size:11px;font-weight:600;font-family:var(--mono)">1</text>
-<text x="110" y="58" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 0</text>
+<text x="124" y="266" text-anchor="middle" style="fill:var(--accent-green);font-size:11px;font-weight:600;font-family:var(--mono)">0</text>
+<text x="110" y="58" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 3</text>
 <path d="M174,62 V234" style="fill:none;stroke:var(--accent-green);stroke-width:1.5"/>
 <rect x="162" y="234" width="24" height="16" rx="2" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:1.2"/><text x="174" y="245" text-anchor="middle" style="fill:var(--muted);font-size:8px">SA</text>
-<text x="174" y="266" text-anchor="middle" style="fill:var(--accent-green);font-size:11px;font-weight:600;font-family:var(--mono)">0</text>
-<text x="160" y="58" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 1</text>
+<text x="174" y="266" text-anchor="middle" style="fill:var(--accent-green);font-size:11px;font-weight:600;font-family:var(--mono)">1</text>
+<text x="160" y="58" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 2</text>
 <path d="M224,62 V234" style="fill:none;stroke:var(--accent-green);stroke-width:1.5"/>
 <rect x="212" y="234" width="24" height="16" rx="2" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:1.2"/><text x="224" y="245" text-anchor="middle" style="fill:var(--muted);font-size:8px">SA</text>
 <text x="224" y="266" text-anchor="middle" style="fill:var(--accent-green);font-size:11px;font-weight:600;font-family:var(--mono)">1</text>
-<text x="210" y="58" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 2</text>
+<text x="210" y="58" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 1</text>
 <path d="M274,62 V234" style="fill:none;stroke:var(--accent-green);stroke-width:1.5"/>
 <rect x="262" y="234" width="24" height="16" rx="2" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:1.2"/><text x="274" y="245" text-anchor="middle" style="fill:var(--muted);font-size:8px">SA</text>
 <text x="274" y="266" text-anchor="middle" style="fill:var(--accent-green);font-size:11px;font-weight:600;font-family:var(--mono)">1</text>
-<text x="260" y="58" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 3</text>
+<text x="260" y="58" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 0</text>
 <path d="M48,76 H290" style="fill:none;stroke:var(--muted);stroke-width:1"/>
 <rect x="94" y="70" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
 <text x="107" y="92" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
 <path d="M120,84 H122" style="stroke:var(--muted);stroke-width:1"/>
 <rect x="144" y="70" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
-<text x="157" y="92" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<text x="157" y="92" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
 <path d="M170,84 H172" style="stroke:var(--muted);stroke-width:1"/>
 <rect x="194" y="70" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
 <text x="207" y="92" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
 <path d="M220,84 H222" style="stroke:var(--muted);stroke-width:1"/>
 <rect x="244" y="70" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
-<text x="257" y="92" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<text x="257" y="92" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
 <path d="M270,84 H272" style="stroke:var(--muted);stroke-width:1"/>
 <path d="M48,116 H290" style="fill:none;stroke:var(--accent-green);stroke-width:2.5"/>
 <rect x="94" y="110" width="26" height="26" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-green);stroke-width:1"/>
-<text x="107" y="132" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<text x="107" y="132" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
 <path d="M120,124 H124" style="stroke:var(--accent-green);stroke-width:2"/><circle cx="124" cy="124" r="2.5" style="fill:var(--accent-green)"/>
 <rect x="144" y="110" width="26" height="26" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-green);stroke-width:1"/>
-<text x="157" y="132" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<text x="157" y="132" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
 <path d="M170,124 H174" style="stroke:var(--accent-green);stroke-width:2"/><circle cx="174" cy="124" r="2.5" style="fill:var(--accent-green)"/>
 <rect x="194" y="110" width="26" height="26" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-green);stroke-width:1"/>
 <text x="207" y="132" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
@@ -777,7 +777,7 @@ slot 3: r6 = r1 + r2     new dest p43</code></pre>
 <text x="107" y="172" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
 <path d="M120,164 H122" style="stroke:var(--muted);stroke-width:1"/>
 <rect x="144" y="150" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
-<text x="157" y="172" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<text x="157" y="172" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
 <path d="M170,164 H172" style="stroke:var(--muted);stroke-width:1"/>
 <rect x="194" y="150" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
 <text x="207" y="172" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
@@ -787,13 +787,13 @@ slot 3: r6 = r1 + r2     new dest p43</code></pre>
 <path d="M270,164 H272" style="stroke:var(--muted);stroke-width:1"/>
 <path d="M48,196 H290" style="fill:none;stroke:var(--muted);stroke-width:1"/>
 <rect x="94" y="190" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
-<text x="107" y="212" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
+<text x="107" y="212" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
 <path d="M120,204 H122" style="stroke:var(--muted);stroke-width:1"/>
 <rect x="144" y="190" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
 <text x="157" y="212" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
 <path d="M170,204 H172" style="stroke:var(--muted);stroke-width:1"/>
 <rect x="194" y="190" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
-<text x="207" y="212" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
+<text x="207" y="212" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">0</text>
 <path d="M220,204 H222" style="stroke:var(--muted);stroke-width:1"/>
 <rect x="244" y="190" width="26" height="26" rx="2" style="fill:var(--surface);stroke:var(--muted);stroke-width:1"/>
 <text x="257" y="212" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">1</text>
@@ -801,13 +801,15 @@ slot 3: r6 = r1 + r2     new dest p43</code></pre>
 <text x="294" y="119" style="fill:var(--accent-green);font-size:9px">word line</text>
 <text x="294" y="131" style="fill:var(--accent-green);font-size:9px">high</text>
 <text x="294" y="246" style="fill:var(--accent-green);font-size:9px">bit lines</text>
-<text x="294" y="266" style="fill:var(--accent-green);font-size:9px">= r1</text>
+<text x="294" y="266" style="fill:var(--accent-green);font-size:9px">= r1 (p7)</text>
 <text x="10" y="290" style="fill:var(--muted);font-size:9.5px">Word line: a wire along one row, through every</text>
 <text x="10" y="303" style="fill:var(--muted);font-size:9.5px">column. High connects that row's cells to</text>
 <text x="10" y="316" style="fill:var(--muted);font-size:9.5px">this port’s bit lines.</text>
 <text x="10" y="329" style="fill:var(--muted);font-size:9.5px">Bit line: a wire down one column, past every row.</text>
 <text x="10" y="342" style="fill:var(--muted);font-size:9.5px">It carries the bit of the one row whose word line</text>
 <text x="10" y="355" style="fill:var(--muted);font-size:9.5px">is high, so a port does one access per cycle.</text>
+<text x="10" y="375" style="fill:var(--muted);font-size:9.5px">Each row stores its physical register number.</text>
+<text x="10" y="388" style="fill:var(--muted);font-size:9.5px">Shown: the low 4 of its 8 bits, bit 3 on the left.</text>
 <path d="M328,30 V440" style="stroke:var(--rule);stroke-width:1"/>
 <text x="340" y="36" style="fill:var(--ink);font-size:10px;font-weight:600">Inside one bit cell: write port W0 and read port R0</text>
 <path d="M340,72 H670" style="fill:none;stroke:var(--trace);stroke-width:2.5"/>
