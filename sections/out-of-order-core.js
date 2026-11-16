@@ -114,12 +114,13 @@ section({
     { id: "pieces", label: "Pieces" },
     { id: "lifecycle-mapping", label: "Lifecycle of a Mapping" },
     { id: "free-at-rename", label: "Why Not Free at Rename" },
-    { id: "rat-hardware", label: "The RAT in Hardware" },
+    { id: "rat-hardware", label: "Two Ways to Build the RAT" },
     { id: "rat-ports", label: "RAT Ports" },
     { id: "same-group", label: "Same-Group Dependences" },
     { id: "recovery", label: "Recovery" },
     { id: "rat-cost", label: "What Renaming Costs" },
-    { id: "limits", label: "What Limits It" }
+    { id: "limits", label: "What Limits It" },
+    { id: "rat-circuit", label: "Inside the RAT Circuit" }
   ],
   body: `
 <p>Programs reuse a small set of architectural registers, which creates false dependences: write-after-read (WAR) and write-after-write (WAW). Renaming gives every destination a fresh physical register, so only true read-after-write (RAW) dependences remain.</p>
@@ -263,7 +264,7 @@ I3: ld  r5, [r6]      # wrong path</code></pre>
 </g>
 </svg></div>
 <p>Commit is a safe point, not the earliest one. The earliest is when the last older reader has read p7 <em>and</em> I2 can no longer be squashed, whichever comes later. Early-release schemes aim for that point. They keep a per-register count of pending readers and check that the overwriting instruction is non-speculative (Moudgill, Pingali, and Vassiliadis, 1993, and Ergin et al., 2004). That lowers register pressure, but the counters and the extra recovery cases cost area and verification effort. Most cores free at commit and buy a larger PRF instead.</p>
-<h3 id="sec-rat-hardware">The RAT in Hardware</h3>
+<h3 id="sec-rat-hardware">Two Ways to Build the RAT</h3>
 <p>Rename handles a group of W instructions per cycle (W is the rename width). For each instruction it must do three things in the same cycle:</p>
 <ol><li>Look up the physical register for each source.</li><li>Look up the current mapping of the destination, so the ROB entry can save it as the "previous" register to free at commit.</li><li>Pop a physical register from the free list and write the new mapping for the destination.</li></ol>
 <p>There are two ways to build the table.</p>
@@ -271,7 +272,7 @@ I3: ld  r5, [r6]      # wrong path</code></pre>
 <li><strong>SRAM (indexed) RAT:</strong> one entry per architectural register, holding a physical register number of ⌈log₂(PRF size)⌉ bits. A source lookup is a plain read indexed by the architectural register number. The MIPS R10000 and most current cores work this way.</li>
 <li><strong>CAM RAT:</strong> one entry per <em>physical</em> register, holding the architectural register it currently names plus a valid bit. A lookup searches every entry for a valid match, and the matching row number is the physical register. Renaming a destination sets the new row's valid bit and clears the old row's. The Alpha 21264 used this form. A checkpoint (a saved copy of the map, used for <a href="#/renaming/recovery">recovery</a>) is only the vector of valid bits (one bit per physical register), which is cheap, but the search width grows with the physical register file, so it stopped scaling once PRFs reached hundreds of entries.</li>
 </ul>
-<div class="tbl"><svg viewBox="0 0 680 270" role="img" aria-label="SRAM RAT lookup. The table has one row per architectural register, r0 to r15, each holding a physical register number: r0 holds p3, r1 p7, r2 p8, r3 p9, r4 p10, r5 p11, and r15 p30. Slot source r3 goes into a decoder, which raises the word line for row r3. The row is read out and the source is renamed to p9. The table is 16 rows of 8 bits for a 192-entry PRF, and a checkpoint copies all of it.">
+<div class="tbl"><svg viewBox="0 0 680 270" role="img" aria-label="SRAM RAT lookup. The table has one row per architectural register, r0 to r15, each holding a physical register number: r0 holds p3, r1 p7, r2 p8, r3 p9, r4 p10, r5 p11, and r15 p30. Slot source r3 goes into a decoder, which selects row r3. The row is read out and the source is renamed to p9. The table is 16 rows of 8 bits for a 192-entry PRF, and a checkpoint copies all of it.">
 <defs><marker id="arrRS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
 <g style="stroke-width:1.5">
 <rect x="10" y="105" width="80" height="30" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
@@ -302,7 +303,7 @@ I3: ld  r5, [r6]      # wrong path</code></pre>
 <text x="365" y="112">read</text>
 </g>
 <g style="fill:var(--muted);font-size:11px">
-<text x="180" y="110" text-anchor="middle" style="font-size:9px">word line</text>
+<text x="180" y="110" text-anchor="middle" style="font-size:9px">select row</text>
 <text x="200" y="248">16 rows × 8 bits = 128 bits (192-entry PRF)</text>
 <text x="200" y="264">checkpoint: copy all 128 bits</text>
 <text x="490" y="102">lookup = one indexed read</text>
@@ -360,9 +361,103 @@ I3: ld  r5, [r6]      # wrong path</code></pre>
 </g>
 </svg></div>
 <h3 id="sec-rat-ports">RAT Ports</h3>
-<p>For an SRAM RAT with two sources per instruction and rename width W:</p>
+<p>A <strong>port</strong> is one independent access to the table per cycle: one read or one write, each with its own register number as the address. Two reads in the same cycle need two read ports, even when they name the same register. For an SRAM RAT with two sources per instruction and rename width W:</p>
 <ul><li>Read ports: 2W for sources plus W for the destinations' old mappings, 3W in all. A 4-wide renamer needs 4 instructions × 3 reads/instruction = 12 read ports.</li><li>Write ports: W, one per new destination mapping. A 4-wide renamer needs 4 instructions × 1 write/instruction = 4 write ports.</li></ul>
 <p>That's 16 ports on a tiny table: 16 rows × 8 bits/row = 128 bits, where 8 bits are enough to name any of 192 physical registers. The free list must also hand out W registers per cycle.</p>
+<p>The 16 x86-64 integer registers set the number of rows, not the number of ports. The port count is set by how many accesses happen in one cycle, which is 3 reads and 1 write per renamed instruction, no matter which registers they name. AArch64's 31 integer registers need 31 rows, but a 4-wide renamer still needs exactly 12 read ports + 4 write ports = 16 ports. The two 16s in the x86-64 case are a coincidence.</p>
+<p>The 3W read count assumes rename reads each destination's old mapping and stores it in the ROB. A design with a retirement RAT can skip that read. When an instruction commits, the retirement RAT's entry for its destination is exactly the register being replaced, so commit reads that entry, frees it, and writes the new mapping. The front-end RAT then needs only 2W read ports, and the W extra reads move to the retirement RAT at commit, off the rename critical path. The catch is recovery: without old mappings in the ROB, the core can't walk the ROB backward and must restore from checkpoints or the retirement RAT.</p>
+<p>Ports cost far more area than rows. <a href="#/renaming/rat-cost">What Renaming Costs</a> works out how much, and <a href="#/renaming/rat-circuit">Inside the RAT Circuit</a> shows the transistors and wires behind it.</p>
+<h3 id="sec-same-group">Same-Group Dependences</h3>
+<p>The RAT is read at the start of the cycle and written at the end. If slot 0 of a group writes r1 and slot 2 reads r1, the RAT read for slot 2 returns r1's mapping from <em>before</em> the group, which is stale. The renamer fixes this with comparisons on architectural register names, which are known right after decode, so they run in parallel with the RAT read.</p>
+<p>Take this group, with r1→p7, r2→p8, r3→p9, r4→p10, r5→p11, r6→p12 in the RAT and p40 to p43 at the head of the free list:</p>
+<pre><code>slot 0: r1 = r2 + r3     new dest p40
+slot 1: r4 = r1 + r5     new dest p41
+slot 2: r1 = r4 + r1     new dest p42
+slot 3: r6 = r1 + r2     new dest p43</code></pre>
+<p>Each slot's free-list register is known at the start of the cycle (the free list pops W at once), so the comparisons only have to pick which one to use.</p>
+<ol>
+<li><strong>Source check (RAW inside the group).</strong> Each source of slot i is compared with the destination of every older slot 0 to i − 1. A priority selector picks the <em>youngest</em> older match, and a mux chooses that slot's new physical register over the RAT read. With no match, the RAT read wins. Slot 3's source r1 matches slot 0 and slot 2. The youngest is slot 2, so slot 3 reads p42, not p7 (stale) and not p40 (overwritten).</li>
+<li><strong>Old-mapping check (for the ROB).</strong> The "previous" register saved in slot 2's ROB entry must be p40, the register slot 0 just gave r1, not p7 from the RAT. This uses the same destination-versus-older-destination compares. If slot 2 saved p7, p7 would be freed twice (once by slot 0's commit, once by slot 2's) and p40 would leak.</li>
+<li><strong>Write check (WAW inside the group).</strong> Slot 0 and slot 2 both write r1 in the same cycle. Only the youngest writer may update the RAT, so slot 0's write enable is suppressed. Any slot whose destination matches a <em>younger</em> slot's destination is suppressed. The same comparator outputs serve this check and the old-mapping check, read in the other direction.</li>
+</ol>
+<p>After the group: slot 1 reads p40 and p11, slot 2 reads p41 and p40, slot 3 reads p42 and p8. The RAT ends with r1→p42, r4→p41, r6→p43, and the ROB saves old mappings p7, p10, p40, p12.</p>
+<div class="tbl"><svg viewBox="0 0 680 330" role="img" aria-label="Same-group source check for slot 3. The rename group holds slot 0: r1 = r2 + r3 with new destination p40, slot 1: r4 = r1 + r5 with p41, slot 2: r1 = r4 + r1 with p42, and slot 3: r6 = r1 + r2 with p43. Slot 3's source r1 is compared with the destinations of slots 0, 1, and 2. Slots 0 and 2 match, slot 1 does not. A priority select picks slot 2, the youngest older match. A mux has four inputs: p40, p41, and p42 from the free list and p7 from the RAT read. The priority select drives the mux, which outputs p42 as slot 3's first source." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrRN" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<g style="stroke-width:1.5">
+<rect x="10" y="30" width="230" height="130" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="10" y="215" width="220" height="50" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="10" y="275" width="220" height="50" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="290" y="44" width="80" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="290" y="86" width="80" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="290" y="128" width="80" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="410" y="44" width="100" height="112" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<path d="M550,80 L600,105 L600,235 L550,260 Z" style="fill:var(--surface);stroke:var(--pad)"/>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M240,58 H288" marker-end="url(#arrRN)"/><path d="M240,100 H288" marker-end="url(#arrRN)"/><path d="M240,142 H288" marker-end="url(#arrRN)"/>
+<path d="M370,58 H408" marker-end="url(#arrRN)"/><path d="M370,100 H408" marker-end="url(#arrRN)"/><path d="M370,142 H408" marker-end="url(#arrRN)"/>
+<path d="M510,100 H575 V90" marker-end="url(#arrRN)"/>
+<path d="M230,240 H548" marker-end="url(#arrRN)"/>
+<path d="M230,300 H520 V120 H548" marker-end="url(#arrRN)"/><path d="M520,160 H548" marker-end="url(#arrRN)"/><path d="M520,200 H548" marker-end="url(#arrRN)"/>
+<path d="M600,170 H650" marker-end="url(#arrRN)"/>
+</g>
+<text x="18" y="22" style="fill:var(--pad);font-size:12px;font-weight:600">Rename group</text>
+<g style="fill:var(--ink);font-size:11px;font-family:var(--mono)">
+<text x="20" y="62">0: r1 = r2 + r3  p40</text>
+<text x="20" y="90">1: r4 = r1 + r5  p41</text>
+<text x="20" y="118">2: r1 = r4 + r1  p42</text>
+<text x="20" y="146">3: r6 = r1 + r2  p43</text>
+<text x="330" y="62" text-anchor="middle">r1 = r1?</text>
+<text x="330" y="104" text-anchor="middle">r1 = r4?</text>
+<text x="330" y="146" text-anchor="middle">r1 = r1?</text>
+<text x="20" y="254">read r1 → p7</text>
+<text x="20" y="314">pops p40 p41 p42 p43</text>
+<text x="526" y="156">p40</text><text x="526" y="196">p41</text><text x="526" y="236">p42</text><text x="470" y="236">p7</text>
+<text x="612" y="162">p42</text>
+</g>
+<g style="fill:var(--ink);font-size:12px">
+<text x="20" y="234" style="font-weight:600">RAT (SRAM)</text>
+<text x="20" y="294" style="font-weight:600">Free list</text>
+<text x="460" y="80" text-anchor="middle" style="font-weight:600">Priority</text>
+<text x="460" y="96" text-anchor="middle">youngest</text>
+<text x="460" y="112" text-anchor="middle">older match</text>
+<text x="460" y="136" text-anchor="middle">→ slot 2</text>
+<text x="575" y="175" text-anchor="middle" style="font-weight:600">mux</text>
+</g>
+<g style="fill:var(--muted);font-size:11px">
+<text x="290" y="36">slot 3 src r1 vs</text>
+<text x="376" y="54">1</text><text x="376" y="96">0</text><text x="376" y="138">1</text>
+<text x="250" y="54">s0</text><text x="250" y="96">s1</text><text x="250" y="138">s2</text>
+<text x="604" y="186">slot 3 src</text>
+</g>
+</svg></div>
+<h3 id="sec-recovery">Recovery</h3>
+<p>On a misprediction or fault, the RAT must return to its state just before the oldest squashed instruction. There are three ways to get there:</p>
+<ul>
+<li><strong>Checkpoint:</strong> save a copy of the RAT (or the CAM valid vector) at each branch and restore it in one cycle. The number of checkpoints bounds how many unresolved branches can be in flight.</li>
+<li><strong>ROB walk:</strong> walk from the youngest ROB entry back to the squash point. Each entry writes its saved old mapping back into the RAT and returns its new register to the free list. This is the same old-mapping field that <a href="#/renaming/free-at-rename">Why Not Free at Rename</a> keeps alive, and the walk takes time in proportion to the number of squashed instructions.</li>
+<li><strong>Retirement RAT copy:</strong> wait until the faulting instruction reaches the ROB head, then copy the retirement RAT into the RAT. It's simple, but it waits for every older instruction to commit, so cores use it for exceptions rather than branches.</li>
+</ul>
+<p>How every other structure recovers too is in <a href="#/flush-recovery">Pipeline Flush and Recovery</a>.</p>
+<h3 id="sec-rat-cost">What Renaming Costs</h3>
+<p>Let W be the rename width, A the number of architectural registers, and P the PRF size.</p>
+<ul>
+<li><strong>RAT storage:</strong> A × ⌈log₂ P⌉ bits for an SRAM RAT, about P × (⌈log₂ A⌉ + 1) bits for a CAM RAT. Both are small. Storage is never the problem.</li>
+<li><strong>RAT ports:</strong> 3W read plus W write. Cell area grows roughly with the square of the port count (each port adds wires in both directions through every cell, as <a href="#/renaming/rat-circuit">Inside the RAT Circuit</a> shows), so the RAT cell grows about as W². Going from 4-wide (16 ports) to 6-wide (24 ports) makes each cell about (24 ports / 16 ports)² ≈ 2.25× larger. Rows add area only linearly, so the ports, not the A × ⌈log₂ P⌉ bits, set the RAT's area.</li>
+<li><strong>Same-group comparators:</strong> each comparator is ⌈log₂ A⌉ bits wide.
+<ul><li>Source checks: slot i compares each of its 2 sources with i older destinations, so 2 × (0 + 1 + … + (W − 1)) = W(W − 1) comparators.</li><li>Destination checks: one per pair of slots, W(W − 1)/2 comparators, shared by the old-mapping and WAW checks.</li><li>Total: 1.5 × W(W − 1). For a 4-wide group with 16 architectural registers, that is 1.5 × 4 × 3 = 18 comparators of 4 bits each.</li></ul></li>
+<li><strong>Delay:</strong> the comparisons overlap the RAT read, but the priority mux after them has W inputs for the youngest slot and sits on the critical path. Its depth grows with log₂ W, and its wiring grows with W².</li>
+<li><strong>Checkpoints:</strong> each one is a full copy of the SRAM RAT (A × ⌈log₂ P⌉ bits) or of the CAM valid vector (P bits). A branch in the middle of a group needs a checkpoint of the state <em>after that branch</em>, which is the RAT plus only the older slots' writes, so checkpoint logic must also see the per-slot write enables.</li>
+</ul>
+<p>Since the comparator count grows as W² and the port count's area cost also grows as W², wide cores split rename across two pipeline stages, or rename a wide group as two half-groups with a bypass between them.</p>
+<h3 id="sec-limits">What Limits It</h3>
+<ul><li>Free-list size bounds instructions in flight</li><li>Rename width bounds throughput, and the RAT ports and same-group comparators grow as its square</li><li>Checkpoints bound branch depth</li></ul>
+<h3 id="sec-rat-circuit">Inside the RAT Circuit</h3>
+<p>Everything above treats the RAT as a table with read and write ports. This part opens up the 4-wide SRAM RAT (16 rows × 8 bits, 12 read ports and 4 write ports) and shows what a port is built from and why each one costs so much area.</p>
+<h4>Circuit Terms</h4>
+<p>Each term builds on the ones before it.</p>
+<ul><li><strong>Cell:</strong> the circuit that stores one bit. The RAT has 16 rows × 8 bits/row = 128 cells, and a row is the 8 cells holding one entry (row r3 holds p9 as 8 bits). At its core are two cross-coupled inverters, called the <strong>latch</strong>, holding the bit on node Q and its complement on node QB. Each inverter holds the other's input steady, so the bit stays put as long as the cell has power and nothing overpowers it.</li><li><strong>Raising and lowering a wire:</strong> driving it from 0 V (logic 0) up to the supply voltage VDD (logic 1), or back down. An NMOS transistor conducts when its gate is high and is off when its gate is low, so raising the wire on its gate turns it on.</li><li><strong>Access transistor:</strong> an NMOS transistor used as a switch between a cell and one port's wires. Off, the cell is isolated from that port. On, they are connected. A write port has two per cell, one for Q and one for QB. A read port usually uses a two-transistor <strong>read stack</strong> instead (described under Word Lines and Bit Lines below), so the stored bit never connects directly to the read wire.</li><li><strong>Word line:</strong> a wire running across one row, one per port in every row. It connects to the gate of that port's access transistor (or transistors) in every cell of the row, so raising it connects all 8 cells of that row to that port at once.</li><li><strong>Bit line:</strong> a wire running down one column, passing the same bit position in every row. A read port has one bit line per column, and a write port has a pair (the bit and its inverse).</li><li><strong>Precharge:</strong> pulling a read bit line up to VDD before the access, so the selected cell only has to pull it down or leave it high to signal its bit.</li><li><strong>Sense amplifier:</strong> the circuit at the bottom of a read port's bit line that turns its voltage into a clean 0 or 1. In a table this small it can be a plain inverter.</li><li><strong>Write driver:</strong> the circuit at the bottom of a write port's bit line pair that forces the pair to the new bit and its inverse, strongly enough to flip the latch.</li><li><strong>Port, in circuit terms:</strong> everything one access needs: an address input and decoder, a word line in every row, a bit line (or pair) in every column, and a sense amplifier or write driver at the bottom of each column. Every cell carries a piece of every port.</li></ul>
+<h4>One Instruction's Four Ports</h4>
 <div class="tbl"><svg viewBox="0 0 680 400" role="img" aria-label="The four RAT ports used by one renamed instruction, r3 ← r1 + r12, in a 16-row by 8-bit SRAM RAT. Each port has its own 4-bit address input and its own 4-to-16 decoder. Every row carries four word lines, one per port, and every column carries four bit lines, one per port. Read port R0 decodes address 1 and raises its word line in row r1, R1 decodes 12 and raises its word line in row r12, and R2 decodes 3 and raises its word line in row r3. Each reads the 8 bits of its row onto its own 8 bit lines, which end at its own sense amplifiers and give psrc1, psrc2, and the old mapping that goes to the ROB. Write port W0 decodes 3 and raises its own word line in row r3 while its own write drivers put pnew on its own 8 bit lines. Because each port's decoder and lines reach all 16 rows, any port can access any row, and more architectural registers only add rows, a wider decoder, and longer lines, never more ports.">
 <defs><marker id="arrP0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--accent-green)"/></marker><marker id="arrP1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--pad)"/></marker><marker id="arrP2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--redirect)"/></marker><marker id="arrP3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker></defs>
 <text x="10" y="18" style="fill:var(--pad);font-size:12px;font-weight:600">One instruction's four ports: rename r3 ← r1 + r12</text>
@@ -421,7 +516,7 @@ I3: ld  r5, [r6]      # wrong path</code></pre>
 <text x="544" y="207" style="fill:var(--muted);font-size:9px">Faint lines: the same</text><text x="544" y="219" style="fill:var(--muted);font-size:9px">ports' word lines in</text><text x="544" y="231" style="fill:var(--muted);font-size:9px">rows they didn't pick</text>
 <text x="10" y="390" style="fill:var(--muted);font-size:10px">More architectural registers add rows: a wider decoder per port and longer bit lines. Ports come only from accesses per cycle.</text>
 </svg></div>
-<p>The 16 x86-64 integer registers set the number of rows, not the number of ports. A port is one independent access per cycle. It has its own address input and decoder, its own word line along every row, and its own bit line down every column, so any port can reach any row. The port count is set by how many accesses happen in one cycle, which is 3 reads and 1 write per renamed instruction, no matter which registers they name. AArch64's 31 integer registers need 31 rows (5-bit addresses, 5-to-32 decoders, bit lines about twice as long), but a 4-wide renamer still needs exactly 12 + 4 = 16 ports. The two 16s in the x86-64 case are a coincidence.</p>
+<p>Each port has its own address input and decoder, its own word line along every row, and its own bit line down every column, so any port can reach any row. More rows don't add ports. AArch64's 31 rows need 5-bit addresses, 5-to-32 decoders, and bit lines about twice as long, but the same 16 ports.</p>
 <h4>Address Input and Decoder</h4>
 <p>The renamer never searches the RAT. The architectural register number in an instruction field is already the row address. In x86-64 it is a 3-bit ModRM or opcode field plus one REX bit, 4 bits in all for 16 registers. Each port's address input is a 4-bit latch in the pipeline register between decode and rename, loaded at the start of the rename cycle. Slot 0's rs1 field goes to R0, rs2 to R1, and rd to both R2 and W0.</p>
 <p>The decoder turns the 4 bits into 16 outputs, exactly one of them high (one-hot). Each output is a 4-input AND with one input per address bit: the bit itself where the row number has a 1 and its complement where it has a 0. Row r1 (0001) is ā3 · ā2 · ā1 · a0, so it is the only gate whose four inputs are all 1 when the address is 0001. Its output is R0's word line for row r1.</p>
@@ -625,7 +720,7 @@ I3: ld  r5, [r6]      # wrong path</code></pre>
 </svg></div>
 <ul><li><strong>Size grows with rows:</strong> k address bits need 2k rails and 2<sup>k</sup> gates of k inputs. 16 registers need 4 bits and 16 gates of 4 inputs. AArch64's 31 registers need 5 bits and 32 gates of 5 inputs (encoding 31 names SP or XZR, which isn't a renamed row).</li><li><strong>Delay grows slowly:</strong> real decoders predecode. Two 2-to-4 predecoders turn the 4 bits into two one-hot groups of 4 lines, and each row ANDs one line from each group with a 2-input gate. A buffer chain then drives the word line, sized for its load of one access transistor per column. Doubling the rows adds one address bit, which adds at most about one gate level.</li><li><strong>One decoder per port:</strong> a 4-wide renamer has 16 decoders, each a full 4-to-16 copy. R2 and W0 both decode 0011, and each raises its own word line in row r3, so they don't conflict. R2 reads the old mapping early in the cycle and W0 writes the new one at the end (see <a href="#/renaming/same-group">Same-Group Dependences</a>).</li></ul>
 <h4>Word Lines and Bit Lines</h4>
-<p>A <strong>word line</strong> is a wire running across one row. It connects to the gate of one port's access transistor in every cell of that row, so raising it connects the whole row to that port. A <strong>bit line</strong> is a wire running down one column. It connects to the same bit position in every row and ends at the port's sense amplifier (a read port) or write driver (a write port). A port's decoder raises exactly one of its word lines, so each of its bit lines sees exactly one cell. That is why a port does one access per cycle, and why a second access in the same cycle needs a second word line in every row and a second bit line in every column. <a href="#/cache-banking/why">Why Caches Are Banked</a> covers how wire length sets the delay of both.</p>
+<p>A port's decoder raises exactly one of its word lines, so each of its bit lines sees exactly one cell, the one in the selected row. That is why a port does one access per cycle, and why a second access in the same cycle needs a second word line in every row and a second bit line in every column. <a href="#/cache-banking/why">Why Caches Are Banked</a> covers how wire length sets the delay of both.</p>
 <div class="tbl"><svg viewBox="0 0 680 450" role="img" aria-label="Word lines and bit lines. Left: one port's wires in a 4-row by 4-column corner of the RAT. Each row has a word line running across every column, driven by the port's decoder, and each column has a bit line running down every row to the port's sense amplifier. R0's decoder raises the word line of row r1, so every cell in row r1 connects to its column's bit line, and the sense amplifiers read r1's bits, 1 0 1 1, while rows r0, r2, and r3 stay disconnected. Right: one RAT bit cell with one write port and one read port. Four transistors in two cross-coupled inverters hold the bit Q and its complement QB. The W0 word line gates two access transistors that connect Q and QB to the W0 bit line pair, WBL and WBLB, which the write drivers force to the new value. The R0 word line gates one transistor in a two-transistor stack from the R0 bit line, RBL, to ground. The other transistor in the stack is gated by QB. RBL starts high, and when R0's word line rises it is pulled low if the cell holds 0 and stays high if it holds 1.">
 <text x="10" y="18" style="fill:var(--pad);font-size:12px;font-weight:600">Word lines select a row, bit lines carry a column's bit</text>
 <text x="10" y="36" style="fill:var(--ink);font-size:10px;font-weight:600">One port (R0) in a 4 × 4 corner of the RAT</text>
@@ -773,93 +868,7 @@ I3: ld  r5, [r6]      # wrong path</code></pre>
 <p>Per cell, the 4-wide RAT's 16 ports add up to:</p>
 <ul><li>Word lines: 12 read ports × 1 word line/port + 4 write ports × 1 word line/port = 16 word lines.</li><li>Bit lines: 12 read ports × 1 bit line/port + 4 write ports × 2 bit lines/port = 20 bit lines.</li><li>Transistors: 4 latch transistors + 12 read ports × 2 transistors/port + 4 write ports × 2 transistors/port = 36 transistors, against 6 for a single-ported SRAM cell.</li></ul>
 <p>The cell is 16 wire tracks tall and 20 wide, which is why its area grows about as the square of the port count. Nothing in it depends on the number of rows. AArch64's 31 rows use the same cell, just more of them, with each bit line passing 31 cells instead of 16 and so carrying about twice the capacitance.</p>
-<p>The 3W read count assumes rename reads each destination's old mapping and stores it in the ROB. A design with a retirement RAT can skip that read. When an instruction commits, the retirement RAT's entry for its destination is exactly the register being replaced, so commit reads that entry, frees it, and writes the new mapping. The front-end RAT then needs only 2W read ports, and the W extra reads move to the retirement RAT at commit, off the rename critical path. The catch is recovery: without old mappings in the ROB, the core can't walk the ROB backward and must restore from checkpoints or the retirement RAT.</p>
-<p>Ports also cost far more area than rows, which <a href="#/renaming/rat-cost">What Renaming Costs</a> works out.</p>
-<h3 id="sec-same-group">Same-Group Dependences</h3>
-<p>The RAT is read at the start of the cycle and written at the end. If slot 0 of a group writes r1 and slot 2 reads r1, the RAT read for slot 2 returns r1's mapping from <em>before</em> the group, which is stale. The renamer fixes this with comparisons on architectural register names, which are known right after decode, so they run in parallel with the RAT read.</p>
-<p>Take this group, with r1→p7, r2→p8, r3→p9, r4→p10, r5→p11, r6→p12 in the RAT and p40 to p43 at the head of the free list:</p>
-<pre><code>slot 0: r1 = r2 + r3     new dest p40
-slot 1: r4 = r1 + r5     new dest p41
-slot 2: r1 = r4 + r1     new dest p42
-slot 3: r6 = r1 + r2     new dest p43</code></pre>
-<p>Each slot's free-list register is known at the start of the cycle (the free list pops W at once), so the comparisons only have to pick which one to use.</p>
-<ol>
-<li><strong>Source check (RAW inside the group).</strong> Each source of slot i is compared with the destination of every older slot 0 to i − 1. A priority selector picks the <em>youngest</em> older match, and a mux chooses that slot's new physical register over the RAT read. With no match, the RAT read wins. Slot 3's source r1 matches slot 0 and slot 2. The youngest is slot 2, so slot 3 reads p42, not p7 (stale) and not p40 (overwritten).</li>
-<li><strong>Old-mapping check (for the ROB).</strong> The "previous" register saved in slot 2's ROB entry must be p40, the register slot 0 just gave r1, not p7 from the RAT. This uses the same destination-versus-older-destination compares. If slot 2 saved p7, p7 would be freed twice (once by slot 0's commit, once by slot 2's) and p40 would leak.</li>
-<li><strong>Write check (WAW inside the group).</strong> Slot 0 and slot 2 both write r1 in the same cycle. Only the youngest writer may update the RAT, so slot 0's write enable is suppressed. Any slot whose destination matches a <em>younger</em> slot's destination is suppressed. The same comparator outputs serve this check and the old-mapping check, read in the other direction.</li>
-</ol>
-<p>After the group: slot 1 reads p40 and p11, slot 2 reads p41 and p40, slot 3 reads p42 and p8. The RAT ends with r1→p42, r4→p41, r6→p43, and the ROB saves old mappings p7, p10, p40, p12.</p>
-<div class="tbl"><svg viewBox="0 0 680 330" role="img" aria-label="Same-group source check for slot 3. The rename group holds slot 0: r1 = r2 + r3 with new destination p40, slot 1: r4 = r1 + r5 with p41, slot 2: r1 = r4 + r1 with p42, and slot 3: r6 = r1 + r2 with p43. Slot 3's source r1 is compared with the destinations of slots 0, 1, and 2. Slots 0 and 2 match, slot 1 does not. A priority select picks slot 2, the youngest older match. A mux has four inputs: p40, p41, and p42 from the free list and p7 from the RAT read. The priority select drives the mux, which outputs p42 as slot 3's first source." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
-<defs><marker id="arrRN" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
-<g style="stroke-width:1.5">
-<rect x="10" y="30" width="230" height="130" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
-<rect x="10" y="215" width="220" height="50" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
-<rect x="10" y="275" width="220" height="50" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
-<rect x="290" y="44" width="80" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
-<rect x="290" y="86" width="80" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
-<rect x="290" y="128" width="80" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
-<rect x="410" y="44" width="100" height="112" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
-<path d="M550,80 L600,105 L600,235 L550,260 Z" style="fill:var(--surface);stroke:var(--pad)"/>
-</g>
-<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
-<path d="M240,58 H288" marker-end="url(#arrRN)"/><path d="M240,100 H288" marker-end="url(#arrRN)"/><path d="M240,142 H288" marker-end="url(#arrRN)"/>
-<path d="M370,58 H408" marker-end="url(#arrRN)"/><path d="M370,100 H408" marker-end="url(#arrRN)"/><path d="M370,142 H408" marker-end="url(#arrRN)"/>
-<path d="M510,100 H575 V90" marker-end="url(#arrRN)"/>
-<path d="M230,240 H548" marker-end="url(#arrRN)"/>
-<path d="M230,300 H520 V120 H548" marker-end="url(#arrRN)"/><path d="M520,160 H548" marker-end="url(#arrRN)"/><path d="M520,200 H548" marker-end="url(#arrRN)"/>
-<path d="M600,170 H650" marker-end="url(#arrRN)"/>
-</g>
-<text x="18" y="22" style="fill:var(--pad);font-size:12px;font-weight:600">Rename group</text>
-<g style="fill:var(--ink);font-size:11px;font-family:var(--mono)">
-<text x="20" y="62">0: r1 = r2 + r3  p40</text>
-<text x="20" y="90">1: r4 = r1 + r5  p41</text>
-<text x="20" y="118">2: r1 = r4 + r1  p42</text>
-<text x="20" y="146">3: r6 = r1 + r2  p43</text>
-<text x="330" y="62" text-anchor="middle">r1 = r1?</text>
-<text x="330" y="104" text-anchor="middle">r1 = r4?</text>
-<text x="330" y="146" text-anchor="middle">r1 = r1?</text>
-<text x="20" y="254">read r1 → p7</text>
-<text x="20" y="314">pops p40 p41 p42 p43</text>
-<text x="526" y="156">p40</text><text x="526" y="196">p41</text><text x="526" y="236">p42</text><text x="470" y="236">p7</text>
-<text x="612" y="162">p42</text>
-</g>
-<g style="fill:var(--ink);font-size:12px">
-<text x="20" y="234" style="font-weight:600">RAT (SRAM)</text>
-<text x="20" y="294" style="font-weight:600">Free list</text>
-<text x="460" y="80" text-anchor="middle" style="font-weight:600">Priority</text>
-<text x="460" y="96" text-anchor="middle">youngest</text>
-<text x="460" y="112" text-anchor="middle">older match</text>
-<text x="460" y="136" text-anchor="middle">→ slot 2</text>
-<text x="575" y="175" text-anchor="middle" style="font-weight:600">mux</text>
-</g>
-<g style="fill:var(--muted);font-size:11px">
-<text x="290" y="36">slot 3 src r1 vs</text>
-<text x="376" y="54">1</text><text x="376" y="96">0</text><text x="376" y="138">1</text>
-<text x="250" y="54">s0</text><text x="250" y="96">s1</text><text x="250" y="138">s2</text>
-<text x="604" y="186">slot 3 src</text>
-</g>
-</svg></div>
-<h3 id="sec-recovery">Recovery</h3>
-<p>On a misprediction or fault, the RAT must return to its state just before the oldest squashed instruction. There are three ways to get there:</p>
-<ul>
-<li><strong>Checkpoint:</strong> save a copy of the RAT (or the CAM valid vector) at each branch and restore it in one cycle. The number of checkpoints bounds how many unresolved branches can be in flight.</li>
-<li><strong>ROB walk:</strong> walk from the youngest ROB entry back to the squash point. Each entry writes its saved old mapping back into the RAT and returns its new register to the free list. This is the same old-mapping field that <a href="#/renaming/free-at-rename">Why Not Free at Rename</a> keeps alive, and the walk takes time in proportion to the number of squashed instructions.</li>
-<li><strong>Retirement RAT copy:</strong> wait until the faulting instruction reaches the ROB head, then copy the retirement RAT into the RAT. It's simple, but it waits for every older instruction to commit, so cores use it for exceptions rather than branches.</li>
-</ul>
-<p>How every other structure recovers too is in <a href="#/flush-recovery">Pipeline Flush and Recovery</a>.</p>
-<h3 id="sec-rat-cost">What Renaming Costs</h3>
-<p>Let W be the rename width, A the number of architectural registers, and P the PRF size.</p>
-<ul>
-<li><strong>RAT storage:</strong> A × ⌈log₂ P⌉ bits for an SRAM RAT, about P × (⌈log₂ A⌉ + 1) bits for a CAM RAT. Both are small. Storage is never the problem.</li>
-<li><strong>RAT ports:</strong> 3W read plus W write. Cell area grows roughly with the square of the port count (each port adds a wordline and a bitline), so the RAT cell grows about as W². Going from 4-wide (16 ports) to 6-wide (24 ports) makes each cell about (24 ports / 16 ports)² ≈ 2.25× larger. Rows add area only linearly, so the ports, not the A × ⌈log₂ P⌉ bits, set the RAT's area.</li>
-<li><strong>Same-group comparators:</strong> each comparator is ⌈log₂ A⌉ bits wide.
-<ul><li>Source checks: slot i compares each of its 2 sources with i older destinations, so 2 × (0 + 1 + … + (W − 1)) = W(W − 1) comparators.</li><li>Destination checks: one per pair of slots, W(W − 1)/2 comparators, shared by the old-mapping and WAW checks.</li><li>Total: 1.5 × W(W − 1). For a 4-wide group with 16 architectural registers, that is 1.5 × 4 × 3 = 18 comparators of 4 bits each.</li></ul></li>
-<li><strong>Delay:</strong> the comparisons overlap the RAT read, but the priority mux after them has W inputs for the youngest slot and sits on the critical path. Its depth grows with log₂ W, and its wiring grows with W².</li>
-<li><strong>Checkpoints:</strong> each one is a full copy of the SRAM RAT (A × ⌈log₂ P⌉ bits) or of the CAM valid vector (P bits). A branch in the middle of a group needs a checkpoint of the state <em>after that branch</em>, which is the RAT plus only the older slots' writes, so checkpoint logic must also see the per-slot write enables.</li>
-</ul>
-<p>Since the comparator count grows as W² and the port count's area cost also grows as W², wide cores split rename across two pipeline stages, or rename a wide group as two half-groups with a bypass between them.</p>
-<h3 id="sec-limits">What Limits It</h3>
-<ul><li>Free-list size bounds instructions in flight</li><li>Rename width bounds throughput, and the RAT ports and same-group comparators grow as its square</li><li>Checkpoints bound branch depth</li></ul>
+<p><a href="#/renaming/rat-cost">What Renaming Costs</a> scales this per-cell growth up to wider renamers.</p>
 <p>After rename, each instruction waits in an issue queue until its sources are ready. The hardware that tracks readiness is on <a href="#/wakeup">Wakeup and Bypass Timing</a>.</p>`,
   practice: {
     guided: [
