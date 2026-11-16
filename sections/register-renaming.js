@@ -437,6 +437,196 @@ s5: r2 = r3 + r1</code></pre><p class="given">Assume the RAT holds r1→p3, r2�
 <h3 id="sec-circuit-terms">Circuit Terms</h3>
 <p>Each term builds on the ones before it.</p>
 <ul><li><strong>Cell:</strong> the circuit that stores one bit. The RAT has 16 rows × 8 bits/row = 128 cells, and a row is the 8 cells holding one entry (row r3 holds p9 as 8 bits). At its core are two cross-coupled inverters, called the <strong>latch</strong>, holding the bit on node Q and its complement on node QB. Each inverter holds the other's input steady, so the bit stays put as long as the cell has power and nothing overpowers it.</li><li><strong>Raising and lowering a wire:</strong> driving it from 0 V (logic 0) up to the supply voltage VDD (logic 1), or back down. An NMOS transistor conducts when its gate is high and is off when its gate is low, so raising the wire on its gate turns it on.</li><li><strong>Access transistor:</strong> an NMOS transistor used as a switch between a cell and one port's wires. Off, the cell is isolated from that port. On, they are connected. A write port has two per cell, one for Q and one for QB. A read port usually uses a two-transistor <strong>read stack</strong> instead (described under Word Lines and Bit Lines below), so the stored bit never connects directly to the read wire.</li><li><strong>Word line:</strong> a wire running across one row, one per port in every row. It connects to the gate of that port's access transistor (or transistors) in every cell of the row, so raising it connects all 8 cells of that row to that port at once.</li><li><strong>Bit line:</strong> a wire running down one column, passing the same bit position in every row. A read port has one bit line per column, and a write port has a pair (the bit and its inverse).</li><li><strong>Precharge:</strong> pulling a read bit line up to VDD before the access, so the selected cell only has to pull it down or leave it high to signal its bit.</li><li><strong>Sense amplifier:</strong> the circuit at the bottom of a read port's bit line that turns its voltage into a clean 0 or 1. In a table this small it can be a plain inverter.</li><li><strong>Write driver:</strong> the circuit at the bottom of a write port's bit line pair that forces the pair to the new bit and its inverse, strongly enough to flip the latch.</li><li><strong>Port, in circuit terms:</strong> everything one access needs: an address input and decoder, a word line in every row, a bit line (or pair) in every column, and a sense amplifier or write driver at the bottom of each column. Every cell carries a piece of every port.</li></ul>
+<div class="tbl"><svg viewBox="0 0 680 345" role="img" aria-label="What a cell is. Left: the RAT as a grid of 16 rows by 8 columns, 128 cells in all, one bit per cell. Row r3 holds p9 as the 8 bits 0000 1001, bit 7 on the left, one bit in each of its 8 cells. Its bit 0 cell, which holds 1, is highlighted and enlarged on the right. Right: inside that cell, a latch of two cross-coupled inverters. Inverter A takes Q = 1 and drives QB = 0. Inverter B takes QB = 0 and drives Q back to 1. Each inverter holds the other's input steady, so the bit stays put while the cell has power. Each inverter is 2 transistors, so the latch is 4. Ports later add transistors that connect Q and QB to word lines and bit lines.">
+<text x="10" y="18" style="fill:var(--pad);font-size:12px;font-weight:600">A cell stores one bit: the RAT is 128 of them</text>
+<text x="10" y="40" style="fill:var(--ink);font-size:10px;font-weight:600">The RAT: 16 rows × 8 cells</text>
+<text x="73" y="67" text-anchor="middle" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">7</text>
+<text x="99" y="67" text-anchor="middle" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">6</text>
+<text x="125" y="67" text-anchor="middle" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">5</text>
+<text x="151" y="67" text-anchor="middle" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">4</text>
+<text x="177" y="67" text-anchor="middle" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">3</text>
+<text x="203" y="67" text-anchor="middle" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">2</text>
+<text x="229" y="67" text-anchor="middle" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">1</text>
+<text x="255" y="67" text-anchor="middle" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">0</text>
+<text x="164" y="55" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit</text>
+<text x="55" y="81" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r0</text>
+<rect x="60" y="72" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="72" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="72" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="72" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="72" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="72" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="72" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="72" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="93" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r1</text>
+<rect x="60" y="84" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="84" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="84" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="84" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="84" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="84" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="84" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="84" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="105" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r2</text>
+<rect x="60" y="96" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="96" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="96" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="96" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="96" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="96" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="96" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="96" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="117" text-anchor="end" style="fill:var(--pad);font-size:8px;font-family:var(--mono);font-weight:600">r3</text>
+<rect x="60" y="108" width="26" height="12" style="fill:var(--surface);stroke:var(--pad);stroke-width:1.2"/>
+<text x="73" y="117.5" text-anchor="middle" style="fill:var(--ink);font-size:9px;font-family:var(--mono)">0</text>
+<rect x="86" y="108" width="26" height="12" style="fill:var(--surface);stroke:var(--pad);stroke-width:1.2"/>
+<text x="99" y="117.5" text-anchor="middle" style="fill:var(--ink);font-size:9px;font-family:var(--mono)">0</text>
+<rect x="112" y="108" width="26" height="12" style="fill:var(--surface);stroke:var(--pad);stroke-width:1.2"/>
+<text x="125" y="117.5" text-anchor="middle" style="fill:var(--ink);font-size:9px;font-family:var(--mono)">0</text>
+<rect x="138" y="108" width="26" height="12" style="fill:var(--surface);stroke:var(--pad);stroke-width:1.2"/>
+<text x="151" y="117.5" text-anchor="middle" style="fill:var(--ink);font-size:9px;font-family:var(--mono)">0</text>
+<rect x="164" y="108" width="26" height="12" style="fill:var(--surface);stroke:var(--pad);stroke-width:1.2"/>
+<text x="177" y="117.5" text-anchor="middle" style="fill:var(--ink);font-size:9px;font-family:var(--mono)">1</text>
+<rect x="190" y="108" width="26" height="12" style="fill:var(--surface);stroke:var(--pad);stroke-width:1.2"/>
+<text x="203" y="117.5" text-anchor="middle" style="fill:var(--ink);font-size:9px;font-family:var(--mono)">0</text>
+<rect x="216" y="108" width="26" height="12" style="fill:var(--surface);stroke:var(--pad);stroke-width:1.2"/>
+<text x="229" y="117.5" text-anchor="middle" style="fill:var(--ink);font-size:9px;font-family:var(--mono)">0</text>
+<text x="55" y="129" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r4</text>
+<rect x="60" y="120" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="120" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="120" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="120" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="120" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="120" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="120" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="120" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="141" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r5</text>
+<rect x="60" y="132" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="132" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="132" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="132" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="132" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="132" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="132" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="132" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="153" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r6</text>
+<rect x="60" y="144" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="144" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="144" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="144" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="144" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="144" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="144" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="144" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="165" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r7</text>
+<rect x="60" y="156" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="156" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="156" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="156" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="156" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="156" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="156" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="156" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="177" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r8</text>
+<rect x="60" y="168" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="168" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="168" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="168" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="168" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="168" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="168" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="168" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="189" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r9</text>
+<rect x="60" y="180" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="180" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="180" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="180" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="180" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="180" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="180" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="180" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="201" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r10</text>
+<rect x="60" y="192" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="192" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="192" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="192" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="192" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="192" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="192" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="192" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="213" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r11</text>
+<rect x="60" y="204" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="204" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="204" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="204" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="204" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="204" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="204" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="204" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="225" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r12</text>
+<rect x="60" y="216" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="216" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="216" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="216" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="216" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="216" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="216" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="216" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="237" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r13</text>
+<rect x="60" y="228" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="228" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="228" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="228" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="228" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="228" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="228" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="228" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="249" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r14</text>
+<rect x="60" y="240" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="240" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="240" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="240" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="240" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="240" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="240" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="240" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<text x="55" y="261" text-anchor="end" style="fill:var(--muted);font-size:8px;font-family:var(--mono)">r15</text>
+<rect x="60" y="252" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="86" y="252" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="112" y="252" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="138" y="252" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="164" y="252" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="190" y="252" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="216" y="252" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="252" width="26" height="12" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.8"/>
+<rect x="242" y="108" width="26" height="12" style="fill:var(--surface);stroke:var(--accent-green);stroke-width:2.2"/>
+<text x="255" y="117.5" text-anchor="middle" style="fill:var(--accent-green);font-size:9px;font-weight:600;font-family:var(--mono)">1</text>
+<text x="10" y="284" style="fill:var(--muted);font-size:9.5px">Row r3 holds p9 = 0000 1001, one bit per cell.</text>
+<text x="10" y="298" style="fill:var(--muted);font-size:9.5px">16 rows × 8 cells/row = 128 cells.</text>
+<text x="10" y="312" style="fill:var(--accent-green);font-size:9.5px">Enlarged at right: r3, bit 0.</text>
+<path d="M268,108 L400,62 M268,120 L400,212" style="fill:none;stroke:var(--accent-green);stroke-width:1;stroke-dasharray:3 3"/>
+<rect x="400" y="62" width="220" height="150" rx="4" style="fill:none;stroke:var(--accent-green);stroke-width:1.2;stroke-dasharray:3 3"/>
+<text x="400" y="40" style="fill:var(--ink);font-size:10px;font-weight:600">Inside one cell: the latch</text>
+<path d="M440,105 V175 M580,105 V175" style="fill:none;stroke:var(--ink);stroke-width:1.5"/>
+<path d="M440,105 H488 M546,105 H580" style="fill:none;stroke:var(--ink);stroke-width:1.5"/>
+<path d="M488,87 L488,123 L536,105 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.5"/><circle cx="541" cy="105" r="4.5" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.5"/>
+<text x="510" y="80" text-anchor="middle" style="fill:var(--muted);font-size:9px">inverter A</text>
+<path d="M580,175 H532 M474,175 H440" style="fill:none;stroke:var(--ink);stroke-width:1.5"/>
+<path d="M532,157 L532,193 L484,175 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.5"/><circle cx="479" cy="175" r="4.5" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.5"/>
+<text x="510" y="206" text-anchor="middle" style="fill:var(--muted);font-size:9px">inverter B</text>
+<circle cx="440" cy="140" r="3" style="fill:var(--ink)"/><circle cx="580" cy="140" r="3" style="fill:var(--ink)"/>
+<text x="434" y="137" text-anchor="end" style="fill:var(--ink);font-size:10px;font-weight:600">Q</text>
+<text x="434" y="151" text-anchor="end" style="fill:var(--accent-green);font-size:10px;font-weight:600;font-family:var(--mono)">1</text>
+<text x="586" y="137" style="fill:var(--ink);font-size:10px;font-weight:600">QB</text>
+<text x="586" y="151" style="fill:var(--accent-green);font-size:10px;font-weight:600;font-family:var(--mono)">0</text>
+<text x="400" y="236" style="fill:var(--ink);font-size:9.5px">Inverter A turns Q = 1 into QB = 0.</text>
+<text x="400" y="249" style="fill:var(--ink);font-size:9.5px">Inverter B turns QB = 0 back into Q = 1.</text>
+<text x="400" y="267" style="fill:var(--muted);font-size:9.5px">Each holds the other&#39;s input steady, so the bit</text>
+<text x="400" y="280" style="fill:var(--muted);font-size:9.5px">stays put as long as the cell has power.</text>
+<text x="400" y="298" style="fill:var(--muted);font-size:9.5px">Each inverter is 2 transistors, so the latch is 4.</text>
+<text x="400" y="316" style="fill:var(--muted);font-size:9.5px">Ports add transistors on Q and QB that connect</text>
+<text x="400" y="329" style="fill:var(--muted);font-size:9.5px">the cell to word lines and bit lines (below).</text>
+</svg></div>
 <h3 id="sec-four-ports">One Instruction's Four Ports</h3>
 <div class="tbl"><svg viewBox="0 0 680 400" role="img" aria-label="The four RAT ports used by one renamed instruction, r3 ← r1 + r12, in a 16-row by 8-bit SRAM RAT. Each port has its own 4-bit address input and its own 4-to-16 decoder. Every row carries four word lines, one per port, and every column carries four bit lines, one per port. Read port R0 decodes address 1 and raises its word line in row r1, R1 decodes 12 and raises its word line in row r12, and R2 decodes 3 and raises its word line in row r3. Each reads the 8 bits of its row onto its own 8 bit lines, which end at its own sense amplifiers and give psrc1, psrc2, and the old mapping that goes to the ROB. Write port W0 decodes 3 and raises its own word line in row r3 while its own write drivers put pnew on its own 8 bit lines. Because each port's decoder and lines reach all 16 rows, any port can access any row, and more architectural registers only add rows, a wider decoder, and longer lines, never more ports.">
 <defs><marker id="arrP0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--accent-green)"/></marker><marker id="arrP1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--pad)"/></marker><marker id="arrP2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--redirect)"/></marker><marker id="arrP3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker></defs>
