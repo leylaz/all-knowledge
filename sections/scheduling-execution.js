@@ -216,6 +216,77 @@ section({
 <li>The update rule for each source is <code>src_rdy_next = src_rdy | match_bus0 | match_bus1 | …</code>.</li>
 <li>The tag goes out when the producer is <em>selected</em>, not when it finishes. That is what lets a dependent instruction issue in the very next cycle (see <a href="#/wakeup/bypass">Issuing Before the Value Exists</a>).</li>
 </ul>
+<p>In the figure, select grants two producers in cycle 0, and their destination tags p17 and p33 go out on bus 0 and bus 1. Each circle is one comparator, and a filled one matched.</p>
+<div class="tbl"><svg viewBox="0 0 680 340" role="img" aria-label="Two tag buses broadcasting to a four-entry issue queue. Select, in cycle 0, grants the producers of p17 and p33 and drives p17 onto bus 0 and p33 onto bus 1. Each bus branches to a comparator column beside each source field, so every source of every entry has one comparator per bus. Entry 0 has src0 p17 and src1 p4, already ready. Its src0 matches bus 0, so src0_rdy goes from 0 to 1, and it will request next cycle. Entry 1 has src0 p33, which matches bus 1, and src1 p17, which matches bus 0, so both ready bits go from 0 to 1 and it will request. Entry 2 has p9 and p12, no matches, so it stays waiting. Entry 3 is free and its comparators are gated off." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<g style="stroke-width:1.5">
+<rect x="20" y="15" width="230" height="36" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+</g>
+<g style="fill:none;stroke:var(--trace);stroke-width:2">
+<path d="M60,51 V70 H475"/>
+<path d="M120,51 V88 H475"/>
+<path d="M220,70 V248"/><path d="M445,70 V248"/>
+<path d="M245,88 V248"/><path d="M470,88 V248"/>
+</g>
+<g style="fill:var(--trace)"><circle cx="220" cy="70" r="3"/><circle cx="445" cy="70" r="3"/><circle cx="245" cy="88" r="3"/><circle cx="470" cy="88" r="3"/></g>
+<g style="stroke-width:1">
+<rect x="70" y="120" width="40" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="120" y="120" width="80" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="265" y="120" width="60" height="26" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="345" y="120" width="80" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="490" y="120" width="60" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="575" y="120" width="70" height="26" style="fill:var(--pad-soft);stroke:var(--pad)"/>
+<rect x="70" y="154" width="40" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="120" y="154" width="80" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="265" y="154" width="60" height="26" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="345" y="154" width="80" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="490" y="154" width="60" height="26" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="575" y="154" width="70" height="26" style="fill:var(--pad-soft);stroke:var(--pad)"/>
+<rect x="70" y="188" width="40" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="120" y="188" width="80" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="265" y="188" width="60" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="345" y="188" width="80" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="490" y="188" width="60" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="575" y="188" width="70" height="26" style="fill:var(--surface);stroke:var(--muted)"/>
+<g style="fill:none;stroke:var(--muted);stroke-dasharray:3 3">
+<rect x="70" y="222" width="40" height="26"/><rect x="120" y="222" width="80" height="26"/><rect x="265" y="222" width="60" height="26"/>
+<rect x="345" y="222" width="80" height="26"/><rect x="490" y="222" width="60" height="26"/><rect x="575" y="222" width="70" height="26"/>
+</g>
+</g>
+<g style="stroke-width:1.5">
+<circle cx="220" cy="133" r="8" style="fill:var(--trace);stroke:var(--trace)"/><circle cx="245" cy="133" r="8" style="fill:var(--surface);stroke:var(--muted)"/>
+<circle cx="445" cy="133" r="8" style="fill:var(--surface);stroke:var(--muted)"/><circle cx="470" cy="133" r="8" style="fill:var(--surface);stroke:var(--muted)"/>
+<circle cx="220" cy="167" r="8" style="fill:var(--surface);stroke:var(--muted)"/><circle cx="245" cy="167" r="8" style="fill:var(--trace);stroke:var(--trace)"/>
+<circle cx="445" cy="167" r="8" style="fill:var(--trace);stroke:var(--trace)"/><circle cx="470" cy="167" r="8" style="fill:var(--surface);stroke:var(--muted)"/>
+<circle cx="220" cy="201" r="8" style="fill:var(--surface);stroke:var(--muted)"/><circle cx="245" cy="201" r="8" style="fill:var(--surface);stroke:var(--muted)"/>
+<circle cx="445" cy="201" r="8" style="fill:var(--surface);stroke:var(--muted)"/><circle cx="470" cy="201" r="8" style="fill:var(--surface);stroke:var(--muted)"/>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-dasharray:2 2"><circle cx="220" cy="235" r="8"/><circle cx="245" cy="235" r="8"/><circle cx="445" cy="235" r="8"/><circle cx="470" cy="235" r="8"/></g>
+</g>
+<g style="fill:var(--ink);font-size:12px">
+<text x="135" y="30" text-anchor="middle" style="font-weight:600">select, cycle 0</text>
+<text x="135" y="45" text-anchor="middle" style="font-size:11px">grants the producers of p17 and p33</text>
+<text x="482" y="74" style="font-family:var(--mono);font-size:11px;fill:var(--trace)">bus 0: p17</text>
+<text x="482" y="92" style="font-family:var(--mono);font-size:11px;fill:var(--trace)">bus 1: p33</text>
+</g>
+<g style="fill:var(--muted);font-size:10px;text-anchor:middle">
+<text x="90" y="112">valid</text><text x="160" y="112">src0_tag</text><text x="295" y="112">src0_rdy</text>
+<text x="385" y="112">src1_tag</text><text x="520" y="112">src1_rdy</text><text x="610" y="112">request next</text>
+</g>
+<g style="fill:var(--ink);font-size:11px;font-family:var(--mono);text-anchor:middle">
+<text x="20" y="137" style="text-anchor:start;font-family:var(--sans)">entry 0</text>
+<text x="90" y="137">1</text><text x="160" y="137">p17</text><text x="295" y="137">0 → 1</text><text x="385" y="137">p4</text><text x="520" y="137">1</text><text x="610" y="137">1</text>
+<text x="20" y="171" style="text-anchor:start;font-family:var(--sans)">entry 1</text>
+<text x="90" y="171">1</text><text x="160" y="171">p17</text><text x="295" y="171">0 → 1</text><text x="385" y="171">p33</text><text x="520" y="171">0 → 1</text><text x="610" y="171">1</text>
+<text x="20" y="205" style="text-anchor:start;font-family:var(--sans)">entry 2</text>
+<text x="90" y="205">1</text><text x="160" y="205">p9</text><text x="295" y="205">0</text><text x="385" y="205">p12</text><text x="520" y="205">0</text><text x="610" y="205">0</text>
+<text x="20" y="239" style="text-anchor:start;font-family:var(--sans)">entry 3</text>
+<text x="90" y="239">0</text><text x="160" y="239">free</text><text x="610" y="239">0</text>
+</g>
+<g style="fill:var(--ink);font-size:11px">
+<text x="20" y="278">Each source has one comparator per bus: 4 entries × 2 sources × 2 buses = 16 comparators, all evaluated this cycle.</text>
+<text x="20" y="296">Left circle of each pair is bus 0, right is bus 1. A match sets the sticky ready bit at the end of cycle 0,</text>
+<text x="20" y="314">so entries 0 and 1 request select in cycle 1. Entry 2 keeps waiting. Entry 3 is free, and its comparators are gated off.</text>
+</g>
+</svg></div>
 <h3 id="sec-match">The Match Circuit</h3>
 <p>Each comparator is a CAM match line:</p>
 <ol><li>At the start of the cycle the match line is precharged high.</li><li>Each tag bit drives an XOR of the bus bit and the stored bit. The XOR output gates a pull-down transistor on the match line.</li><li>Any mismatched bit discharges the line. The line stays high only if every bit matches, and the bus valid bit gates the result.</li><li>The W match lines for a source are ORed together and with the current ready bit, and the result is written into the ready flip-flop.</li><li>The entry's request is <code>valid & src0_rdy & src1_rdy</code>.</li></ol>
@@ -280,6 +351,88 @@ section({
 <li>Every register whose Qi matches latches the value and clears Qi. Store buffers waiting for data do the same.</li>
 <li>A station whose Qj and Qk are both 0 can start executing in the next cycle.</li>
 </ol>
+<p>The figure follows Hennessy and Patterson's layout, caught in the cycle that <code>MUL.D F0, F2, F4</code> in station Mult0 wins the CDB with 2.5 × 4.0 = 10.0. Every field still waiting on Mult0 is highlighted.</p>
+<div class="tbl"><svg viewBox="0 0 680 500" role="img" aria-label="Tomasulo's algorithm with one common data bus. The instruction queue issues in order into the add reservation stations and the multiply reservation stations, and sets the Qi field of the destination register. Add stations: Add0 holds ADD.D waiting on Mult0 for Qj with Vk 1.5. Add1 holds SUB.D with both values, executing in the FP adders. Add2 is free. Multiply stations: Mult0 holds MUL.D with Vj 2.5 and Vk 4.0, finishing in the FP multipliers. Mult1 holds DIV.D waiting on Mult0 for Qj and on Add0 for Qk. The register status shows F0 waiting on Mult0, F6 on Add0, F10 on Mult1, and F8 holding 1.5. The FP multiplier drives the CDB with tag Mult0 and value 10.0. The CDB runs back to both sets of reservation stations, the register file, and the store buffers, where Store0 holds S.D F0 waiting on Mult0. All fields waiting on Mult0 are highlighted, and they latch 10.0 and clear their Q fields." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrCD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrCDt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker></defs>
+<g style="stroke-width:1.5">
+<rect x="20" y="20" width="180" height="90" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="400" y="20" width="260" height="96" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="20" y="150" width="300" height="90" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="340" y="150" width="320" height="90" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="95" y="270" width="150" height="34" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="425" y="270" width="150" height="34" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="400" y="370" width="260" height="50" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+</g>
+<g style="stroke:none">
+<rect x="405" y="43" width="250" height="15" style="fill:var(--trace-soft)"/>
+<rect x="128" y="189" width="44" height="15" style="fill:var(--trace-soft)"/>
+<rect x="345" y="189" width="310" height="15" style="fill:var(--pad-soft)"/>
+<rect x="448" y="205" width="44" height="15" style="fill:var(--trace-soft)"/>
+<rect x="405" y="395" width="250" height="15" style="fill:var(--trace-soft)"/>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M110,110 V148" marker-end="url(#arrCD)"/>
+<path d="M110,128 H500 V148" marker-end="url(#arrCD)"/>
+<path d="M200,60 H398" marker-end="url(#arrCD)"/>
+<path d="M170,240 V268" marker-end="url(#arrCD)"/>
+<path d="M500,240 V268" marker-end="url(#arrCD)"/>
+<path d="M170,304 V336" marker-end="url(#arrCD)" style="stroke-dasharray:4 3"/>
+</g>
+<g style="fill:var(--muted)"><circle cx="110" cy="128" r="3"/></g>
+<g style="fill:none;stroke:var(--trace);stroke-width:1.5">
+<path d="M500,304 V336" marker-end="url(#arrCDt)"/>
+<path d="M10,340 H670" style="stroke-width:4"/>
+<path d="M10,340 V195 H18" marker-end="url(#arrCDt)"/>
+<path d="M670,340 V68 H662" marker-end="url(#arrCDt)"/>
+<path d="M670,195 H662" marker-end="url(#arrCDt)"/>
+<path d="M530,340 V368" marker-end="url(#arrCDt)"/>
+</g>
+<g style="fill:var(--ink);font-size:12px">
+<text x="30" y="36" style="font-weight:600">Instruction queue</text>
+<text x="30" y="165" style="font-weight:600">Add stations</text>
+<text x="350" y="165" style="font-weight:600">Multiply stations</text>
+<text x="170" y="285" text-anchor="middle" style="font-weight:600">FP adders</text>
+<text x="500" y="285" text-anchor="middle" style="font-weight:600">FP multipliers</text>
+<text x="410" y="386" style="font-weight:600">Store buffers</text>
+</g>
+<g style="fill:var(--ink);font-size:11px;font-family:var(--mono)">
+<text x="30" y="56">ADD.D F2, F10, F4</text>
+<text x="30" y="72">L.D   F8, 8(R2)</text>
+<text x="30" y="88">…</text>
+<g style="font-family:var(--sans);font-weight:600;fill:var(--muted)"><text x="420" y="36">Reg</text><text x="480" y="36">Qi</text><text x="560" y="36">Value</text></g>
+<text x="420" y="54">F0</text><text x="480" y="54">Mult0</text><text x="560" y="54">(stale)</text>
+<text x="420" y="70">F6</text><text x="480" y="70">Add0</text><text x="560" y="70">(stale)</text>
+<text x="420" y="86">F10</text><text x="480" y="86">Mult1</text><text x="560" y="86">(stale)</text>
+<text x="420" y="102">F8</text><text x="480" y="102">0</text><text x="560" y="102">1.5</text>
+<g style="text-anchor:middle">
+<g style="font-family:var(--sans);font-weight:600;fill:var(--muted)">
+<text x="95" y="182">Op</text><text x="150" y="182">Qj</text><text x="200" y="182">Vj</text><text x="245" y="182">Qk</text><text x="290" y="182">Vk</text>
+<text x="415" y="182">Op</text><text x="470" y="182">Qj</text><text x="520" y="182">Vj</text><text x="570" y="182">Qk</text><text x="620" y="182">Vk</text>
+</g>
+<text x="95" y="200">ADD.D</text><text x="150" y="200">Mult0</text><text x="200" y="200">–</text><text x="245" y="200">0</text><text x="290" y="200">1.5</text>
+<text x="95" y="216">SUB.D</text><text x="150" y="216">0</text><text x="200" y="216">3.0</text><text x="245" y="216">0</text><text x="290" y="216">2.0</text>
+<text x="95" y="232" style="fill:var(--muted)">free</text>
+<text x="415" y="200">MUL.D</text><text x="470" y="200">0</text><text x="520" y="200">2.5</text><text x="570" y="200">0</text><text x="620" y="200">4.0</text>
+<text x="415" y="216">DIV.D</text><text x="470" y="216">Mult0</text><text x="520" y="216">–</text><text x="570" y="216">Add0</text><text x="620" y="216">–</text>
+</g>
+<text x="30" y="200">Add0</text><text x="30" y="216">Add1</text><text x="30" y="232">Add2</text>
+<text x="350" y="200">Mult0</text><text x="350" y="216">Mult1</text>
+<text x="410" y="406">Store0: S.D F0, 0(R1)  Q = Mult0</text>
+</g>
+<g style="fill:var(--muted);font-size:10px">
+<text x="30" y="104">issues in order, one per cycle</text>
+<text x="300" y="54" text-anchor="middle">set Qi</text>
+<text x="170" y="298" text-anchor="middle">Add1 executing</text>
+<text x="500" y="298" text-anchor="middle">Mult0 finishing</text>
+<text x="180" y="326">waits if it also finishes</text>
+<text x="335" y="332" text-anchor="middle" style="fill:var(--trace);font-size:11px;font-weight:600">CDB: tag Mult0 + value 10.0</text>
+</g>
+<g style="fill:var(--ink);font-size:11px">
+<text x="20" y="450">Highlighted fields hold the tag Mult0. This cycle they latch 10.0 and clear their Q field to 0.</text>
+<text x="20" y="468">Next cycle Add0 can start (Vj = 10.0, Vk = 1.5) and Store0 has its data. Mult1 still waits on Add0.</text>
+<text x="20" y="486">The bus carries a full value past every station, register, and store buffer, and only one result fits per cycle.</text>
+</g>
+</svg></div>
 <p>Three consequences follow, and modern cores changed all three.</p>
 <ul>
 <li><strong>Wakeup and data travel together.</strong> A consumer can't start until the producer has finished and won the bus, so every dependence costs the producer's latency plus the CDB cycle. Modern cores broadcast the tag early, at select time, and deliver the value later through the bypass network.</li>
