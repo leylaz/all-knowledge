@@ -113,6 +113,7 @@ section({
   sections: [
     { id: "pieces", label: "Pieces" },
     { id: "lifecycle-mapping", label: "Lifecycle of a Mapping" },
+    { id: "free-at-rename", label: "Why Not Free at Rename" },
     { id: "rat-hardware", label: "The RAT in Hardware" },
     { id: "same-group", label: "Same-Group Dependences" },
     { id: "rat-cost", label: "What Renaming Costs" },
@@ -124,7 +125,143 @@ section({
 <h3 id="sec-pieces">Pieces</h3>
 <ul><li><strong>Register alias table (RAT):</strong> maps each architectural register to its current physical register.</li><li><strong>Free list:</strong> physical registers available for new destinations.</li><li><strong>Retirement RAT:</strong> the committed, non-speculative mapping.</li></ul>
 <h3 id="sec-lifecycle-mapping">Lifecycle of a Mapping</h3>
-<p>At rename, sources read the RAT, the destination takes a register from the free list, and the <em>previous</em> mapping is saved in the ROB entry. At commit, that previous register is freed, because no instruction younger than this one can still name it.</p>
+<p>At rename, sources read the RAT, the destination takes a register from the free list, and the <em>previous</em> mapping is saved in the ROB entry. At commit, that previous register is freed, because no instruction younger than this one can still name it. The next section explains why it can't be freed any sooner.</p>
+<h3 id="sec-free-at-rename">Why Not Free at Rename</h3>
+<p>When I2 renames r1 from p7 to p40, every instruction renamed after I2 reads r1 as p40, so no new instruction will ever name p7 again. It's tempting to put p7 back on the free list right away. It can't go yet, because two things can still need its value until I2 commits:</p>
+<ol>
+<li><strong>Older readers.</strong> Instructions between p7's producer and I2 were renamed with p7 as a source and may not have issued yet. If p7 goes back on the free list, a younger instruction can pop it and write it first. p7's ready bit then wakes the older reader with the wrong value. When the original producer finally writes p7, it also clobbers the new owner's value.</li>
+<li><strong>Recovery.</strong> If a branch older than I2 mispredicts, the RAT goes back to r1→p7. The same happens if I2 or anything older faults. The restored mapping is only useful if p7 still holds r1's old value. Precise exceptions depend on this: the handler must see r1 as it was before I2.</li>
+</ol>
+<div class="tbl"><svg viewBox="0 0 680 296" role="img" aria-label="Cycle timeline of four instructions when p7 is freed as soon as I2 renames r1. I0, ld r1 from [r6], has destination p7. It renames in cycle 0 and misses in the L1, so its data comes back from the L2 and it writes p7 in cycle 16. I1, add r2 = r1 + 1, reads p7. It renames in cycle 0 and waits for p7. I2, mul r1 = r3 times 2, renames in cycle 0 to p40 and, in this broken design, puts p7 on the free list. I3, add r4 = r5 + 1, renames in cycle 2, pops p7, executes in cycle 3, and writes p7 in cycle 4. That write sets p7 ready, so I1 wakes and reads p7 in cycle 5, getting I3's value instead of the load's, though it should have read in cycle 17. In cycle 16 the load writes p7 too, so I3's own consumers now read the load's value.">
+<defs><marker id="arrFR1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--accent-red)"/></marker></defs>
+<text x="10" y="18" style="fill:var(--pad);font-size:12px;font-weight:600">Freeing p7 when I2 renames: a younger instruction reuses it</text>
+<g style="fill:none;stroke:var(--rule);stroke-width:1">
+<path d="M160,52 V222"/><path d="M188,52 V222"/><path d="M216,52 V222"/><path d="M244,52 V222"/><path d="M272,52 V222"/><path d="M300,52 V222"/><path d="M328,52 V222"/><path d="M356,52 V222"/><path d="M384,52 V222"/><path d="M412,52 V222"/><path d="M440,52 V222"/><path d="M468,52 V222"/><path d="M496,52 V222"/><path d="M524,52 V222"/><path d="M552,52 V222"/><path d="M580,52 V222"/><path d="M608,52 V222"/><path d="M636,52 V222"/><path d="M664,52 V222"/>
+</g>
+<g style="fill:var(--muted);font-size:10px;font-family:var(--mono)" text-anchor="middle">
+<text x="174" y="44">0</text><text x="202" y="44">1</text><text x="230" y="44">2</text><text x="258" y="44">3</text><text x="286" y="44">4</text><text x="314" y="44">5</text><text x="342" y="44">6</text><text x="370" y="44">7</text><text x="398" y="44">8</text><text x="426" y="44">9</text><text x="454" y="44">10</text><text x="482" y="44">11</text><text x="510" y="44">12</text><text x="538" y="44">13</text><text x="566" y="44">14</text><text x="594" y="44">15</text><text x="622" y="44">16</text><text x="650" y="44">17</text>
+</g>
+<text x="152" y="44" text-anchor="end" style="fill:var(--muted);font-size:10px">cycle</text>
+<g style="stroke-width:1.5">
+<rect x="160" y="56" width="28" height="30" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="188" y="56" width="420" height="30" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="608" y="56" width="28" height="30" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<rect x="160" y="100" width="28" height="30" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="188" y="100" width="112" height="30" style="fill:none;stroke:var(--muted);stroke-dasharray:4 3"/>
+<rect x="300" y="100" width="28" height="30" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<rect x="636" y="100" width="28" height="30" style="fill:none;stroke:var(--accent-green);stroke-width:2;stroke-dasharray:4 3"/>
+<rect x="160" y="144" width="28" height="30" style="fill:var(--surface);stroke:var(--accent-red);stroke-width:2"/>
+<rect x="216" y="188" width="28" height="30" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="244" y="188" width="28" height="30" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="272" y="188" width="28" height="30" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+</g>
+<path d="M286,188 C286,162 314,160 314,134" marker-end="url(#arrFR1)" style="fill:none;stroke:var(--accent-red);stroke-width:1.5"/>
+<g style="fill:var(--ink);font-size:11px;font-family:var(--mono)">
+<text x="10" y="69">I0 ld r1,[r6]</text><text x="10" y="113">I1 add r2,r1,1</text><text x="10" y="157">I2 mul r1,r3,2</text><text x="10" y="201">I3 add r4,r5,1</text>
+</g>
+<g style="fill:var(--muted);font-size:10px">
+<text x="10" y="82">dest p7</text><text x="10" y="126">src p7</text><text x="10" y="170">dest p40, old p7</text><text x="10" y="214">dest p7 (reused)</text>
+</g>
+<g style="fill:var(--ink);font-size:11px;font-weight:600" text-anchor="middle">
+<text x="174" y="75">R</text><text x="622" y="75">W</text>
+<text x="174" y="119">R</text><text x="314" y="119">rd</text><text x="650" y="119">rd</text>
+<text x="174" y="163">R</text>
+<text x="230" y="207">R</text><text x="258" y="207">X</text><text x="286" y="207">W</text>
+</g>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle">
+<text x="398" y="75">load in flight (L1 miss, L2 hit)</text>
+<text x="244" y="119">wait</text>
+</g>
+<text x="630" y="119" text-anchor="end" style="fill:var(--accent-green);font-size:10px">should read here</text>
+<text x="196" y="163" style="fill:var(--accent-red);font-size:11px">r1 → p40, and p7 goes on the free list ✗</text>
+<text x="312" y="207" style="fill:var(--muted);font-size:11px">pops p7 in cycle 2 and writes it in cycle 4</text>
+<g style="fill:var(--accent-red);font-size:11px">
+<text x="10" y="244">✗ Cycle 4: I3's write sets p7 ready, so I1 wakes and reads I3's value, not the load's.</text>
+<text x="10" y="262">✗ Cycle 16: the load writes p7 too, so I3's own consumers now read the load's value.</text>
+</g>
+<text x="10" y="286" style="fill:var(--muted);font-size:10px">R rename · X execute · W write p7 · rd read p7</text>
+</svg></div>
+<p>The second case needs no slow load. Here I0 has already written p7, and the branch I1 is predicted not taken but is really taken, so I2 and I3 are on the wrong path:</p>
+<pre><code>I0: add r1, r2, r3    # r1 → p7, writes 5
+I1: beq r4, r0, L     # predicted not taken, actually taken
+I2: mul r1, r3, 2     # r1 → p40, old mapping p7
+I3: ld  r5, [r6]      # wrong path</code></pre>
+<div class="tbl"><svg viewBox="0 0 680 276" role="img" aria-label="Three snapshots of the RAT, the physical registers, and the free list when p7 is freed at rename and a branch then mispredicts. Snapshot 1, I2 renames r1: the RAT maps r1 to p40, p7 holds 5, p40 has no value yet, and the ROB entry of I2 saves old mapping p7. Snapshot 2, p7 freed at rename: the wrong-path load I3 pops p7 from the free list and writes 0x3F00 into it. Snapshot 3, the branch was taken, so recovery restores r1 to p7, but p7 now holds 0x3F00 and r1's real value, 5, is gone. With free at commit, I2 is squashed and never commits, so p7 is never freed, still holds 5 after the restore, and only p40 goes back to the free list.">
+<defs><marker id="arrFR2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<text x="10" y="18" style="fill:var(--pad);font-size:12px;font-weight:600">Freeing p7 at rename, then the branch mispredicts</text>
+<g style="stroke-width:1.5">
+<rect x="10" y="30" width="210" height="192" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="235" y="30" width="210" height="192" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+<rect x="460" y="30" width="210" height="192" rx="3" style="fill:var(--surface);stroke:var(--pad)"/>
+</g>
+<g style="stroke-width:1;fill:var(--surface);stroke:var(--rule)">
+<rect x="60" y="64" width="150" height="22"/><rect x="60" y="98" width="150" height="22"/><rect x="60" y="122" width="150" height="22"/><rect x="60" y="156" width="150" height="22"/>
+<rect x="285" y="64" width="150" height="22"/><rect x="285" y="122" width="150" height="22"/><rect x="285" y="156" width="150" height="22"/>
+<rect x="510" y="122" width="150" height="22"/><rect x="510" y="156" width="150" height="22"/>
+</g>
+<rect x="285" y="98" width="150" height="22" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<rect x="510" y="64" width="150" height="22" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="510" y="98" width="150" height="22" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M221,126 H233" marker-end="url(#arrFR2)"/><path d="M446,126 H458" marker-end="url(#arrFR2)"/>
+</g>
+<g style="fill:var(--ink);font-size:12px;font-weight:600">
+<text x="20" y="50">1. I2 renames r1</text>
+<text x="245" y="50" style="fill:var(--accent-red)">2. p7 freed at rename ✗</text>
+<text x="470" y="50">3. beq was taken: undo</text>
+</g>
+<g style="fill:var(--muted);font-size:11px">
+<text x="20" y="79">RAT</text><text x="20" y="113">PRF</text><text x="20" y="171">free</text>
+<text x="245" y="79">RAT</text><text x="245" y="113">PRF</text><text x="245" y="171">free</text>
+<text x="470" y="79">RAT</text><text x="470" y="113">PRF</text><text x="470" y="171">free</text>
+</g>
+<g style="fill:var(--ink);font-size:11px;font-family:var(--mono)" text-anchor="middle">
+<text x="135" y="79">r1 → p40</text><text x="135" y="113">p7 = 5</text><text x="135" y="137">p40 = (not yet)</text><text x="135" y="171">p41, p42, …</text>
+<text x="360" y="79">r1 → p40</text><text x="360" y="113" style="fill:var(--accent-red);font-weight:600">p7 = 0x3F00</text><text x="360" y="137">p40 = 10</text><text x="360" y="171">p7 popped by I3</text>
+<text x="585" y="79" style="font-weight:600">r1 → p7 (restored)</text><text x="585" y="113" style="fill:var(--accent-red);font-weight:600">p7 = 0x3F00 ✗</text><text x="585" y="137">p40 freed</text><text x="585" y="171">p40, p41, …</text>
+</g>
+<g style="fill:var(--muted);font-size:10px">
+<text x="20" y="198">ROB entry of I2 saves old = p7</text><text x="20" y="212">beq predicted not taken</text>
+<text x="245" y="198">wrong-path I3 pops p7</text><text x="245" y="212">and writes 0x3F00 into it</text>
+<text x="470" y="198">r1 should read 5, but that</text><text x="470" y="212">value is gone</text>
+</g>
+<text x="10" y="246" style="fill:var(--accent-green);font-size:11px;font-weight:600">✓ Free at commit: I2 is squashed and never commits, so p7 is never freed.</text>
+<text x="10" y="264" style="fill:var(--muted);font-size:11px">p7 still holds 5 when the RAT goes back to r1 → p7, and only p40 returns to the free list.</text>
+</svg></div>
+<p>Both needs are gone once I2 commits. Every older instruction has committed by then, so every older reader has read p7. A committed instruction can't be squashed, so nothing will restore r1→p7. The ROB entry holds p7 until then. Rename reads the old mapping (the extra W RAT read ports counted below) and stores it in the entry, and commit pushes it onto the free list.</p>
+<div class="tbl"><svg viewBox="0 0 680 212" role="img" aria-label="Lifetime of p7 on a time axis. I0 renames and p7 is allocated, then I0 writes p7. Until I2 renames r1 to p40, the RAT names p7. After that, only older readers and rollback still need it. I1, the last older reader, reads p7. Later I2 completes and every older branch has resolved, so I2 can no longer be squashed. Then I2 commits. Freeing at I2's rename is too early. Early-release schemes free p7 once both the last read and the no-squash point have passed, which needs per-register reader counts. Freeing at I2's commit is what most cores do.">
+<defs><marker id="arrFR3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<text x="10" y="18" style="fill:var(--pad);font-size:12px;font-weight:600">Lifetime of p7</text>
+<rect x="50" y="80" width="250" height="20" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<rect x="300" y="80" width="320" height="20" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<g style="fill:var(--ink);font-size:10px" text-anchor="middle">
+<text x="175" y="94">the RAT names p7</text>
+<text x="460" y="94">only older readers and rollback need it</text>
+</g>
+<path d="M30,110 H660" marker-end="url(#arrFR3)" style="fill:none;stroke:var(--muted);stroke-width:1.5"/>
+<g style="fill:none;stroke:var(--muted);stroke-width:1">
+<path d="M50,60 V114"/><path d="M150,60 V114"/><path d="M300,60 V114"/><path d="M420,60 V114"/><path d="M520,60 V114"/><path d="M620,60 V114"/>
+</g>
+<g style="fill:var(--ink);font-size:10px" text-anchor="middle">
+<text x="50" y="40">I0 renames</text><text x="50" y="54">p7 allocated</text>
+<text x="150" y="40">I0 writes</text><text x="150" y="54">p7</text>
+<text x="300" y="40">I2 renames</text><text x="300" y="54">r1 → p40</text>
+<text x="420" y="40">I1 reads p7</text><text x="420" y="54">(last reader)</text>
+<text x="520" y="40">I2 can't be</text><text x="520" y="54">squashed</text>
+<text x="620" y="40">I2</text><text x="620" y="54">commits</text>
+</g>
+<text x="652" y="128" text-anchor="end" style="fill:var(--muted);font-size:10px">time</text>
+<path d="M300,150 V116" marker-end="url(#arrFR1)" style="fill:none;stroke:var(--accent-red);stroke-width:1.5"/>
+<path d="M520,150 V116" marker-end="url(#arrFR3)" style="fill:none;stroke:var(--muted);stroke-width:1.5"/>
+<path d="M620,150 V116" style="fill:none;stroke:var(--accent-green);stroke-width:2"/>
+<path d="M614,124 L620,116 L626,124" style="fill:none;stroke:var(--accent-green);stroke-width:2"/>
+<g style="font-size:10px" text-anchor="middle">
+<text x="300" y="166" style="fill:var(--accent-red);font-weight:600">free at rename ✗</text><text x="300" y="180" style="fill:var(--accent-red)">too early</text>
+<text x="520" y="166" style="fill:var(--muted);font-weight:600">early release</text><text x="520" y="180" style="fill:var(--muted)">needs reader counts</text>
+<text x="620" y="166" style="fill:var(--accent-green);font-weight:600">free at commit ✓</text><text x="620" y="180" style="fill:var(--accent-green)">what most cores do</text>
+</g>
+</svg></div>
+<p>Commit is a safe point, not the earliest one. The earliest is when the last older reader has read p7 <em>and</em> I2 can no longer be squashed, whichever comes later. Early-release schemes aim for that point. They keep a per-register count of pending readers and check that the overwriting instruction is non-speculative (Moudgill, Pingali, and Vassiliadis, 1993, and Ergin et al., 2004). That lowers register pressure, but the counters and the extra recovery cases cost area and verification effort. Most cores free at commit and buy a larger PRF instead.</p>
 <h3 id="sec-rat-hardware">The RAT in Hardware</h3>
 <p>Rename handles a group of W instructions per cycle (W is the rename width). For each instruction it must do three things in the same cycle:</p>
 <ol><li>Look up the physical register for each source.</li><li>Look up the current mapping of the destination, so the ROB entry can save it as the "previous" register to free at commit.</li><li>Pop a physical register from the free list and write the new mapping for the destination.</li></ol>
