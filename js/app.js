@@ -98,7 +98,7 @@ function renderHome(tab = TABS[0]) {
     <nav class="home-tabs" aria-label="Topics">${TABS.map(t =>
       `<a class="home-tab" href="${tabHref(t)}"${t === tab ? ' aria-current="page"' : ""}>${t.name}</a>`).join("")}</nav>
     <section class="results" id="results" aria-live="polite" hidden></section>
-    ${tab.id === "arch" && typeof floorplanSVG === "function" ? floorplanSVG() : ""}
+    ${tab.id === "cpu" && typeof floorplanSVG === "function" ? floorplanSVG() : ""}
     ${tab.id === "chip" && typeof stackHTML === "function" ? stackHTML() : ""}
     <div class="die"><div class="floor" data-tab="${tab.id}">
       ${REGIONS.filter(r => tab.regions.includes(r.id)).map(r => `
