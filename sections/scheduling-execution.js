@@ -483,11 +483,228 @@ section({
 <ol><li><strong>Tag compare at register read:</strong> compare the consumer's source tags with the destination tags in every unit's EX and WB latches, and take the newest match. This is the same forwarding unit an in-order pipeline uses.</li><li><strong>Timing known at issue:</strong> the scheduler knows which bus woke the source and how many cycles ago, which maps directly to one bypass input. A source that was ready long before needs the PRF.</li></ol>
 <p>The bypass network's cost grows as (functional units)² × levels × value width in wires, because every unit's result must reach every unit's input. Wide cores cluster their units: the Alpha 21264 split its integer units into two clusters, and a value crossing between them cost one extra cycle.</p>
 <h3 id="sec-latency">Multi-Cycle Producers and Loads</h3>
-<ul>
-<li><strong>Fixed latency L:</strong> broadcast the tag L − 1 cycles after select. For a 3-cycle multiply selected in cycle 0: RR in cycle 1, EX in cycles 2 to 4. The tag goes out in cycle 0 + (3 − 1) = 2, the consumer is selected in cycle 3, reads registers in cycle 4, and executes in cycle 5, right after the result appears. Single-cycle ops are the case L − 1 = 0. The delay is a shift register on the bus side or a countdown in each consumer entry.</li>
-<li><strong>Variable latency (dividers):</strong> the unit announces a few cycles ahead when it will finish, and the tag goes out then.</li>
-<li><strong>Loads:</strong> the latency isn't known at select, because the access may miss. The scheduler assumes an L1 hit (4 cycles to use on AMD Zen 4) and wakes dependents speculatively. If the load misses, the dependents already issued in its shadow are cancelled: their ready bits clear, they stay in the queue, and the load's fill re-broadcasts the tag later. How cores limit the damage is on <a href="#/replay">Selective Replay</a>.</li>
-</ul>
+<p>The single-cycle add above is the easy case: its tag goes out at select. Longer producers delay the broadcast so that the consumer still reaches execute exactly when the value does. How the scheduler times that depends on how well it knows the latency.</p>
+<p><strong>Fixed latency L:</strong> broadcast the tag L − 1 cycles after select. For a 3-cycle multiply selected in cycle 0: RR in cycle 1, EX in cycles 2 to 4. The tag goes out in cycle 0 + (3 − 1) = 2, the consumer is selected in cycle 3, reads registers in cycle 4, and executes in cycle 5, right after the result appears. Single-cycle ops are the case L − 1 = 0. The delay is a shift register on the bus side or a countdown in each consumer entry.</p>
+<div class="tbl"><svg viewBox="0 0 680 222" role="img" aria-label="Wakeup behind a fixed 3-cycle multiply, cycles 0 to 6. The multiply mul p30 = p5 times p6 is selected in cycle 0, reads registers in cycle 1, executes in cycles 2, 3, and 4, and writes back in cycle 5. A tag delay counter is loaded with 2 at select, counts to 1 in cycle 1, and reaches 0 in cycle 2, when p30 goes onto the tag bus. That wakes the dependent add p31 = p30 + p7 at the end of cycle 2. The add is selected in cycle 3, reads registers in cycle 4, and executes in cycle 5, taking p30 from the multiplier's output through the bypass the cycle after the multiply's last execute cycle." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="wkFt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker><marker id="wkFb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--accent-green)"/></marker></defs>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle"><text x="223.5" y="18">0</text><text x="290.5" y="18">1</text><text x="357.5" y="18">2</text><text x="424.5" y="18">3</text><text x="491.5" y="18">4</text><text x="558.5" y="18">5</text><text x="625.5" y="18">6</text></g><text x="180" y="18" text-anchor="end" style="fill:var(--muted);font-size:11px">cycle</text>
+<text x="20" y="57" style="fill:var(--ink);font-size:11.5px;font-family:var(--mono)">mul p30 = p5 × p6</text>
+<rect x="192" y="40" width="63" height="26" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/>
+<text x="223.5" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">S</text>
+<rect x="259" y="40" width="63" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="290.5" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">RR</text>
+<rect x="326" y="40" width="63" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="357.5" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="393" y="40" width="63" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="424.5" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="460" y="40" width="63" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="491.5" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="527" y="40" width="63" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="558.5" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">WB</text>
+<text x="20" y="95" style="fill:var(--ink);font-size:11.5px;font-family:var(--mono)">tag delay counter</text>
+<rect x="192" y="78" width="63" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="223.5" y="95" text-anchor="middle" style="fill:var(--ink);font-size:11px">2</text>
+<rect x="259" y="78" width="63" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="290.5" y="95" text-anchor="middle" style="fill:var(--ink);font-size:11px">1</text>
+<rect x="326" y="78" width="63" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="357.5" y="95" text-anchor="middle" style="fill:var(--ink);font-size:11px">0</text>
+<text x="20" y="133" style="fill:var(--ink);font-size:11.5px;font-family:var(--mono)">add p31 = p30 + p7</text>
+<text x="223.5" y="133" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="290.5" y="133" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="357.5" y="133" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<rect x="393" y="116" width="63" height="26" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/>
+<text x="424.5" y="133" text-anchor="middle" style="fill:var(--ink);font-size:11px">S</text>
+<rect x="460" y="116" width="63" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="491.5" y="133" text-anchor="middle" style="fill:var(--ink);font-size:11px">RR</text>
+<rect x="527" y="116" width="63" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="558.5" y="133" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="594" y="116" width="63" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="625.5" y="133" text-anchor="middle" style="fill:var(--ink);font-size:11px">WB</text>
+<path d="M357.5,104 C357.5,114 424.5,104 424.5,114" style="fill:none;stroke:var(--trace);stroke-width:1.8" marker-end="url(#wkFt)"/>
+<circle cx="357.5" cy="104" r="3" style="fill:var(--trace)"/>
+<text x="351.5" y="114" text-anchor="end" style="fill:var(--trace);font-size:10.5px;font-weight:600">p30</text>
+<path d="M523,53 C531,53 519,129 527,129" style="fill:none;stroke:var(--accent-green);stroke-width:1.8" marker-end="url(#wkFb)"/>
+<circle cx="26" cy="168" r="3" style="fill:var(--trace)"/><path d="M26,168 H52" style="stroke:var(--trace);stroke-width:1.8" marker-end="url(#wkFt)"/><text x="60" y="172" style="fill:var(--muted);font-size:11px">tag broadcast, wakes the consumer at the end of the cycle</text>
+<path d="M360,168 H386" style="stroke:var(--accent-green);stroke-width:1.8" marker-end="url(#wkFb)"/><text x="394" y="172" style="fill:var(--muted);font-size:11px">value through the bypass</text>
+<text x="20" y="194" style="fill:var(--muted);font-size:11px">Latency 3 cycles, so the counter starts at 3 − 1 = 2 and the tag goes out 2 cycles after select.</text>
+<text x="20" y="210" style="fill:var(--muted);font-size:11px">The add's register read in cycle 4 finds no p30 in the PRF. The multiplier's output arrives through the bypass instead.</text>
+</svg></div>
+<p><strong>Variable latency (dividers):</strong> the latency depends on the operands, so no countdown can be set at select. Instead the unit announces a few cycles ahead when it will finish, and the tag goes out then. The scheduler must also leave a tag bus and a result bus free in the cycles the divider can claim.</p>
+<div class="tbl"><svg viewBox="0 0 680 222" role="img" aria-label="Wakeup behind a variable-latency divide, cycles 0 to 10. The divide div p40 = p8 / p9 is selected in cycle 0 and reads registers in cycle 1. At select its finish cycle is unknown, shown by question marks from cycle 0 to cycle 5. It iterates in the divider from cycle 2 to cycle 8 and writes back in cycle 9. In cycle 6 the divider knows it will finish in cycle 8 and drives p40 onto the tag bus, which wakes the dependent add p41 = p40 + p10. The add is selected in cycle 7, reads registers in cycle 8, and executes in cycle 9 with p40 from the divider through the bypass." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="wkVt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker><marker id="wkVb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--accent-green)"/></marker></defs>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle"><text x="211" y="18">0</text><text x="253" y="18">1</text><text x="295" y="18">2</text><text x="337" y="18">3</text><text x="379" y="18">4</text><text x="421" y="18">5</text><text x="463" y="18">6</text><text x="505" y="18">7</text><text x="547" y="18">8</text><text x="589" y="18">9</text><text x="631" y="18">10</text></g><text x="180" y="18" text-anchor="end" style="fill:var(--muted);font-size:11px">cycle</text>
+<text x="20" y="57" style="fill:var(--ink);font-size:11.5px;font-family:var(--mono)">div p40 = p8 / p9</text>
+<rect x="192" y="40" width="38" height="26" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/>
+<text x="211" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">S</text>
+<rect x="234" y="40" width="38" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="253" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">RR</text>
+<rect x="276" y="40" width="38" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="295" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="318" y="40" width="38" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="337" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="360" y="40" width="38" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="379" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="402" y="40" width="38" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="421" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="444" y="40" width="38" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="463" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="486" y="40" width="38" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="505" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="528" y="40" width="38" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="547" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="570" y="40" width="38" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="589" y="57" text-anchor="middle" style="fill:var(--ink);font-size:11px">WB</text>
+<text x="20" y="95" style="fill:var(--ink);font-size:11.5px;font-family:var(--mono)">finish cycle known?</text>
+<text x="211" y="95" text-anchor="middle" style="fill:var(--muted);font-size:11px">?</text>
+<text x="253" y="95" text-anchor="middle" style="fill:var(--muted);font-size:11px">?</text>
+<text x="295" y="95" text-anchor="middle" style="fill:var(--muted);font-size:11px">?</text>
+<text x="337" y="95" text-anchor="middle" style="fill:var(--muted);font-size:11px">?</text>
+<text x="379" y="95" text-anchor="middle" style="fill:var(--muted);font-size:11px">?</text>
+<text x="421" y="95" text-anchor="middle" style="fill:var(--muted);font-size:11px">?</text>
+<rect x="444" y="78" width="38" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="463" y="95" text-anchor="middle" style="fill:var(--ink);font-size:11px">yes</text>
+<text x="20" y="133" style="fill:var(--ink);font-size:11.5px;font-family:var(--mono)">add p41 = p40 + p10</text>
+<text x="211" y="133" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="253" y="133" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="295" y="133" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="337" y="133" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="379" y="133" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="421" y="133" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="463" y="133" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<rect x="486" y="116" width="38" height="26" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/>
+<text x="505" y="133" text-anchor="middle" style="fill:var(--ink);font-size:11px">S</text>
+<rect x="528" y="116" width="38" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="547" y="133" text-anchor="middle" style="fill:var(--ink);font-size:11px">RR</text>
+<rect x="570" y="116" width="38" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="589" y="133" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="612" y="116" width="38" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="631" y="133" text-anchor="middle" style="fill:var(--ink);font-size:11px">WB</text>
+<path d="M463,104 C463,114 505,104 505,114" style="fill:none;stroke:var(--trace);stroke-width:1.8" marker-end="url(#wkVt)"/>
+<circle cx="463" cy="104" r="3" style="fill:var(--trace)"/>
+<text x="457" y="114" text-anchor="end" style="fill:var(--trace);font-size:10.5px;font-weight:600">p40</text>
+<path d="M566,53 C574,53 562,129 570,129" style="fill:none;stroke:var(--accent-green);stroke-width:1.8" marker-end="url(#wkVb)"/>
+<text x="547" y="36" text-anchor="middle" style="fill:var(--trace);font-size:10.5px;font-weight:600">last</text>
+<circle cx="26" cy="168" r="3" style="fill:var(--trace)"/><path d="M26,168 H52" style="stroke:var(--trace);stroke-width:1.8" marker-end="url(#wkVt)"/><text x="60" y="172" style="fill:var(--muted);font-size:11px">tag broadcast, wakes the consumer at the end of the cycle</text>
+<path d="M360,168 H386" style="stroke:var(--accent-green);stroke-width:1.8" marker-end="url(#wkVb)"/><text x="394" y="172" style="fill:var(--muted);font-size:11px">value through the bypass</text>
+<text x="20" y="194" style="fill:var(--muted);font-size:11px">No countdown is set at select. The divider drives the tag in cycle 6, 2 cycles before its last execute cycle (cycle 8),</text>
+<text x="20" y="210" style="fill:var(--muted);font-size:11px">the same lead the counter gives a fixed-latency unit. Operands that need more iterations just move the broadcast later.</text>
+</svg></div>
+<p><strong>Loads:</strong> the latency isn't known at select, because the access may miss, and the hit or miss is known only after dependents would have to be woken. The scheduler assumes an L1 hit (4 cycles to use on AMD Zen 4) and wakes dependents speculatively. If the load misses, the dependents already issued in its shadow are cancelled: their ready bits clear, they stay in the queue, and the load's fill re-broadcasts the tag later. How cores limit the damage is on <a href="#/replay">Selective Replay</a>.</p>
+<div class="tbl"><svg viewBox="0 0 680 412" role="img" aria-label="Speculative wakeup behind a load, shown twice over cycles 0 to 9, once for an L1 hit and once for an L1 miss. The load ld p50 = [p11] is selected in cycle 0, reads registers in cycle 1, generates its address in cycle 2, and accesses the data cache in cycles 3 to 5, where the hit or miss becomes known. Assuming a 4-cycle load-to-use hit, the scheduler broadcasts p50 in cycle 3, before the access has finished. The dependent add p51 = p50 + 1 is selected in cycle 4, and since it is single-cycle it broadcasts p51 at select, so sub p52 = p51 minus p12 is selected in cycle 5. On a hit, the add executes in cycle 6 with the load data from the bypass and the sub executes in cycle 7. On a miss, the load goes to L2 from cycle 6, both the add and the sub are cancelled in cycle 6, their ready bits clear, and they wait in the queue until the fill broadcasts p50 again. Cycles 4 and 5, when instructions issue on the guess, are shaded as the load shadow." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="wkLt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker><marker id="wkLb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--accent-green)"/></marker></defs>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle"><text x="213.5" y="18">0</text><text x="260.5" y="18">1</text><text x="307.5" y="18">2</text><text x="354.5" y="18">3</text><text x="401.5" y="18">4</text><text x="448.5" y="18">5</text><text x="495.5" y="18">6</text><text x="542.5" y="18">7</text><text x="589.5" y="18">8</text><text x="636.5" y="18">9</text></g><text x="180" y="18" text-anchor="end" style="fill:var(--muted);font-size:11px">cycle</text>
+<text x="20" y="44" style="fill:var(--ink);font-size:12px;font-weight:600">L1 hit: the guess was right</text>
+<text x="20" y="71" style="fill:var(--ink);font-size:11.5px;font-family:var(--mono)">ld  p50 = [p11]</text>
+<rect x="192" y="54" width="43" height="26" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/>
+<text x="213.5" y="71" text-anchor="middle" style="fill:var(--ink);font-size:11px">S</text>
+<rect x="239" y="54" width="43" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="260.5" y="71" text-anchor="middle" style="fill:var(--ink);font-size:11px">RR</text>
+<rect x="286" y="54" width="43" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="307.5" y="71" text-anchor="middle" style="fill:var(--ink);font-size:11px">AG</text>
+<rect x="333" y="54" width="43" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="354.5" y="71" text-anchor="middle" style="fill:var(--ink);font-size:11px">DC</text>
+<rect x="380" y="54" width="43" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="401.5" y="71" text-anchor="middle" style="fill:var(--ink);font-size:11px">DC</text>
+<rect x="427" y="54" width="43" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="448.5" y="71" text-anchor="middle" style="fill:var(--ink);font-size:11px">DC</text>
+<rect x="474" y="54" width="43" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="495.5" y="71" text-anchor="middle" style="fill:var(--ink);font-size:11px">WB</text>
+<text x="20" y="109" style="fill:var(--ink);font-size:11.5px;font-family:var(--mono)">add p51 = p50 + 1</text>
+<text x="213.5" y="109" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="260.5" y="109" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="307.5" y="109" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="354.5" y="109" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<rect x="380" y="92" width="43" height="26" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/>
+<text x="401.5" y="109" text-anchor="middle" style="fill:var(--ink);font-size:11px">S</text>
+<rect x="427" y="92" width="43" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="448.5" y="109" text-anchor="middle" style="fill:var(--ink);font-size:11px">RR</text>
+<rect x="474" y="92" width="43" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="495.5" y="109" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="521" y="92" width="43" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="542.5" y="109" text-anchor="middle" style="fill:var(--ink);font-size:11px">WB</text>
+<text x="20" y="147" style="fill:var(--ink);font-size:11.5px;font-family:var(--mono)">sub p52 = p51 − p12</text>
+<text x="213.5" y="147" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="260.5" y="147" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="307.5" y="147" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="354.5" y="147" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="401.5" y="147" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<rect x="427" y="130" width="43" height="26" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/>
+<text x="448.5" y="147" text-anchor="middle" style="fill:var(--ink);font-size:11px">S</text>
+<rect x="474" y="130" width="43" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="495.5" y="147" text-anchor="middle" style="fill:var(--ink);font-size:11px">RR</text>
+<rect x="521" y="130" width="43" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="542.5" y="147" text-anchor="middle" style="fill:var(--ink);font-size:11px">EX</text>
+<rect x="568" y="130" width="43" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="589.5" y="147" text-anchor="middle" style="fill:var(--ink);font-size:11px">WB</text>
+<path d="M354.5,80 C354.5,90 401.5,80 401.5,90" style="fill:none;stroke:var(--trace);stroke-width:1.8" marker-end="url(#wkLt)"/>
+<circle cx="354.5" cy="80" r="3" style="fill:var(--trace)"/>
+<text x="348.5" y="90" text-anchor="end" style="fill:var(--trace);font-size:10.5px;font-weight:600">p50</text>
+<path d="M401.5,118 C401.5,128 448.5,118 448.5,128" style="fill:none;stroke:var(--trace);stroke-width:1.8" marker-end="url(#wkLt)"/>
+<circle cx="401.5" cy="118" r="3" style="fill:var(--trace)"/>
+<text x="395.5" y="128" text-anchor="end" style="fill:var(--trace);font-size:10.5px;font-weight:600">p51</text>
+<path d="M470,67 C478,67 466,105 474,105" style="fill:none;stroke:var(--accent-green);stroke-width:1.8" marker-end="url(#wkLb)"/>
+<path d="M517,105 C525,105 513,143 521,143" style="fill:none;stroke:var(--accent-green);stroke-width:1.8" marker-end="url(#wkLb)"/>
+<text x="448.5" y="50" text-anchor="middle" style="fill:var(--accent-green);font-size:10.5px;font-weight:600">hit</text>
+<text x="20" y="190" style="fill:var(--ink);font-size:12px;font-weight:600">L1 miss: the shadow is cancelled</text>
+<rect x="378" y="198" width="94" height="108" rx="4" style="fill:none;stroke:var(--pad);stroke-width:1.2;stroke-dasharray:4 3"/>
+<text x="425" y="320" text-anchor="middle" style="fill:var(--pad);font-size:11px">load shadow</text>
+<text x="20" y="217" style="fill:var(--ink);font-size:11.5px;font-family:var(--mono)">ld  p50 = [p11]</text>
+<rect x="192" y="200" width="43" height="26" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/>
+<text x="213.5" y="217" text-anchor="middle" style="fill:var(--ink);font-size:11px">S</text>
+<rect x="239" y="200" width="43" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="260.5" y="217" text-anchor="middle" style="fill:var(--ink);font-size:11px">RR</text>
+<rect x="286" y="200" width="43" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="307.5" y="217" text-anchor="middle" style="fill:var(--ink);font-size:11px">AG</text>
+<rect x="333" y="200" width="43" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="354.5" y="217" text-anchor="middle" style="fill:var(--ink);font-size:11px">DC</text>
+<rect x="380" y="200" width="43" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="401.5" y="217" text-anchor="middle" style="fill:var(--ink);font-size:11px">DC</text>
+<rect x="427" y="200" width="43" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="448.5" y="217" text-anchor="middle" style="fill:var(--ink);font-size:11px">DC</text>
+<text x="495.5" y="217" text-anchor="middle" style="fill:var(--muted);font-size:11px">to L2</text>
+<text x="542.5" y="217" text-anchor="middle" style="fill:var(--muted);font-size:11px">…</text>
+<text x="589.5" y="217" text-anchor="middle" style="fill:var(--muted);font-size:11px">…</text>
+<text x="636.5" y="217" text-anchor="middle" style="fill:var(--muted);font-size:11px">…</text>
+<text x="20" y="255" style="fill:var(--ink);font-size:11.5px;font-family:var(--mono)">add p51 = p50 + 1</text>
+<text x="213.5" y="255" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="260.5" y="255" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="307.5" y="255" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="354.5" y="255" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<rect x="380" y="238" width="43" height="26" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/>
+<text x="401.5" y="255" text-anchor="middle" style="fill:var(--ink);font-size:11px">S</text>
+<rect x="427" y="238" width="43" height="26" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2"/>
+<text x="448.5" y="255" text-anchor="middle" style="fill:var(--ink);font-size:11px">RR</text>
+<rect x="474" y="238" width="43" height="26" rx="3" style="fill:none;stroke:var(--accent-red);stroke-dasharray:3 3;stroke-width:1.2"/>
+<text x="495.5" y="255" text-anchor="middle" style="fill:var(--accent-red);font-size:11px">✕</text>
+<text x="542.5" y="255" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="589.5" y="255" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="636.5" y="255" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="20" y="293" style="fill:var(--ink);font-size:11.5px;font-family:var(--mono)">sub p52 = p51 − p12</text>
+<text x="213.5" y="293" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="260.5" y="293" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="307.5" y="293" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="354.5" y="293" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="401.5" y="293" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<rect x="427" y="276" width="43" height="26" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/>
+<text x="448.5" y="293" text-anchor="middle" style="fill:var(--ink);font-size:11px">S</text>
+<rect x="474" y="276" width="43" height="26" rx="3" style="fill:none;stroke:var(--accent-red);stroke-dasharray:3 3;stroke-width:1.2"/>
+<text x="495.5" y="293" text-anchor="middle" style="fill:var(--accent-red);font-size:11px">✕</text>
+<text x="542.5" y="293" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="589.5" y="293" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<text x="636.5" y="293" text-anchor="middle" style="fill:var(--muted);font-size:11px">wait</text>
+<path d="M354.5,226 C354.5,236 401.5,226 401.5,236" style="fill:none;stroke:var(--trace);stroke-width:1.8" marker-end="url(#wkLt)"/>
+<circle cx="354.5" cy="226" r="3" style="fill:var(--trace)"/>
+<text x="348.5" y="236" text-anchor="end" style="fill:var(--trace);font-size:10.5px;font-weight:600">p50</text>
+<path d="M401.5,264 C401.5,274 448.5,264 448.5,274" style="fill:none;stroke:var(--trace);stroke-width:1.8" marker-end="url(#wkLt)"/>
+<circle cx="401.5" cy="264" r="3" style="fill:var(--trace)"/>
+<text x="395.5" y="274" text-anchor="end" style="fill:var(--trace);font-size:10.5px;font-weight:600">p51</text>
+<text x="448.5" y="196" text-anchor="middle" style="fill:var(--accent-red);font-size:10.5px;font-weight:600">miss</text>
+<circle cx="26" cy="342" r="3" style="fill:var(--trace)"/><path d="M26,342 H52" style="stroke:var(--trace);stroke-width:1.8" marker-end="url(#wkLt)"/><text x="60" y="346" style="fill:var(--muted);font-size:11px">tag broadcast, wakes the consumer at the end of the cycle</text>
+<path d="M360,342 H386" style="stroke:var(--accent-green);stroke-width:1.8" marker-end="url(#wkLb)"/><text x="394" y="346" style="fill:var(--muted);font-size:11px">value through the bypass</text>
+<text x="20" y="368" style="fill:var(--muted);font-size:11px">The tag goes out in cycle 0 + (4 − 1) = 3, assuming the 4-cycle L1 hit, before the cache has answered.</text>
+<text x="20" y="384" style="fill:var(--muted);font-size:11px">The add's wakeup passes the guess on: the sub depends on the load only through the add, and it is cancelled too.</text>
+<text x="20" y="400" style="fill:var(--muted);font-size:11px">After a miss, the L2 fill broadcasts p50 again, and both instructions re-wake and issue from the queue.</text>
+</svg></div>
 <h3 id="sec-dispatch">The Dispatch Race</h3>
 <p>A new entry initializes its ready bits from the ready table, which reflects broadcasts up to the end of the previous cycle. A broadcast in the <em>same</em> cycle would miss the entry, because its tags aren't in the CAM yet. Dispatch therefore also compares the incoming source tags with the current cycle's tag buses and ORs the result into the initial ready bits. A source whose producer is in the same dispatch group simply starts not ready.</p>
 <h3 id="sec-matrix">Matrix Schedulers</h3>
