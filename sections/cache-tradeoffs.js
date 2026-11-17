@@ -3047,7 +3047,7 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <ul>
 <li><strong>Sequential streams:</strong> consecutive lines in different banks, so a stream of line requests (prefetches, L1 misses) runs at full rate.</li>
 <li><strong>Two loads to neighboring elements:</strong> same line, same bank. Free with same-line merging and a conflict without it, which is why L1Ds rarely use pure line interleaving.</li>
-<li><strong>Fills and evictions:</strong> touch only one bank, leaving the other 15 free for loads.</li>
+<li><strong>Fills and evictions:</strong> touch only one bank, leaving the other 15 free for loads. The line's 8 words sit side by side in one row, so a fill is one line-wide row access (one wordline activation for all 512 bits), not 8 word accesses that need merging. The cost is that those line-wide rows also make each load more expensive. An 8 B load activates the whole row and then column-muxes out 8 B, and with all 8 ways read in parallel that is 8 × 64 B = 512 B of row for 8 B of data.</li>
 <li><strong>Strides:</strong> multiples of 16 lines × 64 B = 1 KB hit one bank, so power-of-two strides of 1 KB or more serialize.</li>
 <li><strong>Many independent misses:</strong> spread across banks, good for memory-level parallelism at L2.</li>
 </ul>
