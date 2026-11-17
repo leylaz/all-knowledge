@@ -2844,7 +2844,7 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 </svg></div>
 <p>A longer busy time widens the conflict window. With k accesses per cycle, B banks, and a busy time of t cycles, a new access competes with the k × t − 1 others in flight:</p>
 <ul>
-<li><strong>Where k × t comes from:</strong> Little's law. Accesses arrive at k accesses/cycle and each holds a bank for t cycles, so on average k accesses/cycle × t cycles = k × t accesses keep some bank busy. With exactly k accesses every cycle and a fixed t you can count it directly too: the k × (t − 1) accesses from the previous t − 1 cycles that are still busy, plus the k − 1 others issued in the same cycle, give k × (t − 1) + (k − 1) = k × t − 1.</li>
+<li><strong>Where k × t comes from:</strong> Little's law. Accesses arrive at k accesses/cycle and each holds a bank for t cycles, so on average k accesses/cycle × t cycles = k × t accesses keep some bank busy.</li>
 <li><strong>Where the − 1 comes from:</strong> the new access is one of the k × t, and it doesn't compete with itself.</li>
 <li><strong>When it holds:</strong> Little's law assumes a steady state where all k accesses/cycle get through. A stalled access stays in flight longer, or the core issues fewer, so k × t − 1 is the no-stall count. It's accurate when conflicts are rare and drifts as they become common.</li>
 </ul>
