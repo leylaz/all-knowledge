@@ -2916,7 +2916,7 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <p>Fixes, from hardware to software:</p>
 <ul>
 <li>More banks, so random collisions are rarer.</li>
-<li>Same-line merging, so the common case of neighboring elements is free.</li>
+<li>Same-line merging, so the common case of neighboring elements is free. When two same-cycle loads share bank bits but also share a line address, they want the same 8 B chunk, so the bank does one read and both ports take their bytes from it. A real conflict then needs the same bank <em>and</em> different lines.</li>
 <li>XOR-hashing upper address bits into the bank number, so aligned arrays and power-of-two strides spread out.</li>
 <li>Bank prediction, letting the scheduler avoid picking two loads to the same bank together (Yoaz and colleagues, ISCA 1999).</li>
 <li>Padding and offsetting arrays in software, the same fix GPU programmers use for <a href="#/gpu-smem/banks">shared-memory bank conflicts</a>.</li>
