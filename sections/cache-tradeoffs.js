@@ -2636,7 +2636,7 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <li><strong>Wordlines:</strong> delay grows with the square of the columns a wordline crosses.</li>
 <li><strong>Bitlines:</strong> delay grows linearly with the rows hanging on a bitline.</li>
 <li><strong>Energy:</strong> every read swings a bitline in every column of the row, so read energy grows with rows × columns.</li>
-<li><strong>Ports:</strong> one decoder and one set of sense amplifiers serve one access at a time, and adding ports grows area roughly with the square of the port count.</li>
+<li><strong>Ports:</strong> one decoder and one set of sense amplifiers serve one access at a time (see <a href="#/cache-banking/ports">Multiporting and Replication</a> for adding ports instead).</li>
 </ul>
 <p><a href="#/sram-dram/array-size">How Array Size Sets Delay and Energy</a> on the SRAM vs. DRAM page works through the physics behind each of these.</p>
 <p>Banking attacks all four at once. The array is cut into independent banks, and each bank gets its own decoder, sense amplifiers, and precharge logic. A few address bits pick the bank, and only that bank switches:</p>
@@ -3092,7 +3092,7 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <p><strong>Motivation.</strong> The alternatives to banking when conflicts are unacceptable: give every cell more ports, run the array twice per cycle, or keep two copies.</p>
 <p><strong>How it works.</strong></p>
 <ul>
-<li><strong>Multiported cells:</strong> each SRAM cell gets extra wordlines and bitlines (an 8-transistor cell adds a separate read port), so any two addresses can be read at once.</li>
+<li><strong>Multiported cells:</strong> each SRAM cell gets extra wordlines and bitlines (an 8-transistor cell adds a separate read port), so any two addresses can be read at once. <a href="#/rat-circuit/word-bit-lines">Word Lines and Bit Lines</a> shows that read port's two-transistor stack and why cell area grows roughly with the square of the port count, and <a href="#/rename-cost">What Renaming Costs</a> scales it to wider renamers.</li>
 <li><strong>Double pumping:</strong> the array runs at twice the core clock and serves one access per half cycle.</li>
 <li><strong>Replication:</strong> two identical copies each serve one read. A store writes both.</li>
 </ul>
