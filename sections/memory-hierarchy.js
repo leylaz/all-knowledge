@@ -396,7 +396,6 @@ section({
 </svg></div>
 <p><strong>Why the read doesn't flip the cell.</strong> During a read, the access transistor and the pull-down transistor form a voltage divider between the bitline at VDD and ground, so the node storing 0 rises a little above 0 V. If it rose past the switching point of the other inverter, the cell would flip and the read would destroy the value. To prevent this, the pull-down transistor is sized stronger than the access transistor. The ratio of their strengths is the <strong>cell ratio</strong>, kept above about 1.2 and often closer to 2.</p>
 <h3 id="sec-sram-output">Where the Bit Leaves the Array</h3>
-<p>The 6T cell is a <strong>latch</strong>, not a flip-flop. A latch here is just the two cross-coupled inverters, with no clock. A flip-flop is a clocked master-slave pair of latches, usually 20 or more transistors per bit. The difference matters because the two are read in completely different ways.</p>
 <p><strong>The cell has no output wire.</strong> Its only connection to the outside is through the two access transistors to BL and BLB, and every cell in the column shares those bitlines. So the bit never leaves the cell as a logic value. It leaves as a difference of about 100 mV between two bitlines (steps 1 to 4 above), and the sense amp is where it first becomes a full logic 0 or 1.</p>
 <p>The path from the cell to the datapath:</p>
 <ol>
@@ -413,7 +412,6 @@ section({
 <p><strong>How flip-flops are read, for contrast.</strong> In flop-based storage, each flop's Q output is a full-swing, actively driven signal. It feeds straight into a read mux selected by the decoded address. There is no precharge, no bitline and no sense amp. Reads are simple and fast for a small structure, but each bit costs far more area, and every read port adds another mux tree.</p>
 <div class="tbl"><table>
 <tr><th></th><th>SRAM array</th><th>Flop-based storage</th></tr>
-<tr><td>Storage per bit</td><td>6T latch</td><td>Flip-flop, about 20 or more transistors</td></tr>
 <tr><td>How the bit leaves</td><td>Small swing on shared bitlines</td><td>Full-swing Q output</td></tr>
 <tr><td>Read path</td><td>Precharge, wordline, sense amp, column mux, drivers</td><td>Read mux selected by the decoded address</td></tr>
 <tr><td>Area per bit</td><td>Small</td><td>Several times larger</td></tr>
