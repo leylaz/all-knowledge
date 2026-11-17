@@ -287,6 +287,74 @@ section({
 <text x="20" y="314">so entries 0 and 1 request select in cycle 1. Entry 2 keeps waiting. Entry 3 is free, and its comparators are gated off.</text>
 </g>
 </svg></div>
+<p>The figure above is one instant. Over time, the same broadcast takes one cycle from grant to ready bit, and the woken entry can broadcast its own tag in the next:</p>
+<div class="tbl"><svg viewBox="0 0 680 400" role="img" aria-label="Timing diagram of one tag broadcast over cycles 0 and 1. Each cycle is split into select, drive tag, compare, and OR and latch phases. In cycle 0, select grants the producer of p17, which drives p17 with its valid bit onto tag bus 0. The match line of entry 1's src1, whose tag is p17, stays high, a match, and entry 1's src1_rdy latches from 0 to 1 at the clock edge ending cycle 0. The match line of entry 2's src0, whose tag is p9, discharges, a mismatch, and is precharged again at the start of cycle 1. Entry 1's request rises early in cycle 1, entry 1 wins select, and p40, its destination tag, goes out on tag bus 0. In cycle 1 entry 1's src1 comparator is gated off because the source is already ready, and entry 2's p9 mismatches again." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="bcA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker></defs>
+<text x="20" y="72" style="fill:var(--ink);font-size:11.5px">clock</text>
+<text x="20" y="110" style="fill:var(--ink);font-size:11.5px">select grant</text>
+<text x="20" y="148" style="fill:var(--ink);font-size:11.5px">tag bus 0</text>
+<text x="20" y="182" style="fill:var(--ink);font-size:11.5px">match line, entry 1 src1</text>
+<text x="20" y="195" style="fill:var(--muted);font-size:10.5px;font-family:var(--mono)">src1_tag = p17</text>
+<text x="20" y="220" style="fill:var(--ink);font-size:11.5px">match line, entry 2 src0</text>
+<text x="20" y="233" style="fill:var(--muted);font-size:10.5px;font-family:var(--mono)">src0_tag = p9</text>
+<text x="20" y="262" style="fill:var(--ink);font-size:11.5px">entry 1 src1_rdy</text>
+<text x="20" y="300" style="fill:var(--ink);font-size:11.5px">entry 1 request</text>
+<path d="M170,26 V314" style="stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3"/>
+<path d="M415,26 V314" style="stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3"/>
+<path d="M660,26 V314" style="stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3"/>
+<text x="292.5" y="16" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">cycle 0</text>
+<text x="537.5" y="16" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">cycle 1</text>
+<text x="203" y="38" text-anchor="middle" style="fill:var(--muted);font-size:10px">select</text>
+<text x="267" y="38" text-anchor="middle" style="fill:var(--muted);font-size:10px">drive tag</text>
+<path d="M236,30 V42" style="stroke:var(--muted);stroke-width:1"/>
+<text x="327" y="38" text-anchor="middle" style="fill:var(--muted);font-size:10px">compare</text>
+<path d="M298,30 V42" style="stroke:var(--muted);stroke-width:1"/>
+<text x="385.5" y="38" text-anchor="middle" style="fill:var(--muted);font-size:10px">OR, latch</text>
+<path d="M356,30 V42" style="stroke:var(--muted);stroke-width:1"/>
+<text x="448" y="38" text-anchor="middle" style="fill:var(--muted);font-size:10px">select</text>
+<text x="512" y="38" text-anchor="middle" style="fill:var(--muted);font-size:10px">drive tag</text>
+<path d="M481,30 V42" style="stroke:var(--muted);stroke-width:1"/>
+<text x="572" y="38" text-anchor="middle" style="fill:var(--muted);font-size:10px">compare</text>
+<path d="M543,30 V42" style="stroke:var(--muted);stroke-width:1"/>
+<text x="630.5" y="38" text-anchor="middle" style="fill:var(--muted);font-size:10px">OR, latch</text>
+<path d="M601,30 V42" style="stroke:var(--muted);stroke-width:1"/>
+<path d="M170,58 H292 L298,78 H415 L421,58 H537 L543,78 H660" style="fill:none;stroke:var(--ink);stroke-width:1.6"/>
+<path d="M170,106 H232" style="stroke:var(--muted);stroke-width:1.4"/>
+<path d="M232,106 L238,96 H404 L410,106 L404,116 H238 Z" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.4"/>
+<text x="321" y="110" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">producer of p17</text>
+<path d="M410,106 H477" style="stroke:var(--muted);stroke-width:1.4"/>
+<path d="M477,106 L483,96 H649 L655,106 L649,116 H483 Z" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.4"/>
+<text x="566" y="110" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">entry 1, dst p40</text>
+<path d="M170,144 H245" style="stroke:var(--muted);stroke-width:1.4"/>
+<path d="M245,144 L251,134 H404 L410,144 L404,154 H251 Z" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.4"/>
+<text x="327.5" y="148" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">p17, valid</text>
+<path d="M410,144 H490" style="stroke:var(--muted);stroke-width:1.4"/>
+<path d="M490,144 L496,134 H649 L655,144 L649,154 H496 Z" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.4"/>
+<text x="572.5" y="148" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">p40, valid</text>
+<path d="M170,172 H415 H419 L425,192" style="fill:none;stroke:var(--ink);stroke-width:1.6"/>
+<path d="M425,192 H660" style="stroke:var(--surface);stroke-width:3"/><path d="M425,192 H660" style="stroke:var(--muted);stroke-width:1.6;stroke-dasharray:4 3"/>
+<text x="305" y="188" text-anchor="start" style="fill:var(--accent-green);font-size:10.5px">stays high: match</text>
+<text x="500" y="184" text-anchor="start" style="fill:var(--muted);font-size:10.5px">gated off, src1 is already ready</text>
+<path d="M170,210 H298 L304,230 H415 L421,210 H543 L549,230 H660" style="fill:none;stroke:var(--ink);stroke-width:1.6"/>
+<text x="310" y="220" text-anchor="start" style="fill:var(--accent-red);font-size:10.5px">discharges: mismatch</text>
+<text x="436" y="224" text-anchor="start" style="fill:var(--muted);font-size:10.5px">precharge</text>
+<text x="555" y="220" text-anchor="start" style="fill:var(--accent-red);font-size:10.5px">mismatch again</text>
+<path d="M170,268 H415 L421,248 H660" style="fill:none;stroke:var(--ink);stroke-width:1.6"/>
+<text x="240" y="262" text-anchor="start" style="fill:var(--muted);font-size:10.5px">0</text>
+<text x="530" y="256" text-anchor="start" style="fill:var(--muted);font-size:10.5px">1</text>
+<path d="M170,306 H427 L433,286 H660" style="fill:none;stroke:var(--ink);stroke-width:1.6"/>
+<text x="530" y="294" text-anchor="start" style="fill:var(--muted);font-size:10.5px">requests select</text>
+<path d="M236,116 C236,124 250,126 250,133" style="fill:none;stroke:var(--trace);stroke-width:1.3" marker-end="url(#bcA)"/>
+<path d="M300,154 V170" style="fill:none;stroke:var(--trace);stroke-width:1.3" marker-end="url(#bcA)"/>
+<path d="M296,154 C296,184 300,198 300,208" style="fill:none;stroke:var(--trace);stroke-width:1.3" marker-end="url(#bcA)"/>
+<path d="M407,174 L416,265" style="fill:none;stroke:var(--trace);stroke-width:1.3;stroke-dasharray:4 3" marker-end="url(#bcA)"/>
+<path d="M423,248 C423,270 430,278 430,285" style="fill:none;stroke:var(--trace);stroke-width:1.3" marker-end="url(#bcA)"/>
+<path d="M488,285 V118" style="fill:none;stroke:var(--trace);stroke-width:1.3;stroke-dasharray:4 3" marker-end="url(#bcA)"/>
+<text x="20" y="336" style="fill:var(--muted);font-size:11px">Cycle 0: select grants p17's producer, which drives p17 onto tag bus 0. Every comparator then evaluates against it.</text>
+<text x="20" y="352" style="fill:var(--muted);font-size:11px">Entry 1's src1 holds p17, so its match line stays high and src1_rdy latches 1 at the clock edge. Entry 2's p9 mismatches,</text>
+<text x="20" y="368" style="fill:var(--muted);font-size:11px">so its line discharges and has to be precharged again, which is the energy a broadcast costs. (Entry 1's src0 matched p33</text>
+<text x="20" y="384" style="fill:var(--muted);font-size:11px">on bus 1 in the same cycle, not drawn.) Cycle 1: entry 1 requests, wins select, and broadcasts its own tag, p40.</text>
+</svg></div>
 <h3 id="sec-match">The Match Circuit</h3>
 <p>Each comparator is a CAM match line:</p>
 <ol><li>At the start of the cycle the match line is precharged high.</li><li>Each tag bit drives an XOR of the bus bit and the stored bit. The XOR output gates a pull-down transistor on the match line.</li><li>Any mismatched bit discharges the line. The line stays high only if every bit matches, and the bus valid bit gates the result.</li><li>The W match lines for a source are ORed together and with the current ready bit, and the result is written into the ready flip-flop.</li><li>The entry's request is <code>valid & src0_rdy & src1_rdy</code>.</li></ol>
