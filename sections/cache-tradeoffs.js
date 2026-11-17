@@ -3060,6 +3060,304 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <text x="0" y="156" text-anchor="start" style="fill:var(--muted);font-size:10px">sets 48–63</text><rect x="78" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="95" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S48</text><rect x="114" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="131" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S49</text><rect x="150" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="167" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S50</text><rect x="186" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="203" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S51</text><rect x="222" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="239" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S52</text><rect x="258" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="275" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S53</text><rect x="294" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="311" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S54</text><rect x="330" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="347" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S55</text><rect x="366" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="383" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S56</text><rect x="402" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="419" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S57</text><rect x="438" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="455" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S58</text><rect x="474" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="491" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S59</text><rect x="510" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="527" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S60</text><rect x="546" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="563" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S61</text><rect x="582" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="599" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S62</text><rect x="618" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="635" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S63</text>
 <text x="78" y="182" text-anchor="start" style="fill:var(--muted);font-size:10px">Whole 64 B lines (all 8 ways of set S) stay in one bank. Consecutive lines go to consecutive banks.</text><text x="78" y="196" text-anchor="start" style="fill:var(--muted);font-size:10px">Each bank: 4 sets × 8 ways × 64 B = 2 KB. Address +1 KB wraps back to the same bank.</text>
 </svg></div>
+<p>Inside a bank, each row holds one set: the full 64 B lines of all 8 ways side by side, 512 B (physically split into subarrays that share the row decode). B0 has 4 rows, for sets 0, 16, 32, and 48. A load activates its set's whole row, a column mux keeps the addressed word (bits 5–3) of each way, and the way mux picks the hit way. A fill writes one way's 64 B slot in one access:</p>
+<div class="tbl"><svg viewBox="0 0 680 326" role="img" aria-label="Inside bank B0 of the line-interleaved L1D: 4 rows for sets 0, 16, 32, and 48, and each row holds the full 64-byte line of all 8 ways, 512 bytes. A load to set 16 activates the whole row, a column mux keeps word 3 of each way, and an 8 to 1 way mux picks the hit way, here way 3. A fill writes one 64-byte way slot of one row in a single access." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="14" text-anchor="start" style="fill:var(--ink);font-size:13px;font-weight:600">Inside bank B0: one row per set, one whole 64 B line per way</text>
+<text x="109" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 0</text>
+<text x="173" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 1</text>
+<text x="237" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 2</text>
+<text x="301" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 3</text>
+<text x="365" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 4</text>
+<text x="429" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 5</text>
+<text x="493" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 6</text>
+<text x="557" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 7</text>
+<text x="0" y="66" text-anchor="start" style="fill:var(--muted);font-size:10px">set 0</text>
+<rect x="78" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M85.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M93.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M101.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M109,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M116.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M124.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M132.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="142" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M149.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M157.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M165.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M173,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M180.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M188.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M196.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="206" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M213.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M221.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M229.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M237,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M244.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M252.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M260.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="270" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M277.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M285.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M293.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M301,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M308.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M316.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M324.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="334" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M341.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M349.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M357.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M365,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M372.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M380.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M388.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="398" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M405.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M413.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M421.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M429,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M436.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M444.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M452.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="462" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M469.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M477.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M485.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M493,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M500.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M508.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M516.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="526" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M533.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M541.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M549.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M557,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M564.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M572.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M580.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="96" text-anchor="start" style="fill:var(--muted);font-size:10px">set 16 (read)</text>
+<rect x="78" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M85.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M93.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M101.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M109,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M116.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M124.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M132.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="101.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<rect x="142" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M149.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M157.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M165.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M173,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M180.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M188.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M196.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="165.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<rect x="206" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M213.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M221.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M229.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M237,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M244.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M252.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M260.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="229.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<rect x="270" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<path d="M277.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M285.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M293.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M301,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M308.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M316.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M324.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="293.25" y="80" width="7.75" height="24" style="fill:var(--accent-red);fill-opacity:0.55"/>
+<rect x="334" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M341.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M349.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M357.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M365,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M372.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M380.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M388.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="357.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<rect x="398" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M405.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M413.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M421.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M429,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M436.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M444.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M452.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="421.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<rect x="462" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M469.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M477.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M485.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M493,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M500.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M508.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M516.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="485.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<rect x="526" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M533.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M541.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M549.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M557,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M564.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M572.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M580.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="549.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<text x="0" y="126" text-anchor="start" style="fill:var(--muted);font-size:10px">set 32</text>
+<rect x="78" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M85.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M93.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M101.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M109,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M116.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M124.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M132.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="142" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M149.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M157.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M165.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M173,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M180.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M188.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M196.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="206" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M213.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M221.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M229.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M237,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M244.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M252.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M260.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="270" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M277.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M285.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M293.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M301,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M308.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M316.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M324.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="334" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M341.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M349.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M357.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M365,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M372.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M380.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M388.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="398" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M405.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M413.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M421.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M429,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M436.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M444.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M452.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="462" y="110" width="62" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<path d="M469.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M477.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M485.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M493,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M500.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M508.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M516.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="526" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M533.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M541.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M549.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M557,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M564.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M572.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M580.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="156" text-anchor="start" style="fill:var(--muted);font-size:10px">set 48</text>
+<rect x="78" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M85.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M93.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M101.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M109,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M116.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M124.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M132.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="142" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M149.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M157.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M165.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M173,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M180.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M188.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M196.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="206" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M213.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M221.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M229.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M237,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M244.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M252.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M260.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="270" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M277.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M285.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M293.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M301,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M308.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M316.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M324.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="334" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M341.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M349.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M357.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M365,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M372.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M380.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M388.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="398" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M405.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M413.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M421.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M429,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M436.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M444.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M452.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="462" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M469.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M477.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M485.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M493,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M500.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M508.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M516.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="526" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M533.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M541.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M549.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M557,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M564.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M572.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M580.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<text x="334" y="182" text-anchor="middle" style="fill:var(--muted);font-size:10px">row 4096 bits wide = 8 ways × 64 B, 4 rows = 2 KB</text>
+<path d="M105.13,188 L178.00,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M169.13,188 L220.86,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M233.13,188 L263.71,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M297.13,188 L306.57,218" style="fill:none;stroke:var(--accent-red);stroke-width:1.8"/>
+<path d="M361.13,188 L349.43,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M425.13,188 L392.29,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M489.13,188 L435.14,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M553.13,188 L478.00,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<text x="0" y="204" text-anchor="start" style="fill:var(--muted);font-size:10px">word 3 of each way: 64 B</text>
+<path d="M158,218 H498 L438,252 H218 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1"/>
+<text x="328" y="239" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-weight:600">8:1 way mux</text>
+<path d="M538,235 H472" style="fill:none;stroke:var(--accent-red);stroke-width:1.5"/><path d="M472,235 l8,-4 v8 Z" style="fill:var(--accent-red)"/>
+<text x="542" y="232" text-anchor="start" style="fill:var(--ink);font-size:10px">hit way = 3</text>
+<text x="542" y="245" text-anchor="start" style="fill:var(--muted);font-size:10px">(tag compare)</text>
+<path d="M328,252 V270" style="fill:none;stroke:var(--accent-red);stroke-width:1.8"/><path d="M328,276 l-4,-8 h8 Z" style="fill:var(--accent-red)"/>
+<text x="328" y="290" text-anchor="middle" style="fill:var(--ink);font-size:10px">8 B to the load port</text>
+<g style="fill:var(--muted);font-size:11px"><rect x="0" y="304" width="16" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="22" y="314">row read by the load</text><rect x="168" y="304" width="16" height="12" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/><text x="190" y="314">64 B fill, one access</text><rect x="330" y="304" width="16" height="12" rx="2" style="fill:var(--trace);fill-opacity:0.55"/><text x="352" y="314">word 3 (bits 5–3)</text></g>
+</svg></div>
 <h4>High-Order</h4>
 <p><strong>How it works.</strong> The bank bits are the top of the set index (bits 11–8), so each bank holds a contiguous range of sets: here 4 sets, or 256 B of each 4 KB of address space. Hennessy &amp; Patterson describe it as the alternative to low-order interleaving in memory systems.</p>
 <ul>
@@ -3076,6 +3374,303 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <text x="0" y="126" text-anchor="start" style="fill:var(--muted);font-size:10px">3rd set</text><rect x="78" y="110" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="95" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S2</text><rect x="114" y="110" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="131" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S6</text><rect x="150" y="110" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="167" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S10</text><rect x="186" y="110" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="203" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S14</text><rect x="222" y="110" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="239" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S18</text><rect x="258" y="110" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="275" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S22</text><rect x="294" y="110" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="311" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S26</text><rect x="330" y="110" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="347" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S30</text><rect x="366" y="110" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="383" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S34</text><rect x="402" y="110" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="419" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S38</text><rect x="438" y="110" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="455" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S42</text><rect x="474" y="110" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="491" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S46</text><rect x="510" y="110" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="527" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S50</text><rect x="546" y="110" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="563" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S54</text><rect x="582" y="110" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="599" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S58</text><rect x="618" y="110" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="635" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S62</text>
 <text x="0" y="156" text-anchor="start" style="fill:var(--muted);font-size:10px">4th set</text><rect x="78" y="140" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="95" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S3</text><rect x="114" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="131" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S7</text><rect x="150" y="140" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="167" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S11</text><rect x="186" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="203" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S15</text><rect x="222" y="140" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="239" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S19</text><rect x="258" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="275" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S23</text><rect x="294" y="140" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="311" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S27</text><rect x="330" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="347" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S31</text><rect x="366" y="140" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="383" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S35</text><rect x="402" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="419" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S39</text><rect x="438" y="140" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="455" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S43</text><rect x="474" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="491" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S47</text><rect x="510" y="140" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="527" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S51</text><rect x="546" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="563" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S55</text><rect x="582" y="140" width="34" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="599" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S59</text><rect x="618" y="140" width="34" height="24" rx="2" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/><text x="635" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S63</text>
 <text x="78" y="182" text-anchor="start" style="fill:var(--muted);font-size:10px">Each bank holds a contiguous block of 4 sets (256 B of every 4 KB). Sets 0–3 all sit in B0.</text><text x="78" y="196" text-anchor="start" style="fill:var(--muted);font-size:10px">A sequential stream reads B0 four times before it reaches B1.</text>
+</svg></div>
+<p>The inside of a bank looks like the line-interleaved one, with whole lines and all 8 ways in each row. Only the rows differ. B0 holds sets 0–3, so a sequential stream walks down B0's rows, one access per cycle, before it reaches B1:</p>
+<div class="tbl"><svg viewBox="0 0 680 300" role="img" aria-label="Inside bank B0 of the high-order banked L1D: 4 rows for the consecutive sets 0, 1, 2, and 3, each holding the full 64-byte line of all 8 ways. A sequential stream reads set 0, then set 1, then set 2, all in this one bank. The load to set 1 shown here keeps word 3 of each way and the way mux picks way 6." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="14" text-anchor="start" style="fill:var(--ink);font-size:13px;font-weight:600">Inside bank B0: four consecutive sets, one whole line per way</text>
+<text x="109" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 0</text>
+<text x="173" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 1</text>
+<text x="237" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 2</text>
+<text x="301" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 3</text>
+<text x="365" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 4</text>
+<text x="429" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 5</text>
+<text x="493" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 6</text>
+<text x="557" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 7</text>
+<text x="0" y="66" text-anchor="start" style="fill:var(--muted);font-size:10px">set 0</text>
+<rect x="78" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M85.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M93.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M101.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M109,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M116.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M124.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M132.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="142" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M149.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M157.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M165.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M173,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M180.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M188.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M196.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="206" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M213.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M221.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M229.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M237,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M244.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M252.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M260.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="270" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M277.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M285.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M293.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M301,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M308.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M316.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M324.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="334" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M341.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M349.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M357.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M365,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M372.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M380.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M388.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="398" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M405.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M413.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M421.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M429,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M436.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M444.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M452.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="462" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M469.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M477.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M485.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M493,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M500.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M508.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M516.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="526" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M533.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M541.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M549.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M557,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M564.75,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M572.5,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M580.25,53 V71" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="96" text-anchor="start" style="fill:var(--muted);font-size:10px">set 1 (read)</text>
+<rect x="78" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M85.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M93.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M101.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M109,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M116.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M124.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M132.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="101.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<rect x="142" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M149.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M157.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M165.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M173,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M180.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M188.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M196.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="165.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<rect x="206" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M213.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M221.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M229.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M237,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M244.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M252.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M260.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="229.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<rect x="270" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M277.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M285.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M293.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M301,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M308.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M316.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M324.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="293.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<rect x="334" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M341.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M349.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M357.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M365,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M372.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M380.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M388.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="357.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<rect x="398" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M405.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M413.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M421.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M429,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M436.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M444.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M452.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="421.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<rect x="462" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<path d="M469.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M477.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M485.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M493,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M500.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M508.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M516.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="485.25" y="80" width="7.75" height="24" style="fill:var(--accent-red);fill-opacity:0.55"/>
+<rect x="526" y="80" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<path d="M533.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M541.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M549.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M557,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M564.75,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M572.5,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M580.25,83 V101" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="549.25" y="80" width="7.75" height="24" style="fill:var(--trace);fill-opacity:0.55"/>
+<text x="0" y="126" text-anchor="start" style="fill:var(--muted);font-size:10px">set 2</text>
+<rect x="78" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M85.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M93.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M101.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M109,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M116.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M124.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M132.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="142" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M149.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M157.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M165.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M173,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M180.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M188.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M196.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="206" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M213.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M221.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M229.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M237,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M244.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M252.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M260.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="270" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M277.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M285.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M293.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M301,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M308.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M316.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M324.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="334" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M341.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M349.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M357.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M365,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M372.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M380.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M388.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="398" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M405.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M413.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M421.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M429,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M436.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M444.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M452.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="462" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M469.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M477.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M485.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M493,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M500.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M508.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M516.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="526" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M533.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M541.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M549.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M557,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M564.75,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M572.5,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M580.25,113 V131" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<text x="0" y="156" text-anchor="start" style="fill:var(--muted);font-size:10px">set 3</text>
+<rect x="78" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M85.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M93.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M101.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M109,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M116.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M124.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M132.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="142" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M149.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M157.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M165.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M173,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M180.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M188.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M196.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="206" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M213.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M221.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M229.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M237,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M244.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M252.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M260.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="270" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M277.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M285.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M293.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M301,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M308.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M316.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M324.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="334" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M341.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M349.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M357.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M365,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M372.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M380.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M388.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="398" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M405.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M413.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M421.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M429,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M436.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M444.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M452.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="462" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M469.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M477.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M485.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M493,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M500.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M508.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M516.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<rect x="526" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<path d="M533.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M541.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M549.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M557,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M564.75,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M572.5,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<path d="M580.25,143 V161" style="fill:none;stroke:var(--rule);stroke-width:0.6"/>
+<text x="334" y="182" text-anchor="middle" style="fill:var(--muted);font-size:10px">row 4096 bits wide = 8 ways × 64 B, 4 rows = 2 KB, and a stream walks down these rows one at a time</text>
+<path d="M105.13,188 L178.00,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M169.13,188 L220.86,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M233.13,188 L263.71,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M297.13,188 L306.57,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M361.13,188 L349.43,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M425.13,188 L392.29,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M489.13,188 L435.14,218" style="fill:none;stroke:var(--accent-red);stroke-width:1.8"/>
+<path d="M553.13,188 L478.00,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<text x="0" y="204" text-anchor="start" style="fill:var(--muted);font-size:10px">word 3 of each way: 64 B</text>
+<path d="M158,218 H498 L438,252 H218 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1"/>
+<text x="328" y="239" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-weight:600">8:1 way mux</text>
+<path d="M538,235 H472" style="fill:none;stroke:var(--accent-red);stroke-width:1.5"/><path d="M472,235 l8,-4 v8 Z" style="fill:var(--accent-red)"/>
+<text x="542" y="232" text-anchor="start" style="fill:var(--ink);font-size:10px">hit way = 6</text>
+<text x="542" y="245" text-anchor="start" style="fill:var(--muted);font-size:10px">(tag compare)</text>
+<path d="M328,252 V270" style="fill:none;stroke:var(--accent-red);stroke-width:1.8"/><path d="M328,276 l-4,-8 h8 Z" style="fill:var(--accent-red)"/>
+<text x="328" y="290" text-anchor="middle" style="fill:var(--ink);font-size:10px">8 B to the load port</text>
 </svg></div>
 <h4>XOR-Hashed</h4>
 <p><strong>How it works.</strong> The low bank bits (word or line) are XORed with higher address bits (here bits 9–6 XOR bits 15–12), so addresses that agree in the low bits but differ higher up spread out. The XOR gates add a gate delay ahead of bank decode. Intel's LLC slice hash is the large-scale version.</p>
@@ -3095,6 +3690,103 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <text x="78" y="182" text-anchor="start" style="fill:var(--muted);font-size:10px">Lx = line x of the first 1 KB of 4 KB page p (p = bits 15–12). Bank = line bits 9–6 XOR page bits 15–12.</text><text x="78" y="196" text-anchor="start" style="fill:var(--muted);font-size:10px">Line 0 of each page (a[0], b[0], c[0], d[0] of page-aligned arrays) lands in B0, B1, B2, B3 instead of all in B0.</text>
 <g style="fill:var(--muted);font-size:11px"><rect x="0" y="210" width="16" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/><text x="22" y="220">line 0 of each page</text></g>
 </svg></div>
+<p>Because the bank now depends on bits 15–12, the set index has to be hashed the same way. Otherwise the 8 ways of one set would scatter across banks. Each row is one hashed set (bits 11–10 plus the hashed bank bits), so its ways can hold lines from different pages. The tag keeps bits 15–12, which recovers the original bits 9–6 on a writeback:</p>
+<div class="tbl"><svg viewBox="0 0 680 300" role="img" aria-label="Inside bank B0 of the XOR-hashed L1D: 4 rows, one per hashed set, selected by bits 11 to 10. Example contents: way w of row 0 holds line w of page w, because line bits 9 to 6 XOR page bits 15 to 12 is 0 for every one of them. A load to line 2 of page 2 reads row 0, and the way mux picks way 2." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="14" text-anchor="start" style="fill:var(--ink);font-size:13px;font-weight:600">Inside bank B0: one row per hashed set, ways from different pages</text>
+<text x="109" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 0</text>
+<text x="173" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 1</text>
+<text x="237" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 2</text>
+<text x="301" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 3</text>
+<text x="365" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 4</text>
+<text x="429" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 5</text>
+<text x="493" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 6</text>
+<text x="557" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">way 7</text>
+<text x="0" y="66" text-anchor="start" style="fill:var(--muted);font-size:10px">row 0 (read)</text>
+<rect x="78" y="50" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="109" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p0·L0</text>
+<rect x="142" y="50" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="173" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p1·L1</text>
+<rect x="206" y="50" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<text x="237" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p2·L2</text>
+<rect x="270" y="50" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="301" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p3·L3</text>
+<rect x="334" y="50" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="365" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p4·L4</text>
+<rect x="398" y="50" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="429" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p5·L5</text>
+<rect x="462" y="50" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="493" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p6·L6</text>
+<rect x="526" y="50" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/>
+<text x="557" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p7·L7</text>
+<text x="0" y="96" text-anchor="start" style="fill:var(--muted);font-size:10px">row 1</text>
+<rect x="78" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="109" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p0·L16</text>
+<rect x="142" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="173" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p1·L17</text>
+<rect x="206" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="237" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p2·L18</text>
+<rect x="270" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="301" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p3·L19</text>
+<rect x="334" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="365" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p4·L20</text>
+<rect x="398" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="429" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p5·L21</text>
+<rect x="462" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="493" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p6·L22</text>
+<rect x="526" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="557" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p7·L23</text>
+<text x="0" y="126" text-anchor="start" style="fill:var(--muted);font-size:10px">row 2</text>
+<rect x="78" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="109" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p0·L32</text>
+<rect x="142" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="173" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p1·L33</text>
+<rect x="206" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="237" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p2·L34</text>
+<rect x="270" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="301" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p3·L35</text>
+<rect x="334" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="365" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p4·L36</text>
+<rect x="398" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="429" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p5·L37</text>
+<rect x="462" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="493" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p6·L38</text>
+<rect x="526" y="110" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="557" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p7·L39</text>
+<text x="0" y="156" text-anchor="start" style="fill:var(--muted);font-size:10px">row 3</text>
+<rect x="78" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="109" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p0·L48</text>
+<rect x="142" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="173" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p1·L49</text>
+<rect x="206" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="237" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p2·L50</text>
+<rect x="270" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="301" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p3·L51</text>
+<rect x="334" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="365" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p4·L52</text>
+<rect x="398" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="429" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p5·L53</text>
+<rect x="462" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="493" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p6·L54</text>
+<rect x="526" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="557" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">p7·L55</text>
+<text x="334" y="182" text-anchor="middle" style="fill:var(--muted);font-size:10px">Row = bits 11–10. pW·Lx = line x of page W. In B0, line bits 9–6 XOR page bits 15–12 = 0.</text>
+<path d="M109.00,188 L178.00,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M173.00,188 L220.86,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M237.00,188 L263.71,218" style="fill:none;stroke:var(--accent-red);stroke-width:1.8"/>
+<path d="M301.00,188 L306.57,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M365.00,188 L349.43,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M429.00,188 L392.29,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M493.00,188 L435.14,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<path d="M557.00,188 L478.00,218" style="fill:none;stroke:var(--muted);stroke-width:0.8"/>
+<text x="0" y="204" text-anchor="start" style="fill:var(--muted);font-size:10px">one word per way: 64 B</text>
+<path d="M158,218 H498 L438,252 H218 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1"/>
+<text x="328" y="239" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-weight:600">8:1 way mux</text>
+<path d="M538,235 H472" style="fill:none;stroke:var(--accent-red);stroke-width:1.5"/><path d="M472,235 l8,-4 v8 Z" style="fill:var(--accent-red)"/>
+<text x="542" y="232" text-anchor="start" style="fill:var(--ink);font-size:10px">hit way = 2</text>
+<text x="542" y="245" text-anchor="start" style="fill:var(--muted);font-size:10px">(tag compare)</text>
+<path d="M328,252 V270" style="fill:none;stroke:var(--accent-red);stroke-width:1.8"/><path d="M328,276 l-4,-8 h8 Z" style="fill:var(--accent-red)"/>
+<text x="328" y="290" text-anchor="middle" style="fill:var(--ink);font-size:10px">8 B to the load port</text>
+</svg></div>
 <h4>Way-Partitioned</h4>
 <p><strong>How it works.</strong> Each way (or pair of ways) gets its own bank. It suits phased caches, mostly L2 and LLC, that read tags first and then only the hit way's data, so each data access activates one bank.</p>
 <ul>
@@ -3111,6 +3803,115 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <text x="0" y="164" text-anchor="start" style="fill:var(--muted);font-size:10px">set 3</text><rect x="78" y="148" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="113" y="164" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S3 W0</text><rect x="150" y="148" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="185" y="164" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S3 W1</text><rect x="222" y="148" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="257" y="164" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S3 W2</text><rect x="294" y="148" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="329" y="164" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S3 W3</text><rect x="366" y="148" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="401" y="164" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S3 W4</text><rect x="438" y="148" width="70" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="473" y="164" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S3 W5</text><rect x="510" y="148" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="545" y="164" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S3 W6</text><rect x="582" y="148" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="617" y="164" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S3 W7</text>
 <text x="113" y="186" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text><text x="185" y="186" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text><text x="257" y="186" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text><text x="329" y="186" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text><text x="401" y="186" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text><text x="473" y="186" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text><text x="545" y="186" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text><text x="617" y="186" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text><text x="0" y="208" text-anchor="start" style="fill:var(--muted);font-size:10px">set 63</text><rect x="78" y="192" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="113" y="208" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S63 W0</text><rect x="150" y="192" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="185" y="208" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S63 W1</text><rect x="222" y="192" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="257" y="208" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S63 W2</text><rect x="294" y="192" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="329" y="208" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S63 W3</text><rect x="366" y="192" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="401" y="208" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S63 W4</text><rect x="438" y="192" width="70" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="473" y="208" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S63 W5</text><rect x="510" y="192" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="545" y="208" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S63 W6</text><rect x="582" y="192" width="70" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/><text x="617" y="208" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">S63 W7</text><text x="78" y="234" text-anchor="start" style="fill:var(--muted);font-size:10px">Bank w holds way w of all 64 sets (64 × 64 B = 4 KB). Each 64 B line stays whole in its way's bank.</text><text x="78" y="248" text-anchor="start" style="fill:var(--muted);font-size:10px">A tag check that hits set 2, way 5 then activates only B5. The other 7 banks stay idle.</text>
 <g style="fill:var(--muted);font-size:11px"><rect x="0" y="262" width="16" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/><text x="22" y="272">line read on the hit</text><rect x="152" y="262" width="16" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.2"/><text x="174" y="272">rest of the active bank</text></g>
+</svg></div>
+<p>Inside a way-partitioned bank, each row is a single line: B5 holds way 5 of all 64 sets. The tags are read first, so by the time B5 is accessed the way is known and only one 64 B row switches:</p>
+<div class="tbl"><svg viewBox="0 0 680 312" role="img" aria-label="Inside bank B5 of the way-partitioned cache: 64 rows, one per set, and each row holds only way 5, a single 64-byte line split into words 0 to 7. A hit in set 2, way 5 reads that one row and sends the 64-byte line out with no way mux, because the tag check already chose the way." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="14" text-anchor="start" style="fill:var(--ink);font-size:13px;font-weight:600">Inside bank B5: one row per set, way 5 only</text>
+<text x="109" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">word 0</text>
+<text x="173" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">word 1</text>
+<text x="237" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">word 2</text>
+<text x="301" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">word 3</text>
+<text x="365" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">word 4</text>
+<text x="429" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">word 5</text>
+<text x="493" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">word 6</text>
+<text x="557" y="40" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">word 7</text>
+<text x="0" y="66" text-anchor="start" style="fill:var(--muted);font-size:10px">set 0</text>
+<rect x="78" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="109" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w0</text>
+<rect x="142" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="173" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w1</text>
+<rect x="206" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="237" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w2</text>
+<rect x="270" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="301" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w3</text>
+<rect x="334" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="365" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w4</text>
+<rect x="398" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="429" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w5</text>
+<rect x="462" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="493" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w6</text>
+<rect x="526" y="50" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="557" y="66" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w7</text>
+<text x="0" y="96" text-anchor="start" style="fill:var(--muted);font-size:10px">set 1</text>
+<rect x="78" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="109" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w0</text>
+<rect x="142" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="173" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w1</text>
+<rect x="206" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="237" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w2</text>
+<rect x="270" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="301" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w3</text>
+<rect x="334" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="365" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w4</text>
+<rect x="398" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="429" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w5</text>
+<rect x="462" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="493" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w6</text>
+<rect x="526" y="80" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="557" y="96" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w7</text>
+<text x="0" y="126" text-anchor="start" style="fill:var(--muted);font-size:10px">set 2 (hit)</text>
+<rect x="78" y="110" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<text x="109" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w0</text>
+<rect x="142" y="110" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<text x="173" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w1</text>
+<rect x="206" y="110" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<text x="237" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w2</text>
+<rect x="270" y="110" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<text x="301" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w3</text>
+<rect x="334" y="110" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<text x="365" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w4</text>
+<rect x="398" y="110" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<text x="429" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w5</text>
+<rect x="462" y="110" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<text x="493" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w6</text>
+<rect x="526" y="110" width="62" height="24" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/>
+<text x="557" y="126" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w7</text>
+<text x="0" y="156" text-anchor="start" style="fill:var(--muted);font-size:10px">set 3</text>
+<rect x="78" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="109" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w0</text>
+<rect x="142" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="173" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w1</text>
+<rect x="206" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="237" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w2</text>
+<rect x="270" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="301" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w3</text>
+<rect x="334" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="365" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w4</text>
+<rect x="398" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="429" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w5</text>
+<rect x="462" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="493" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w6</text>
+<rect x="526" y="140" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="557" y="156" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w7</text>
+<text x="109" y="182" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text>
+<text x="173" y="182" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text>
+<text x="237" y="182" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text>
+<text x="301" y="182" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text>
+<text x="365" y="182" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text>
+<text x="429" y="182" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text>
+<text x="493" y="182" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text>
+<text x="557" y="182" text-anchor="middle" style="fill:var(--muted);font-size:12px">⋮</text>
+<text x="0" y="206" text-anchor="start" style="fill:var(--muted);font-size:10px">set 63</text>
+<rect x="78" y="190" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="109" y="206" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w0</text>
+<rect x="142" y="190" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="173" y="206" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w1</text>
+<rect x="206" y="190" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="237" y="206" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w2</text>
+<rect x="270" y="190" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="301" y="206" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w3</text>
+<rect x="334" y="190" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="365" y="206" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w4</text>
+<rect x="398" y="190" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="429" y="206" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w5</text>
+<rect x="462" y="190" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="493" y="206" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w6</text>
+<rect x="526" y="190" width="62" height="24" rx="2" style="fill:var(--surface);stroke:var(--rule);stroke-width:0.6"/>
+<text x="557" y="206" text-anchor="middle" style="fill:var(--ink);font-size:10px;font-family:var(--mono)">w7</text>
+<text x="334" y="232" text-anchor="middle" style="fill:var(--muted);font-size:10px">row 512 bits wide = 1 way × 64 B, 64 rows = 4 KB</text>
+<path d="M334,242 V264" style="fill:none;stroke:var(--accent-red);stroke-width:1.8"/><path d="M334,270 l-4,-8 h8 Z" style="fill:var(--accent-red)"/>
+<text x="334" y="286" text-anchor="middle" style="fill:var(--ink);font-size:10px">64 B line out, no way mux: the tag check already picked way 5</text>
+<text x="334" y="302" text-anchor="middle" style="fill:var(--muted);font-size:10px">Only this 512-bit row switches. Reading all 8 ways in parallel would switch 8 rows like it, 4096 bits.</text>
 </svg></div>
 <h4>Summary by Access Pattern</h4>
 <div class="tbl"><table><tr><th>Pattern</th><th>Word-Interleaved</th><th>Line-Interleaved</th><th>High-Order</th><th>XOR-Hashed</th></tr>
