@@ -2636,7 +2636,7 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <li><strong>Wordlines:</strong> delay grows with the square of the columns a wordline crosses.</li>
 <li><strong>Bitlines:</strong> delay grows linearly with the rows hanging on a bitline.</li>
 <li><strong>Energy:</strong> every read swings a bitline in every column of the row, so read energy grows with rows × columns.</li>
-<li><strong>Ports:</strong> one decoder and one set of sense amplifiers serve one access at a time (see <a href="#/cache-banking/ports">Multiporting and Replication</a> for adding ports instead).</li>
+<li><strong>Ports:</strong> a single-ported array has one decoder and one set of sense amplifiers, so it serves one access at a time (see <a href="#/cache-banking/ports">Multiporting and Replication</a> for adding ports instead).</li>
 </ul>
 <p><a href="#/sram-array-size">How Array Size Sets Delay and Energy</a>, in the SRAM vs. DRAM region, works through the physics behind each of these, and <a href="#/sram-banks">Splitting the Array into Banks</a> covers what one bank activation costs and how a copy of the data in flops can skip it.</p>
 <p>Banking attacks all four at once. The array is cut into independent banks, and each bank gets its own decoder, sense amplifiers, and precharge logic. A few address bits pick the bank, and only that bank switches:</p>
