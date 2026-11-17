@@ -2842,8 +2842,14 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <text x="496" y="321" style="fill:var(--muted);font-size:11px">not just within one.</text>
 <g style="fill:var(--muted);font-size:11px"><rect x="0" y="350" width="16" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/><text x="22" y="360">bank busy with that load</text><rect x="190" y="350" width="16" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--accent-red);stroke-width:2"/><text x="212" y="360">load delayed by a busy bank</text></g>
 </svg></div>
-<p>A longer busy time widens the conflict window. With k accesses per cycle, B banks, and a busy time of t cycles, a new access competes with the k × t − 1 others in flight, so for random addresses:</p>
-<p>P(conflict) ≈ 1 − (1 − 1/B)<sup>k × t − 1</sup></p>
+<p>A longer busy time widens the conflict window. With k accesses per cycle, B banks, and a busy time of t cycles, a new access competes with the k × t − 1 others in flight:</p>
+<ul>
+<li><strong>Where k × t comes from:</strong> Little's law. Accesses arrive at k accesses/cycle and each holds a bank for t cycles, so on average k accesses/cycle × t cycles = k × t accesses keep some bank busy. With exactly k accesses every cycle and a fixed t you can count it directly too: the k × (t − 1) accesses from the previous t − 1 cycles that are still busy, plus the k − 1 others issued in the same cycle, give k × (t − 1) + (k − 1) = k × t − 1.</li>
+<li><strong>Where the − 1 comes from:</strong> the new access is one of the k × t, and it doesn't compete with itself.</li>
+<li><strong>When it holds:</strong> Little's law assumes a steady state where all k accesses/cycle get through. A stalled access stays in flight longer, or the core issues fewer, so k × t − 1 is the no-stall count. It's accurate when conflicts are rare and drifts as they become common.</li>
+</ul>
+<p>Each of those others hits the new access's bank with probability 1/B, so for random addresses:</p>
+<div class="math">\\[ P(\\text{conflict}) \\approx 1 - \\left(1 - \\frac{1}{B}\\right)^{k \\times t - 1} \\]</div>
 <ul>
 <li>16 banks, 2 accesses/cycle, 1-cycle busy time: 1 − (15/16)<sup>1</sup> ≈ 6.3%.</li>
 <li>16 banks, 2 accesses/cycle, 2-cycle busy time: 1 − (15/16)<sup>3</sup> ≈ 17.6%, almost 3× worse.</li>
