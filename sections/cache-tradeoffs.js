@@ -2909,7 +2909,7 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <ul>
 <li><strong>Load vs load:</strong> two loads issued together pick the same bank, the case in the figure.</li>
 <li><strong>Load vs store:</strong> committed stores drain from the store buffer into the data array and need a bank too. A store-heavy loop competes with its own loads.</li>
-<li><strong>Load vs fill or eviction:</strong> a line arriving from L2 or a dirty line leaving takes banks for a cycle or more.</li>
+<li><strong>Load vs fill or eviction:</strong> a fill writes a whole line from L2 across several banks. A dirty eviction must first read the victim line out of the data array into the writeback buffer, which also occupies those banks. Either one blocks loads to those banks for a cycle or more. Clean evictions only update tags and cost no bank time.</li>
 <li><strong>Random collisions:</strong> with k accesses per cycle over B banks and random addresses, P(conflict) = 1 − B! / ((B − k)! × B<sup>k</sup>), the birthday problem. For 16 banks, 3 loads per cycle conflict about 18% of the time.</li>
 <li><strong>Systematic collisions:</strong> far worse than random. If two arrays start at addresses that differ by a multiple of the bank span (16 banks × 8 B = 128 B on Sandy Bridge), <code>a[i]</code> and <code>b[i]</code> pick the same bank on <em>every</em> iteration, and a strided walk whose stride is a multiple of the bank span does the same.</li>
 </ul>
