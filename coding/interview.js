@@ -5668,4 +5668,247 @@ a: `<p>Keep three things per bank: the first cycle it is free, the cycle it last
 <p>The stride checks reproduce the bank arithmetic from the Math tab. A 128 B stride sends every load to bank 0, so loads go one per busy time: 64 cycles with a 1-cycle busy time and 127 with 2. A 64 B stride alternates between banks 0 and 8, which is enough with a 1-cycle busy time but halves throughput with 2, because each pair has to wait for the pair before it. XORing in bits 10–7 gives both strides 16 banks to spread over, so they get the full 2 loads per cycle. The busy-time check also shows why merging is limited to a cycle: the third load reads the same line as the first, but the bank has moved on to another line by then.</p>`
 });
 
+C("resume-bankpred", "design", {
+lvl: "hard",
+q: `<p>Implement the bank prediction table: 64 sets × 4 ways, indexed by (PC / 4 B) mod 64, with an 8-bit partial tag taken from the PC bits just above the index. Each entry holds a predicted bank and a 2-bit confidence counter. Write these functions:</p>
+<ul>
+<li><code>bp_predict</code>: return the bank if the PC hits and its confidence is at least 2, or &minus;1 otherwise. It doesn't change the table.</li>
+<li><code>bp_train</code>, given the load's real bank:
+<ul>
+<li><strong>Hit, same bank:</strong> confidence goes up by 1, saturating at 3.</li>
+<li><strong>Hit, different bank:</strong> confidence goes down by 1. If it was already 0, the entry takes the new bank instead, with confidence still 0.</li>
+<li><strong>Miss:</strong> allocate the first invalid way, or else the least recently trained way, with the real bank and confidence 1.</li>
+<li>Every train makes the entry the most recently trained in its set.</li>
+</ul></li>
+</ul>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+
+#define SETS 64
+#define WAYS 4
+#define TAG_BITS 8
+#define CONF_MAX 3
+#define CONF_PREDICT 2   /* predict when confidence >= this */
+
+typedef struct { int valid; uint32_t tag; int bank, conf; uint32_t stamp; } bp_entry_t;
+typedef struct { bp_entry_t e[SETS][WAYS]; uint32_t clock; } bp_t;
+
+static int bp_set(uint32_t pc) { return (int)((pc >> 2) % SETS); }
+static uint32_t bp_tag(uint32_t pc) { return ((pc >> 2) / SETS) & ((1u << TAG_BITS) - 1); }`,
+todo: String.raw`void bp_init(bp_t *p) {
+    /* TODO */
+}
+
+/* Return the predicted bank for a load at pc, or -1. */
+int bp_predict(bp_t *p, uint32_t pc) {
+    /* TODO */
+    return -1;
+}
+
+/* The load at pc accessed this bank. */
+void bp_train(bp_t *p, uint32_t pc, int bank) {
+    /* TODO */
+}`,
+impl: String.raw`void bp_init(bp_t *p) {
+    for (int s = 0; s < SETS; s++)
+        for (int w = 0; w < WAYS; w++) p->e[s][w].valid = 0;
+    p->clock = 0;
+}
+
+static bp_entry_t *find(bp_t *p, uint32_t pc) {
+    bp_entry_t *set = p->e[bp_set(pc)];
+    for (int w = 0; w < WAYS; w++)
+        if (set[w].valid && set[w].tag == bp_tag(pc)) return &set[w];
+    return NULL;
+}
+
+int bp_predict(bp_t *p, uint32_t pc) {
+    bp_entry_t *x = find(p, pc);
+    return x && x->conf >= CONF_PREDICT ? x->bank : -1;
+}
+
+void bp_train(bp_t *p, uint32_t pc, int bank) {
+    bp_entry_t *x = find(p, pc);
+    if (x) {
+        if (x->bank == bank) { if (x->conf < CONF_MAX) x->conf++; }
+        else if (x->conf > 0) x->conf--;
+        else x->bank = bank;               /* replace only once confidence is gone */
+    } else {
+        bp_entry_t *set = p->e[bp_set(pc)];
+        x = &set[0];
+        for (int w = 0; w < WAYS; w++) {
+            if (!set[w].valid) { x = &set[w]; break; }
+            if (set[w].stamp < x->stamp) x = &set[w];
+        }
+        x->valid = 1;
+        x->tag = bp_tag(pc);
+        x->bank = bank;
+        x->conf = 1;
+    }
+    x->stamp = ++p->clock;
+}`,
+tests: String.raw`int main(void) {
+    static bp_t p;
+    bp_init(&p);
+    const uint32_t A = 0x1000;    /* set 0, tag 16 */
+    const uint32_t B = 0x1100;    /* set 0, tag 17 */
+    const uint32_t ALIAS = 0x11000; /* set 0, tag 0x110 & 0xff = 16, same as A */
+
+    CHECK(bp_predict(&p, A) == -1, "untrained PC should not predict");
+    bp_train(&p, A, 5);
+    CHECK(bp_predict(&p, A) == -1, "confidence 1 should not predict");
+    bp_train(&p, A, 5);
+    CHECK(bp_predict(&p, A) == 5, "confidence 2 should predict bank 5, got %d", bp_predict(&p, A));
+
+    /* Hysteresis: one different bank doesn't flip a confident entry. */
+    bp_train(&p, A, 5);           /* confidence 3 */
+    bp_train(&p, A, 9);           /* 2 */
+    CHECK(bp_predict(&p, A) == 5, "one miss should keep predicting 5, got %d", bp_predict(&p, A));
+    bp_train(&p, A, 9);           /* 1 */
+    CHECK(bp_predict(&p, A) == -1, "confidence 1 should stop predicting, got %d", bp_predict(&p, A));
+    bp_train(&p, A, 9);           /* 0 */
+    bp_train(&p, A, 9);           /* bank becomes 9, confidence 0 */
+    bp_train(&p, A, 9);           /* 1 */
+    CHECK(bp_predict(&p, A) == -1, "relearning: confidence 1 should not predict, got %d", bp_predict(&p, A));
+    bp_train(&p, A, 9);           /* 2 */
+    CHECK(bp_predict(&p, A) == 9, "relearned bank should be 9, got %d", bp_predict(&p, A));
+
+    /* A PC alternating between two banks never becomes confident. */
+    int ever = 0;
+    for (int i = 0; i < 20; i++) { bp_train(&p, B, i % 2 ? 7 : 3); ever |= bp_predict(&p, B) != -1; }
+    CHECK(!ever, "an alternating PC should never predict");
+
+    /* The partial tag aliases: ALIAS was never trained but hits A's entry. */
+    CHECK(bp_predict(&p, ALIAS) == 9, "ALIAS should inherit A's bank 9, got %d", bp_predict(&p, ALIAS));
+
+    /* LRU in set 1: P0..P3 fill it, P0 is retrained, P4 evicts P1. */
+    uint32_t P[5];
+    for (int k = 0; k < 5; k++) P[k] = 0x2004 + 0x100 * (uint32_t)k;   /* set 1, tags 32..36 */
+    for (int k = 0; k < 4; k++) { bp_train(&p, P[k], k); bp_train(&p, P[k], k); }
+    bp_train(&p, P[0], 0);
+    bp_train(&p, P[4], 4);
+    CHECK(bp_predict(&p, P[1]) == -1, "P1 was least recently trained and should be evicted");
+    CHECK(bp_predict(&p, P[0]) == 0 && bp_predict(&p, P[2]) == 2 && bp_predict(&p, P[3]) == 3,
+          "P0, P2, P3 should survive, got %d %d %d", bp_predict(&p, P[0]), bp_predict(&p, P[2]), bp_predict(&p, P[3]));
+    CHECK(bp_predict(&p, P[4]) == -1, "newly allocated P4 has confidence 1 and should not predict");
+    CHECK(bp_predict(&p, A) == 9, "set 0 should be untouched by set 1, got %d", bp_predict(&p, A));
+    return REPORT();
+}`,
+a: `<p>The table is a small cache whose data is a bank and a counter. <code>find</code> does the tagged lookup, prediction is a hit plus a confidence check, and training either adjusts the hit entry or allocates a way. A timestamp per entry is the simplest exact LRU for a model. Hardware would use 5 bits of true LRU state or 3 bits of tree PLRU per set.</p>
+<p>The confidence rule gives hysteresis in both directions. A confident entry survives one odd bank, which matters for loads that are usually but not always in the same bank, such as a stack slot reached from two call depths. Changing the bank only once confidence reaches 0 means a PC that alternates between two banks keeps knocking its own counter down and never predicts, which is the right answer for a load that is right only half the time.</p>
+<p>The alias check shows the cost of a partial tag. 0x11000 and 0x1000 differ only in PC bits above the 8 tag bits, so they share an entry, and the untrained PC gets a confident prediction it never earned. With a 4-way set, a random PC falsely matches about 4 / 2<sup>8</sup> = 1.6% of the time, and each extra tag bit halves that.</p>`
+});
+
+C("resume-bankpred", "repl", {
+lvl: "hard",
+q: `<p>Study how replacement affects a bank prediction table. Model only whether each load PC is in a fully associative table of <code>entries</code> PCs. Write <code>run</code>, which sets <code>hit[i]</code> to 1 if lookup <em>i</em> finds its PC, adds the PC on a miss, and returns the hit count. On a hit, the entry moves to MRU under every policy. On a miss, a full table evicts its LRU entry, and the new PC is inserted:</p>
+<ul>
+<li><strong>LRU:</strong> at MRU.</li>
+<li><strong>LIP:</strong> at the LRU position, so it is the next victim unless it hits first.</li>
+<li><strong>BIP:</strong> at MRU on every 32nd insertion (the 32nd, 64th, and so on, counting from the first), and at the LRU position otherwise.</li>
+</ul>
+<p>The table starts empty, and a new PC fills an empty entry before any eviction. Inserting "at the LRU position" of a table that isn't full still places it below every entry already there.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+
+#define MAX_ENTRIES 1024
+#define BIP_EVERY 32
+
+typedef enum { LRU, LIP, BIP } policy_t;`,
+todo: String.raw`/* Run the PCs through a fully associative table of the given size. Set
+   hit[i] to 1 if lookup i hits, and return the number of hits. */
+int run(const uint32_t *pcs, int n, int entries, policy_t pol, char hit[]) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`int run(const uint32_t *pcs, int n, int entries, policy_t pol, char hit[]) {
+    static uint32_t pc[MAX_ENTRIES];
+    static int stamp[MAX_ENTRIES];   /* higher = more recent, may go negative */
+    int used = 0, clock = 0, inserts = 0, hits = 0;
+    for (int i = 0; i < n; i++) {
+        int k = 0;
+        while (k < used && pc[k] != pcs[i]) k++;
+        if (k < used) { stamp[k] = ++clock; hit[i] = 1; hits++; continue; }
+        hit[i] = 0;
+        int mru = pol == LRU || (pol == BIP && inserts % BIP_EVERY == BIP_EVERY - 1);
+        inserts++;
+        if (used == entries) {               /* evict the lowest stamp */
+            k = 0;
+            for (int j = 1; j < used; j++) if (stamp[j] < stamp[k]) k = j;
+        } else {
+            k = used++;
+        }
+        /* LRU position: below every other entry in the table. */
+        int any = 0, low = 0;
+        for (int j = 0; j < used; j++)
+            if (j != k && (!any || stamp[j] < low)) { low = stamp[j]; any = 1; }
+        pc[k] = pcs[i];
+        stamp[k] = mru ? ++clock : (any ? low - 1 : 0);
+    }
+    return hits;
+}`,
+tests: String.raw`#define ITERS 20
+#define HOT 10
+#define COLD 8
+#define N1 (ITERS * (HOT + COLD))
+#define N2 (ITERS * HOT)
+
+static uint32_t tr[N1 + N2];
+static char hit[N1 + N2];
+
+/* Phase 1: each iteration runs 10 hot PCs, then 8 PCs never seen again.
+   Phase 2: the hot set changes to 10 new PCs, with nothing else. */
+static void build(void) {
+    int n = 0;
+    for (int it = 0; it < ITERS; it++) {
+        for (int j = 0; j < HOT; j++) tr[n++] = 0x1000 + 4 * (uint32_t)j;
+        for (int k = 0; k < COLD; k++) tr[n++] = 0x8000 + 4 * (uint32_t)(it * COLD + k);
+    }
+    for (int it = 0; it < ITERS; it++)
+        for (int j = 0; j < HOT; j++) tr[n++] = 0x4000 + 4 * (uint32_t)j;
+}
+
+static int count(int from, int to) {
+    int h = 0;
+    for (int i = from; i < to; i++) h += hit[i];
+    return h;
+}
+
+int main(void) {
+    build();
+    int p1, p2;
+
+    /* LRU, 16 entries: a hot PC sees 9 + 8 = 17 other PCs between uses. */
+    run(tr, N1 + N2, 16, LRU, hit);
+    p1 = count(0, N1); p2 = count(N1, N1 + N2);
+    CHECK(p1 == 0, "LRU phase 1: hot reuse distance 17 > 15, expected 0 hits, got %d", p1);
+    CHECK(p2 == 190, "LRU phase 2: 10 PCs fit, expected 19 x 10 = 190 hits, got %d", p2);
+
+    /* The LRU cliff: 18 entries hold 17 others plus the PC itself. */
+    run(tr, N1, 17, LRU, hit);
+    CHECK(count(0, N1) == 0, "LRU with 17 entries: expected 0 hits, got %d", count(0, N1));
+    run(tr, N1, 18, LRU, hit);
+    CHECK(count(0, N1) == 190, "LRU with 18 entries: expected 190 hits, got %d", count(0, N1));
+
+    /* LIP keeps the hot set in phase 1 but never adapts to phase 2. */
+    run(tr, N1 + N2, 16, LIP, hit);
+    p1 = count(0, N1); p2 = count(N1, N1 + N2);
+    CHECK(p1 == 190, "LIP phase 1: expected 190 hits, got %d", p1);
+    CHECK(p2 == 0, "LIP phase 2: stale entries are never evicted, expected 0 hits, got %d", p2);
+
+    /* BIP keeps the hot set and slowly adapts. */
+    run(tr, N1 + N2, 16, BIP, hit);
+    p1 = count(0, N1); p2 = count(N1, N1 + N2);
+    CHECK(p1 == 190, "BIP phase 1: expected 190 hits, got %d", p1);
+    /* One new PC moves above the bottom per 32 insertions: 1 hit per
+       iteration in iterations 4-6, 2 in 7-10, 3 in 11-15, 4 in 16-20. */
+    CHECK(p2 == 46, "BIP phase 2: expected 46 hits, between LIP's 0 and LRU's 190, got %d", p2);
+
+    CHECK(run(tr, 0, 16, LRU, hit) == 0, "an empty trace has no hits");
+    return REPORT();
+}`,
+a: `<p>Timestamps make all three policies one loop. A hit or an MRU insertion takes the next clock value. An LRU-position insertion takes one less than the lowest stamp of the other entries, so it is the next victim unless it hits first. The victim is always the lowest stamp.</p>
+<p>The checks are the Math tab's cyclic footprint at a smaller scale. Under LRU, each hot PC has 17 other PCs between uses, so a 16-entry table hits nothing, and the cliff sits exactly between 17 and 18 entries. LIP protects the hot set: every one-time PC goes in at the bottom and is the next to be evicted, so the hot PCs hit from the second iteration on. But LIP never lets go. When the hot set changes, the old entries all sit above the bottom slot, and each new PC replaces the previous one there, so phase 2 gets no hits at all while LRU adapts in one iteration.</p>
+<p>BIP's occasional MRU insertion fixes that slowly. Each one moves a new PC above the bottom, after which the next LRU-position insertion has to evict a stale entry. In phase 1 that only replaces stale one-time PCs, so BIP matches LIP. In phase 2 the new hot set moves in one PC per 32 insertions, so BIP gets 46 hits, against LRU's 190 and LIP's 0. A predictor table that sees phase changes, such as a server switching request types, needs that balance between protecting what it has and adapting.</p>`
+});
 })();
