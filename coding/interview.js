@@ -5470,4 +5470,202 @@ int main(void) {
 a: `<p>Keeping the youngest writer of each byte (its trace index and PC) handles every overlap case at once: partial overlaps, one wide load covering two narrow stores, and a store hidden by a younger store to the same bytes. A load is then a dependence if any of its bytes has a writer closer than the window.</p>
 <p>The loop trace shows the window effect Moshovos et al. reported. The store and the load of a[i-3] are 13 instructions apart, so a 13-instruction window sees no dependences at all and a 14-instruction window sees one for nearly every iteration. Real programs have a spread of distances, so the count climbs steadily as the window grows, while the number of distinct static pairs stays small. That is what makes a PC-indexed predictor work, and what tells you how many SSIT entries a larger window needs.</p>`
 });
+C("resume-banks", "activations", {
+lvl: "medium",
+q: `<p>Count bank activations for a list of granted L1D accesses, for both bank layouts of a 16-bank L1D with 64 B lines:</p>
+<ul>
+<li><strong>Word-interleaved:</strong> the bank of a byte is (address / 8 B) mod 16.</li>
+<li><strong>Line-interleaved:</strong> the bank of a byte is (address / 64 B) mod 16.</li>
+</ul>
+<p>Write <code>activations</code>, which returns the total and fills <code>per_bank</code>. An access activates every bank that holds one of its bytes, once per bank. Two loads granted in the same cycle that need the same bank for the same line share one activation, so the second adds nothing. Stores and fills never share. Accesses arrive sorted by cycle.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+
+#define NBANKS 16
+#define WORD 8     /* bytes per bank in the word-interleaved layout */
+#define LINE 64
+
+typedef enum { LOAD, STORE, FILL } kind_t;
+typedef struct { int cycle; kind_t kind; uint32_t addr; int size; } acc_t;`,
+todo: String.raw`/* Return the number of bank activations and fill per_bank[] with the count
+   for each bank. line_interleaved picks the layout. */
+int activations(const acc_t *a, int n, int line_interleaved, int per_bank[NBANKS]) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`static int bank_of(uint32_t addr, int line_interleaved) {
+    return (int)((line_interleaved ? addr / LINE : addr / WORD) % NBANKS);
+}
+
+int activations(const acc_t *a, int n, int line_interleaved, int per_bank[NBANKS]) {
+    int total = 0;
+    int read_cycle[NBANKS];        /* last cycle a load read each bank */
+    uint32_t read_line[NBANKS];    /* and the line it read */
+    for (int b = 0; b < NBANKS; b++) { per_bank[b] = 0; read_cycle[b] = -1; read_line[b] = 0; }
+    for (int i = 0; i < n; i++) {
+        int done[NBANKS] = {0};    /* banks this access already activated */
+        for (uint32_t x = a[i].addr; x < a[i].addr + (uint32_t)a[i].size; x++) {
+            int b = bank_of(x, line_interleaved);
+            uint32_t line = x / LINE;
+            if (done[b]) continue;
+            done[b] = 1;
+            /* A second load to the same line in the same cycle shares the read. */
+            if (a[i].kind == LOAD && read_cycle[b] == a[i].cycle && read_line[b] == line) continue;
+            per_bank[b]++;
+            total++;
+            if (a[i].kind == LOAD) { read_cycle[b] = a[i].cycle; read_line[b] = line; }
+        }
+    }
+    return total;
+}`,
+tests: String.raw`static int one(acc_t x, int line_interleaved) {
+    int pb[NBANKS];
+    return activations(&x, 1, line_interleaved, pb);
+}
+
+int main(void) {
+    int pb[NBANKS] = {0}, n;
+    /* Single accesses in each layout: word-interleaved, then line-interleaved. */
+    acc_t ld8 = { 0, LOAD, 0x1000, 8 }, ld32 = { 0, LOAD, 0x1020, 32 }, fill = { 0, FILL, 0x2000, 64 };
+    acc_t st8 = { 0, STORE, 0x1000, 8 }, split = { 0, LOAD, 0x1004, 8 }, cross = { 0, LOAD, 0x103c, 8 };
+    CHECK(one(ld8, 0) == 1 && one(ld8, 1) == 1, "8 B load: expected 1 and 1, got %d and %d", one(ld8, 0), one(ld8, 1));
+    CHECK(one(ld32, 0) == 4 && one(ld32, 1) == 1, "32 B load: expected 4 and 1, got %d and %d", one(ld32, 0), one(ld32, 1));
+    CHECK(one(fill, 0) == 8 && one(fill, 1) == 1, "64 B fill: expected 8 and 1, got %d and %d", one(fill, 0), one(fill, 1));
+    CHECK(one(st8, 0) == 1 && one(st8, 1) == 1, "8 B store: expected 1 and 1, got %d and %d", one(st8, 0), one(st8, 1));
+    CHECK(one(split, 0) == 2 && one(split, 1) == 1, "load across a word boundary: expected 2 and 1, got %d and %d", one(split, 0), one(split, 1));
+    CHECK(one(cross, 0) == 2 && one(cross, 1) == 2, "load across a line boundary: expected 2 and 2, got %d and %d", one(cross, 0), one(cross, 1));
+
+    /* The fill at 0x2000 covers words 0x400 to 0x407, banks 0 to 7. */
+    activations(&fill, 1, 0, pb);
+    CHECK(pb[0] == 1 && pb[7] == 1 && pb[8] == 0, "fill should activate banks 0-7 only, got %d %d %d", pb[0], pb[7], pb[8]);
+
+    /* Cycle 5: two loads in line 0x1000, a load to another line, and a store. */
+    acc_t t[] = {
+        { 5, LOAD, 0x1000, 8 },
+        { 5, LOAD, 0x1008, 8 },    /* same line: word bank 1, line bank 0 shared */
+        { 5, LOAD, 0x1000, 8 },    /* identical: shared in both layouts */
+        { 5, STORE, 0x1000, 8 },   /* stores never share */
+        { 6, LOAD, 0x1000, 8 },    /* next cycle: a new read */
+        { 6, LOAD, 0x3000, 8 },    /* bank 0 in both layouts, other line */
+    };
+    n = activations(t, 6, 0, pb);
+    CHECK(n == 5, "word-interleaved trace: expected 5 activations, got %d", n);
+    CHECK(pb[0] == 4 && pb[1] == 1, "word-interleaved trace: expected bank 0 = 4, bank 1 = 1, got %d and %d", pb[0], pb[1]);
+    n = activations(t, 6, 1, pb);
+    CHECK(n == 4, "line-interleaved trace: expected 4 activations, got %d", n);
+    CHECK(pb[0] == 4, "line-interleaved trace: expected all 4 in bank 0, got %d", pb[0]);
+    return REPORT();
+}`,
+a: `<p>Walking the bytes of each access and mapping each to its bank handles every size and alignment the same way: the <code>done</code> array makes an access count each bank once, so a 32 B load in the word-interleaved layout comes out as 4 activations, and a load that crosses a line boundary in the line-interleaved layout comes out as 2. Sharing needs only the cycle and line of the last load read of each bank, since a bank serves one line per cycle.</p>
+<p>The trace shows the trade-off between the layouts. With word interleaving, the two loads to line 0x1000 use two banks, which is good for bandwidth but costs an activation each. With line interleaving they share one read, so the trace takes 4 activations instead of 5. Those are not equal activations, though: the line-interleaved bank senses a row of whole lines. An energy model needs a per-activation energy for each layout from a circuit model before the counts mean anything.</p>`
+});
+
+C("resume-banks", "stalls", {
+lvl: "hard",
+q: `<p>Model the load issue of a banked L1D. Write <code>simulate</code>, which fills <code>issue[i]</code> with the cycle load <em>i</em> reads its bank and returns the total cycles (the last issue cycle + 1, or 0 for no loads). The first load can issue in cycle 0. Each load issues in the earliest cycle that satisfies every rule:</p>
+<ul>
+<li><strong>In order:</strong> never before the load ahead of it.</li>
+<li><strong>Ports:</strong> at most <code>ports</code> loads per cycle.</li>
+<li><strong>Banks:</strong> a bank that starts an access in cycle t is busy through cycle t + <code>busy</code> &minus; 1.</li>
+<li><strong>Merging:</strong> a load to the same 64 B line that its bank started reading in the same cycle shares that read. It still uses a port but doesn't need the bank to be free. Merging works only within a cycle.</li>
+</ul>
+<p><code>bank_of</code> is given: address bits from <code>word_shift</code> up, XORed with the bits from <code>xor_shift</code> up when it is nonzero.</p>`,
+head: String.raw`#include <stdio.h>
+#include <stdint.h>
+
+#define MAX_BANKS 64
+#define LINE_SHIFT 6   /* 64 B lines */
+
+typedef struct {
+    int nbanks;       /* a power of two, at most MAX_BANKS */
+    int word_shift;   /* bank = address bits from here up (3 for 8 B banks) */
+    int xor_shift;    /* if nonzero, XOR in the address bits from here up */
+    int ports;        /* loads per cycle */
+    int busy;         /* cycles a bank stays busy after an access starts */
+} bank_cfg_t;
+
+static int bank_of(const bank_cfg_t *c, uint32_t addr) {
+    uint32_t b = addr >> c->word_shift;
+    if (c->xor_shift) b ^= addr >> c->xor_shift;
+    return (int)(b & (uint32_t)(c->nbanks - 1));
+}`,
+todo: String.raw`/* Issue n loads in program order. Fill issue[i] with the cycle load i
+   reads its bank, and return the last issue cycle + 1. */
+int simulate(const bank_cfg_t *c, const uint32_t *addr, int n, int issue[]) {
+    /* TODO */
+    return 0;
+}`,
+impl: String.raw`int simulate(const bank_cfg_t *c, const uint32_t *addr, int n, int issue[]) {
+    int free_at[MAX_BANKS], start[MAX_BANKS];   /* per bank: first free cycle, cycle of last start */
+    uint32_t line_at[MAX_BANKS];                /* and the line that start read */
+    for (int b = 0; b < MAX_BANKS; b++) { free_at[b] = 0; start[b] = -1; line_at[b] = 0; }
+    int cycle = 0, used = 0;                    /* current issue cycle and ports used in it */
+    for (int i = 0; i < n; i++) {
+        int b = bank_of(c, addr[i]);
+        uint32_t line = addr[i] >> LINE_SHIFT;
+        int t = cycle, merge;
+        for (;;) {
+            int port_ok = t > cycle || used < c->ports;
+            merge = start[b] == t && line_at[b] == line;
+            if (port_ok && (merge || free_at[b] <= t)) break;
+            t++;
+        }
+        if (t > cycle) { cycle = t; used = 0; }
+        used++;
+        if (!merge) { start[b] = t; line_at[b] = line; free_at[b] = t + c->busy; }
+        issue[i] = t;
+    }
+    return n ? cycle + 1 : 0;
+}`,
+tests: String.raw`static uint32_t a[64];
+static int iss[64];
+
+/* 64 loads at a fixed stride, each to its own line when stride >= 64 B. */
+static int stream(const bank_cfg_t *c, uint32_t stride) {
+    for (int i = 0; i < 64; i++) a[i] = 0x10000 + (uint32_t)i * stride;
+    return simulate(c, a, 64, iss);
+}
+
+int main(void) {
+    bank_cfg_t w1 = { 16, 3, 0, 2, 1 }, w2 = { 16, 3, 0, 2, 2 }, x2 = { 16, 3, 7, 2, 2 };
+    int cy;
+
+    /* 64 loads at 2 per cycle take 32 cycles when nothing conflicts. */
+    cy = stream(&w1, 64);  CHECK(cy == 32, "stride 64 B, busy 1: expected 32 cycles, got %d", cy);
+    cy = stream(&w2, 64);  CHECK(cy == 63, "stride 64 B, busy 2: expected 63 cycles, got %d", cy);
+    CHECK(iss[2] == 2 && iss[3] == 2, "stride 64 B, busy 2: loads 2 and 3 should wait for cycle 2, got %d and %d", iss[2], iss[3]);
+    cy = stream(&w2, 96);  CHECK(cy == 32, "stride 96 B, busy 2: expected 32 cycles, got %d", cy);
+    cy = stream(&w1, 128); CHECK(cy == 64, "stride 128 B, busy 1: expected 64 cycles, got %d", cy);
+    cy = stream(&w2, 128); CHECK(cy == 127, "stride 128 B, busy 2: expected 127 cycles, got %d", cy);
+    cy = stream(&w2, 136); CHECK(cy == 32, "stride 136 B, busy 2: expected 32 cycles, got %d", cy);
+
+    /* XOR hashing with bits 10-7 spreads both power-of-two strides. */
+    cy = stream(&x2, 128); CHECK(cy == 32, "XOR, stride 128 B: expected 32 cycles, got %d", cy);
+    cy = stream(&x2, 64);  CHECK(cy == 32, "XOR, stride 64 B: expected 32 cycles, got %d", cy);
+
+    /* Merging: the second load shares the first one's read, the third
+       conflicts in bank 0, and the fourth joins it in cycle 1. */
+    uint32_t m[] = { 0x1000, 0x1000, 0x3000, 0x3008 };
+    cy = simulate(&w1, m, 4, iss);
+    CHECK(cy == 2 && iss[0] == 0 && iss[1] == 0 && iss[2] == 1 && iss[3] == 1,
+          "merging: expected cycles 0 0 1 1, got %d %d %d %d", iss[0], iss[1], iss[2], iss[3]);
+
+    /* Busy time 2, in order, no merging across cycles. */
+    uint32_t b[] = { 0x1000, 0x2000, 0x1000 };
+    cy = simulate(&w2, b, 3, iss);
+    CHECK(cy == 5 && iss[1] == 2 && iss[2] == 4, "busy 2: expected cycles 0 2 4, got %d %d %d", iss[0], iss[1], iss[2]);
+
+    /* Ports: three loads to banks 0, 1, 2. */
+    bank_cfg_t p3 = { 16, 3, 0, 3, 1 };
+    uint32_t p[] = { 0x0, 0x8, 0x10 };
+    cy = simulate(&p3, p, 3, iss);
+    CHECK(cy == 1, "3 ports: expected 1 cycle, got %d", cy);
+    cy = simulate(&w1, p, 3, iss);
+    CHECK(cy == 2 && iss[2] == 1, "2 ports: the third load should issue in cycle 1, got %d", iss[2]);
+    return REPORT();
+}`,
+a: `<p>Keep three things per bank: the first cycle it is free, the cycle it last started an access, and the line that access read. A load then searches forward from the current issue cycle for the first cycle with a free port in which its bank is either free or already reading its line in that cycle. Issuing in order means the current issue cycle never moves back, and moving to a later cycle resets the port count.</p>
+<p>The stride checks reproduce the bank arithmetic from the Math tab. A 128 B stride sends every load to bank 0, so loads go one per busy time: 64 cycles with a 1-cycle busy time and 127 with 2. A 64 B stride alternates between banks 0 and 8, which is enough with a 1-cycle busy time but halves throughput with 2, because each pair has to wait for the pair before it. XORing in bits 10–7 gives both strides 16 banks to spread over, so they get the full 2 loads per cycle. The busy-time check also shows why merging is limited to a cycle: the third load reads the same line as the first, but the bank has moved on to another line by then.</p>`
+});
+
 })();
