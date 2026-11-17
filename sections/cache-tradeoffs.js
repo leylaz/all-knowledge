@@ -2850,6 +2850,13 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 </ul>
 <p>Each of those others hits the new access's bank with probability 1/B, so for random addresses:</p>
 <div class="math">\\[ P(\\text{conflict}) \\approx 1 - \\left(1 - \\frac{1}{B}\\right)^{k \\times t - 1} \\]</div>
+<p>The derivation counts the ways to avoid a conflict and subtracts from 1:</p>
+<ol>
+<li><strong>One other access:</strong> it picks one of B banks uniformly, and B − 1 of them are not the new access's bank, so it misses that bank with probability \\( \\frac{B - 1}{B} = 1 - \\frac{1}{B} \\).</li>
+<li><strong>All k × t − 1 others:</strong> treating their bank choices as independent, the chance that every one of them misses the bank is the product of their individual chances, \\( \\left(1 - \\frac{1}{B}\\right)^{k \\times t - 1} \\).</li>
+<li><strong>Conflict:</strong> a conflict means at least one of them hits the bank, which is the complement of step 2, \\( 1 - \\left(1 - \\frac{1}{B}\\right)^{k \\times t - 1} \\).</li>
+</ol>
+<p>The ≈ covers two simplifications. First, the in-flight accesses aren't truly independent, because accesses that are already in flight without a stall must sit in different banks from one another. Second, the no-stall count of k × t − 1 is itself approximate, as noted above. When (k × t − 1) / B is small, the formula is close to (k × t − 1) / B, the expected number of accesses that land on the same bank.</p>
 <ul>
 <li>16 banks, 2 accesses/cycle, 1-cycle busy time: 1 − (15/16)<sup>1</sup> ≈ 6.3%.</li>
 <li>16 banks, 2 accesses/cycle, 2-cycle busy time: 1 − (15/16)<sup>3</sup> ≈ 17.6%, almost 3× worse.</li>
