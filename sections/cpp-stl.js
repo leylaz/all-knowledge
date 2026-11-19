@@ -104,18 +104,43 @@ section({
 <li><strong>A fixed-capacity queue is better as a ring buffer.</strong> A 192-entry load queue in a model never needs to grow, so an array with head and tail indices beats a deque's allocations and two-level lookups.</li>
 </ul>
 <h3 id="sec-declare">Declaring and Initializing</h3>
-<pre><code>std::vector&lt;int&gt; v;                          <span class="cm">// empty</span>
-std::vector&lt;uint8_t&gt; pht(4096, 1);           <span class="cm">// 4096 counters, all 1</span>
-std::vector&lt;int&gt; two{4096, 1};               <span class="cm">// braces: 2 elements, 4096 and 1</span>
-std::array&lt;uint64_t, 32&gt; regs{};             <span class="cm">// {} zero-fills; without it, garbage</span>
+<pre><code><span class="cm">// Empty vector, no allocation yet</span>
+std::vector&lt;int&gt; v;
+
+<span class="cm">// Parentheses: 4096 counters, all set to 1</span>
+std::vector&lt;uint8_t&gt; pht(4096, 1);
+
+<span class="cm">// Braces: a list of 2 elements, 4096 and 1</span>
+std::vector&lt;int&gt; two{4096, 1};
+
+<span class="cm">// 32 registers, {} zero-fills them (without it, garbage)</span>
+std::array&lt;uint64_t, 32&gt; regs{};
+
+<span class="cm">// Nested: one vector of ways per set, one allocation per set</span>
 std::vector&lt;std::vector&lt;CacheLine&gt;&gt; sets(num_sets, std::vector&lt;CacheLine&gt;(num_ways));
-std::vector&lt;CacheLine&gt; lines(num_sets * num_ways);   <span class="cm">// flat: one allocation, usually faster</span>
+
+<span class="cm">// Flat: one allocation, index as set * num_ways + way, usually faster</span>
+std::vector&lt;CacheLine&gt; lines(num_sets * num_ways);
+
+<span class="cm">// Hash map, iteration order unspecified</span>
 std::unordered_map&lt;uint64_t, uint32_t&gt; counts;
-std::map&lt;std::string, uint64_t&gt; stats;       <span class="cm">// iterates in sorted key order</span>
+
+<span class="cm">// Tree map, iterates in sorted key order</span>
+std::map&lt;std::string, uint64_t&gt; stats;
+
+<span class="cm">// Min-heap: std::greater puts the smallest value on top</span>
 std::priority_queue&lt;uint64_t, std::vector&lt;uint64_t&gt;, std::greater&lt;uint64_t&gt;&gt; min_pq;
+
+<span class="cm">// 64 packed flags, all clear</span>
 std::bitset&lt;64&gt; ready;
-std::optional&lt;uint32_t&gt; way;                 <span class="cm">// starts empty</span>
+
+<span class="cm">// Maybe a value, starts empty</span>
+std::optional&lt;uint32_t&gt; way;
+
+<span class="cm">// Type alias, like typedef</span>
 using Addr = uint64_t;
+
+<span class="cm">// Alias template: Table&lt;int&gt; is a vector of vectors of int</span>
 template &lt;typename T&gt; using Table = std::vector&lt;std::vector&lt;T&gt;&gt;;</code></pre>
 <p><strong>Parentheses vs braces.</strong> <code>(n, x)</code> means count and value. <code>{a, b}</code> is a list of elements. For <code>vector&lt;int&gt;</code>, <code>v(10, 2)</code> is ten 2s and <code>v{10, 2}</code> is two elements.</p>
 <p><strong>reserve vs resize.</strong> <code>reserve(n)</code> sets capacity and leaves <code>size()</code> alone. <code>resize(n)</code> creates or destroys elements so <code>size() == n</code>.</p>
