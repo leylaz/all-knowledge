@@ -92,7 +92,7 @@ function checkHref(where, href) {
   if (parts[0] === "r") { page = regionById.get(parts[1]); parts.shift(); }
   else page = byId.get(parts[0]);
   if (!page) return err(where, `link ${href} points to no page`);
-  if (parts[1] && !secIds(page).has(parts[1])) err(where, `link ${href} points to no section`);
+  if (parts[1] && !secIds(page).has(parts[1]) && !(page.cats || []).includes(parts[1])) err(where, `link ${href} points to no section`);
 }
 const hrefsIn = s => [...String(s).matchAll(/href="(#[^"]*)"/g)].map(m => m[1]);
 const practiceText = p => JSON.stringify(p || "");

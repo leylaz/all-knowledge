@@ -1528,13 +1528,13 @@ function renderRegion(r, sec) {
    iframe so its own in-page anchors never touch this router. The frame
    grows to fit its content, so the page scrolls as one. The drill follows
    the site theme itself (it reads the shared "theme" key). */
-function renderCppDrill() {
+function renderCppDrill(cat) {
   const r = REGIONS.find(x => x.id === "cppd");
   layout("r/cppd", null, `
     <p class="region">Section Overview</p>
     <h1>${r.name}</h1>
-    <p class="flag-note">${r.cap}. Progress is saved in this browser only.</p>
-    <iframe class="drill-frame" id="drillFrame" src="cpp-drill/index.html" title="${r.name}"></iframe>`);
+    <p class="flag-note">${r.cap}. Progress is saved in this browser only. The study guide is the <a href="#/r/stl">C++ STL</a> tab.</p>
+    <iframe class="drill-frame" id="drillFrame" src="cpp-drill/index.html${r.cats.includes(cat) ? "#" + cat : ""}" title="${r.name}"></iframe>`);
   const frame = document.getElementById("drillFrame");
   frame.addEventListener("load", () => {
     const doc = frame.contentDocument;
@@ -1661,7 +1661,7 @@ function route() {
   if (parts[0] === "todo" || (parts[0] === "r" && parts[1] === "todo")) { renderTodo(); window.scrollTo(0, 0); return; }
   if (parts[0] === "cal" || (parts[0] === "r" && parts[1] === "cal")) { renderCal(); window.scrollTo(0, 0); return; }
   if (parts[0] === "drill") { renderDrill(); window.scrollTo(0, 0); return; }
-  if (parts[0] === "r" && parts[1] === "cppd") { renderCppDrill(); window.scrollTo(0, 0); return; }
+  if (parts[0] === "r" && parts[1] === "cppd") { renderCppDrill(parts[2]); window.scrollTo(0, 0); return; }
   if (parts[0] === "r") {
     const r = REGIONS.find(x => x.id === parts[1]);
     if (r) { renderRegion(r, parts[2]); goToSection(parts[2]); return; }

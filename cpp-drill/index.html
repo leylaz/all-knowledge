@@ -43,7 +43,6 @@ main{max-width:680px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-dire
 h1{font-family:var(--display);font-weight:700;font-size:1.65rem;margin:0;text-wrap:balance;letter-spacing:-.01em}
 .sub{margin:2px 0 0;color:var(--muted);font-size:.95rem}
 .seg{display:grid;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px}
-.seg.two{grid-template-columns:1fr 1fr}
 .seg.three{grid-template-columns:repeat(3,1fr)}
 .seg button{font:inherit;font-weight:700;border:0;border-radius:11px;padding:9px 6px;background:transparent;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:0;line-height:1.25}
 .seg button small{font-weight:600;font-size:.75rem;font-variant-numeric:tabular-nums;opacity:.85}
@@ -89,33 +88,11 @@ pre{margin:0;background:var(--pre-bg);border-radius:10px;padding:10px 12px;font:
 .foot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center}
 .linkbtn{font:inherit;font-size:.85rem;background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;padding:4px}
 .view{display:flex;flex-direction:column;gap:16px}
-#viewSeg button[aria-pressed="true"]{background:var(--lav)}
-.toc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px}
-.toc ul{margin:6px 0 0;padding:0;list-style:none;columns:2;column-gap:16px}
-.toc li{break-inside:avoid;margin:3px 0}
-.toc a{color:var(--lav-ink);font-weight:600;font-size:.9rem;text-decoration:none}
-@media (max-width:480px){.toc ul{columns:1}}
-.guide{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px}
-.guide h2{font-family:var(--display);font-weight:600;font-size:1.3rem;margin:30px 0 8px;scroll-margin-top:12px;text-wrap:balance}
-.guide h2:first-of-type{margin-top:14px}
-.guide h3{font-family:var(--display);font-weight:600;font-size:1.05rem;margin:20px 0 6px;color:var(--lav-ink)}
-.guide p{margin:8px 0;font-size:.97rem}
-.guide ul{margin:8px 0;padding-left:22px}
-.guide li{margin:5px 0;font-size:.96rem}
-.guide code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);border-radius:4px;padding:1px 5px}
-.guide .snip{margin:10px 0;font-size:13px}
-.tbl{overflow-x:auto;margin:10px 0;border:1px solid var(--line);border-radius:12px}
-.tbl table{border-collapse:collapse;font-size:.86rem;min-width:100%}
-.tbl th,.tbl td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-.tbl th{background:var(--code-bg);font-weight:700;white-space:nowrap}
-.tbl tr:last-child td{border-bottom:0}
-.tbl code{white-space:nowrap}
-.note{background:var(--butter);border-radius:12px;padding:10px 12px;margin:10px 0;font-size:.93rem}
-.practice{font:inherit;font-weight:700;font-size:.85rem;border:0;border-radius:999px;padding:7px 14px;background:var(--lav);color:var(--lav-ink);cursor:pointer;margin:8px 0 4px}
-.practice:focus-visible,.toc a:focus-visible{outline:3px solid var(--lav-ink);outline-offset:2px}
+.guide-link{margin:0;font-size:.9rem;color:var(--muted)}
+.guide-link a{color:var(--lav-ink);font-weight:600}
 [hidden]{display:none!important}
 /* Mili headings in mono, as on the site's pages. */
-:root[data-theme="pink"] h1,:root[data-theme="pink"] .guide h2{font-family:var(--mono);font-weight:500;letter-spacing:-.02em}
+:root[data-theme="pink"] h1{font-family:var(--mono);font-weight:500;letter-spacing:-.02em}
 /* Inside the site's frame: blend into the page, which already shows the title. */
 .embedded body{background:transparent}
 .embedded main{padding:0 0 8px;max-width:none}
@@ -131,10 +108,7 @@ pre{margin:0;background:var(--pre-bg);border-radius:10px;padding:10px 12px;font:
     <p class="sub">Containers, iterators, classes, ownership, templates and performance, through a simulator-builder's eyes.</p>
   </header>
 
-  <div class="seg two" role="group" aria-label="View" id="viewSeg">
-    <button data-v="drill" aria-pressed="true">Drill</button>
-    <button data-v="guide" aria-pressed="false">Study guide</button>
-  </div>
+  <p class="guide-link">Study guide: the <a href="../#/r/stl" id="guideLink" target="_top">C++ STL</a> tab on the main site explains everything these questions ask.</p>
 
   <div id="drillView" class="view">
   <nav class="cats" id="cats" aria-label="Category"></nav>
@@ -177,13 +151,8 @@ pre{margin:0;background:var(--pre-bg);border-radius:10px;padding:10px 12px;font:
   </div>
   </div>
 
-  <div id="guideView" class="view" hidden>
-    <nav class="toc" aria-label="Guide contents"><strong>Contents</strong><ul id="guideToc"></ul></nav>
-    <article class="guide" id="guideBody"></article>
-  </div>
 </main>
 <script src="acc.js"></script>
-<script src="guide.js"></script>
 
 <script>
 /* ---------- Question bank ----------
@@ -610,25 +579,12 @@ $('hintBtn').addEventListener('click',()=>{const h=$('hint');h.innerHTML=hintFor
 $('override').addEventListener('click',()=>{const q=setList()[idx];done[q.id]=true;save();showFb('ok',q);refreshCounts();});
 $('reset').addEventListener('click',()=>{setList().forEach(q=>delete done[q.id]);save();render();});
 $('ans').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();$('fb').hidden?check():next();}});
-render();
-
-/* ---------- Study guide ---------- */
-function setView(v,user){
-  $('drillView').hidden=v!=='drill'; $('guideView').hidden=v!=='guide';
-  [...$('viewSeg').children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===v));
-  try{localStorage.setItem('cpp-drill-view',v);}catch(e){}
-  /* In the site's frame the frame has no scroll of its own, so bring the frame's top into view instead. */
-  if(!user)return;
-  if(window.frameElement){const t=window.frameElement.getBoundingClientRect().top;if(t<0)window.frameElement.scrollIntoView({block:'start'});}else window.scrollTo(0,0);
-}
-if(window.buildGuide&&window.GUIDE_MD){
-  const g=window.buildGuide(window.GUIDE_MD,catName);
-  $('guideToc').innerHTML=g.toc; $('guideBody').innerHTML=g.html;
-}
-$('viewSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(b)setView(b.dataset.v,true);});
-$('guideToc').addEventListener('click',e=>{const a=e.target.closest('a');if(!a)return;e.preventDefault();document.getElementById(a.dataset.t).scrollIntoView({behavior:'smooth',block:'start'});});
-$('guideBody').addEventListener('click',e=>{const b=e.target.closest('.practice');if(!b)return;mode=b.dataset.c;level=1;idx=0;render();setView('drill',true);const c=$('cat-'+mode);if(c)c.scrollIntoView({block:'nearest',inline:'center'});});
-try{if(localStorage.getItem('cpp-drill-view')==='guide')setView('guide');}catch(e){}
+/* Open on the category named in the hash (#pick, #acc, ...), as the site's guide pages link here. */
+function fromHash(){const c=location.hash.slice(1);if(!CATS.some(x=>x[0]===c))return false;mode=c;level=1;idx=0;render();const b=$('cat-'+c);if(b)b.scrollIntoView({block:'nearest',inline:'center'});return true;}
+if(!fromHash())render();
+window.addEventListener('hashchange',fromHash);
+/* Inside the site's frame, open the guide by changing the parent's hash instead of reloading the site. */
+$('guideLink').addEventListener('click',e=>{try{if(window.top!==window){e.preventDefault();window.top.location.hash='#/r/stl';}}catch(err){}});
 
 /* expose for testing */
 window.__grade=grade; window.__Q=Q;
