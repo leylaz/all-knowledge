@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C++ STL Data Structures Drill</title>
+<script>
+  /* Follow the All Knowledge theme switch (shared "theme" key: night, or pink = Mili), live too.
+     Inside the site's frame the page heading is the site's, so this one hides. */
+  (function(){var d=document.documentElement;
+    function apply(){var t="night";try{t=localStorage.getItem("theme")||"night";}catch(e){}d.setAttribute("data-theme",t==="pink"?"pink":"night");}
+    apply();addEventListener("storage",function(e){if(e.key==="theme")apply();});
+    try{if(window.frameElement)d.classList.add("embedded");}catch(e){}})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Layout: one centered column: mode + level pickers, a dot strip, then the question card.
+     Colors and fonts match the All Knowledge site: Mili (pastel, data-theme="pink") and Night. */
+  color-scheme: light;
+  --bg:#FFFAFB; --ink:#37352F; --muted:#6B6964; --line:#EFE3E8; --card:#FFFFFF;
+  --lav:#DFDDFB; --lav-ink:#5B3F96; --on-primary:#FFFFFF;
+  --blue:#D2E9F9; --peach:#FBE8E3; --mint:#DDEEDB; --butter:#F4F2DF; --pink:#FFDFE3;
+  --ok-ink:#3B7556; --bad-ink:#C23A55;
+  --code-bg:#F7F5E6; --field:#FFFFFF; --pre-bg:rgba(255,255,255,.75); --shadow:0 6px 24px -14px rgba(126,85,160,.3);
+  --display:"Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --body:"Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+:root[data-theme="night"]{
+  color-scheme: dark;
+  --bg:#061A21; --ink:#EAF4F5; --muted:#9DBAC2; --line:#1B3F4B; --card:#0B2530;
+  --lav:#2B2A4F; --lav-ink:#C9B6F5; --on-primary:#061A21;
+  --blue:#14344A; --peach:#3A2622; --mint:#123A35; --butter:#33301A; --pink:#3D1A2C;
+  --ok-ink:#7FE0C8; --bad-ink:#F4A9BF;
+  --code-bg:#082029; --field:#082029; --pre-bg:rgba(0,0,0,.25); --shadow:none;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.5}
+main{max-width:680px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:16px}
+h1{font-family:var(--display);font-weight:700;font-size:1.65rem;margin:0;text-wrap:balance;letter-spacing:-.01em}
+.sub{margin:2px 0 0;color:var(--muted);font-size:.95rem}
+.seg{display:grid;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px}
+.seg.two{grid-template-columns:1fr 1fr}
+.seg.three{grid-template-columns:repeat(3,1fr)}
+.seg button{font:inherit;font-weight:700;border:0;border-radius:11px;padding:9px 6px;background:transparent;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:0;line-height:1.25}
+.seg button small{font-weight:600;font-size:.75rem;font-variant-numeric:tabular-nums;opacity:.85}
+.seg button[aria-pressed="true"]{color:var(--ink)}
+.cats{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px;margin:0 -16px;padding-left:16px;padding-right:16px;scrollbar-width:thin}
+.cat{flex:0 0 auto;font:inherit;font-weight:700;font-size:.9rem;border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:999px;padding:8px 14px;cursor:pointer;display:flex;gap:8px;align-items:center;white-space:nowrap}
+.cat small{font-size:.72rem;font-variant-numeric:tabular-nums;opacity:.8}
+.cat[aria-pressed="true"]{background:var(--cbg);border-color:transparent;color:var(--ink)}
+.cat:focus-visible{outline:3px solid var(--lav-ink);outline-offset:2px}
+.snip{background:var(--code-bg);border-radius:8px;padding:12px 14px;font:14px/1.55 var(--mono);overflow-x:auto;white-space:pre;margin:0}
+.seg button[data-c="1"][aria-pressed="true"]{background:var(--mint)}
+.seg button[data-c="2"][aria-pressed="true"]{background:var(--butter)}
+.seg button[data-c="3"][aria-pressed="true"]{background:var(--pink)}
+.dots{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.dot{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);background:var(--card);font:600 .72rem var(--body);color:var(--muted);cursor:pointer;padding:0;font-variant-numeric:tabular-nums}
+.dot.done{background:var(--mint);border-color:var(--mint);color:var(--ok-ink)}
+.dot.cur{border-color:var(--lav-ink);color:var(--ink)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow)}
+.meta{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:.75rem;font-weight:700;border-radius:999px;padding:3px 10px;background:var(--lav);color:var(--lav-ink)}
+.q{font-family:var(--display);font-weight:500;font-size:1.2rem;line-height:1.4;margin:0;text-wrap:pretty}
+.q code,.why code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);border-radius:4px;padding:1px 5px}
+label.lbl{font-size:.8rem;font-weight:700;color:var(--muted)}
+textarea{width:100%;min-height:76px;resize:vertical;border:2px solid var(--line);border-radius:8px;padding:12px;font:16px/1.45 var(--body);color:var(--ink);background:var(--field)}
+textarea.code{font-family:var(--mono);font-size:15px}
+textarea:focus{outline:none;border-color:var(--lav-ink)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.btn{font:inherit;font-weight:700;border:0;border-radius:12px;padding:11px 16px;cursor:pointer;color:var(--ink);background:var(--line)}
+.btn.primary{background:var(--lav-ink);color:var(--on-primary);flex:1 1 140px}
+.btn.ghost{background:transparent;border:2px solid var(--line)}
+.btn:focus-visible,.seg button:focus-visible,.dot:focus-visible{outline:3px solid var(--lav-ink);outline-offset:2px}
+.hint{font-size:.9rem;background:var(--butter);border-radius:12px;padding:10px 12px}
+.fb{border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.fb.ok{background:var(--mint)}
+.fb.bad{background:var(--pink)}
+.fb.show{background:var(--blue)}
+.verdict{font-family:var(--display);font-weight:600;font-size:1.1rem;margin:0}
+.fb.ok .verdict{color:var(--ok-ink)}
+.fb.bad .verdict{color:var(--bad-ink)}
+pre{margin:0;background:var(--pre-bg);border-radius:10px;padding:10px 12px;font:14px/1.5 var(--mono);overflow-x:auto;white-space:pre}
+.why{margin:0;font-size:.95rem}
+.small{font-size:.8rem;color:var(--muted)}
+.foot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center}
+.linkbtn{font:inherit;font-size:.85rem;background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;padding:4px}
+.view{display:flex;flex-direction:column;gap:16px}
+#viewSeg button[aria-pressed="true"]{background:var(--lav)}
+.toc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px}
+.toc ul{margin:6px 0 0;padding:0;list-style:none;columns:2;column-gap:16px}
+.toc li{break-inside:avoid;margin:3px 0}
+.toc a{color:var(--lav-ink);font-weight:600;font-size:.9rem;text-decoration:none}
+@media (max-width:480px){.toc ul{columns:1}}
+.guide{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px}
+.guide h2{font-family:var(--display);font-weight:600;font-size:1.3rem;margin:30px 0 8px;scroll-margin-top:12px;text-wrap:balance}
+.guide h2:first-of-type{margin-top:14px}
+.guide h3{font-family:var(--display);font-weight:600;font-size:1.05rem;margin:20px 0 6px;color:var(--lav-ink)}
+.guide p{margin:8px 0;font-size:.97rem}
+.guide ul{margin:8px 0;padding-left:22px}
+.guide li{margin:5px 0;font-size:.96rem}
+.guide code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);border-radius:4px;padding:1px 5px}
+.guide .snip{margin:10px 0;font-size:13px}
+.tbl{overflow-x:auto;margin:10px 0;border:1px solid var(--line);border-radius:12px}
+.tbl table{border-collapse:collapse;font-size:.86rem;min-width:100%}
+.tbl th,.tbl td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl th{background:var(--code-bg);font-weight:700;white-space:nowrap}
+.tbl tr:last-child td{border-bottom:0}
+.tbl code{white-space:nowrap}
+.note{background:var(--butter);border-radius:12px;padding:10px 12px;margin:10px 0;font-size:.93rem}
+.practice{font:inherit;font-weight:700;font-size:.85rem;border:0;border-radius:999px;padding:7px 14px;background:var(--lav);color:var(--lav-ink);cursor:pointer;margin:8px 0 4px}
+.practice:focus-visible,.toc a:focus-visible{outline:3px solid var(--lav-ink);outline-offset:2px}
+[hidden]{display:none!important}
+/* Mili headings in mono, as on the site's pages. */
+:root[data-theme="pink"] h1,:root[data-theme="pink"] .guide h2{font-family:var(--mono);font-weight:500;letter-spacing:-.02em}
+/* Inside the site's frame: blend into the page, which already shows the title. */
+.embedded body{background:transparent}
+.embedded main{padding:0 0 8px;max-width:none}
+.embedded main>header{display:none}
+.embedded .cats{margin:0;padding-left:0;padding-right:0}
+@media (prefers-reduced-motion:no-preference){.fb{animation:pop .18s ease-out}@keyframes pop{from{transform:scale(.98);opacity:.6}to{transform:none;opacity:1}}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>C++ STL Data Structures Drill</h1>
+    <p class="sub">Containers, iterators, classes, ownership, templates and performance, through a simulator-builder's eyes.</p>
+  </header>
+
+  <div class="seg two" role="group" aria-label="View" id="viewSeg">
+    <button data-v="drill" aria-pressed="true">Drill</button>
+    <button data-v="guide" aria-pressed="false">Study guide</button>
+  </div>
+
+  <div id="drillView" class="view">
+  <nav class="cats" id="cats" aria-label="Category"></nav>
+  <div class="seg three" role="group" aria-label="Difficulty" id="lvlSeg">
+    <button data-c="1" id="l-1">Easy<small id="c-1"></small></button>
+    <button data-c="2" id="l-2">Medium<small id="c-2"></small></button>
+    <button data-c="3" id="l-3">Hard<small id="c-3"></small></button>
+  </div>
+
+  <div class="dots" id="dots" aria-label="Questions in this set"></div>
+
+  <section class="card" aria-live="polite">
+    <div class="meta"><span class="chip" id="chip"></span></div>
+    <p class="q" id="q"></p>
+    <pre class="snip" id="snip" hidden></pre>
+    <div class="hint" id="hint" hidden></div>
+    <div>
+      <label class="lbl" for="ans" id="ansLbl">Your answer</label>
+      <textarea id="ans" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="check">Check</button>
+      <button class="btn ghost" id="hintBtn">Hint</button>
+      <button class="btn ghost" id="reveal">Show answer</button>
+    </div>
+    <div class="fb" id="fb" hidden>
+      <p class="verdict" id="verdict"></p>
+      <pre id="model"></pre>
+      <p class="why" id="why"></p>
+      <div class="row">
+        <button class="btn" id="override" hidden>I was right, count it</button>
+        <button class="btn primary" id="next">Next question</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <span class="small">Ctrl/⌘ + Enter checks. <code>std::</code>, spacing and variable names are flexible.</span>
+    <button class="linkbtn" id="reset">Reset this set</button>
+  </div>
+  </div>
+
+  <div id="guideView" class="view" hidden>
+    <nav class="toc" aria-label="Guide contents"><strong>Contents</strong><ul id="guideToc"></ul></nav>
+    <article class="guide" id="guideBody"></article>
+  </div>
+</main>
+<script src="acc.js"></script>
+<script src="guide.js"></script>
+
+<script>
+/* ---------- Question bank ----------
+ t: 'sel' (pick structure) | 'syn' (write syntax);  d: 1 easy, 2 medium, 3 hard
+ need: array of groups; every group must match at least one alternative.
+   sel: alternatives are keywords.  syn: template strings ($ = any identifier, # = any number/name) or RegExps on normalized code.
+ forbid (sel only): keywords that make the answer wrong. */
+const Q = [
+/* ===== PICK — EASY ===== */
+{t:'sel',d:1,q:'Which container grows and shrinks automatically at runtime while keeping elements contiguous in memory?',
+ need:[['vector']],a:'std::vector',
+ why:'Contiguous storage means cache-friendly iteration, the default container for trace buffers, stat arrays and most simulator state.'},
+{t:'sel',d:1,q:'You model 32 architectural integer registers. The count is known at compile time and you want no heap allocation. Which container?',
+ need:[['array']],a:'std::array<uint64_t, 32>',
+ why:'std::array is a zero-overhead wrapper over a C array: size is part of the type, it lives inline in your struct, and .size()/bounds-checked .at() still work.'},
+{t:'sel',d:1,q:'Fetched instructions wait in a fetch buffer; the oldest one is always sent to decode first. Which container adaptor expresses this directly?',
+ need:[['queue','deque','circular buffer','ring buffer']],forbid:['priority queue','priority_queue'],a:'std::queue (built on std::deque by default)',
+ why:'FIFO = queue. In a real model you often want a fixed-capacity ring buffer instead so you can check “buffer full” stalls, but std::queue is the textbook answer.'},
+{t:'sel',d:1,q:'Map a PC to its last-seen branch target with average O(1) lookup. Order of keys does not matter. Which container?',
+ need:[['unordered map','hash map','hashmap','hash table']],a:'std::unordered_map<uint64_t, uint64_t>',
+ why:'Hash map gives O(1) average lookup. Fine for an idealized/unbounded model; a capacity-limited BTB would instead be an indexed array (see Hard).'},
+{t:'sel',d:1,q:'You want to record which unique PCs have been executed, and only ask “have I seen this PC?” Which container?',
+ need:[['unordered set','set','hash set']],forbid:['multiset'],a:'std::unordered_set<uint64_t>',
+ why:'A set stores keys only. unordered_set is O(1) average; std::set is O(log n) but iterates in sorted order.'},
+{t:'sel',d:1,q:'A return address stack pushes on CALL and pops on RET. Which container adaptor?',
+ need:[['stack']],a:'std::stack<uint64_t>',
+ why:'LIFO = stack. Hardware RAS is fixed-depth and overwrites on overflow, so a detailed model often uses an array + top index instead.'},
+{t:'sel',d:1,q:'You need 64 “operand ready” flags packed into as few bits as possible, with per-bit set/test and a fast count. Which type?',
+ need:[['bitset','uint64']],a:'std::bitset<64>',
+ why:'bitset<N> packs bits, gives .set/.reset/.test/.count/.any, and compiles to word ops. A raw uint64_t mask works too.'},
+{t:'sel',d:1,q:'A cache lookup function returns two values together: the tag and whether the line is valid. Which simple type bundles exactly two values?',
+ need:[['pair','tuple','struct']],a:'std::pair<uint64_t, bool>',
+ why:'pair holds two values (.first/.second). For anything you keep around, a named struct is more readable.'},
+{t:'sel',d:1,q:'You need cheap insert and remove at both the front and the back, plus indexing. Which container?',
+ need:[['deque']],a:'std::deque',
+ why:'deque = double-ended queue: O(1) push/pop at both ends, O(1) indexing, stored as chunks (not one contiguous block).'},
+
+/* ===== PICK — MEDIUM ===== */
+{t:'sel',d:2,q:'In an event-driven simulator, you must always process the event with the smallest timestamp next. Which container?',
+ need:[['priority queue','heap','min heap']],a:'std::priority_queue<Event, std::vector<Event>, Cmp>  // min-heap on time',
+ why:'priority_queue is a max-heap by default; flip the comparator (std::greater or a lambda) to get the earliest event on top. O(log n) push/pop.'},
+{t:'sel',d:2,q:'A physical-register free list: rename pops a free register, commit pushes one back. Which container?',
+ need:[['queue','deque','vector','stack','circular buffer','ring buffer']],a:'std::deque<uint16_t> (FIFO) or std::vector used as a stack',
+ why:'Any O(1) push/pop works. FIFO order recycles registers least-recently-freed first, which spreads wear and helps debug; a vector-as-stack is the fastest.'},
+{t:'sel',d:2,q:'Store queue entries keyed by sequence number. For a load, you must find the youngest store OLDER than the load’s seq number (needs sorted keys + lower_bound). Which container?',
+ need:[['map','set']],forbid:['unordered'],a:'std::map<uint64_t, StoreEntry>  // then lower_bound / prev',
+ why:'Ordered containers (red-black tree) support lower_bound/upper_bound in O(log n). unordered_map can’t answer “closest smaller key”.'},
+{t:'sel',d:2,q:'A set-associative cache tag store: num_sets × num_ways, where both come from a config file at runtime. Which container?',
+ need:[['vector']],a:'std::vector<std::vector<CacheLine>>  (or one flat vector indexed set*ways+way)',
+ why:'Runtime-sized → vector, not array. A flat vector with manual indexing is more cache-friendly than vector-of-vector; both are common.'},
+{t:'sel',d:2,q:'Register alias table: maps architectural register 0–31 to a physical register ID. Which container (and why NOT a hash map)?',
+ need:[['array','vector']],forbid:['map','hash'],a:'std::array<uint16_t, 32>',
+ why:'Keys are dense small integers, so the key IS the index. Hashing would add cost for nothing. That’s also how the hardware RAT works.'},
+{t:'sel',d:2,q:'MSHRs: track outstanding misses by block address, and let secondary misses to the same block attach to the existing entry. Which containers (two)?',
+ need:[['unordered map','hash map','hashmap','map'],['vector','list','deque','queue']],a:'std::unordered_map<uint64_t, std::vector<Request>>',
+ why:'Hash on block address to find the primary miss in O(1); each entry holds a list of merged requests to wake on fill. Check .size() against the MSHR count to model stalls.'},
+{t:'sel',d:2,q:'A tag lookup returns “hit in way N” or “miss” with no sentinel value like -1. Which C++17 wrapper type?',
+ need:[['optional']],a:'std::optional<uint32_t>',
+ why:'optional makes “no value” explicit: if (auto w = lookup(addr)) use *w. Avoids magic -1 sentinels on unsigned types.'},
+{t:'sel',d:2,q:'A global branch history register shifts in one bit per branch and is 64 bits long. Which type?',
+ need:[['bitset','uint64','integer','unsigned']],a:'std::bitset<64> (or uint64_t)',
+ why:'Both work. uint64_t makes hashing with the PC (gshare XOR) trivial; bitset reads more clearly and scales past 64 bits for TAGE-style long histories.'},
+{t:'sel',d:2,q:'Stats counters keyed by name (“l1d.misses”, “rob.full_cycles”), printed in alphabetical order at the end of simulation. Which container?',
+ need:[['map']],forbid:['unordered'],a:'std::map<std::string, uint64_t>',
+ why:'std::map iterates in sorted key order for free. Use unordered_map only if you sort at print time anyway.'},
+
+/* ===== PICK — HARD ===== */
+{t:'sel',d:3,q:'Implement true LRU over a LARGE set of entries (e.g. a 4096-entry fully associative structure) with O(1) lookup, O(1) touch, and O(1) eviction. Which two containers?',
+ need:[['list','linked list'],['unordered map','hash map','hashmap','hash table']],a:'std::list<Key>  +  std::unordered_map<Key, std::list<Key>::iterator>',
+ why:'The list keeps recency order (front = MRU); the map finds a node in O(1); list::splice moves it to the front in O(1) without invalidating iterators. A vector would need O(n) erase. For small-way sets (≤16), per-way age counters in an array are faster.'},
+{t:'sel',d:3,q:'Reorder buffer: fixed capacity, allocate at tail, retire from head, AND write back completion status by ROB index. Which structure?',
+ need:[['circular buffer','ring buffer','array','vector','deque']],a:'Circular buffer: std::array/std::vector + head, tail, count',
+ why:'std::queue hides indexing, so you can’t mark entry #37 complete. A ring buffer gives O(1) alloc/retire, stable indices (the ROB ID), and an explicit full check, exactly like the hardware.'},
+{t:'sel',d:3,q:'Tree-PLRU for a 16-way set needs 15 bits per set. What would you store per set?',
+ need:[['bitset','uint16','integer','bits','bit']],a:'std::bitset<15> or uint16_t per set → std::vector<uint16_t> plru(num_sets)',
+ why:'Each internal tree node is 1 bit pointing toward the pseudo-LRU half. Store the tree heap-style: node i’s children are 2i+1 and 2i+2.'},
+{t:'sel',d:3,q:'Oldest-first select in a 64-entry issue queue using an age matrix (row i, bit j set ⇒ entry j is older than i). Which containers?',
+ need:[['bitset'],['array','vector']],a:'std::array<std::bitset<64>, 64>',
+ why:'An N×N bit matrix. Entry i is the oldest ready entry if (age[i] & ready).none(). Bitset ops map to word-wide AND/test like the hardware.'},
+{t:'sel',d:3,q:'Simulated main memory for a 64-bit address space where only touched 4 KB pages exist. Which containers?',
+ need:[['unordered map','hash map','hashmap','map'],['array','vector','unique ptr']],a:'std::unordered_map<uint64_t, std::unique_ptr<std::array<uint8_t, 4096>>>',
+ why:'Sparse: hash on page number (addr >> 12) and allocate a page on first touch. unique_ptr keeps rehashing cheap and pointers to pages stable.'},
+{t:'sel',d:3,q:'Store decoded ALU, Load and Branch instruction records in one container, each with different fields, without virtual functions or heap allocation per instruction. Which types?',
+ need:[['variant'],['vector','array','deque']],a:'std::vector<std::variant<AluOp, LoadOp, BranchOp>>',
+ why:'variant is a type-safe tagged union stored inline; std::visit dispatches per type. No vtable pointer chasing, no per-object new.'},
+{t:'sel',d:3,q:'A capacity-limited BTB: 4096 entries, 4-way set-associative, looked up by PC. Which container (and why is a hash map the wrong model)?',
+ need:[['array','vector']],forbid:['map','hash'],a:'std::vector<std::array<BtbEntry, 4>> sets(1024);  // index = (pc >> 2) & 1023',
+ why:'Real BTBs index with PC bits and compare tags, so conflicts and aliasing happen. A hash map has unlimited capacity and never conflicts, which overstates accuracy.'},
+{t:'sel',d:3,q:'Build a data-dependency graph over a trace window to find the critical path. Which representation?',
+ need:[['vector','adjacency list']],a:'std::vector<std::vector<uint32_t>> deps;  // adjacency list by instruction index',
+ why:'Instructions are dense indices, so an adjacency list as vector-of-vectors beats map-based graphs. Critical path = longest path in a DAG in program order.'},
+
+/* ===== SYNTAX — EASY ===== */
+{t:'syn',d:1,q:'Declare a container that handles its own memory allocation while keeping <code>int</code> elements contiguous.',
+ need:[['vector<int> $']],a:'std::vector<int> v;',why:'Default-constructed vector is empty; it grows on push_back.'},
+{t:'syn',d:1,q:'Declare a fixed array of 32 <code>uint64_t</code> register values, no heap allocation.',
+ need:[['array<uint64_t,32> $']],a:'std::array<uint64_t, 32> regs{};',why:'Type first, then size. {} zero-initializes; without it the values are garbage.'},
+{t:'syn',d:1,q:'Declare a hash map from <code>uint64_t</code> address to <code>uint32_t</code> access count.',
+ need:[['unordered_map<uint64_t,uint32_t> $']],a:'std::unordered_map<uint64_t, uint32_t> counts;',why:'Key type first, value type second.'},
+{t:'syn',d:1,q:'Declare a FIFO queue of <code>int</code>.',
+ need:[['queue<int> $']],a:'std::queue<int> q;',why:'#include <queue>. push() at back, front() + pop() at front.'},
+{t:'syn',d:1,q:'Declare a return address stack of <code>uint64_t</code>.',
+ need:[['stack<uint64_t> $']],a:'std::stack<uint64_t> ras;',why:'push(), top(), pop(). Note pop() returns void: read top() first.'},
+{t:'syn',d:1,q:'Declare a 64-bit bitset.',
+ need:[['bitset<64> $']],a:'std::bitset<64> ready;',why:'Size is a template argument, so it must be a compile-time constant.'},
+{t:'syn',d:1,q:'Declare a pair holding a <code>uint64_t</code> tag and a <code>bool</code> valid flag.',
+ need:[['pair<uint64_t,bool> $']],a:'std::pair<uint64_t, bool> entry;',why:'Access with .first / .second, or structured bindings: auto [tag, valid] = entry;'},
+{t:'syn',d:1,q:'Append the value 5 to the end of vector <code>v</code>.',
+ need:[[/v\.(push_back|emplace_back)\(5\)/]],a:'v.push_back(5);',why:'emplace_back constructs in place, which matters for structs; for an int they’re equivalent.'},
+{t:'syn',d:1,q:'Check whether key <code>addr</code> exists in unordered_map <code>m</code>.',
+ need:[[/m\.contains\(addr\)|m\.find\(addr\)!=m\.end\(\)|m\.count\(addr\)/]],a:'m.contains(addr)            // C++20\nm.find(addr) != m.end()     // pre-C++20',
+ why:'Never use m[addr] to test existence: operator[] inserts a default value if the key is missing.'},
+
+/* ===== SYNTAX — MEDIUM ===== */
+{t:'syn',d:2,q:'Declare a pattern history table: a vector of 1024 <code>uint8_t</code> 2-bit counters, all initialized to 1 (weakly not-taken).',
+ need:[[/vector<uint8_t>\w+\(1024,(1|uint8_t\(1\)|1u)\)/,/vector<uint8_t>\w+=vector<uint8_t>\(1024,1\)/]],a:'std::vector<uint8_t> pht(1024, 1);',
+ why:'Parentheses = (count, value). Braces would be an initializer list: pht{1024, 1} makes 2 elements, and 1024 doesn’t even fit in uint8_t.'},
+{t:'syn',d:2,q:'Declare a MIN-heap priority queue of <code>uint64_t</code> cycle numbers.',
+ need:[[/priority_queue<uint64_t,vector<uint64_t>,greater<(uint64_t)?>>\w+/]],a:'std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>> pq;',
+ why:'Default is max-heap (std::less). To change the comparator you must also spell out the underlying container.'},
+{t:'syn',d:2,q:'Define a struct <code>CacheLine</code> with <code>uint64_t tag</code>, <code>bool valid</code>, and <code>bool dirty</code>.',
+ need:[[/struct CacheLine\{/],[/uint64_t tag/],[/\bvalid\b/],[/\bdirty\b/]],a:'struct CacheLine {\n    uint64_t tag = 0;\n    bool valid = false;\n    bool dirty = false;\n};',
+ why:'Default member initializers mean a fresh line is always invalid. Don’t forget the semicolon after the closing brace.'},
+{t:'syn',d:2,q:'Declare <code>sets</code>: a 2D vector of <code>CacheLine</code> with <code>num_sets</code> rows and <code>num_ways</code> columns.',
+ need:[[/vector<vector<CacheLine>>\w+\(num_sets,vector<CacheLine>\(num_ways\)\)/]],a:'std::vector<std::vector<CacheLine>> sets(num_sets, std::vector<CacheLine>(num_ways));',
+ why:'Outer constructor: (count, prototype row). Each row is a copy of the prototype.'},
+{t:'syn',d:2,q:'Loop over every element of <code>std::vector&lt;Inst&gt; v</code> with a range-based for, by const reference.',
+ need:[[/for\((const auto|auto const|const Inst|Inst const)&\w+:v\)/]],a:'for (const auto& inst : v) { ... }',
+ why:'Without & each Inst is copied every iteration, which is a real cost in a hot simulator loop.'},
+{t:'syn',d:2,q:'Remove key <code>addr</code> from unordered_map <code>m</code>.',
+ need:[['m.erase(addr)']],a:'m.erase(addr);',why:'Erase by key returns the number removed (0 or 1). You can also erase by iterator.'},
+{t:'syn',d:2,q:'Increment the counter for <code>pc</code> in <code>unordered_map&lt;uint64_t, uint64_t&gt; m</code>, creating it at 0 if absent, in one statement.',
+ need:[[/\+\+m\[pc\]|m\[pc\]\+\+|m\[pc\]\+=1/]],a:'++m[pc];',why:'Here operator[]’s insert-if-missing behavior is exactly what you want: new entries are value-initialized to 0.'},
+{t:'syn',d:2,q:'Declare an empty <code>optional</code> that may later hold a <code>uint32_t</code> way index, named <code>way</code>.',
+ need:[[/optional<uint32_t>way/]],a:'std::optional<uint32_t> way;   // or = std::nullopt',why:'Check with if (way) or way.has_value(); read with *way.'},
+{t:'syn',d:2,q:'Update a <code>bitset&lt;64&gt; ghr</code>: shift left by one, then set bit 0 to <code>bool taken</code>.',
+ need:[[/ghr<<=1|ghr=ghr<<1/],[/ghr\[0\]=taken|ghr\.set\(0,taken\)/]],a:'ghr <<= 1;\nghr[0] = taken;',why:'bitset supports shift operators; bits shifted out the top are dropped, exactly like a hardware shift register.'},
+{t:'syn',d:2,q:'Create a type alias <code>Addr</code> for <code>uint64_t</code> (modern syntax).',
+ need:[[/using Addr=uint64_t|typedef uint64_t Addr/]],a:'using Addr = uint64_t;',why:'Aliases make signatures self-documenting: Addr vs Cycle vs SeqNum, even though all are uint64_t.'},
+{t:'syn',d:2,q:'Pre-allocate room for 4096 entries in vector <code>trace</code> without changing its size.',
+ need:[['trace.reserve(4096)']],a:'trace.reserve(4096);',why:'reserve sets capacity (no reallocation until exceeded); resize would create 4096 default elements.'},
+
+/* ===== SYNTAX — HARD ===== */
+{t:'syn',d:3,q:'Declare the two LRU structures for <code>uint64_t</code> keys: a recency list, and a hash map from key to that list’s iterator.',
+ need:[['list<uint64_t> $'],['unordered_map<uint64_t,list<uint64_t>::iterator> $']],a:'std::list<uint64_t> lru;\nstd::unordered_map<uint64_t, std::list<uint64_t>::iterator> pos;',
+ why:'list iterators stay valid across inserts, erases of other nodes, and splice, which is why storing them in the map is safe.'},
+{t:'syn',d:3,q:'Move the node at iterator <code>it</code> to the front of <code>std::list lru</code> in O(1), no copy.',
+ need:[['lru.splice(lru.begin(),lru,it)']],a:'lru.splice(lru.begin(), lru, it);',why:'splice(dest_pos, source_list, element) relinks pointers; it doesn’t allocate and `it` stays valid.'},
+{t:'syn',d:3,q:'Declare a 64×64 age matrix as an array of 64 bitsets of 64 bits.',
+ need:[['array<bitset<64>,64> $',/bitset<64>\w+\[64\]/]],a:'std::array<std::bitset<64>, 64> age{};',why:'age[i][j] reads row i bit j. {} clears all bits.'},
+{t:'syn',d:3,q:'Declare sparse memory: hash map from <code>uint64_t</code> page number to a <code>unique_ptr</code> owning a 4096-byte <code>array</code> of <code>uint8_t</code>.',
+ need:[['unordered_map<uint64_t,unique_ptr<array<uint8_t,4096>>> $']],a:'std::unordered_map<uint64_t, std::unique_ptr<std::array<uint8_t, 4096>>> mem;',
+ why:'Allocate on first touch: auto& p = mem[addr >> 12]; if (!p) p = std::make_unique<std::array<uint8_t,4096>>();'},
+{t:'syn',d:3,q:'Write the header line of a class template <code>RingBuffer</code> parameterized by element type and a compile-time capacity.',
+ need:[[/template<(class|typename) \w+,(size_t|int|unsigned|uint32_t|uint64_t) \w+>(class|struct) RingBuffer/]],a:'template <typename T, size_t N>\nclass RingBuffer { std::array<T, N> buf; size_t head = 0, tail = 0, count = 0; ... };',
+ why:'Non-type template parameter N makes capacity part of the type, so storage can be a std::array with no heap.'},
+{t:'syn',d:3,q:'Advance ROB index <code>tail</code> by one with wraparound, capacity <code>N</code> (N is a power of 2).',
+ need:[[/tail=\(tail\+1\)(%N|&\(N-1\))|if\(\+\+tail==N\)\{?tail=0/]],a:'tail = (tail + 1) & (N - 1);   // or % N',
+ why:'The mask is what hardware does with a log2(N)-bit counter. % works for any N; the compiler turns it into a mask when N is a constant power of two.'},
+{t:'syn',d:3,q:'Declare a vector named <code>insts</code> whose elements are a <code>variant</code> of <code>AluOp</code>, <code>LoadOp</code>, <code>BranchOp</code>.',
+ need:[[/vector<variant<AluOp,LoadOp,BranchOp>>\w+/]],a:'std::vector<std::variant<AluOp, LoadOp, BranchOp>> insts;\n// std::visit([](auto& op){ op.execute(); }, insts[i]);',
+ why:'A generic lambda in std::visit is instantiated once per alternative: static dispatch, no virtual calls.'},
+{t:'syn',d:3,q:'Saturating increment of a 2-bit counter <code>ctr</code> (max 3) in one line.',
+ need:[[/if\(ctr(<3|<=2|!=3)\)\{?(\+\+ctr|ctr\+\+|ctr\+=1)/,/ctr=min\(/,/ctr=\(?ctr<3\)?\?ctr\+1:ctr/,/ctr\+=\(ctr<3\)/]],a:'if (ctr < 3) ++ctr;',
+ why:'Watch out with std::min on uint8_t: ctr+1 promotes to int, so min(ctr+1, 3) needs matching types: std::min<int>(ctr + 1, 3).'},
+{t:'syn',d:3,q:'Declare a min-heap <code>pq</code> of <code>Event</code> ordered by <code>Event::time</code>, using a lambda comparator <code>cmp</code>.',
+ need:[[/priority_queue<Event,vector<Event>,decltype\(\w+\)>/,/priority_queue<Event,vector<Event>,\w+>/],[/\.time>\w+\.time/]],
+ a:'auto cmp = [](const Event& a, const Event& b) { return a.time > b.time; };\nstd::priority_queue<Event, std::vector<Event>, decltype(cmp)> pq(cmp);',
+ why:'The comparator answers “does a have LOWER priority than b?”, so > puts the smallest time on top. decltype(cmp) names the lambda’s unique type.'},
+{t:'syn',d:3,q:'Squash: remove every element of <code>std::vector&lt;Inst&gt; rob</code> whose <code>seq</code> is greater than <code>squash_seq</code>.',
+ need:[[/erase_if\(rob,\[/,/rob\.erase\(remove_if\(rob\.begin\(\),rob\.end\(\),\[/],[/\.seq>squash_seq|squash_seq<\w+\.seq/]],
+ a:'std::erase_if(rob, [&](const Inst& i) { return i.seq > squash_seq; });   // C++20\n// pre-C++20:\nrob.erase(std::remove_if(rob.begin(), rob.end(),\n          [&](const Inst& i) { return i.seq > squash_seq; }), rob.end());',
+ why:'remove_if only shuffles survivors forward and returns the new logical end; erase actually shrinks the vector. That’s the erase–remove idiom.'}
+];
+
+Q.forEach(q=>{q.c=q.t==='sel'?'pick':'syntax';q.m=q.t==='sel'?'kw':'code';});
+
+/* ---------- More categories ---------- */
+const nz=n=>n.every(x=>Array.isArray(x))?n:[n];
+const K=(c,d,q,need,a,why,o={})=>Q.push({c,d,m:'kw',q,need:nz(need),a,why,...o});
+const C=(c,d,q,need,a,why,o={})=>Q.push({c,d,m:'code',q,need:nz(need),a,why,...o});
+const R=(d,s,ans,why)=>K('read',d,'What does this print?',[ans],ans,why,{s});
+
+/* Operations & pitfalls */
+K('ops',1,'Which member function returns how many elements a <code>vector</code> holds?',['size'],'v.size()','Returns size_t. Comparing it with a signed int triggers -Wsign-compare warnings, so use size_t loop counters.');
+C('ops',1,'Read the last element of vector <code>rob</code>.',['rob.back()','rob[rob.size()-1]'],'rob.back()','Calling back() on an empty vector is undefined behavior, so check !rob.empty() first.');
+C('ops',1,'Remove the front element of <code>std::queue q</code>.',['q.pop()'],'q.pop();','pop() returns void. Read q.front() before popping.');
+K('ops',1,'What happens when you call <code>m[key]</code> on an unordered_map and the key is missing?',['insert','inserts','inserted','creates','adds','default'],'It inserts key with a value-initialized (0 / default) value.','A silent insert can grow your map every time you “check” a key. Use find() or contains() to test.');
+C('ops',1,'Empty vector <code>v</code> (size becomes 0).',['v.clear()'],'v.clear();','clear() keeps the capacity, so refilling a per-cycle scratch vector doesn’t reallocate.');
+K('ops',2,'<code>reserve(n)</code> vs <code>resize(n)</code>: which one changes <code>size()</code>?',['resize'],'resize','reserve only changes capacity. resize constructs or destroys elements so size() == n.');
+K('ops',2,'A <code>push_back</code> triggers a reallocation. What happens to existing pointers, references and iterators into the vector?',['invalid','invalidated','invalidates','dangling'],'They are all invalidated (they point at freed memory).','Classic simulator bug: holding an RobEntry* across a push_back. Store indices instead of pointers.');
+C('ops',2,'Insert <code>addr → 1</code> into unordered_map <code>m</code> only if <code>addr</code> is absent (never overwrite).',[/m\.(try_emplace|emplace)\(addr,1\)|m\.insert\(\{addr,1\}\)|m\.insert\(make_pair\(addr,1\)\)/],'m.try_emplace(addr, 1);','try_emplace / emplace / insert all leave an existing value alone. Only operator[] and insert_or_assign overwrite.');
+K('ops',2,'<code>v.at(i)</code> vs <code>v[i]</code>: which one bounds-checks and throws?',['at'],'at()','at() throws std::out_of_range. operator[] is unchecked, though -D_GLIBCXX_ASSERTIONS adds checks in debug builds.');
+K('ops',2,'Time complexity of inserting at the FRONT of a vector holding n elements?',['o n','linear'],'O(n)','Every element shifts right by one. Use deque or a ring buffer if you need cheap front insertion.');
+K('ops',3,'Erasing during iteration: why write <code>it = m.erase(it);</code> rather than <code>m.erase(it); ++it;</code>?',['invalid','invalidated','undefined','ub','dangling'],'erase invalidates it; incrementing it afterwards is undefined behavior. erase returns the next valid iterator.','This pattern shows up when evicting all entries that match a condition, such as flushing the MSHRs on a squash.');
+K('ops',3,'After <code>deque::push_back</code>, which stay valid: iterators or references to existing elements?',['reference','references','pointer','pointers'],'References (and pointers) stay valid. Iterators are invalidated.','deque never moves its fixed-size chunks; only the chunk map is reallocated.');
+K('ops',3,'<code>for (auto x : rob)</code> where each Inst is 128 bytes. Why is this slow, and what’s the fix?',['copy','copies','copying','copied'],'Each iteration copies the Inst. Use const auto& x.','Copying 512 entries × 128 B every cycle is 64 KB of memcpy. For scale, 512 is Golden Cove’s ROB size.');
+C('ops',3,'Find the first Inst in vector <code>rob</code> that is not done, using <code>std::find_if</code> and a lambda. Store the result in <code>it</code>.',[[/it=find_if\(rob\.begin\(\),rob\.end\(\),\[|it=ranges::find_if\(rob,\[/],[/!\w+\.done|\w+\.done==false/]],'auto it = std::find_if(rob.begin(), rob.end(),\n                       [](const Inst& i) { return !i.done; });','Returns rob.end() if nothing matches, so always compare before dereferencing.');
+K('ops',3,'Why does <code>bool& b = v[0];</code> fail to compile for <code>std::vector&lt;bool&gt;</code>?',['proxy','packed','bit','bits','specialization','specialized'],'vector<bool> is bit-packed; operator[] returns a proxy object, not a real bool&.','If you need real bools (e.g. to pass by pointer), use vector<uint8_t> or std::bitset / dynamic_bitset.');
+
+/* Iterators */
+C('iter',1,'Get an iterator to the first element of <code>v</code>.',['v.begin()','begin(v)'],'v.begin()','begin(v) (free function) also works on C arrays.');
+K('iter',1,'What does <code>v.end()</code> point to?',['past','after','beyond'],'One past the last element (never dereference it).','Half-open ranges [begin, end) make the empty case begin == end.');
+C('iter',1,'Get the element that iterator <code>it</code> refers to.',['*it'],'*it','Use it->field for struct members.');
+K('iter',1,'<code>std::list</code> iterators can step forward and backward but not jump. Name that iterator category.',['bidirectional'],'Bidirectional','No it + 5. Use std::next(it, 5), which is O(n).');
+C('iter',2,'Loop over <code>unordered_map&lt;uint64_t,uint32_t&gt; m</code> with structured bindings named <code>addr</code> and <code>cnt</code>, by const reference.',[/for\((const auto|auto const)&\[addr,cnt\]:m\)/],'for (const auto& [addr, cnt] : m) { ... }','Without & each pair is copied. The key in a map element is always const.');
+C('iter',2,'In <code>std::map&lt;uint64_t, Store&gt; sq</code>, get iterator <code>it</code> to the first entry with key ≥ <code>seq</code>.',[/it=sq\.lower_bound\(seq\)/],'auto it = sq.lower_bound(seq);','upper_bound gives first key > seq. Both are O(log n).');
+C('iter',2,'Write the init part of a loop that walks <code>v</code> backwards with iterators (and the matching end condition).',[[/\w+=v\.rbegin\(\)|\w+=rbegin\(v\)/],[/v\.rend\(\)|rend\(v\)/]],'for (auto it = v.rbegin(); it != v.rend(); ++it)','++ on a reverse iterator moves toward the front. Handy for retiring youngest-first on a squash.');
+K('iter',2,'For a <code>std::map</code> iterator <code>it</code>, how do you read the key?',['first'],'it->first  (value is it->second)','Map elements are std::pair<const Key, Value>.');
+C('iter',2,'Number of elements between iterators <code>a</code> and <code>b</code>.',[/distance\(a,b\)|b-a/],'std::distance(a, b)','O(1) for random-access iterators, O(n) for list.');
+K('iter',3,'<code>vector</code> iterators support <code>it + 5</code>, <code>it[3]</code> and <code>&lt;</code>. Which iterator category is that (C++20 name included)?',['random access','contiguous'],'Random access (C++20: contiguous)','Contiguous also guarantees &*(it+1) == &*it + 1, so you can hand the data to a C API.');
+C('iter',3,'<code>it = sq.lower_bound(seq)</code> and <code>it != sq.begin()</code>. Get iterator <code>p</code> to the youngest store OLDER than seq.',[/p=prev\(it\)|--it/],'auto p = std::prev(it);','Store-to-load forwarding search: the previous key is the closest older store.');
+K('iter',3,'In C++20 ranges, end() may return a different type from begin(). What is that end marker called?',['sentinel'],'A sentinel','Lets ranges like “until null terminator” work without computing end first.');
+C('iter',3,'Declare a function template <code>sum</code> taking a [first, last) pair of any iterator type and returning <code>uint64_t</code>.',[/template<(class|typename) (\w+)>uint64_t sum\(\2 \w+,\2 \w+\)/],'template <typename It>\nuint64_t sum(It first, It last);','This is how STL algorithms are written: they work on any container with iterators.');
+K('iter',3,'Using an iterator after the element it referred to was erased (or the vector reallocated) results in what?',['undefined','ub'],'Undefined behavior (dangling/invalidated iterator).','Build with -fsanitize=address and -D_GLIBCXX_DEBUG to catch these.');
+
+/* Classes & structs */
+K('cls',1,'What is the ONLY default difference between <code>struct</code> and <code>class</code>?',['access','public','private'],'Default access: struct members are public, class members are private.','Convention: struct for plain data (CacheLine), class when you maintain invariants (Cache).');
+K('cls',1,'Which access specifier hides a member from code outside the class?',['private'],'private','Private members can still be used by the class’s own methods and friends.');
+C('cls',1,'Write the access label that makes the members after it visible to everyone.',['public:'],'public:','Labels apply until the next label.');
+K('cls',1,'A function with the class’s name and no return type that runs when an object is created is called what?',['constructor','ctor'],'Constructor','A class can have several constructors with different parameters.');
+K('cls',1,'What does <code>~Cache()</code> declare?',['destructor','dtor'],'The destructor','Runs automatically when the object goes out of scope, which is the basis of RAII.');
+C('cls',2,'Write Cache’s constructor taking <code>uint32_t sets</code> and <code>uint32_t ways</code>, initializing members <code>sets_</code> and <code>ways_</code> with a member initializer list.',[/Cache\(uint32_t \w+,uint32_t \w+\):sets_[({]\w+[)}],ways_[({]\w+[)}]/],'Cache(uint32_t sets, uint32_t ways) : sets_(sets), ways_(ways) {}','Initializer lists construct members directly. Assigning in the body default-constructs first, and const or reference members can only be set here.');
+K('cls',2,'Which access specifier lets derived classes, but not outside code, access a member?',['protected'],'protected','Use sparingly: it couples derived classes to base internals.');
+C('cls',2,'Declare <code>Cache(uint32_t size)</code> so it can’t be used for implicit conversions.',['explicit Cache(uint32_t $)'],'explicit Cache(uint32_t size);','Without explicit, passing 48 to a function taking a Cache would silently build one.');
+K('cls',2,'What does <code>const</code> after a member function’s parameter list promise?',['modify','modifies','change','changes','mutate','read only','readonly'],'The function won’t modify the object’s members (this is a pointer to const).','Only const methods can be called on a const Cache&. Mark every getter const.');
+K('cls',2,'Which keyword makes a member shared by all instances, like a global count of Core objects?',['static'],'static','static data members need one definition; C++17 inline static lets you define it in the class.');
+C('cls',3,'In abstract base class <code>Component</code>, declare a pure virtual <code>void tick()</code>.',['virtual void tick()=0'],'virtual void tick() = 0;','Makes Component abstract (it can’t be instantiated). Each pipeline stage implements tick().');
+C('cls',3,'In derived class <code>Core</code>, declare <code>tick()</code> so the compiler errors if it doesn’t actually override a base virtual.',[/void tick\(\)(override|final)/],'void tick() override;','override catches signature mismatches (e.g. a missing const) that would otherwise silently create a new function.');
+K('cls',3,'Why should a polymorphic base class have a <code>virtual</code> destructor?',['derived','leak','leaks','undefined','ub'],'Deleting a Derived through a Base* otherwise skips the derived destructor (undefined behavior, typically a leak).','Rule: if a class has any virtual function, make its destructor virtual.');
+C('cls',3,'In struct <code>Event</code>, overload <code>operator&lt;</code> as a const member comparing by <code>time</code>.',[[/bool operator<\(const Event&\w*\)const/],[/time<\w+\.time/]],'bool operator<(const Event& o) const { return time < o.time; }','Lets you use std::sort and std::set<Event> with no extra comparator.');
+K('cls',3,'Are members initialized in the order of the initializer list, or the order they’re declared in the class?',['declaration','declared','declare'],'Declaration order','If ways_ is declared before sets_ but its initializer uses sets_, you read garbage. -Wreorder warns about this.');
+C('cls',3,'C++20: give struct <code>Key</code> all six comparison operators in one defaulted line.',[/auto operator<=>\(const Key&\w*\)const=default/],'auto operator<=>(const Key&) const = default;','Defaulted three-way comparison (the spaceship operator) compares members in declaration order.');
+
+/* Keywords & types */
+C('kw',1,'Declare a compile-time constant <code>kLineSize</code> equal to 64 that can be used as an array size.',[/constexpr (size_t|int|uint32_t|uint64_t|auto|unsigned) kLineSize(=64|\{64\})/],'constexpr size_t kLineSize = 64;','Prefer constexpr over #define: it has a type and a scope.');
+K('kw',1,'What does <code>auto</code> do in <code>auto it = m.find(pc);</code>?',['deduce','deduces','deduced','deduction','infer','infers','inferred'],'Deduces the variable’s type from its initializer (here an iterator type).','Saves you writing std::unordered_map<uint64_t, Entry>::iterator.');
+C('kw',1,'Declare a reference <code>r</code> to an existing <code>int x</code>.',['int&$=x'],'int& r = x;','A reference must be initialized and can never be re-bound.');
+C('kw',1,'Declare a scoped enum <code>OpClass</code> with values Alu, Load, Store, Branch.',[/enum class OpClass(:\w+)?\{Alu,Load,Store,Branch,?\}/],'enum class OpClass { Alu, Load, Store, Branch };','Add : uint8_t after the name to control its size inside packed structs.');
+K('kw',1,'Which keyword makes a variable unchangeable after initialization?',['const'],'const','const correctness lets the compiler catch accidental writes.');
+C('kw',2,'Declare <code>p</code>, a pointer that can NOT be re-pointed, to a modifiable <code>uint64_t</code>, initialized to <code>&amp;x</code>.',['uint64_t*const p=&x'],'uint64_t* const p = &x;','Read right to left: p is a const pointer to uint64_t. “const uint64_t* p” is the opposite (a pointer to const).');
+C('kw',2,'Convert <code>double ipc</code> to <code>uint32_t</code> with a C++-style cast.',['static_cast<uint32_t>(ipc)'],'static_cast<uint32_t>(ipc)','Named casts are greppable and stricter than C casts. reinterpret_cast is for bit-level reinterpretation.');
+K('kw',2,'Why prefer <code>enum class</code> over a plain <code>enum</code>?',['scope','scoped','implicit','conversion','convert','converts','pollution','pollute','namespace'],'Names are scoped (OpClass::Load) and there’s no implicit conversion to int.','Two plain enums can’t both have a value named Load in the same scope.');
+C('kw',2,'Write a template alias <code>Table&lt;T&gt;</code> meaning <code>std::vector&lt;std::vector&lt;T&gt;&gt;</code>.',[/template<(class|typename) (\w+)>using Table=vector<vector<\2>>/],'template <typename T>\nusing Table = std::vector<std::vector<T>>;','typedef can’t do this. Template aliases need using.');
+K('kw',2,'Given <code>const uint64_t&amp; r = x; auto a = r;</code>, what is the type of <code>a</code>?',['uint64 t','uint64','copy','value','plain'],'uint64_t: a plain copy (auto drops top-level const and the reference).','Write const auto& a = r if you want to keep the reference.');
+K('kw',3,'<code>const</code> vs <code>constexpr</code> variable: which one guarantees a compile-time value?',['constexpr'],'constexpr','const int n = read_config(); is legal, so const only means “won’t change”.');
+C('kw',3,'Bind <code>cfg</code> as an auto-deduced const reference to the result of <code>config()</code>.',[/(const auto|auto const)&cfg=config\(\)/],'const auto& cfg = config();','A const ref to a temporary extends the temporary’s lifetime to the reference’s scope.');
+K('kw',3,'Which C++20 keyword declares a function that MUST be evaluated at compile time?',['consteval'],'consteval','constexpr functions may run at compile time; consteval ones must.');
+K('kw',3,'What does <code>decltype(expr)</code> give you?',['type'],'The declared type of expr, without evaluating it.','Used in decltype(cmp) for lambda comparators.');
+C('kw',3,'Declare a 64-byte <code>uint8_t</code> array <code>line</code> guaranteed to start on a 64-byte boundary.',[[/alignas\(64\)/],[/array<uint8_t,64>line|uint8_t line\[64\]/]],'alignas(64) std::array<uint8_t, 64> line;','Matches an x86 cache line, so one line never straddles two.');
+K('kw',3,'What does the <code>mutable</code> keyword on a data member allow?',['const'],'Modifying that member inside const member functions.','Typical use: a hit/miss stats counter updated inside a const lookup().');
+
+/* Memory & ownership */
+C('own',1,'Create <code>l1</code>, a <code>unique_ptr&lt;Cache&gt;</code> owning a new Cache built with (64, 12). Golden Cove’s 48 KB L1D has 64 sets × 12 ways.',[/make_unique<Cache>\(64,12\)/],'auto l1 = std::make_unique<Cache>(64, 12);','No naked new/delete. The Cache is freed when l1 goes out of scope.');
+K('own',1,'Which smart pointer has exactly one owner and can’t be copied?',['unique ptr'],'std::unique_ptr','Zero overhead compared to a raw pointer.');
+K('own',1,'Which smart pointer uses a reference count for shared ownership?',['shared ptr'],'std::shared_ptr','The count is atomic, which costs something. Prefer unique_ptr unless ownership is truly shared.');
+K('own',1,'With RAII, when is a resource (memory, file handle) released?',['scope','destructor','destroyed','destruct','destructed'],'When the owning object goes out of scope and its destructor runs.','Also happens on exceptions, so there are no leaks on error paths.');
+C('own',2,'Transfer ownership from <code>unique_ptr a</code> into a new variable <code>b</code>.',[/b=move\(a\)|b\(move\(a\)\)|b\{move\(a\)\}/],'auto b = std::move(a);','Copying a unique_ptr won’t compile, so you must move it.');
+K('own',2,'After <code>auto b = std::move(a);</code> (unique_ptr), what does <code>a</code> hold?',['null','nullptr','empty'],'nullptr','For most other types the moved-from state is only “valid but unspecified”.');
+C('own',2,'Write a parameter declaration that views a contiguous read-only run of <code>uint64_t</code> without owning or copying it (C++20).',[/span<const uint64_t>\w+|span<uint64_t const>\w+/],'void process(std::span<const uint64_t> addrs);','Accepts vector, array or a C array. It’s just a pointer + length.');
+K('own',2,'Which C++17 type is a read-only, non-owning string parameter?',['string view'],'std::string_view','Avoids allocating a std::string when you pass a literal like "l1d.misses".');
+K('own',2,'Why pass large objects as <code>const T&amp;</code> instead of <code>T</code>?',['copy','copies','copying'],'To avoid copying them.','Small trivially-copyable types (uint64_t, a 16-byte struct) are cheaper passed by value.');
+C('own',3,'Declare Trace’s move constructor so that <code>std::vector&lt;Trace&gt;</code> will actually use it when reallocating.',[/Trace\(Trace&&\w*\)noexcept/],'Trace(Trace&& other) noexcept;','vector only moves during reallocation if the move constructor is noexcept; otherwise it copies to keep the strong exception guarantee.');
+K('own',3,'A class owns a raw resource and defines a destructor. By the rule of five, which other special members should it define?',[['copy'],['move']],'Copy constructor, copy assignment, move constructor, move assignment.','Better still is the rule of zero: wrap the resource in unique_ptr/vector and define none of them.');
+K('own',3,'You save <code>Inst* p = &amp;rob[0];</code> and then <code>rob.push_back(x);</code>. What can go wrong?',['dangling','realloc','reallocation','reallocates','invalid','invalidated'],'Reallocation frees the old buffer and p dangles.','Store an index, or reserve the maximum capacity up front (for example the ROB size).');
+C('own',3,'Construct a Request in place at the back of vector <code>q</code> from (<code>addr</code>, <code>cycle</code>).',['q.emplace_back(addr,cycle)'],'q.emplace_back(addr, cycle);','Forwards the arguments to Request’s constructor, so there’s no temporary.');
+K('own',3,'Does <code>std::move</code> itself move anything? What does it actually do?',['cast','rvalue'],'No. It’s a cast to an rvalue reference; the move constructor/assignment does the moving.','std::move on a const object silently falls back to a copy.');
+
+/* Templates & lambdas */
+C('tmpl',1,'Write a lambda <code>twice</code> that takes <code>int x</code> and returns <code>x*2</code>.',[/auto twice=\[\]\(int \w+\)(->int)?\{return \w+\*2/],'auto twice = [](int x) { return x * 2; };','[] is the capture list, () the params, {} the body.');
+K('tmpl',1,'How does <code>[&amp;]</code> capture outside variables?',['reference','references'],'By reference','Fast, but the lambda must not outlive those variables.');
+K('tmpl',1,'How does <code>[=]</code> capture outside variables?',['value','copy','copies'],'By value (copies)','Inside a member function, [=] still captures this as a pointer, not a copy.');
+C('tmpl',1,'Write the template header for a function generic over a type <code>T</code>.',[/template<(class|typename) T>/],'template <typename T>','typename and class mean the same thing here.');
+C('tmpl',2,'Sort <code>vector&lt;Event&gt; ev</code> by <code>time</code> ascending with a lambda.',[[/sort\(ev\.begin\(\),ev\.end\(\),\[|ranges::sort\(ev,\[/],[/\.time<\w+\.time/]],'std::sort(ev.begin(), ev.end(),\n          [](const Event& a, const Event& b) { return a.time < b.time; });','C++20 alternative: std::ranges::sort(ev, {}, &Event::time).');
+C('tmpl',2,'Count loads in <code>vector&lt;Inst&gt; rob</code> (field <code>is_load</code>) using <code>count_if</code>.',[[/count_if\(rob\.begin\(\),rob\.end\(\),\[|ranges::count_if\(rob,\[/],[/\.is_load/]],'auto n = std::count_if(rob.begin(), rob.end(),\n                       [](const Inst& i) { return i.is_load; });','Returns a signed count type (ptrdiff_t).');
+K('tmpl',2,'In <code>template&lt;size_t N&gt; class RingBuffer</code>, when must N be known?',['compile time','compile','compiletime'],'At compile time','Each N produces a separate class: RingBuffer<512> and RingBuffer<256> are different types.');
+C('tmpl',2,'Write lambda <code>onHit</code> that captures <code>hits</code> by reference and increments it.',[[/\[&hits\]|\[&\]/],[/\+\+hits|hits\+\+|hits\+=1/]],'auto onHit = [&hits]() { ++hits; };','Name explicit captures in long-lived callbacks so you can see what’s referenced.');
+C('tmpl',2,'Declare <code>on_fill</code>: a type-erased callback taking a <code>uint64_t</code> and returning nothing.',[/function<void\(uint64_t\)>on_fill/],'std::function<void(uint64_t)> on_fill;','Flexible but may heap-allocate and blocks inlining. Use a template parameter in hot paths.');
+C('tmpl',3,'C++20: write a template header so <code>log2i</code> only accepts unsigned integer types T.',[/template<unsigned_integral \w+>|requires unsigned_integral<\w+>/],'template <std::unsigned_integral T>\nT log2i(T x);','Concepts give readable errors instead of pages of template noise.');
+K('tmpl',3,'Where do template function definitions usually have to live, and why?',['header'],'In the header: the compiler needs the full definition to instantiate it for each type.','Otherwise you get undefined-reference link errors unless you explicitly instantiate.');
+C('tmpl',3,'Inside a template over T, write the opening of a branch compiled only when <code>sizeof(T) == 8</code>.',[/if constexpr\(sizeof\(T\)==8\)/],'if constexpr (sizeof(T) == 8) { ... }','The discarded branch isn’t instantiated, so it may contain code invalid for other T.');
+K('tmpl',3,'In <code>[](auto x) { ... }</code>, what kind of function is the lambda’s call operator?',['template','templated'],'A template (a generic lambda): a separate instantiation per argument type.','That’s why it works inside std::visit over a variant.');
+K('tmpl',3,'Lambda <code>[x]() mutable { return ++x; }</code>: does calling it change the outer <code>x</code>?',['no','copy'],'No. It modifies the lambda’s own copy.','mutable only removes the const on the lambda’s captured copies.');
+
+/* Performance & layout */
+K('perf',1,'Big sequential scan: is iterating a vector or a list faster?',['vector'],'vector','Contiguous memory means the hardware prefetcher streams it; a list chases pointers with a likely cache miss per node.');
+K('perf',1,'Which keyword lets you define a function in a header included by many .cpp files without a linker error?',['inline'],'inline','In modern C++ inline is about the one-definition rule; the optimizer decides inlining on its own.');
+K('perf',1,'Typical cache line size on modern x86 cores, in bytes?',['64'],'64 bytes','Apple M-series uses 128 B lines; std::hardware_destructive_interference_size reports it.');
+K('perf',1,'Are member functions defined inside the class body implicitly <code>inline</code>?',['yes','implicitly'],'Yes','So small getters in headers are free to inline.');
+K('perf',2,'You scan only the <code>valid</code> flag across 4096 entries each cycle. Array of structs or struct of arrays?',['soa','structure of arrays','struct of arrays'],'Struct of arrays (SoA)','A vector<bool>/bitset of valid bits packs 4096 flags into 512 B, compared with 4096 × sizeof(Entry).');
+K('perf',2,'Two threads write different counters that sit on the same cache line. What is that slowdown called?',['false sharing'],'False sharing','The line ping-pongs between cores in coherence. Fix it with alignas(64) padding.');
+C('perf',2,'Declare struct <code>Counter</code> with one <code>uint64_t v</code>, aligned so each instance owns a full 64-byte line.',[/struct alignas\(64\) ?Counter/],'struct alignas(64) Counter { uint64_t v; };','sizeof(Counter) becomes 64.');
+K('perf',2,'Which C++20 attribute marks a branch as rarely taken?',['unlikely'],'[[unlikely]]','The compiler moves that path out of line, keeping the hot path dense in the I-cache.');
+K('perf',2,'gcc/clang flags for an optimized build that still has debug symbols for perf/gdb?',[['o2','o3'],['g']],'-O2 -g','Add -fno-omit-frame-pointer for better perf call stacks.');
+K('perf',3,'Lookups are O(1), so why can <code>unordered_map</code> still be slow in a simulator hot loop?',['pointer','pointers','node','nodes','cache','allocation','allocations','chasing','indirection'],'It’s node-based: each element is a separate allocation, so lookups chase pointers and miss in cache.','Open-addressing maps (absl::flat_hash_map, boost::unordered_flat_map) or direct-indexed arrays are much faster.');
+K('perf',3,'What determines a struct’s alignment requirement?',['largest','biggest','max','maximum','strictest'],'Its most strictly aligned (usually largest) member.','Order members largest to smallest to minimize padding.');
+C('perf',3,'Make the build fail if <code>RobEntry</code> grows beyond 32 bytes.',[/static_assert\(sizeof\(RobEntry\)<=32/],'static_assert(sizeof(RobEntry) <= 32);','Protects hot structures from silently bloating as fields get added.');
+K('perf',3,'Which gcc/clang attribute forces a function to be inlined?',['always inline'],'__attribute__((always_inline))  (or [[gnu::always_inline]])','MSVC spells it __forceinline. Use only after profiling.');
+K('perf',3,'Which compiler flag enables inlining across separate .cpp files at link time?',['flto','lto'],'-flto','Link-time optimization: otherwise tiny functions in other .cpp files can never be inlined.');
+K('perf',3,'Which optimization replaces a call with the function body, enabling constant propagation through it?',['inlining','inline','inlined'],'Inlining','This is why std::sort with a lambda beats C qsort with a function pointer.');
+
+/* Read the code */
+R(1,'std::vector<int> v{3, 1, 2};\nstd::cout << v.size();','3','Braces with values = initializer list: three elements.');
+R(1,'std::vector<int> v(3);\nstd::cout << v[1];','0','(count) constructor value-initializes ints to 0.');
+R(1,'std::stack<int> s;\ns.push(1); s.push(2); s.push(3);\nstd::cout << s.top();','3','LIFO: the last pushed is on top.');
+R(1,'std::queue<int> q;\nq.push(1); q.push(2); q.push(3);\nq.pop();\nstd::cout << q.front();','2','FIFO: pop removed 1.');
+R(2,'std::vector<int> v{10, 2};\nstd::cout << v.size();','2','Braces prefer the initializer_list constructor: elements 10 and 2. v(10, 2) would be ten 2s.');
+R(2,"std::map<int, char> m{{3,'c'}, {1,'a'}, {2,'b'}};\nfor (auto& [k, v] : m) std::cout << v;",'abc','std::map iterates in key order.');
+R(2,'std::unordered_map<int, int> m;\nif (m[5] == 0) {}\nstd::cout << m.size();','1','operator[] inserted key 5 just by reading it.');
+R(2,"std::bitset<8> b(0b1011);\nb <<= 2;\nstd::cout << b.count() << ' ' << b;",'3 00101100','Shift keeps 3 set bits; bitset prints MSB first.');
+R(2,'std::priority_queue<int> pq;\nfor (int x : {4, 9, 1}) pq.push(x);\nstd::cout << pq.top();','9','Default priority_queue is a max-heap.');
+R(3,'uint8_t c = 255;\nc++;\nstd::cout << int(c);','0','Unsigned arithmetic wraps mod 256. Printing a uint8_t without int() would print a char.');
+R(3,'std::vector<int> v{1, 2, 3, 4, 5};\nstd::remove_if(v.begin(), v.end(),\n               [](int x) { return x % 2 == 0; });\nstd::cout << v.size();','5','remove_if never changes size; you must call erase on the returned iterator.');
+R(3,'auto x = 5u - 6;\nstd::cout << (x > 0);','1','5u - 6 is unsigned: wraps to 4294967295.');
+R(3,'struct A { char a; uint64_t b; char c; };\nstd::cout << sizeof(A);','24','1 + 7 padding + 8 + 1 + 7 tail padding. Reordering as {b, a, c} gives 16.');
+R(3,'int x = 7;\nauto f = [x]() mutable { return ++x; };\nf(); f();\nstd::cout << x;','7','The lambda increments its own copy (it returned 8, then 9).');
+R(3,'std::list<int> l{1, 2, 3};\nauto it = std::next(l.begin());\nl.splice(l.begin(), l, it);\nfor (int x : l) std::cout << x;','213','splice moved node 2 to the front: the core move in an LRU list.');
+
+if(window.addAcc) window.addAcc(K,C);
+
+/* ---------- Checking ---------- */
+function normCode(s){
+  return s.replace(/std::/g,'')
+    .replace(/unsigned\s+long\s+long(\s+int)?/g,'uint64_t')
+    .replace(/unsigned\s+long(\s+int)?/g,'uint64_t')
+    .replace(/unsigned\s+int/g,'uint32_t')
+    .replace(/unsigned\s+char/g,'uint8_t')
+    .replace(/\s+/g,' ')
+    .replace(/\s*([<>(){}\[\],;=+\-*&|:!.%^~?\/])\s*/g,'$1')
+    .trim().replace(/;+$/,'');
+}
+const reCache=new Map();
+function tmplRe(t){
+  if(reCache.has(t)) return reCache.get(t);
+  let o=''; for(const c of normCode(t)){
+    if(c==='$') o+='[A-Za-z_]\\w*';
+    else if(c==='#') o+='\\w+';
+    else o+=c.replace(/[.*+?^{}()|[\]\\\/]/g,'\\$&');
+  }
+  const r=new RegExp(o); reCache.set(t,r); return r;
+}
+function normSel(s){return ' '+s.toLowerCase().replace(/std::/g,'').replace(/[^a-z0-9]+/g,' ').trim()+' ';}
+function hasKw(n,kw){const k=normSel(kw).trim();return new RegExp('(^| )'+k+'s?( |$)').test(n);}
+function grade(q,input){
+  if(q.m==='kw'){
+    const n=normSel(input);
+    if((q.forbid||[]).some(f=>hasKw(n,f))) return false;
+    return q.need.every(g=>g.some(k=>hasKw(n,k)));
+  }
+  const n=normCode(input);
+  return q.need.every(g=>g.some(a=>a instanceof RegExp ? a.test(n) : tmplRe(a).test(n)));
+}
+
+/* ---------- Hints (auto-derived) ---------- */
+function hintFor(q){
+  if(q.s) return 'Trace it line by line; watch for implicit conversions and inserts.';
+  if(q.m==='kw'){const n=q.need.length;return n>1?`The answer has ${n} parts.`:(q.c==='pick'?'One container (or adaptor) answers it.':'A word or short phrase is enough.');}
+  const m=q.a.split('\n')[0].match(/^[\w:]+/);return m?`Starts with <code>${m[0]}</code>`:'';
+}
+
+/* ---------- State ---------- */
+const CATS=[
+  ['pick','Pick the structure','--blue'],['syntax','Write the syntax','--peach'],['acc','Access & move elements','--pink'],['ops','Operations & pitfalls','--mint'],
+  ['iter','Iterators','--butter'],['cls','Classes & structs','--pink'],['kw','const · auto · using','--lav'],
+  ['own','Memory & ownership','--blue'],['tmpl','Templates & lambdas','--peach'],['perf','Performance & layout','--mint'],['read','Read the code','--butter']];
+const KEY='cpp-drill-done-v2';
+let done={}; try{done=JSON.parse(localStorage.getItem(KEY)||'{}')||{};}catch(e){done={};}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(done));}catch(e){}}
+const hash=s=>{let h=5381;for(const ch of s)h=((h<<5)+h+ch.charCodeAt(0))|0;return (h>>>0).toString(36);};
+Q.forEach(q=>{q.id=q.c+q.d+'-'+hash(q.q+(q.s||''));});
+let mode='pick', level=1, idx=0;
+const $=id=>document.getElementById(id);
+const setList=()=>Q.filter(q=>q.c===mode&&q.d===level);
+const cnt=(c,d)=>{const l=Q.filter(q=>(c==null||q.c===c)&&(d==null||q.d===d));return `${l.filter(q=>done[q.id]).length}/${l.length}`;};
+const catName=c=>CATS.find(x=>x[0]===c)[1];
+
+$('cats').innerHTML=CATS.map(([c,n,col])=>`<button class="cat" data-c="${c}" id="cat-${c}" style="--cbg:var(${col})">${n}<small id="cc-${c}"></small></button>`).join('');
+
+function render(){
+  const L=setList(); if(idx>=L.length) idx=0; const q=L[idx];
+  CATS.forEach(([c])=>$('cat-'+c).setAttribute('aria-pressed',c===mode));
+  [1,2,3].forEach(d=>$('l-'+d).setAttribute('aria-pressed',d===level));
+  refreshCounts(true);
+  $('dots').innerHTML=L.map((x,i)=>`<button class="dot${done[x.id]?' done':''}${i===idx?' cur':''}" data-i="${i}" aria-label="Question ${i+1}${done[x.id]?', solved':''}">${i+1}</button>`).join('');
+  $('chip').textContent=`${catName(mode)} · ${['','Easy','Medium','Hard'][level]} · ${idx+1} of ${L.length}`;
+  $('q').innerHTML=q.q;
+  $('snip').hidden=!q.s; $('snip').textContent=q.s||'';
+  const ta=$('ans'); ta.value=''; ta.className=q.m==='code'||q.s?'code':'';
+  ta.placeholder=q.s?'Exact output':q.m==='code'?'e.g. std::vector<int> v;':(q.c==='pick'?'e.g. vector, unordered_map':'Short answer');
+  $('ansLbl').textContent=q.s?'Output':q.m==='code'?'C++ code':(q.c==='pick'?'Container name(s)':'Your answer');
+  $('fb').hidden=true; $('hint').hidden=true;
+}
+function showFb(kind,q){
+  const fb=$('fb'); fb.className='fb '+kind; fb.hidden=false;
+  $('verdict').textContent={ok:'Correct!',bad:'Not quite.',show:'Answer'}[kind];
+  $('model').textContent=q.a; $('why').textContent=q.why;
+  $('override').hidden=kind!=='bad';
+}
+function check(){
+  const q=setList()[idx]; const v=$('ans').value.trim();
+  if(!v){$('ans').focus();$('ans').placeholder='Type an answer first';return;}
+  const ok=grade(q,v); if(ok){done[q.id]=true;save();}
+  showFb(ok?'ok':'bad',q); refreshCounts();
+}
+function refreshCounts(skipDots){
+  CATS.forEach(([c])=>$('cc-'+c).textContent=cnt(c,null));
+  [1,2,3].forEach(d=>$('c-'+d).textContent=cnt(mode,d));
+  if(skipDots) return;
+  const L=setList();[...$('dots').children].forEach((b,i)=>b.classList.toggle('done',!!done[L[i].id]));
+}
+function next(){
+  const L=setList(); let j=(idx+1)%L.length;
+  for(let k=1;k<=L.length;k++){const c=(idx+k)%L.length;if(!done[L[c].id]){j=c;break;}}
+  idx=j; render(); $('ans').focus({preventScroll:true});
+}
+
+$('cats').addEventListener('click',e=>{const b=e.target.closest('.cat');if(!b)return;mode=b.dataset.c;idx=0;render();b.scrollIntoView({block:'nearest',inline:'center',behavior:'smooth'});});
+$('lvlSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;level=+b.dataset.c;idx=0;render();});
+$('dots').addEventListener('click',e=>{const b=e.target.closest('.dot');if(!b)return;idx=+b.dataset.i;render();});
+$('check').addEventListener('click',check);
+$('next').addEventListener('click',next);
+$('reveal').addEventListener('click',()=>showFb('show',setList()[idx]));
+$('hintBtn').addEventListener('click',()=>{const h=$('hint');h.innerHTML=hintFor(setList()[idx]);h.hidden=false;});
+$('override').addEventListener('click',()=>{const q=setList()[idx];done[q.id]=true;save();showFb('ok',q);refreshCounts();});
+$('reset').addEventListener('click',()=>{setList().forEach(q=>delete done[q.id]);save();render();});
+$('ans').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();$('fb').hidden?check():next();}});
+render();
+
+/* ---------- Study guide ---------- */
+function setView(v,user){
+  $('drillView').hidden=v!=='drill'; $('guideView').hidden=v!=='guide';
+  [...$('viewSeg').children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===v));
+  try{localStorage.setItem('cpp-drill-view',v);}catch(e){}
+  /* In the site's frame the frame has no scroll of its own, so bring the frame's top into view instead. */
+  if(!user)return;
+  if(window.frameElement){const t=window.frameElement.getBoundingClientRect().top;if(t<0)window.frameElement.scrollIntoView({block:'start'});}else window.scrollTo(0,0);
+}
+if(window.buildGuide&&window.GUIDE_MD){
+  const g=window.buildGuide(window.GUIDE_MD,catName);
+  $('guideToc').innerHTML=g.toc; $('guideBody').innerHTML=g.html;
+}
+$('viewSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(b)setView(b.dataset.v,true);});
+$('guideToc').addEventListener('click',e=>{const a=e.target.closest('a');if(!a)return;e.preventDefault();document.getElementById(a.dataset.t).scrollIntoView({behavior:'smooth',block:'start'});});
+$('guideBody').addEventListener('click',e=>{const b=e.target.closest('.practice');if(!b)return;mode=b.dataset.c;level=1;idx=0;render();setView('drill',true);const c=$('cat-'+mode);if(c)c.scrollIntoView({block:'nearest',inline:'center'});});
+try{if(localStorage.getItem('cpp-drill-view')==='guide')setView('guide');}catch(e){}
+
+/* expose for testing */
+window.__grade=grade; window.__Q=Q;
+</script>
+</body>
+</html>

@@ -94,7 +94,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "gen gen gen llm llm llm"
     "aisys aisys aisys aisys aisys aisys"; }
 .floor[data-tab="intv"] { grid-template-areas:
-    "todo todo todo cal cal cal"
+    "todo todo cal cal cppd cppd"
     "intv intv intv intv intv intv"
     "iqmem iqmem iqmem iqperf iqperf iqperf"
     "iqos iqos iqos iqsw iqsw iqsw"
@@ -307,6 +307,7 @@ textarea.todo-text { display: block; resize: none; overflow: hidden; line-height
 .todo-addsub:hover { color: var(--trace); border-color: var(--trace); }
 .todo-del { font: inherit; font-size: .8rem; color: var(--muted); background: none; border: 1px solid transparent; border-radius: 4px; padding: 2px 7px; cursor: pointer; }
 .todo-del:hover { color: var(--pad); border-color: var(--pad); }
+.drill-frame { display: block; width: 100%; height: 900px; border: 0; background: transparent; }
 .cal-page { max-width: none; }
 .cal-page .note { max-width: none; }
 .cal-page.panel-open, .cal-page.week-view { grid-template-columns: minmax(0, 1fr); }
@@ -680,7 +681,7 @@ window.MathJax = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-<script src="js/site.js?v=8fc5c65c"></script>
+<script src="js/site.js?v=52c17d1c"></script>
 <script src="sections/instruction-sets.js?v=f24c74e3"></script>
 <script src="sections/pipeline-stages.js?v=e204b34c"></script>
 <script src="sections/front-end.js?v=ca728824"></script>
@@ -722,6 +723,7 @@ window.MathJax = {
 <script src="sections/ai-systems.js?v=7250e3d2"></script>
 <script src="sections/todo-list.js?v=3261ae22"></script>
 <script src="sections/calendar.js?v=ca5b721f"></script>
+<script src="sections/cpp-drill.js?v=33241cb2"></script>
 <script src="coding/interview.js?v=82f86d89"></script>
 <script src="sections/interview-prep.js?v=36d64d89"></script>
 <script src="sections/resume-prep.js?v=478691ac"></script>
@@ -732,6 +734,6 @@ window.MathJax = {
 <script src="js/visual.js?v=ecd04d7a"></script>
 <script src="js/theme.js?v=1763bf15"></script>
 <script src="coding/crun.js?v=a9acf486"></script>
-<script src="js/app.js?v=d5a6ed31"></script>
+<script src="js/app.js?v=0fcb488f"></script>
 </body>
 </html>

@@ -1523,6 +1523,30 @@ function renderRegion(r, sec) {
     <div class="body">${r.body}</div>${practiceHTML(r.practice)}`);
 }
 
+/* ---------- C++ STL Data Structures Drill (#/r/cppd) ----------
+   The drill is a self-contained app in cpp-drill/, shown in a same-origin
+   iframe so its own in-page anchors never touch this router. The frame
+   grows to fit its content, so the page scrolls as one. The drill follows
+   the site theme itself (it reads the shared "theme" key). */
+function renderCppDrill() {
+  const r = REGIONS.find(x => x.id === "cppd");
+  layout("r/cppd", null, `
+    <p class="region">Section Overview</p>
+    <h1>${r.name}</h1>
+    <p class="flag-note">${r.cap}. Progress is saved in this browser only.</p>
+    <iframe class="drill-frame" id="drillFrame" src="cpp-drill/index.html" title="${r.name}"></iframe>`);
+  const frame = document.getElementById("drillFrame");
+  frame.addEventListener("load", () => {
+    const doc = frame.contentDocument;
+    if (!doc) return;
+    /* body, not documentElement: inside a frame the root's scrollHeight
+       never drops below the frame's own height, so it could only grow. */
+    const fit = () => { frame.style.height = Math.ceil(doc.body.getBoundingClientRect().height) + "px"; };
+    fit();
+    new ResizeObserver(fit).observe(doc.body);
+  });
+}
+
 function renderNote(n, sec) {
   const region = REGIONS.find(r => r.id === n.region);
   const i = NOTES.indexOf(n), prev = NOTES[i - 1], next = NOTES[i + 1];
@@ -1637,6 +1661,7 @@ function route() {
   if (parts[0] === "todo" || (parts[0] === "r" && parts[1] === "todo")) { renderTodo(); window.scrollTo(0, 0); return; }
   if (parts[0] === "cal" || (parts[0] === "r" && parts[1] === "cal")) { renderCal(); window.scrollTo(0, 0); return; }
   if (parts[0] === "drill") { renderDrill(); window.scrollTo(0, 0); return; }
+  if (parts[0] === "r" && parts[1] === "cppd") { renderCppDrill(); window.scrollTo(0, 0); return; }
   if (parts[0] === "r") {
     const r = REGIONS.find(x => x.id === parts[1]);
     if (r) { renderRegion(r, parts[2]); goToSection(parts[2]); return; }
