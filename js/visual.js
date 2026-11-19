@@ -551,7 +551,7 @@ function animHeap(el, a) {
     const r = e.getBoundingClientRect(), b = el.getBoundingClientRect();
     return [r.left + r.width / 2 - b.left, r.top + r.height / 2 - b.top];
   };
-  const fly = async (chip, i, v) => {
+  const fly = async (chip, i, v, nd) => {
     const f = document.createElement("div");
     f.className = "pq-node pq-fly";
     f.textContent = v;
@@ -568,6 +568,7 @@ function animHeap(el, a) {
       ], { duration: dur, easing: "ease-in-out", fill: "forwards" });
     }
     await wait(dur);
+    nd.style.visibility = "";
     f.remove();
   };
   const mark = (is, cls, on) => is.forEach(i => { nodes[i].classList.toggle(cls, on); cells[i].el.classList.toggle(cls, on); });
@@ -586,8 +587,7 @@ function animHeap(el, a) {
     place(nd, n);
     tree.appendChild(nd);
     nodes.push(nd);
-    await Promise.all([fly(chip, n, v), wait(350).then(() => write(n, v))]);
-    nd.style.visibility = "";
+    await Promise.all([fly(chip, n, v, nd), wait(350).then(() => write(n, v))]);
     drawEdges();
     await wait(500);
     const gt = mode === "max" ? ">" : "<", le = mode === "max" ? "≤" : "≥";
