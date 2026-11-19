@@ -95,6 +95,17 @@ section({
 <li>Two iterators, <code>start</code> and <code>finish</code>, each hold the current element, the bounds of its chunk, and a pointer to its map slot.</li>
 </ul>
 <p>Other libraries pick different chunk sizes: libc++ (Clang) uses 4,096 B blocks, and MSVC uses only 16 B blocks, so a deque of 64 B elements there allocates every element separately.</p>
+<p>Why split the elements across chunks instead of one block? The C++ standard ([deque.modifiers]) promises two things that no single contiguous block can keep:</p>
+<ul>
+<li><strong>Inserting at either end always takes constant time and calls T's constructor exactly once.</strong> A <code>vector</code> has no room in front of element 0, so <code>push_front</code> would shift every element. A ring buffer (one block with head and tail wrapping around) fixes the front, but when it fills it must copy or move every element into a bigger block. That makes growth amortized O(1), not O(1), and costs n extra constructor calls.</li>
+<li><strong>Inserting at either end leaves references to existing elements valid.</strong> Any growth of a single block moves the elements to a new address, so every pointer and reference into it dangles.</li>
+</ul>
+<p>Chunks keep both promises because elements never move. A new element goes into the end chunk, or into a freshly allocated chunk whose pointer is written into a spare map slot. When the map itself runs out of slots, only the pointers are copied. For 1,000,000 elements of 8 B (64 elements/chunk), that is 1,000,000 elements / 64 elements/chunk = 15,625 pointers × 8 B/pointer = 125,000 B, instead of the 8,000,000 B a <code>vector</code> copies when it reallocates. Two side benefits follow:</p>
+<ul>
+<li>A deque can hold types that can be neither copied nor moved (built in place with <code>emplace_back</code> or <code>emplace_front</code>), since growth never relocates an element.</li>
+<li>A large deque never needs one huge contiguous allocation, and popping from an end frees whole chunks as they empty.</li>
+</ul>
+<p>The price is the two-level lookup and broken contiguity described below.</p>
 <div class="anim" data-anim="stl-deque"></div>
 <p>What the layout means for a model:</p>
 <ul>
