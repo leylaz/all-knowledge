@@ -1,4 +1,5 @@
-/* GPU animations for the GPU Hierarchy in Motion region. A body places one with
+/* Animations: the GPU ones for the GPU Hierarchy in Motion region, plus the
+   C++ STL container visuals ("heap" and "deque" kinds). A body places one with
    <div class="anim" data-anim="name"></div>, and initAnims() builds it.
    "steps" anims show one SVG frame per step with Prev and Next (moving
    pieces use SMIL <animate>, which restarts each time a frame is drawn).
@@ -221,6 +222,16 @@ const ANIMS = {
       ["JOIN: FADD R3 = R2 + R4", "fp32", [3, 6], 4],
       ["STG y[R0] = R3", "ldst", [7], 0]
     ]
+  },
+  "stl-heap": {
+    kind: "heap",
+    title: "Try It: Pushing Into a Priority Queue",
+    intro: "Seven values between 0 and 100. Click one to push it: it flies to the next free leaf of the tree, gets written into the same slot of the vector, then sifts up until its parent wins the compare."
+  },
+  "stl-deque": {
+    kind: "deque",
+    title: "Try It: Where a Deque's Elements Live",
+    intro: "A libstdc++ std::deque of 64 B elements, so 8 fit in each 512 B chunk. Push and pop at both ends and watch which allocations happen, then look up an index to see the two loads behind d[i]. Values count up from front to back, so d[0] is always the smallest."
   }
 };
 
@@ -446,12 +457,393 @@ function subpStatus(a, runs, cycles, c) {
 }
 
 function initAnims(root) {
+  const kinds = { steps: animSteps, cycles: animCycles, heap: animHeap, deque: animDeque };
   root.querySelectorAll(".anim[data-anim]").forEach(el => {
     const a = ANIMS[el.dataset.anim];
-    if (!a || el.dataset.ready) return;
+    if (!a || el.dataset.ready || !kinds[a.kind]) return;
     el.dataset.ready = "1";
-    (a.kind === "steps" ? animSteps : animCycles)(el, a);
+    kinds[a.kind](el, a);
   });
+}
+
+/* ---------- C++ STL: std::priority_queue as a binary heap in a vector ----------
+   A bank of 7 values. Clicking one flies it into the next free tree slot,
+   types it into the matching array cell, then sifts it up one compare and
+   swap at a time. */
+function animHeap(el, a) {
+  const N = 7;
+  const fast = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const wait = ms => new Promise(r => setTimeout(r, fast ? Math.min(ms, 60) : ms));
+  /* Heap index i sits on level floor(log2(i + 1)), spread evenly across it. */
+  const pos = i => {
+    const lv = Math.floor(Math.log2(i + 1)), k = i + 1 - (1 << lv);
+    return [(2 * k + 1) / (2 << lv) * 100, 30 + lv * 70];
+  };
+  const fresh = () => {
+    const s = new Set();
+    while (s.size < N) s.add(Math.floor(Math.random() * 101));
+    return [...s];
+  };
+  let bank = fresh(), vals = [], nodes = [], mode = "max", busy = false;
+  el.classList.add("pq-anim");
+  el.innerHTML = `<p class="calc-title">${a.title}</p><p class="calc-intro">${a.intro}</p>
+    <div class="anim-ctl"><button type="button" data-m="max">std::less (max-heap, the default)</button><button type="button" data-m="min">std::greater (min-heap)</button>
+      <button type="button" data-act="new">New numbers</button><button type="button" data-act="reset">Reset</button></div>
+    <div class="pq-label">Values to push (click one)</div>
+    <div class="pq-bank" role="group" aria-label="Values to push"></div>
+    <div class="pq-label">Tree view</div>
+    <div class="pq-tree"><svg class="pq-edges" viewBox="0 0 100 210" preserveAspectRatio="none" aria-hidden="true"></svg></div>
+    <div class="pq-label">Array view: the std::vector underneath (children of v[i] are v[2i + 1] and v[2i + 2])</div>
+    <div class="pq-arr"></div>
+    <p class="anim-cap" aria-live="polite"></p>`;
+  const bankEl = el.querySelector(".pq-bank"), tree = el.querySelector(".pq-tree"), edges = el.querySelector(".pq-edges");
+  const arr = el.querySelector(".pq-arr"), cap = el.querySelector(".anim-cap");
+  const say = h => { cap.innerHTML = h; };
+  const slots = [], cells = [];
+  for (let i = 0; i < N; i++) {
+    const [x, y] = pos(i), s = document.createElement("div");
+    s.className = "pq-slot";
+    s.style.left = x + "%";
+    s.style.top = y + "px";
+    s.innerHTML = `<span>${i}</span>`;
+    tree.appendChild(s);
+    slots.push(s);
+    const c = document.createElement("div");
+    c.className = "pq-cell";
+    c.innerHTML = `<span class="pq-idx">v[${i}]</span><span class="pq-val"></span>`;
+    arr.appendChild(c);
+    cells.push({ el: c, val: c.querySelector(".pq-val") });
+  }
+  const drawEdges = () => {
+    let h = "";
+    for (let i = 1; i < N; i++) {
+      const [x1, y1] = pos((i - 1) >> 1), [x2, y2] = pos(i);
+      h += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="${i < vals.length ? "on" : ""}" vector-effect="non-scaling-stroke"/>`;
+    }
+    edges.innerHTML = h;
+  };
+  const place = (nd, i) => { const [x, y] = pos(i); nd.style.left = x + "%"; nd.style.top = y + "px"; };
+  const setCtl = on => {
+    el.querySelectorAll(".anim-ctl button").forEach(b => { b.disabled = !on; });
+    bankEl.querySelectorAll("button").forEach(b => { b.disabled = !on || b.classList.contains("used"); });
+    el.querySelectorAll("[data-m]").forEach(b => b.setAttribute("aria-current", b.dataset.m === mode ? "step" : "false"));
+  };
+  const reset = () => {
+    vals = [];
+    nodes.forEach(n => n.remove());
+    nodes = [];
+    cells.forEach(c => { c.val.textContent = ""; c.el.className = "pq-cell"; });
+    bankEl.innerHTML = bank.map(v => `<button type="button" class="pq-chip" data-v="${v}">${v}</button>`).join("");
+    drawEdges();
+    setCtl(true);
+    say(`<code>std::priority_queue&lt;int${mode === "min" ? ", std::vector&lt;int&gt;, std::greater&lt;int&gt;" : ""}&gt; pq;</code> is empty. Click a value to call <code>pq.push()</code>.`);
+  };
+  const write = async (i, v) => {
+    const c = cells[i];
+    c.el.classList.add("writing");
+    c.val.textContent = "";
+    await wait(120);
+    for (const ch of String(v)) { c.val.textContent += ch; await wait(150); }
+    await wait(150);
+    c.el.classList.remove("writing");
+  };
+  const center = e => {
+    const r = e.getBoundingClientRect(), b = el.getBoundingClientRect();
+    return [r.left + r.width / 2 - b.left, r.top + r.height / 2 - b.top];
+  };
+  const fly = async (chip, i, v) => {
+    const f = document.createElement("div");
+    f.className = "pq-node pq-fly";
+    f.textContent = v;
+    const [x0, y0] = center(chip), [x1, y1] = center(slots[i]);
+    f.style.left = x1 + "px";
+    f.style.top = y1 + "px";
+    el.appendChild(f);
+    const dur = fast ? 60 : 800;
+    if (f.animate) {
+      f.animate([
+        { left: x0 + "px", top: y0 + "px", transform: "translate(-50%, -50%) scale(.85)" },
+        { left: (x0 + x1) / 2 + "px", top: Math.min(y0, y1) - 30 + "px", transform: "translate(-50%, -50%) scale(1.15)", offset: .45 },
+        { left: x1 + "px", top: y1 + "px", transform: "translate(-50%, -50%) scale(1)" }
+      ], { duration: dur, easing: "ease-in-out", fill: "forwards" });
+    }
+    await wait(dur);
+    f.remove();
+  };
+  const mark = (is, cls, on) => is.forEach(i => { nodes[i].classList.toggle(cls, on); cells[i].el.classList.toggle(cls, on); });
+  const push = async chip => {
+    if (busy || vals.length >= N) return;
+    busy = true;
+    chip.classList.add("used");
+    setCtl(false);
+    const v = +chip.dataset.v, n = vals.length;
+    say(`<code>pq.push(${v})</code> first calls <code>c.push_back(${v})</code> on the vector: the value lands in the first free slot, v[${n}], which is the next leaf of the tree, filled left to right.`);
+    vals.push(v);
+    const nd = document.createElement("div");
+    nd.className = "pq-node";
+    nd.textContent = v;
+    nd.style.visibility = "hidden";
+    place(nd, n);
+    tree.appendChild(nd);
+    nodes.push(nd);
+    await Promise.all([fly(chip, n, v), wait(350).then(() => write(n, v))]);
+    nd.style.visibility = "";
+    drawEdges();
+    await wait(500);
+    const gt = mode === "max" ? ">" : "<", le = mode === "max" ? "≤" : "≥";
+    let i = n, swaps = 0;
+    if (i === 0) say(`v[0] is the root and has no parent, so nothing to compare. <code>top()</code> returns v[0] = ${v}.`);
+    while (i > 0) {
+      const p = (i - 1) >> 1, sw = mode === "max" ? vals[p] < vals[i] : vals[p] > vals[i];
+      mark([i, p], "cmp", true);
+      say(`Sift up: compare v[${i}] = ${vals[i]} with its parent v[(${i} − 1) / 2] = v[${p}] = ${vals[p]}. ` +
+        (sw ? `${vals[i]} ${gt} ${vals[p]}, so they swap.` : `${vals[i]} ${le} ${vals[p]}, so it stays and heap order holds.`));
+      await wait(1100);
+      if (!sw) { mark([i, p], "cmp", false); break; }
+      [vals[i], vals[p]] = [vals[p], vals[i]];
+      [nodes[i], nodes[p]] = [nodes[p], nodes[i]];
+      place(nodes[i], i);
+      place(nodes[p], p);
+      await Promise.all([wait(550), write(i, vals[i]), write(p, vals[p])]);
+      mark([i, p], "cmp", false);
+      swaps++;
+      i = p;
+    }
+    if (n > 0) {
+      const lv = Math.floor(Math.log2(n + 1));
+      say(`Done: ${swaps} swap${swaps === 1 ? "" : "s"}${i === 0 && swaps ? `, and ${vals[0]} reached the root, which has no parent` : ""}. ` +
+        `With ${n + 1} elements the tree is ${lv + 1} levels deep, so a push does at most ${lv} compare${lv === 1 ? "" : "s"}: O(log n). ` +
+        `<code>top()</code> returns v[0] = ${vals[0]}, the ${mode === "max" ? "largest" : "smallest"} value. The rest of the vector is only partly ordered.`);
+    }
+    busy = false;
+    setCtl(true);
+  };
+  bankEl.addEventListener("click", e => { const b = e.target.closest("button"); if (b && !b.disabled) push(b); });
+  el.querySelector(".anim-ctl").addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (!b || busy) return;
+    if (b.dataset.m) mode = b.dataset.m;
+    if (b.dataset.act === "new") bank = fresh();
+    reset();
+  });
+  reset();
+}
+
+/* ---------- C++ STL: how libstdc++ lays a std::deque out in memory ----------
+   A map (array of chunk pointers) and fixed 512 B chunks scattered on the
+   heap. 64 B elements, so 8 per chunk. Follows libstdc++'s rules: an empty
+   deque gets an 8-slot map with one chunk at map[3], a full end chunk gets
+   its neighbor allocated as soon as its last slot fills, and a full map is
+   recentered in place or grown to old + max(old, 1) + 2 slots. */
+function animDeque(el, a) {
+  const B = 8, ESZ = 64, MAXN = 48, HEAP = 0x5594e000, CH = 0x210, W = 680;
+  const ORDER = [5, 2, 9, 0, 7, 11, 3, 8, 1, 10, 4, 6];
+  const hex = n => "0x" + n.toString(16);
+  let st, msg, hl, flash;
+  const alloc = () => {
+    const p = ORDER.find(q => !st.used.has(q));
+    st.used.add(p);
+    return { pos: p, addr: HEAP + p * CH + 0x10, cells: Array(B).fill(null) };
+  };
+  const size = () => (st.finish.node - st.start.node) * B + st.finish.cur - st.start.cur;
+  const init = () => {
+    st = { map: Array(8).fill(null), mapAddr: HEAP - 0xf0, maps: 0, used: new Set(), start: { node: 3, cur: 0 }, finish: { node: 3, cur: 0 }, lo: 50, hi: 50 };
+    st.map[3] = alloc();
+    hl = flash = null;
+    msg = `<code>std::deque&lt;Entry&gt; d;</code> with a 64 B <code>Entry</code>. Even empty, libstdc++ allocates an 8-slot map and one 512 B chunk, hung off map[3] so the deque can grow both ways. <code>start</code> and <code>finish</code> both point at slot 0 of that chunk.`;
+  };
+  const growMap = front => {
+    const ms = st.map.length, oldN = st.finish.node - st.start.node + 1, newN = oldN + 1;
+    const live = st.map.slice(st.start.node, st.finish.node + 1);
+    let size2 = ms, ns, note;
+    if (ms > 2 * newN) {
+      ns = ((ms - newN) >> 1) + (front ? 1 : 0);
+      note = `The map had no free slot at the ${front ? "front" : "back"}, but it has more than twice the ${newN} slots needed, so libstdc++ slid the ${oldN} chunk pointers back to the middle of the same map.`;
+    } else {
+      size2 = ms + Math.max(ms, 1) + 2;
+      ns = ((size2 - newN) >> 1) + (front ? 1 : 0);
+      st.maps++;
+      st.mapAddr = HEAP + 12 * CH + 0x40 + st.maps * 0x120;
+      note = `The map ran out of slots, so libstdc++ allocated a new map of ${ms} slots + max(${ms} slots, 1) + 2 = ${size2} slots at ${hex(st.mapAddr)} and copied the ${oldN} chunk pointers to its middle.`;
+    }
+    const m = Array(size2).fill(null);
+    live.forEach((c, k) => { m[ns + k] = c; });
+    st.map = m;
+    st.start.node = ns;
+    st.finish.node = ns + oldN - 1;
+    return ` ${note} No chunk and no element moved, so references and pointers to elements stay valid. Iterators hold a pointer into the map, so they are invalidated.`;
+  };
+  const pushBack = () => {
+    const f = st.finish, v = st.hi++;
+    let c = st.map[f.node], t;
+    if (f.cur < B - 1) {
+      c.cells[f.cur] = v;
+      flash = { c, j: f.cur };
+      t = `<code>push_back(${v})</code> writes slot ${f.cur} of the chunk at ${hex(c.addr)} and moves <code>finish</code> one slot right. Nothing else moves.`;
+      f.cur++;
+    } else {
+      const g = f.node === st.map.length - 1 ? growMap(false) : "";
+      c = st.map[f.node];
+      c.cells[B - 1] = v;
+      const nc = alloc();
+      st.map[f.node + 1] = nc;
+      flash = { c: nc, j: -1 };
+      t = `<code>push_back(${v})</code> fills slot 7, the last one in its chunk. <code>finish</code> must always point at a real slot, so libstdc++ allocates the next 512 B chunk right away, at ${hex(nc.addr)}, and stores its address in map[${f.node + 1}]. It is not next to the previous chunk in memory.` + g;
+      f.node++;
+      f.cur = 0;
+    }
+    return t;
+  };
+  const pushFront = () => {
+    const s = st.start, v = --st.lo;
+    if (s.cur > 0) {
+      s.cur--;
+      const c = st.map[s.node];
+      c.cells[s.cur] = v;
+      flash = { c, j: s.cur };
+      return `<code>push_front(${v})</code> moves <code>start</code> one slot left and writes slot ${s.cur} of the chunk at ${hex(c.addr)}. Nothing else moves.`;
+    }
+    const g = s.node === 0 ? growMap(true) : "";
+    const nc = alloc();
+    st.map[s.node - 1] = nc;
+    s.node--;
+    s.cur = B - 1;
+    nc.cells[B - 1] = v;
+    flash = { c: nc, j: B - 1 };
+    return `<code>push_front(${v})</code> finds <code>start</code> at slot 0, so there is no room before it. libstdc++ allocates a new chunk at ${hex(nc.addr)}, stores it in map[${s.node}], and writes ${v} into its last slot, 7, so the chunk can keep filling leftward.` + g;
+  };
+  const popBack = () => {
+    const f = st.finish;
+    if (f.cur > 0) {
+      f.cur--;
+      const c = st.map[f.node], v = c.cells[f.cur];
+      c.cells[f.cur] = null;
+      st.hi--;
+      return `<code>pop_back()</code> destroys ${v} in slot ${f.cur} and moves <code>finish</code> one slot left.`;
+    }
+    const dead = st.map[f.node];
+    st.used.delete(dead.pos);
+    st.map[f.node] = null;
+    f.node--;
+    f.cur = B - 1;
+    const c = st.map[f.node], v = c.cells[B - 1];
+    c.cells[B - 1] = null;
+    st.hi--;
+    return `<code>finish</code> sat at slot 0 of an empty chunk, so <code>pop_back()</code> frees that chunk (${hex(dead.addr)}), clears map[${f.node + 1}], and destroys ${v} in slot 7 of the chunk before it.`;
+  };
+  const popFront = () => {
+    const s = st.start, c = st.map[s.node], v = c.cells[s.cur];
+    c.cells[s.cur] = null;
+    st.lo++;
+    if (s.cur < B - 1) {
+      s.cur++;
+      return `<code>pop_front()</code> destroys ${v} in slot ${s.cur - 1} and moves <code>start</code> one slot right.`;
+    }
+    st.used.delete(c.pos);
+    st.map[s.node] = null;
+    s.node++;
+    s.cur = 0;
+    return `<code>pop_front()</code> destroys ${v}, the last element in its chunk, so libstdc++ frees that chunk (${hex(c.addr)}), clears map[${s.node - 1}], and moves <code>start</code> to slot 0 of the next chunk.`;
+  };
+  const lookup = i => {
+    const off = st.start.cur + i, k = Math.floor(off / B), j = off % B, node = st.start.node + k, c = st.map[node];
+    hl = { node, j };
+    return `<code>d[${i}]</code>: offset = start.cur + i = ${st.start.cur} + ${i} = ${off}. ` +
+      `Chunk ${off} / 8 = ${k} past start's map slot, so load map[${st.start.node} + ${k}] = map[${node}] → ${hex(c.addr)}. ` +
+      `Slot ${off} % 8 = ${j}, so the element is at ${hex(c.addr)} + ${j} × 64 B = ${hex(c.addr + j * ESZ)}. ` +
+      `That is two dependent loads (the map entry, then the element), where <code>vector</code> needs one.`;
+  };
+
+  el.innerHTML = `<p class="calc-title">${a.title}</p><p class="calc-intro">${a.intro}</p>
+    <div class="anim-ctl"><button type="button" data-op="pf">push_front</button><button type="button" data-op="pb">push_back</button>
+      <button type="button" data-op="pof">pop_front</button><button type="button" data-op="pob">pop_back</button>
+      <button type="button" data-op="pb8">push_back × 8</button><button type="button" data-op="reset">Reset</button></div>
+    <form class="calc-form"><label><span>Look up d[i], i =</span><input type="number" name="i" value="0" min="0" step="1"></label><div class="anim-ctl" style="margin:0"><button type="submit">Find</button></div></form>
+    <div class="anim-fig"></div>
+    <p class="dq-sum"></p>
+    <p class="anim-cap" aria-live="polite"></p>`;
+  const fig = el.querySelector(".anim-fig"), cap = el.querySelector(".anim-cap"), sum = el.querySelector(".dq-sum"), form = el.querySelector("form");
+
+  const draw = () => {
+    const ms = st.map.length, sw = Math.min(36, (W - 40) / ms), x0 = (W - sw * ms) / 2, sy = 34, sh = 26;
+    const cpos = p => [24 + (p % 4) * 162, 120 + Math.floor(p / 4) * 66];
+    let h = anT(x0, 24, `map: ${ms} chunk pointers (Entry*[${ms}]) at ${hex(st.mapAddr)}`, AN_S.title);
+    h += anR(10, 84, W - 20, 240, AN_S.box) + anT(20, 102, "Heap: each chunk is its own 512 B allocation (8 × 64 B). Addresses rise left to right, then down.", AN_S.title);
+    /* pointer curves first, so chunks draw over them */
+    st.map.forEach((c, k) => {
+      if (!c) return;
+      const [cx, cy] = cpos(c.pos), xa = x0 + k * sw + sw / 2 - 1, ya = sy + sh, xb = cx + 64, yb = cy + 2;
+      const on = hl && hl.node === k;
+      h += `<path d="M${xa} ${ya} C${xa} ${ya + 50} ${xb} ${yb - 50} ${xb} ${yb}" style="fill:none;stroke:${on ? "var(--pad)" : "var(--muted)"};stroke-width:${on ? 2.2 : 1};opacity:${on ? 1 : .55}"/>` +
+        `<circle cx="${xb}" cy="${yb}" r="2.5" style="fill:${on ? "var(--pad)" : "var(--muted)"}"/>`;
+    });
+    st.map.forEach((c, k) => {
+      const x = x0 + k * sw, on = hl && hl.node === k;
+      h += anR(x, sy, sw - 2, sh, on ? "fill:var(--pad-soft);stroke:var(--pad);stroke-width:2" : c ? AN_S.lit : AN_S.thin);
+      h += c ? `<circle cx="${x + sw / 2 - 1}" cy="${sy + sh / 2}" r="3" style="fill:var(--trace)"/>` : anT(x + sw / 2 - 1, sy + 16, "null", "font-size:7.5px;fill:var(--muted)", 1);
+      h += anT(x + sw / 2 - 1, sy + sh + 11, k, "font-size:8px;fill:var(--muted)", 1);
+    });
+    st.map.forEach((c, k) => {
+      if (!c) return;
+      const [cx, cy] = cpos(c.pos), isNew = flash && flash.c === c && flash.j < 0;
+      let g = anT(cx, cy - 4, `${hex(c.addr)} (map[${k}])`, AN_S.small);
+      for (let j = 0; j < B; j++) {
+        const v = c.cells[j], x = cx + j * 16, y = cy + 6, isHl = hl && hl.node === k && hl.j === j;
+        const sty = isHl ? "fill:var(--pad-soft);stroke:var(--pad);stroke-width:2" : v !== null ? AN_S.lit : AN_S.slot;
+        const pop = flash && flash.c === c && flash.j === j ? anShow(0) : "";
+        g += `<g>${anR(x, y, 15, 22, sty)}${v !== null ? anT(x + 7.5, y + 15, v, "font-size:9px;fill:var(--ink)", 1) : ""}${pop}</g>`;
+      }
+      const isS = st.start.node === k, isF = st.finish.node === k;
+      if (isS && isF && st.start.cur === st.finish.cur)
+        g += anT(cx + st.start.cur * 16 + 7.5, cy + 40, "start = finish", "font-size:8.5px;font-weight:600;fill:var(--pad)", 1);
+      else {
+        if (isS) g += anT(cx + st.start.cur * 16 + 7.5, cy + 40, "▲ start", "font-size:8.5px;font-weight:600;fill:var(--pad)", 1);
+        if (isF) g += anT(cx + st.finish.cur * 16 + 7.5, cy + 40, "▲ finish", "font-size:8.5px;font-weight:600;fill:var(--accent-green)", 1);
+      }
+      h += isNew ? `<g style="opacity:0">${g}<animate attributeName="opacity" from="0" to="1" begin="0s" dur=".5s" fill="freeze"/></g>` : `<g>${g}</g>`;
+    });
+    fig.innerHTML = `<svg viewBox="0 0 ${W} 332" role="img" aria-label="Deque map and its chunks on the heap" style="font-family:var(--sans)">${h}</svg>`;
+    const n = size(), nc = st.map.filter(Boolean).length;
+    const f = x => x.toLocaleString("en-US");
+    sum.innerHTML = `<strong>size()</strong> = ${n} element${n === 1 ? "" : "s"} = ${f(n * ESZ)} B of data · <strong>chunks</strong> = ${nc} × 512 B = ${f(nc * 512)} B · <strong>map</strong> = ${ms} slots × 8 B = ${ms * 8} B`;
+    cap.innerHTML = msg;
+    const full = n >= MAXN, empty = n === 0;
+    el.querySelectorAll("[data-op]").forEach(b => {
+      const op = b.dataset.op;
+      b.disabled = (op[1] === "o" && empty) || ((op === "pf" || op === "pb" || op === "pb8") && full);
+    });
+    form.i.max = String(Math.max(0, n - 1));
+  };
+  el.querySelector(".anim-ctl").addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (!b || b.disabled) return;
+    const op = b.dataset.op;
+    hl = flash = null;
+    if (op === "reset") init();
+    else if (op === "pb") msg = pushBack();
+    else if (op === "pf") msg = pushFront();
+    else if (op === "pob") msg = popBack();
+    else if (op === "pof") msg = popFront();
+    else if (op === "pb8") {
+      const k = Math.min(8, MAXN - size()), lo = st.hi, notes = [];
+      for (let t = 0; t < k; t++) { const m = pushBack(); if (/allocates/.test(m)) notes.push(m); }
+      msg = `<code>push_back</code> × ${k} wrote ${lo} to ${st.hi - 1}. ` + (notes.length ? notes.join(" ") : "Every one fit in the current chunk.");
+    }
+    if (op !== "reset" && size() >= MAXN) msg += ` (This demo stops at ${MAXN} elements.)`;
+    draw();
+  });
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    const n = size();
+    if (!n) { hl = null; msg = "The deque is empty, so there is nothing to look up."; draw(); return; }
+    const i = Math.max(0, Math.min(n - 1, Math.floor(+form.i.value) || 0));
+    form.i.value = String(i);
+    flash = null;
+    msg = lookup(i);
+    draw();
+  });
+  init();
+  draw();
 }
 
 function animSteps(el, a) {

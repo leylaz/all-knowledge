@@ -47,7 +47,7 @@ section({
   id: "stl-containers",
   region: "stl",
   title: "Choosing and Declaring Containers",
-  sections: [{ id: "pick", label: "Picking a Container" }, { id: "declare", label: "Declaring and Initializing" }],
+  sections: [{ id: "pick", label: "Picking a Container" }, { id: "pq", label: "Priority Queue: A Heap in a Vector" }, { id: "deque", label: "Deque: A Map of Chunks" }, { id: "declare", label: "Declaring and Initializing" }],
   body: `
 <h3 id="sec-pick">Picking a Container</h3>
 <div class="tbl"><table>
@@ -76,6 +76,33 @@ section({
 </ul>
 <div class="callout">Hennessy &amp; Patterson (6th ed.) ch. 2 covers caches and replacement, and ch. 3 covers renaming, the ROB and branch prediction. Those are the structures these containers stand in for.</div>
 <p class="drill-link"><a href="#/r/cppd/pick">Practice in the drill: Pick the Structure →</a></p>
+<h3 id="sec-pq">Priority Queue: A Heap in a Vector</h3>
+<p><code>std::priority_queue&lt;T&gt;</code> is an adaptor over a <code>std::vector&lt;T&gt;</code> that keeps a binary heap in it. The tree is never stored as nodes and pointers. It is implied by the indices:</p>
+<ul>
+<li>The root is v[0], and <code>top()</code> just reads it.</li>
+<li>The children of v[i] are v[2i + 1] and v[2i + 2], and its parent is v[(i − 1) / 2].</li>
+<li><code>push(x)</code> is <code>push_back(x)</code> followed by <code>std::push_heap</code>: the new leaf swaps with its parent until the parent wins the compare. That is at most one compare per level, so O(log n).</li>
+<li><code>pop()</code> moves the last element to the root and sifts it down, also O(log n).</li>
+</ul>
+<p>The comparator answers "does a have lower priority than b?". The default <code>std::less</code> makes a max-heap, and <code>std::greater</code> makes a min-heap, which is what a simulator's event queue ordered by cycle needs.</p>
+<div class="anim" data-anim="stl-heap"></div>
+<p>Only the path from the root to each leaf is sorted. Siblings and cousins are in no particular order, which is why a heap can't be iterated in priority order and why <code>priority_queue</code> hides everything but <code>top()</code>.</p>
+<h3 id="sec-deque">Deque: A Map of Chunks</h3>
+<p>A <code>std::deque</code> is not one contiguous block. In libstdc++ (GCC) it is two levels:</p>
+<ul>
+<li><strong>Chunks</strong> of 512 B each, so 512 B / sizeof(T) elements per chunk (one element per chunk when T is larger than 512 B). Each chunk is its own heap allocation, so chunks land wherever the allocator puts them.</li>
+<li><strong>The map</strong>, an array of pointers to chunks, kept with spare slots on both sides so either end can grow. It starts with 8 slots.</li>
+<li>Two iterators, <code>start</code> and <code>finish</code>, each hold the current element, the bounds of its chunk, and a pointer to its map slot.</li>
+</ul>
+<p>Other libraries pick different chunk sizes: libc++ (Clang) uses 4,096 B blocks, and MSVC uses only 16 B blocks, so a deque of 64 B elements there allocates every element separately.</p>
+<div class="anim" data-anim="stl-deque"></div>
+<p>What the layout means for a model:</p>
+<ul>
+<li><strong>Ends are cheap and stable.</strong> Pushing at either end writes into a chunk or allocates a new one. Existing elements never move, so references to them stay valid even when the map is reallocated. Iterators don't, because they point into the map.</li>
+<li><strong>Indexing costs two dependent loads.</strong> <code>d[i]</code> reads the map slot, then the element. A <code>vector</code> computes the address directly.</li>
+<li><strong>Scans are contiguous only within a chunk.</strong> Every 512 B the walk jumps to an unrelated address, and iterator increments check for the chunk boundary, so a tight loop over a deque is slower than over a vector.</li>
+<li><strong>A fixed-capacity queue is better as a ring buffer.</strong> A 192-entry load queue in a model never needs to grow, so an array with head and tail indices beats a deque's allocations and two-level lookups.</li>
+</ul>
 <h3 id="sec-declare">Declaring and Initializing</h3>
 <pre><code>std::vector&lt;int&gt; v;                          <span class="cm">// empty</span>
 std::vector&lt;uint8_t&gt; pht(4096, 1);           <span class="cm">// 4096 counters, all 1</span>

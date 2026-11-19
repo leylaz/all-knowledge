@@ -191,6 +191,33 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
 .anim-fig svg, .anim-strip svg { display: block; width: 100%; min-width: 560px; height: auto; }
 .anim-strip svg { cursor: pointer; }
 .anim-cap { min-height: 4.5em; }
+/* C++ STL visuals: priority queue heap and deque memory map */
+.pq-anim { position: relative; }
+.pq-label { font-size: .8rem; font-weight: 600; color: var(--muted); margin: 8px 0 4px; }
+.pq-bank { display: flex; flex-wrap: wrap; gap: 8px; min-height: 44px; }
+.pq-chip { width: 42px; height: 42px; border-radius: 50%; font: inherit; font-weight: 700; color: var(--ink); background: var(--trace-soft); border: 2px solid var(--trace); cursor: pointer; transition: opacity .3s, transform .15s; }
+.pq-chip:hover:not(:disabled) { transform: scale(1.08); }
+.pq-chip:disabled { cursor: default; }
+.pq-chip.used { opacity: .25; border-style: dashed; background: transparent; }
+.pq-tree { position: relative; height: 210px; min-width: 280px; }
+.pq-edges { position: absolute; inset: 0; width: 100%; height: 210px; }
+.pq-edges line { stroke: var(--rule); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.pq-edges line.on { stroke: var(--muted); stroke-dasharray: none; }
+.pq-slot { position: absolute; width: 40px; height: 40px; border: 1.5px dashed var(--rule); border-radius: 50%; transform: translate(-50%, -50%); }
+.pq-slot span { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); font-size: .7rem; color: var(--muted); }
+.pq-node { position: absolute; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--ink); background: var(--trace-soft); border: 2px solid var(--trace); transform: translate(-50%, -50%); transition: left .55s ease-in-out, top .55s ease-in-out, background .2s; z-index: 1; box-shadow: 0 2px 6px rgba(0, 0, 0, .15); }
+.pq-node.cmp { background: var(--pad-soft); border-color: var(--pad); }
+.pq-fly { z-index: 5; transition: none; }
+.pq-arr { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 10px; }
+.pq-cell { width: 52px; border: 1px solid var(--rule); border-radius: 3px; text-align: center; background: var(--paper); transition: background .2s, border-color .2s; }
+.pq-idx { display: block; font-size: .72rem; color: var(--muted); border-bottom: 1px solid var(--rule); padding: 1px 0; }
+.pq-val { display: block; height: 1.7em; line-height: 1.7em; font-family: var(--mono); font-weight: 700; }
+.pq-cell.writing { border-color: var(--trace); background: var(--trace-soft); }
+.pq-cell.writing .pq-val::after { content: "▌"; color: var(--trace); animation: pq-caret .5s steps(1) infinite; }
+.pq-cell.cmp { border-color: var(--pad); background: var(--pad-soft); }
+@keyframes pq-caret { 50% { opacity: 0; } }
+@media (max-width: 480px) { .pq-node, .pq-slot { width: 34px; height: 34px; font-size: .85rem; } .pq-cell { width: 42px; } }
+.dq-sum { font-size: .85rem; color: var(--muted); }
 .trace-key b { font-family: var(--mono); margin-left: 8px; padding: 0 3px; border-radius: 2px; }
 
 /* Glossary hover cards */
@@ -702,7 +729,7 @@ window.MathJax = {
 <script src="sections/performance-analysis.js?v=4916e97d"></script>
 <script src="sections/stalls-bottlenecks.js?v=dfc8d035"></script>
 <script src="sections/real-processors.js?v=1a2278a9"></script>
-<script src="sections/cpp-stl.js?v=b5c1b31d"></script>
+<script src="sections/cpp-stl.js?v=ab24d6fc"></script>
 <script src="sections/gpu-kernels.js?v=5f48f981"></script>
 <script src="sections/threads-and-launches.js?v=5761c535"></script>
 <script src="sections/gpu-hierarchy-motion.js?v=3cf6cfe2"></script>
@@ -734,7 +761,7 @@ window.MathJax = {
 <script src="js/glossary.js?v=64e8ccb9"></script>
 <script src="js/calc.js?v=6d8c6024"></script>
 <script src="js/trace.js?v=dee93611"></script>
-<script src="js/visual.js?v=ecd04d7a"></script>
+<script src="js/visual.js?v=a2b86236"></script>
 <script src="js/theme.js?v=1763bf15"></script>
 <script src="coding/crun.js?v=a9acf486"></script>
 <script src="js/app.js?v=f0e06d6b"></script>
