@@ -1668,7 +1668,8 @@ function route() {
   }
   const n = NOTES.find(x => x.id === parts[0]);
   if (n) { renderNote(n, parts[1]); goToSection(parts[1]); return; }
-  const tab = parts[0] === "t" && TABS.find(t => t.id === parts[1]);
+  const tabId = parts[1] === "stl" ? "c" : parts[1]; /* the old C++ tab merged into C and C++ */
+  const tab = parts[0] === "t" && TABS.find(t => t.id === tabId);
   renderHome(tab || TABS[0]);
   window.scrollTo(0, 0);
 }
