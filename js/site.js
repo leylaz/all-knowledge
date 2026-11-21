@@ -17,7 +17,7 @@ const TABS = [
   { id: "cpu", name: "CPU Core", regions: ["isa", "pipe", "fe", "core", "ren", "sched", "mdep", "arith"] },
   { id: "memsys", name: "Memory System", regions: ["mem", "sram", "dram", "ctr", "vm", "coh", "icx"] },
   { id: "perf", name: "Performance Modeling", regions: ["perf", "stall", "proc"] },
-  { id: "stl", name: "C++ STL", regions: ["stl"] },
+  { id: "stl", name: "C++", regions: ["cpph", "stl"] },
   { id: "gpu", name: "GPUs", regions: ["gk", "gthr", "gvis", "gsm", "gwarp", "gmem", "gai", "gperf"] },
   { id: "os", name: "Operating System", regions: ["os", "task", "osmem", "io"] },
   { id: "sw", name: "Systems Software", regions: ["comp", "conc"] },

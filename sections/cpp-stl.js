@@ -1,23 +1,64 @@
-/* Section: C++ STL
+/* Section: Using C++ and the STL (region id "stl")
    One region of the die plus its pages, in display order.
    Moved here from the study guide inside the C++ STL Data Structures Drill
-   (cpp-drill/), which links back to these pages. */
+   (cpp-drill/), which links back to these pages. The mechanisms behind
+   these rules are in C++ Under the Hood (sections/cpp-under-hood.js). */
 
 section({
   id: "stl",
-  name: "C++ STL",
+  name: "Using C++ and the STL",
   cap: "Containers, iterators, classes, ownership, templates, and layout for writing a C++ simulator",
-  sections: [{ id: "pages", label: "How the Pages Fit Together" }],
+  sections: [{ id: "pages", label: "How the Pages Fit Together" }, { id: "cheat", label: "Syntax Cheat Sheet" }],
   body: `
-<p>The C++ needed to write a cycle-level performance model: which container stands in for each hardware structure, how to touch elements without copying them, how classes and ownership work for readers coming from C, and how layout and templates decide simulator speed. Each topic ends with a link to the matching set in the <a href="#/r/cppd">C++ STL Data Structures Drill</a> in the Interview Prep tab.</p>
+<p>The C++ needed to write a cycle-level performance model: which container stands in for each hardware structure, how to touch elements without copying them, how classes and ownership work, and how layout and templates decide simulator speed. The reasons behind each rule, what the compiler and library turn the code into, are in <a href="#/r/cpph">C++ Under the Hood</a>. Each topic ends with a link to the matching set in the <a href="#/r/cppd">C++ STL Data Structures Drill</a> in the Interview Prep tab.</p>
 <h3 id="sec-pages">How the Pages Fit Together</h3>
 <ul>
 <li><a href="#/stl-containers">Choosing and Declaring Containers</a>: which container models which structure, and how to declare and size it.</li>
 <li><a href="#/stl-elements">Elements, Operations, and Iterators</a>: reading, inserting, moving, and erasing elements, bit tricks for select logic, ring buffers, common pitfalls, and iterator invalidation.</li>
-<li><a href="#/stl-classes">Classes, Keywords, and Ownership</a>: classes and virtual dispatch, <code>const</code> and its relatives, RAII, smart pointers, and moves.</li>
+<li><a href="#/stl-classes">Classes and Ownership</a>: classes and virtual functions, RAII, smart pointers, and moves.</li>
 <li><a href="#/stl-templates">Templates, Lambdas, and Performance</a>: lambdas, comparators, templates, struct layout, and build flags.</li>
-<li><a href="#/stl-skeleton">Code Traps and a Simulator Skeleton</a>: snippets that surprise people, a complete ROB and cache model, and habits for C programmers moving to C++.</li>
+<li><a href="#/stl-skeleton">Code Traps and a Simulator Skeleton</a>: snippets that surprise people, a complete ROB and cache model, and small habits.</li>
 </ul>
+<h3 id="sec-cheat">Syntax Cheat Sheet</h3>
+<h4>Qualifiers, Deduction, and Aliases</h4>
+<div class="tbl"><table>
+<thead><tr><th>You write</th><th>It means</th></tr></thead>
+<tbody>
+<tr><td><code>const int n = f();</code></td><td>can't change after init, but the value may come at runtime</td></tr>
+<tr><td><code>constexpr size_t kLine = 64;</code></td><td>compile-time constant, usable as an array size or template argument</td></tr>
+<tr><td><code>consteval</code> function</td><td>must run at compile time (C++20)</td></tr>
+<tr><td><code>const T* p</code></td><td>pointer to const T: can't write through p</td></tr>
+<tr><td><code>T* const p</code></td><td>const pointer: can't re-point p</td></tr>
+<tr><td><code>const T&amp; r</code></td><td>read-only alias with no copy, which extends a temporary's lifetime</td></tr>
+<tr><td><code>auto x = r;</code></td><td>deduces the type, drops reference and top-level const: a copy</td></tr>
+<tr><td><code>const auto&amp; x = r;</code></td><td>keeps it a reference</td></tr>
+<tr><td><code>decltype(e)</code></td><td>the declared type of e, without evaluating it</td></tr>
+<tr><td><code>using Addr = uint64_t;</code></td><td>type alias that works with templates, unlike typedef</td></tr>
+<tr><td><code>enum class Op : uint8_t { ... }</code></td><td>scoped names, no implicit int conversion, chosen size</td></tr>
+<tr><td><code>static_cast&lt;T&gt;(x)</code></td><td>checked, greppable conversion (<code>reinterpret_cast</code> is for raw bits)</td></tr>
+<tr><td><code>alignas(64)</code></td><td>start on a 64-byte boundary</td></tr>
+<tr><td><code>mutable</code> member</td><td>writable inside const member functions</td></tr>
+</tbody>
+</table></div>
+<p>Read pointer declarations right to left: <code>uint64_t* const p</code> is "p is a const pointer to uint64_t".</p>
+<p class="drill-link"><a href="#/r/cppd/kw">Practice in the drill: Const, Auto, and Using →</a></p>
+<h4>Which Header</h4>
+<div class="tbl"><table>
+<thead><tr><th>What</th><th>Header</th></tr></thead>
+<tbody>
+<tr><td><code>vector</code>, <code>array</code>, <code>deque</code>, <code>list</code>, <code>forward_list</code></td><td><code>&lt;vector&gt;</code>, <code>&lt;array&gt;</code>, <code>&lt;deque&gt;</code>, <code>&lt;list&gt;</code>, <code>&lt;forward_list&gt;</code></td></tr>
+<tr><td><code>queue</code>, <code>priority_queue</code>, <code>stack</code></td><td><code>&lt;queue&gt;</code>, <code>&lt;stack&gt;</code></td></tr>
+<tr><td><code>map</code>, <code>multimap</code>, <code>set</code></td><td><code>&lt;map&gt;</code>, <code>&lt;set&gt;</code></td></tr>
+<tr><td><code>unordered_map</code>, <code>unordered_set</code></td><td><code>&lt;unordered_map&gt;</code>, <code>&lt;unordered_set&gt;</code></td></tr>
+<tr><td><code>bitset</code>, <code>optional</code>, <code>variant</code>, <code>tuple</code>, <code>span</code></td><td><code>&lt;bitset&gt;</code>, <code>&lt;optional&gt;</code>, <code>&lt;variant&gt;</code>, <code>&lt;tuple&gt;</code>, <code>&lt;span&gt;</code></td></tr>
+<tr><td><code>pair</code>, <code>move</code>, <code>swap</code>, <code>exchange</code></td><td><code>&lt;utility&gt;</code></td></tr>
+<tr><td><code>sort</code>, <code>find_if</code>, <code>rotate</code>, <code>remove_if</code>, <code>count_if</code></td><td><code>&lt;algorithm&gt;</code></td></tr>
+<tr><td><code>countr_zero</code>, <code>popcount</code>, <code>bit_width</code></td><td><code>&lt;bit&gt;</code></td></tr>
+<tr><td><code>uint64_t</code> and friends</td><td><code>&lt;cstdint&gt;</code></td></tr>
+<tr><td><code>unique_ptr</code>, <code>make_unique</code>, <code>shared_ptr</code></td><td><code>&lt;memory&gt;</code></td></tr>
+<tr><td><code>std::function</code></td><td><code>&lt;functional&gt;</code></td></tr>
+</tbody>
+</table></div>
 `,
   practice: {
     guided: [
@@ -47,7 +88,7 @@ section({
   id: "stl-containers",
   region: "stl",
   title: "Choosing and Declaring Containers",
-  sections: [{ id: "pick", label: "Picking a Container" }, { id: "pq", label: "Priority Queue: A Heap in a Vector" }, { id: "deque", label: "Deque: A Map of Chunks" }, { id: "declare", label: "Declaring and Initializing" }],
+  sections: [{ id: "pick", label: "Picking a Container" }, { id: "declare", label: "Declaring and Initializing" }],
   body: `
 <h3 id="sec-pick">Picking a Container</h3>
 <div class="tbl"><table>
@@ -76,44 +117,6 @@ section({
 </ul>
 <div class="callout">Hennessy &amp; Patterson (6th ed.) ch. 2 covers caches and replacement, and ch. 3 covers renaming, the ROB and branch prediction. Those are the structures these containers stand in for.</div>
 <p class="drill-link"><a href="#/r/cppd/pick">Practice in the drill: Pick the Structure →</a></p>
-<h3 id="sec-pq">Priority Queue: A Heap in a Vector</h3>
-<p><code>std::priority_queue&lt;T&gt;</code> is an adaptor over a <code>std::vector&lt;T&gt;</code> that keeps a binary heap in it. The tree is never stored as nodes and pointers. It is implied by the indices:</p>
-<ul>
-<li>The root is v[0], and <code>top()</code> just reads it.</li>
-<li>The children of v[i] are v[2i + 1] and v[2i + 2], and its parent is v[(i − 1) / 2].</li>
-<li><code>push(x)</code> is <code>push_back(x)</code> followed by <code>std::push_heap</code>: the new leaf swaps with its parent until the parent wins the compare. That is at most one compare per level, so O(log n).</li>
-<li><code>pop()</code> moves the last element to the root and sifts it down, also O(log n).</li>
-</ul>
-<p>The comparator answers "does a have lower priority than b?". The default <code>std::less</code> makes a max-heap, and <code>std::greater</code> makes a min-heap, which is what a simulator's event queue ordered by cycle needs.</p>
-<div class="anim" data-anim="stl-heap"></div>
-<p>Only the path from the root to each leaf is sorted. Siblings and cousins are in no particular order, which is why a heap can't be iterated in priority order and why <code>priority_queue</code> hides everything but <code>top()</code>.</p>
-<h3 id="sec-deque">Deque: A Map of Chunks</h3>
-<p>A <code>std::deque</code> is not one contiguous block. In libstdc++ (GCC) it is two levels:</p>
-<ul>
-<li><strong>Chunks</strong> of 512 B each, so 512 B / sizeof(T) elements per chunk (one element per chunk when T is larger than 512 B). Each chunk is its own heap allocation, so chunks land wherever the allocator puts them.</li>
-<li><strong>The map</strong>, an array of pointers to chunks, kept with spare slots on both sides so either end can grow. It starts with 8 slots.</li>
-<li>Two iterators, <code>start</code> and <code>finish</code>, each hold the current element, the bounds of its chunk, and a pointer to its map slot.</li>
-</ul>
-<p>Other libraries pick different chunk sizes: libc++ (Clang) uses 4,096 B blocks, and MSVC uses only 16 B blocks, so a deque of 64 B elements there allocates every element separately.</p>
-<p>Why split the elements across chunks instead of one block? The C++ standard ([deque.modifiers]) promises two things that no single contiguous block can keep:</p>
-<ul>
-<li><strong>Inserting at either end always takes constant time and calls T's constructor exactly once.</strong> A <code>vector</code> has no room in front of element 0, so <code>push_front</code> would shift every element. A ring buffer (one block with head and tail wrapping around) fixes the front, but when it fills it must copy or move every element into a bigger block. That makes growth amortized O(1), not O(1), and costs n extra constructor calls.</li>
-<li><strong>Inserting at either end leaves references to existing elements valid.</strong> Any growth of a single block moves the elements to a new address, so every pointer and reference into it dangles.</li>
-</ul>
-<p>Chunks keep both promises because elements never move. A new element goes into the end chunk, or into a freshly allocated chunk whose pointer is written into a spare map slot. When the map itself runs out of slots, only the pointers are copied. For 1,000,000 elements of 8 B (64 elements/chunk), that is 1,000,000 elements / 64 elements/chunk = 15,625 pointers × 8 B/pointer = 125,000 B, instead of the 8,000,000 B a <code>vector</code> copies when it reallocates. Two side benefits follow:</p>
-<ul>
-<li>A deque can hold types that can be neither copied nor moved (built in place with <code>emplace_back</code> or <code>emplace_front</code>), since growth never relocates an element.</li>
-<li>A large deque never needs one huge contiguous allocation, and popping from an end frees whole chunks as they empty.</li>
-</ul>
-<p>The price is the two-level lookup and broken contiguity described below.</p>
-<div class="anim" data-anim="stl-deque"></div>
-<p>What the layout means for a model:</p>
-<ul>
-<li><strong>Ends are cheap and stable.</strong> Pushing at either end writes into a chunk or allocates a new one. Existing elements never move, so references to them stay valid even when the map is reallocated. Iterators don't, because they point into the map.</li>
-<li><strong>Indexing costs two dependent loads.</strong> <code>d[i]</code> reads the map slot, then the element. A <code>vector</code> computes the address directly.</li>
-<li><strong>Scans are contiguous only within a chunk.</strong> Every 512 B the walk jumps to an unrelated address, and iterator increments check for the chunk boundary, so a tight loop over a deque is slower than over a vector.</li>
-<li><strong>A fixed-capacity queue is better as a ring buffer.</strong> A 192-entry load queue in a model never needs to grow, so an array with head and tail indices beats a deque's allocations and two-level lookups.</li>
-</ul>
 <h3 id="sec-declare">Declaring and Initializing</h3>
 <pre><code><span class="cm">// Empty vector, no allocation yet</span>
 std::vector&lt;int&gt; v;
@@ -155,22 +158,6 @@ using Addr = uint64_t;
 template &lt;typename T&gt; using Table = std::vector&lt;std::vector&lt;T&gt;&gt;;</code></pre>
 <p><strong>Parentheses vs braces.</strong> <code>(n, x)</code> means count and value. <code>{a, b}</code> is a list of elements. For <code>vector&lt;int&gt;</code>, <code>v(10, 2)</code> is ten 2s and <code>v{10, 2}</code> is two elements.</p>
 <p><strong>reserve vs resize.</strong> <code>reserve(n)</code> sets capacity and leaves <code>size()</code> alone. <code>resize(n)</code> creates or destroys elements so <code>size() == n</code>.</p>
-<div class="tbl"><table>
-<thead><tr><th>What</th><th>Header</th></tr></thead>
-<tbody>
-<tr><td><code>vector</code>, <code>array</code>, <code>deque</code>, <code>list</code>, <code>forward_list</code></td><td><code>&lt;vector&gt;</code>, <code>&lt;array&gt;</code>, <code>&lt;deque&gt;</code>, <code>&lt;list&gt;</code>, <code>&lt;forward_list&gt;</code></td></tr>
-<tr><td><code>queue</code>, <code>priority_queue</code>, <code>stack</code></td><td><code>&lt;queue&gt;</code>, <code>&lt;stack&gt;</code></td></tr>
-<tr><td><code>map</code>, <code>multimap</code>, <code>set</code></td><td><code>&lt;map&gt;</code>, <code>&lt;set&gt;</code></td></tr>
-<tr><td><code>unordered_map</code>, <code>unordered_set</code></td><td><code>&lt;unordered_map&gt;</code>, <code>&lt;unordered_set&gt;</code></td></tr>
-<tr><td><code>bitset</code>, <code>optional</code>, <code>variant</code>, <code>tuple</code>, <code>span</code></td><td><code>&lt;bitset&gt;</code>, <code>&lt;optional&gt;</code>, <code>&lt;variant&gt;</code>, <code>&lt;tuple&gt;</code>, <code>&lt;span&gt;</code></td></tr>
-<tr><td><code>pair</code>, <code>move</code>, <code>swap</code>, <code>exchange</code></td><td><code>&lt;utility&gt;</code></td></tr>
-<tr><td><code>sort</code>, <code>find_if</code>, <code>rotate</code>, <code>remove_if</code>, <code>count_if</code></td><td><code>&lt;algorithm&gt;</code></td></tr>
-<tr><td><code>countr_zero</code>, <code>popcount</code>, <code>bit_width</code></td><td><code>&lt;bit&gt;</code></td></tr>
-<tr><td><code>uint64_t</code> and friends</td><td><code>&lt;cstdint&gt;</code></td></tr>
-<tr><td><code>unique_ptr</code>, <code>make_unique</code>, <code>shared_ptr</code></td><td><code>&lt;memory&gt;</code></td></tr>
-<tr><td><code>std::function</code></td><td><code>&lt;functional&gt;</code></td></tr>
-</tbody>
-</table></div>
 <p class="drill-link"><a href="#/r/cppd/syntax">Practice in the drill: Write the Syntax →</a></p>
 `,
   practice: {
@@ -401,8 +388,8 @@ for (auto it = m.begin(); it != m.end(); )            <span class="cm">// erase 
 {
   id: "stl-classes",
   region: "stl",
-  title: "Classes, Keywords, and Ownership",
-  sections: [{ id: "classes", label: "Classes and Structs" }, { id: "keywords", label: "Qualifiers, Deduction, and Aliases" }, { id: "own", label: "Memory and Ownership" }],
+  title: "Classes and Ownership",
+  sections: [{ id: "classes", label: "Classes and Structs" }, { id: "own", label: "Memory and Ownership" }],
   body: `
 <h3 id="sec-classes">Classes and Structs</h3>
 <p><code>struct</code> and <code>class</code> differ only in default access: public vs private. Convention: <code>struct</code> for plain data (<code>CacheLine</code>), <code>class</code> when it protects invariants (<code>Cache</code>).</p>
@@ -433,7 +420,7 @@ struct Core : Component {
 };
 std::vector&lt;std::unique_ptr&lt;Component&gt;&gt; parts;
 for (auto&amp; p : parts) p-&gt;tick();</code></pre>
-<p>Virtual calls cost an indirect branch and block inlining. Use them for coarse components ticked once per cycle. For per-instruction dispatch, prefer <code>std::variant</code> + <code>std::visit</code>.</p>
+<p>Virtual calls cost two loads and an indirect branch, and they block inlining (<a href="#/cpp-dispatch/vtable">how the call works</a>). Use them for coarse components ticked once per cycle. For per-instruction dispatch, prefer <code>std::variant</code> + <code>std::visit</code>.</p>
 <pre><code>struct Event {
     uint64_t time; int kind;
     bool operator&lt;(const Event&amp; o) const { return time &lt; o.time; }   <span class="cm">// enables sort, set</span>
@@ -443,28 +430,6 @@ struct Key {
     auto operator&lt;=&gt;(const Key&amp;) const = default;   <span class="cm">// C++20: all six comparisons, memberwise</span>
 };</code></pre>
 <p class="drill-link"><a href="#/r/cppd/cls">Practice in the drill: Classes and Structs →</a></p>
-<h3 id="sec-keywords">Qualifiers, Deduction, and Aliases</h3>
-<div class="tbl"><table>
-<thead><tr><th>You write</th><th>It means</th></tr></thead>
-<tbody>
-<tr><td><code>const int n = f();</code></td><td>can't change after init, but the value may come at runtime</td></tr>
-<tr><td><code>constexpr size_t kLine = 64;</code></td><td>compile-time constant, usable as an array size or template argument</td></tr>
-<tr><td><code>consteval</code> function</td><td>must run at compile time (C++20)</td></tr>
-<tr><td><code>const T* p</code></td><td>pointer to const T: can't write through p</td></tr>
-<tr><td><code>T* const p</code></td><td>const pointer: can't re-point p</td></tr>
-<tr><td><code>const T&amp; r</code></td><td>read-only alias with no copy, which extends a temporary's lifetime</td></tr>
-<tr><td><code>auto x = r;</code></td><td>deduces the type, drops reference and top-level const: a copy</td></tr>
-<tr><td><code>const auto&amp; x = r;</code></td><td>keeps it a reference</td></tr>
-<tr><td><code>decltype(e)</code></td><td>the declared type of e, without evaluating it</td></tr>
-<tr><td><code>using Addr = uint64_t;</code></td><td>type alias that works with templates, unlike typedef</td></tr>
-<tr><td><code>enum class Op : uint8_t { ... }</code></td><td>scoped names, no implicit int conversion, chosen size</td></tr>
-<tr><td><code>static_cast&lt;T&gt;(x)</code></td><td>checked, greppable conversion (<code>reinterpret_cast</code> is for raw bits)</td></tr>
-<tr><td><code>alignas(64)</code></td><td>start on a 64-byte boundary</td></tr>
-<tr><td><code>mutable</code> member</td><td>writable inside const member functions</td></tr>
-</tbody>
-</table></div>
-<p>Read pointer declarations right to left: <code>uint64_t* const p</code> is "p is a const pointer to uint64_t".</p>
-<p class="drill-link"><a href="#/r/cppd/kw">Practice in the drill: Const, Auto, and Using →</a></p>
 <h3 id="sec-own">Memory and Ownership</h3>
 <p>Coming from C: the rule is <strong>RAII</strong>. An object owns a resource and its destructor releases it on every exit path, including exceptions. You almost never write <code>new</code> or <code>delete</code>.</p>
 <pre><code>auto l1 = std::make_unique&lt;Cache&gt;(64, 12);    <span class="cm">// sole owner; freed at end of scope</span>
@@ -477,7 +442,7 @@ void bump(std::string_view name);             <span class="cm">// view of a stri
 rob.emplace_back(seq, pc);                    <span class="cm">// construct in place from constructor args</span></code></pre>
 <ul>
 <li>Pass big objects as <code>const T&amp;</code>, and pass small trivially-copyable ones (<code>uint64_t</code>, a 16-byte struct) by value.</li>
-<li><code>std::move</code> moves nothing. It casts to an rvalue so the move constructor gets picked. On a const object you silently get a copy.</li>
+<li><code>std::move</code> moves nothing. It casts to an rvalue so the move constructor gets picked. On a const object you silently get a copy. <a href="#/cpp-objects/moves">What a move copies</a> shows the mechanism.</li>
 <li>Mark move constructors <code>noexcept</code>, or <code>vector</code> copies instead of moving when it reallocates.</li>
 <li><strong>Rule of zero:</strong> hold resources in members that manage themselves (<code>vector</code>, <code>unique_ptr</code>) and write no special members. <strong>Rule of five:</strong> if you write a destructor, also write copy constructor, copy assignment, move constructor and move assignment.</li>
 <li>A pointer into a vector dangles after reallocation. Use indices (they double as ROB IDs), or <code>reserve</code> the hardware capacity up front.</li>
@@ -550,7 +515,7 @@ void store(T v) {
 std::visit([](auto&amp; op) { op.execute(); }, insts[i]);   <span class="cm">// generic lambda: one copy per type</span>
 std::function&lt;void(uint64_t)&gt; on_fill;   <span class="cm">// type-erased: flexible, may allocate, blocks inlining</span></code></pre>
 <ul>
-<li>Template definitions live in headers: the compiler needs the body to instantiate it for each type.</li>
+<li>Template definitions live in headers: the compiler needs the body to instantiate it for each type (<a href="#/cpp-dispatch/templates">how instantiation and linking work</a>).</li>
 <li><code>RingBuffer&lt;RobEntry, 512&gt;</code> and <code>RingBuffer&lt;RobEntry, 320&gt;</code> are different types.</li>
 <li>In hot paths, take callbacks as a template parameter (<code>template &lt;typename F&gt; void each(F f)</code>) so they inline. That's why <code>std::sort</code> with a lambda beats C's <code>qsort</code>.</li>
 </ul>
@@ -756,22 +721,6 @@ int main() {
 <li>Run the same trace through ChampSim and compare MPKI.</li>
 </ul>
 <h3 id="sec-beyond">Beyond the Drill</h3>
-<h4>Coming from C</h4>
-<div class="tbl"><table>
-<thead><tr><th>C habit</th><th>C++ replacement</th></tr></thead>
-<tbody>
-<tr><td><code>malloc</code> / <code>free</code></td><td><code>std::vector</code>, <code>std::make_unique</code></td></tr>
-<tr><td><code>#define LINE 64</code></td><td><code>constexpr size_t kLine = 64;</code></td></tr>
-<tr><td>function-like macros</td><td><code>constexpr</code> or <code>inline</code> functions, templates</td></tr>
-<tr><td>function pointer + <code>void*</code> context</td><td>lambda, template parameter, <code>std::function</code></td></tr>
-<tr><td><code>typedef struct { ... } X;</code></td><td><code>struct X { ... };</code> (the name is already a type)</td></tr>
-<tr><td>out-parameters for extra results</td><td>return a <code>std::pair</code>, a struct or <code>std::optional</code></td></tr>
-<tr><td><code>-1</code> as "not found"</td><td><code>std::optional</code></td></tr>
-<tr><td><code>qsort</code></td><td><code>std::sort</code> (the comparator inlines)</td></tr>
-<tr><td>pointer for "may modify"</td><td>reference <code>T&amp;</code> (never null, never re-bound)</td></tr>
-<tr><td>variable-length arrays</td><td>not standard C++: use <code>std::vector</code></td></tr>
-</tbody>
-</table></div>
 <h4>Reproducible Runs</h4>
 <pre><code>std::mt19937_64 rng(42);                                    <span class="cm">// fixed seed: identical runs</span>
 std::uniform_int_distribution&lt;uint32_t&gt; pick(0, ways - 1);
