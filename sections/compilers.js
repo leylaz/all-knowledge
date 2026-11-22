@@ -201,7 +201,7 @@ int f(int x) {
   id: "comp-ir",
   region: "comp",
   title: "IR and Code Generation",
-  sections: [{ id: "tac", label: "Three-Address Code" }, { id: "ssa", label: "SSA Form and LLVM IR" }, { id: "cfg", label: "Basic Blocks and the CFG" }, { id: "codegen", label: "From IR to Assembly" }],
+  sections: [{ id: "tac", label: "Three-Address Code" }, { id: "ssa", label: "SSA Form and LLVM IR" }, { id: "promote", label: "From Stack Slots to Registers" }, { id: "cfg", label: "Basic Blocks and the CFG" }, { id: "codegen", label: "From IR to Assembly" }],
   body: `
 <p>After the front end, the compiler translates the AST into an <strong>intermediate representation (IR)</strong>: a simple, explicit form that's easy to analyze and optimize, and not tied to any ISA. The back end then turns the IR into assembly for a specific ISA.</p>
 <h3 id="sec-tac">Three-Address Code</h3>
@@ -236,6 +236,46 @@ end:
 <li><code>y</code> no longer exists as a variable: it's the phi's result, either <code>%mul</code> (if the then-block ran) or 0 (if it was skipped).</li>
 <li>The multiply already became a shift: an optimization (see <a href="#/comp-opt">Compiler optimizations</a>).</li>
 </ul>
+<h3 id="sec-promote">From Stack Slots to Registers</h3>
+<p>The IR above has no memory for <code>y</code>, but that's not where Clang starts. Its front end gives every local variable and parameter a stack slot with <code>alloca</code>, and every read and write of the variable becomes a <code>load</code> or <code>store</code>. That keeps the front end simple, because it never has to build phis. For <code>int sq(int a) { int t = a * a; return t; }</code>, Clang at <code>-O0</code> emits:</p>
+<pre><code>define i32 @sq(i32 %a) {
+entry:
+  %a.addr = alloca i32                ; 4 B stack slot for a
+  %t = alloca i32                     ; 4 B stack slot for t
+  store i32 %a, ptr %a.addr
+  %0 = load i32, ptr %a.addr
+  %1 = load i32, ptr %a.addr
+  %mul = mul nsw i32 %0, %1
+  store i32 %mul, ptr %t
+  %2 = load i32, ptr %t
+  ret i32 %2
+}</code></pre>
+<p>At <code>-O0</code> that's the end of it, which is why every variable lives on the stack there. With optimization on, the <strong>mem2reg</strong> and <strong>SROA</strong> (scalar replacement of aggregates) passes promote each slot to SSA values. Every load is replaced by the value last stored, phis are added where paths merge, and the slots disappear:</p>
+<pre><code>define i32 @sq(i32 %a) {
+entry:
+  %mul = mul nsw i32 %a, %a
+  ret i32 %mul
+}</code></pre>
+<p>A slot can be promoted only if the compiler sees every access to it, which means every use of its address is a direct load or store in this function. Once the address <strong>escapes</strong>, the slot has to stay in memory:</p>
+<pre><code>void g(int *p);
+int f(void) { int x = 5; g(&amp;x); return x; }
+
+; gcc -O2 -masm=intel
+sub   rsp, 24
+mov   DWORD PTR [rsp+12], 5      ; x gets a stack slot
+lea   rdi, [rsp+12]              ; &amp;x is that slot's address
+call  g
+mov   eax, DWORD PTR [rsp+12]    ; reload, because g may have changed x
+add   rsp, 24
+ret</code></pre>
+<ul>
+<li><strong>A register has no address.</strong> <code>g</code> receives a pointer, so <code>x</code> needs a memory location that stays put for as long as the pointer can be used.</li>
+<li><strong>The cost goes beyond the store.</strong> After the escape, any call or store through an unknown pointer might change <code>x</code>, so the compiler reloads it before each later use. Here it can't return the constant 5.</li>
+<li><strong>What counts as an escape:</strong> passing the address to a call that isn't inlined, storing it to a global or to memory, or converting it to an integer. <code>volatile</code> locals also stay in memory, because each access must happen.</li>
+<li><strong>Taking the address is not enough by itself.</strong> If <code>&amp;x</code> is used only inside the function, or <code>g</code> is inlined, the compiler again sees every access and can promote <code>x</code>. SROA also splits a local struct or a small array indexed by constants into separate scalars, each promoted on its own.</li>
+<li><strong>GCC does the same with different names.</strong> It marks a variable whose address is taken as addressable (<code>TREE_ADDRESSABLE</code>) and leaves it out of SSA form. A later pass clears the mark when every use of the address has been optimized away.</li>
+</ul>
+<p>Values that the allocator can't fit in registers also end up on the stack, but as spills (see <a href="#/comp-regalloc/spill">Spill and Fill</a>). Where each kind of C object lives is mapped in <a href="#/c-hood/where">Where Variables Live</a>.</p>
 <h3 id="sec-cfg">Basic Blocks and the Control-Flow Graph</h3>
 <p>The IR is organized into <strong>basic blocks</strong>: straight-line sequences with one entry at the top and one exit at the bottom. Branches connect them into a <strong>control-flow graph (CFG)</strong>, which most optimizations work on:</p>
 <div class="tbl"><svg viewBox="0 0 360 340" role="img" aria-label="Control-flow graph for f. The entry block computes x greater than 10 and branches. Its true edge goes to the then block, which computes x times 2, and then falls into the end block. Its false edge goes directly to the end block. The end block selects y with a phi, calls printf, and returns y." style="width:100%;min-width:330px;max-width:360px;display:block;font-family:var(--mono)">
