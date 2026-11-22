@@ -136,7 +136,7 @@ function sideNav(curId, curSec) {
       ${isCurR ? subFor(r, "r/" + r.id) : ""}
       <ul>${r.id === "intv" ? `<li><a class="${curId === "drill" ? "cur" : ""}" href="#/drill">Random Drill</a></li>` : ""}${NOTES.filter(n => n.region === r.id).map(n =>
         `<li><a class="${curId === n.id && !curSec ? "cur" : ""}" href="#/${n.id}">${n.title}</a>${curId === n.id ? subFor(n, n.id) : ""}</li>`).join("")}</ul>
-    </div>${r.id === "iqsw" /* after the last question region */ ? `<div class="grp">
+    </div>${r.id === "iqos" /* after the last question region */ ? `<div class="grp">
       <a class="rg ${curId === "review" && !curSec ? "cur" : ""}" href="#/review">Review</a>
       <ul><li><a class="${curId === "review" && !curSec ? "cur" : ""}" href="#/review">Flagged for Review</a>${curId === "review" ? subFor(REVIEW_PAGE, "review") : ""}</li></ul>
     </div>` : ""}`; }).join("")}

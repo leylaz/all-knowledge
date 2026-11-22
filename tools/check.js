@@ -62,7 +62,7 @@ REGIONS.forEach(r => checkAnchors("r/" + r.id, r));
 NOTES.forEach(n => checkAnchors(n.id, n));
 
 /* ---------- Interview pages: both tabs hold questions ---------- */
-const INTV_REGIONS = ["intv", "iqmem", "iqperf", "iqos", "iqsw", "resume"]; /* keep in sync with js/site.js */
+const INTV_REGIONS = ["intv", "iqmem", "iqperf", "iqc", "iqos", "resume"]; /* keep in sync with js/site.js */
 for (const n of NOTES.filter(n => INTV_REGIONS.includes(n.region)))
   for (const [t, name] of [["c", "Conceptual"], ["m", "Math"]])
     if (!(n.body || "").includes(`data-qid="${n.id}-${t}1"`)) err(n.id, `the ${name} tab has no questions`);

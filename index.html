@@ -77,7 +77,8 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "proc proc proc proc proc proc"; }
 .floor[data-tab="c"] { grid-template-areas:
     "clang clang clang cpph cpph cpph"
-    "avx avx avx stl stl stl"; }
+    "avx avx avx stl stl stl"
+    "conc conc conc conc conc conc"; }
 .floor[data-tab="gpu"] { grid-template-areas:
     "gk gk gk gthr gthr gthr"
     "gvis gvis gvis gvis gvis gvis"
@@ -88,7 +89,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "os os os task task task"
     "osmem osmem osmem io io io"; }
 .floor[data-tab="sw"] { grid-template-areas:
-    "comp comp comp conc conc conc"; }
+    "comp comp comp comp comp comp"; }
 .floor[data-tab="chip"] { grid-template-areas:
     "fab fab fab circ circ circ"
     "eda eda eda eda eda eda"
@@ -100,7 +101,7 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "todo todo cal cal cppd cppd"
     "intv intv intv intv intv intv"
     "iqmem iqmem iqmem iqperf iqperf iqperf"
-    "iqos iqos iqos iqsw iqsw iqsw"
+    "iqc iqc iqc iqos iqos iqos"
     "resume resume resume resume resume resume"; }
 .block.mini { padding: 8px 14px; }
 .block.mini h2 { margin: 0; font-size: .98rem; }
@@ -711,7 +712,7 @@ window.MathJax = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-<script src="js/site.js?v=161197e3"></script>
+<script src="js/site.js?v=18c384e8"></script>
 <script src="sections/instruction-sets.js?v=f24c74e3"></script>
 <script src="sections/pipeline-stages.js?v=e204b34c"></script>
 <script src="sections/front-end.js?v=ca728824"></script>
@@ -730,10 +731,11 @@ window.MathJax = {
 <script src="sections/performance-analysis.js?v=4916e97d"></script>
 <script src="sections/stalls-bottlenecks.js?v=dfc8d035"></script>
 <script src="sections/real-processors.js?v=1a2278a9"></script>
-<script src="sections/c-language.js?v=eeaece18"></script>
+<script src="sections/c-language.js?v=768f716a"></script>
 <script src="sections/avx-simd.js?v=7513aa38"></script>
 <script src="sections/cpp-under-hood.js?v=4f952471"></script>
 <script src="sections/cpp-stl.js?v=2a454803"></script>
+<script src="sections/c-concurrency.js?v=6496aba4"></script>
 <script src="sections/gpu-kernels.js?v=5f48f981"></script>
 <script src="sections/threads-and-launches.js?v=5761c535"></script>
 <script src="sections/gpu-hierarchy-motion.js?v=3cf6cfe2"></script>
@@ -747,7 +749,6 @@ window.MathJax = {
 <script src="sections/os-memory-management.js?v=e358c1fa"></script>
 <script src="sections/files-and-io.js?v=7c52911f"></script>
 <script src="sections/compilers.js?v=d8bb34f5"></script>
-<script src="sections/c-concurrency.js?v=6496aba4"></script>
 <script src="sections/fabrication.js?v=307722ab"></script>
 <script src="sections/circuits.js?v=158f78f1"></script>
 <script src="sections/eda-stack.js?v=311a21d6"></script>
@@ -759,7 +760,7 @@ window.MathJax = {
 <script src="sections/calendar.js?v=ca5b721f"></script>
 <script src="sections/cpp-drill.js?v=885e158d"></script>
 <script src="coding/interview.js?v=82f86d89"></script>
-<script src="sections/interview-prep.js?v=36d64d89"></script>
+<script src="sections/interview-prep.js?v=a6fd341e"></script>
 <script src="sections/resume-prep.js?v=478691ac"></script>
 <script src="js/diagrams.js?v=fdc3e20d"></script>
 <script src="js/glossary.js?v=64e8ccb9"></script>
@@ -768,6 +769,6 @@ window.MathJax = {
 <script src="js/visual.js?v=8997322b"></script>
 <script src="js/theme.js?v=1763bf15"></script>
 <script src="coding/crun.js?v=a9acf486"></script>
-<script src="js/app.js?v=ed56d8ee"></script>
+<script src="js/app.js?v=07e72791"></script>
 </body>
 </html>

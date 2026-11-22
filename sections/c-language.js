@@ -15,7 +15,7 @@ section({
 <li><a href="#/c-syntax">Syntax and Semantics</a>: reading declarations, integer promotions and conversions, precedence and sequencing traps, qualifiers, aggregates, the preprocessor, and what each standard from C89 to C23 added.</li>
 <li><a href="#/c-fast">Writing Fast C</a>: measuring, aliasing and <code>restrict</code>, data layout, branches, arithmetic that costs more than it looks, inlining and whole-program builds, and allocation in hot paths.</li>
 </ul>
-<p>Related pages elsewhere: the toolchain from parsing to loading in <a href="#/r/comp">Compilers and the Toolchain</a>, atomics and cache-line layout in <a href="#/r/conc">Concurrency in C</a>, and SIMD intrinsics in <a href="#/r/avx">AVX and SIMD</a>. The same view of C++ is in <a href="#/r/cpph">C++ Under the Hood</a>, and its library in <a href="#/r/stl">Using C++ and the STL</a>.</p>
+<p>Related pages: the toolchain from parsing to loading in <a href="#/r/comp">Compilers and the Toolchain</a>, atomics and cache-line layout in <a href="#/r/conc">Concurrency in C</a>, and SIMD intrinsics in <a href="#/r/avx">AVX and SIMD</a>. The same view of C++ is in <a href="#/r/cpph">C++ Under the Hood</a>, and its library in <a href="#/r/stl">Using C++ and the STL</a>.</p>
 `,
   practice: {
     guided: [

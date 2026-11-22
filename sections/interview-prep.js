@@ -4289,10 +4289,10 @@ section({ id: "iqmem", name: "Memory System Questions", cap: "Caches, TLBs, DRAM
   pages(["mem", "coh", "icx"]));
 section({ id: "iqperf", name: "Performance Modeling Questions", cap: "Real processors, benchmarks, diagnosing bottlenecks, building a model in C, and open-ended design", body: GUIDE },
   pages(["proc", "bench", "diag", "sim", "design"]));
-section({ id: "iqos", name: "Operating System Questions", cap: "Virtual memory at the OS boundary, and memory allocation in the C library", body: GUIDE },
-  pages(["vm", "alloc"]));
-section({ id: "iqsw", name: "Systems Software Questions", cap: "Concurrency and parallelism in C", body: GUIDE },
-  pages(["conc"]));
+section({ id: "iqc", name: "C and C++ Questions", cap: "Concurrency and parallelism in C, and memory allocation in the C library", body: GUIDE },
+  pages(["conc", "alloc"]));
+section({ id: "iqos", name: "Operating System Questions", cap: "Virtual memory at the OS boundary", body: GUIDE },
+  pages(["vm"]));
 if (placed !== PAGES.length) throw new Error("interview-prep.js: a page is missing from the regions above");
 /* sections/resume-prep.js builds its pages with the same cards and tabs. */
 window.INTV_KIT = { Q, M, tabbed };
