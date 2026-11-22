@@ -89,7 +89,8 @@ section({
 <g style="font-size:12px">
 <text x="216" y="44" style="fill:var(--ink);font-weight:600">Automatic (local) variables: registers, or the stack</text>
 <text x="216" y="61" style="fill:var(--muted)">At <tspan style="font-family:var(--mono)">-O2</tspan> most locals never touch memory.</text>
-<text x="216" y="77" style="fill:var(--muted)">One whose address is taken (<tspan style="font-family:var(--mono)">&amp;x</tspan>) must live on the stack.</text>
+<text x="216" y="77" style="fill:var(--muted)">One whose address escapes (<tspan style="font-family:var(--mono)">&amp;x</tspan> passed to a call that isn't inlined)</text>
+<text x="216" y="93" style="fill:var(--muted)">must live in memory, on the stack. <a href="#/comp-ir/promote"><tspan style="fill:var(--trace);text-decoration:underline">See From Stack Slots to Registers</tspan></a></text>
 <text x="216" y="168" style="fill:var(--ink);font-weight:600"><tspan style="font-family:var(--mono)">malloc</tspan> results</text>
 <text x="216" y="185" style="fill:var(--muted)">Heap (<tspan style="font-family:var(--mono)">brk</tspan> area) or separate <tspan style="font-family:var(--mono)">mmap</tspan> regions</text>
 <a href="#/c-hood/malloc"><text x="216" y="202" style="fill:var(--trace);text-decoration:underline">See What malloc Does</text></a>
