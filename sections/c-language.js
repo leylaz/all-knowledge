@@ -61,16 +61,49 @@ section({
 <p>This page follows a C program from source to the bytes and instructions it becomes on Linux x86-64 with GCC or Clang. The toolchain steps themselves (preprocess, compile, assemble, link, load) are covered in <a href="#/r/comp">Compilers and the Toolchain</a>. Two commands show most of what follows: <code>gcc -O2 -S -masm=intel f.c</code> prints the assembly, and <a href="https://godbolt.org">Compiler Explorer</a> shows it next to the source.</p>
 
 <h3 id="sec-where">Where Variables Live</h3>
-<p>A running process's address space holds a few regions, and every C object lands in one of them:</p>
-<div class="tbl"><table>
-<tr><th>C object</th><th>Region</th><th>Notes</th></tr>
-<tr><td>Function code</td><td><code>.text</code></td><td>Read and execute only, shared between processes running the same binary</td></tr>
-<tr><td>String literals, <code>const</code> globals</td><td><code>.rodata</code></td><td>Writing to <code>"abc"[0]</code> faults, because the page is read-only</td></tr>
-<tr><td>Globals and <code>static</code> locals with a nonzero initializer</td><td><code>.data</code></td><td>Initial values are stored in the file</td></tr>
-<tr><td>Globals and <code>static</code> locals that are zero or uninitialized</td><td><code>.bss</code></td><td>Only the size is stored, and the loader maps zero pages, so a 1 GiB zero array costs nothing in the file</td></tr>
-<tr><td>Automatic (local) variables</td><td>Registers, or the stack</td><td>At <code>-O2</code> most locals never touch memory. One whose address is taken (<code>&amp;x</code>) must live on the stack.</td></tr>
-<tr><td><code>malloc</code> results</td><td>Heap (<code>brk</code> area) or separate <code>mmap</code> regions</td><td>See <a href="#/c-hood/malloc">What malloc Does</a></td></tr>
-</table></div>
+<p>A running process's address space holds a few regions, and every C object lands in one of them. The map below runs from high addresses at the top to low addresses at the bottom, as on Linux x86-64:</p>
+<div class="tbl"><svg viewBox="0 0 700 472" role="img" aria-label="Process address space from high to low addresses. At the top, the stack grows down and holds automatic local variables that are not kept in registers. Below a gap are mmap regions, another gap, and the heap, which grows up. Both hold malloc results. Below the heap are .bss for zero or uninitialized globals and static locals, .data for those with a nonzero initializer, .rodata for string literals and const globals, and .text for function code at the lowest addresses." style="max-width:700px">
+<defs><marker id="vlarrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker></defs>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
+<rect x="20" y="26" width="170" height="70"/><rect x="20" y="124" width="170" height="46"/><rect x="20" y="198" width="170" height="46"/>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1;stroke-dasharray:4 3">
+<rect x="20" y="96" width="170" height="28"/><rect x="20" y="170" width="170" height="28"/>
+</g>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.2">
+<rect x="20" y="244" width="170" height="50"/><rect x="20" y="294" width="170" height="50"/><rect x="20" y="344" width="170" height="50"/><rect x="20" y="394" width="170" height="50"/>
+</g>
+<g style="stroke:var(--trace);stroke-width:1.5">
+<line x1="40" y1="78" x2="40" y2="118" marker-end="url(#vlarrow)"/>
+<line x1="40" y1="226" x2="40" y2="176" marker-end="url(#vlarrow)"/>
+</g>
+<path d="M200,124 h6 v120 h-6" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<g style="fill:var(--ink);font-family:var(--mono);font-size:13px;text-anchor:middle">
+<text x="95" y="66">stack</text><text x="95" y="152">mmap regions</text><text x="95" y="226">heap (brk)</text>
+<text x="95" y="274">.bss</text><text x="95" y="324">.data</text><text x="95" y="374">.rodata</text><text x="95" y="424">.text</text>
+</g>
+<g style="fill:var(--muted);font-size:11px">
+<text x="20" y="16">high addresses</text><text x="20" y="462">low addresses</text>
+<text x="50" y="114">grows down</text><text x="50" y="188">grows up</text>
+</g>
+<g style="font-size:12px">
+<text x="216" y="44" style="fill:var(--ink);font-weight:600">Automatic (local) variables: registers, or the stack</text>
+<text x="216" y="61" style="fill:var(--muted)">At <tspan style="font-family:var(--mono)">-O2</tspan> most locals never touch memory.</text>
+<text x="216" y="77" style="fill:var(--muted)">One whose address is taken (<tspan style="font-family:var(--mono)">&amp;x</tspan>) must live on the stack.</text>
+<text x="216" y="168" style="fill:var(--ink);font-weight:600"><tspan style="font-family:var(--mono)">malloc</tspan> results</text>
+<text x="216" y="185" style="fill:var(--muted)">Heap (<tspan style="font-family:var(--mono)">brk</tspan> area) or separate <tspan style="font-family:var(--mono)">mmap</tspan> regions</text>
+<a href="#/c-hood/malloc"><text x="216" y="202" style="fill:var(--trace);text-decoration:underline">See What malloc Does</text></a>
+<text x="216" y="260" style="fill:var(--ink);font-weight:600">Globals and <tspan style="font-family:var(--mono)">static</tspan> locals that are zero or uninitialized</text>
+<text x="216" y="275" style="fill:var(--muted)">Only the size is stored, and the loader maps zero pages,</text>
+<text x="216" y="289" style="fill:var(--muted)">so a 1 GiB zero array costs nothing in the file</text>
+<text x="216" y="314" style="fill:var(--ink);font-weight:600">Globals and <tspan style="font-family:var(--mono)">static</tspan> locals with a nonzero initializer</text>
+<text x="216" y="330" style="fill:var(--muted)">Initial values are stored in the file</text>
+<text x="216" y="364" style="fill:var(--ink);font-weight:600">String literals, <tspan style="font-family:var(--mono)">const</tspan> globals</text>
+<text x="216" y="380" style="fill:var(--muted)">Writing to <tspan style="font-family:var(--mono)">"abc"[0]</tspan> faults, because the page is read-only</text>
+<text x="216" y="414" style="fill:var(--ink);font-weight:600">Function code</text>
+<text x="216" y="430" style="fill:var(--muted)">Read and execute only, shared between processes running the same binary</text>
+</g>
+</svg></div>
 <p>The main thread's stack is 8 MiB by default on Linux (<code>ulimit -s</code>) and 1 MiB on Windows. A large local array, such as a simulator's <code>uint64_t table[1 &lt;&lt; 20]</code> (8 MiB), overflows it and crashes with a segmentation fault on first touch. Make such arrays <code>static</code> or allocate them.</p>
 
 <h3 id="sec-types">Types as Bytes</h3>
