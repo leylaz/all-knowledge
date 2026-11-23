@@ -743,7 +743,7 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <text x="10" y="346" style="fill:var(--ink);font-size:11px"><tspan style="font-weight:600">Storage:</tspan> 1024 entries × 4 counters/entry × 2 bits/counter = 8192 bits.</text>
 <text x="10" y="368" style="fill:var(--muted);font-size:10px">The other counters show one possible trained state.</text>
 </svg></div>
-<p>A bimodal table gives b3 a single counter, which sees the mix of all four rows of the table above. The (2, 2) predictor gives each row its own counter, so once trained it never mispredicts b3 after history 00. Reading the entry and then the counter is the same as indexing one table of 4096 counters with PC bits 11:2 followed by the 2 GHR bits, which is gselect, below.</p>
+<p>A bimodal table gives b3 one counter, and every execution of b3 updates it, regardless of whether b1 and b2 were taken. It learns only b3's average direction across the four GHR values in the table above. The (2, 2) predictor gives each GHR value its own counter, so once trained it never mispredicts b3 after history 00. Reading the entry and then the counter is the same as indexing one table of 4096 counters with PC bits 11:2 followed by the 2 GHR bits, which is gselect, below.</p>
 <p>Hennessy and Patterson compare a (2, 2) predictor with 1024 entries against a 4096-entry bimodal table. Both cost 8 Kbits (2<sup>2</sup> counters/entry × 2 bits/counter × 1024 entries = 8192 bits for the first, and 4096 counters × 2 bits/counter = 8192 bits for the second). The correlating predictor outperforms the bimodal table, and often beats even an infinite bimodal table. Two bits of history buy more than extra capacity does.</p>
 
 <h3 id="sec-global">Global History Predictors</h3>
