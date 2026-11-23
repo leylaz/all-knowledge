@@ -106,7 +106,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 </svg></div>
 <p>What each unit does, in the order a fetch block passes through them:</p>
 <ul>
-<li><strong>Branch prediction unit.</strong> Each cycle it takes the current fetch address and the global history and predicts one fetch block: the BTB finds the branches in it and their targets, the direction predictor decides whether conditional branches are taken, and the indirect predictor and return address stack supply targets the BTB can't (see <a href="#/fe-direction">Branch Direction Predictors</a> and <a href="#/fe-targets">Branch Targets</a>). The predicted next address feeds straight back in for the next cycle.</li>
+<li><strong>Branch prediction unit.</strong> Each cycle it takes the current fetch address and the global history and predicts one fetch block: the BTB finds the branches in it and their targets, the direction predictor decides whether conditional branches are taken, and the indirect predictor and return address stack supply targets the BTB can't (see <a href="#/fe-classic">Classic Direction Predictors</a>, <a href="#/fe-direction">Modern Direction Predictors</a>, and <a href="#/fe-targets">Branch Targets</a>). The predicted next address feeds straight back in for the next cycle.</li>
 <li><strong>Fetch target queue.</strong> Holds the predicted blocks until fetch is ready for them, along with the history needed to repair the predictor. Its occupancy is how far the predictor runs ahead (see <a href="#/fe-decoupled/ftq">The Fetch Target Queue</a>).</li>
 <li><strong>Prefetcher.</strong> Probes the instruction cache tags with the addresses in the queue and sends the misses to the L2, so lines arrive before fetch reaches them (see <a href="#/fe-decoupled/fdip">Fetch-Directed Prefetching</a>).</li>
 <li><strong>Instruction cache.</strong> Read at the head of the queue, with the ITLB translating in parallel. The queue entry can carry the predicted way, so only one way is read (see <a href="#/stage-if/way-pred">Way Prediction</a>). A miss goes to the L2.</li>
@@ -115,7 +115,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <li><strong>Macro-op queue.</strong> Collects macro-ops from both paths and absorbs the difference between front-end delivery and the rate rename takes them.</li>
 <li><strong>Redirects.</strong> When decode finds a branch the BTB missed, or the back end resolves a mispredicted branch, the predictor restarts at the correct address. The fetch target queue and everything younger than the branch are flushed (see <a href="#/fe-targets/misses">BTB Misses and Decode Redirects</a>).</li>
 </ul>
-<p>When the front end falls behind, the back end starves however wide it is; when it predicts wrong, everything fetched after the bad prediction is thrown away. Front-end stalls take a large share of cycles on server workloads with large code footprints, and mispredicts are often the largest single loss on integer code with hard-to-predict branches.</p>
+<p>When the front end falls behind, the back end starves however wide it is. When it predicts wrong, everything fetched after the bad prediction is thrown away (see <a href="#/fe-mispredict">Mispredict Cost in Deep Pipelines</a>). Front-end stalls take a large share of cycles on server workloads with large code footprints, and mispredicts are often the largest single loss on integer code with hard-to-predict branches.</p>
 <p>The classic 5-stage pipeline's view of branches is in <a href="#/branch-hazards">Branch Hazards</a>; these pages cover how a wide out-of-order core does it.</p>`,
   practice: {
     guided: [
@@ -361,37 +361,161 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 },
 
 {
+  id: "fe-classic",
+  region: "fe",
+  title: "Classic Direction Predictors",
+  sections: [
+    { id: "counters", label: "Saturating Counters" },
+    { id: "bimodal", label: "Bimodal Tables" },
+    { id: "correlating", label: "Correlating Predictors" },
+    { id: "local", label: "Local History Predictors" },
+    { id: "gshare", label: "gshare and gselect" },
+    { id: "aliasing", label: "Aliasing" },
+    { id: "tournament", label: "Tournament Predictors" },
+    { id: "summary", label: "What Each Predictor Captures" }
+  ],
+  body: `
+<p>A direction predictor answers one question per conditional branch: taken or not taken. The predictors on this page are the ones Hennessy and Patterson build up in Appendix C.2 and Section 3.3, ending with McFarling's 1993 combining predictor. They are no longer the best designs on their own, but every modern predictor is assembled from their parts: saturating counters, tables indexed by the PC and by history, and a rule for choosing between predictions. <a href="#/fe-direction">Modern Direction Predictors</a> picks up from here with perceptrons and TAGE.</p>
+
+<h3 id="sec-counters">Saturating Counters</h3>
+<p>The simplest dynamic predictor keeps one bit per branch: the last outcome. On a loop branch it mispredicts twice per visit to the loop, once at the exit (it predicts taken, the loop falls through) and again on the next entry (it predicts not taken, the loop branch is taken).</p>
+<p>A <strong>2-bit saturating counter</strong> fixes that with hysteresis. It counts up on a taken outcome and down on a not-taken one, stays within 0 to 3, and predicts taken at 2 or 3. A branch in a strong state (0 or 3) has to go the other way twice in a row before the prediction flips, so a loop branch mispredicts only at the exit. The state diagram is in <a href="#/branch-hazards/dynamic">Dynamic Prediction</a>.</p>
+<p>Wider counters exist (TAGE's tagged entries use 3 bits), but Hennessy and Patterson note that an n-bit counter does little better than a 2-bit one for most branches. Two bits is the standard building block.</p>
+
+<h3 id="sec-bimodal">Bimodal Tables</h3>
+<p>A <strong>bimodal</strong> predictor is a table of 2-bit counters indexed by low bits of the branch PC, with no tag. Each counter learns the bias of the branches that map to it, and nothing else. A 4096-entry table costs 4096 counters × 2 bits/counter = 8 Kbits, which is 1 KB.</p>
+<p>The useful result from Hennessy and Patterson's SPEC89 data is where bimodal stops improving. A 4096-entry table mispredicts from about 1% of branches on the floating-point codes to 18% on eqntott, and an infinite table does essentially no better. Past a few thousand entries, capacity isn't the limit. The limit is the information: a counter indexed only by PC can't predict a branch whose direction changes, however much storage it has.</p>
+<p>Bimodal tables are still in every predictor. They are TAGE's base table, the fallback when no tagged entry matches, and they make good single-cycle first-level predictors because they are small and fast (see <a href="#/fe-decoupled/overriding">Fast and Slow Predictors</a>).</p>
+
+<h3 id="sec-correlating">Correlating Predictors</h3>
+<p>Many branches are predictable only from what other branches just did. Hennessy and Patterson's example is from eqntott:</p>
+<pre><code>if (aa == 2) aa = 0;     /* b1 */
+if (bb == 2) bb = 0;     /* b2 */
+if (aa != bb) { ... }    /* b3 */</code></pre>
+<p>If b1 and b2 both find their values equal to 2 (so both assignments run), aa and bb are both 0 and b3's condition is false. A bimodal counter for b3 can't see that. A predictor that knows the outcomes of b1 and b2 can.</p>
+<p>A <strong>global history register</strong> (GHR) records the outcomes of the last m branches as m bits, newest in the low bit. An <strong>(m, n) correlating predictor</strong> uses those m bits to choose among 2<sup>m</sup> n-bit counters in each entry. Its storage is 2<sup>m</sup> counters/entry × n bits/counter × the number of entries.</p>
+<p>Hennessy and Patterson compare a (2, 2) predictor with 1024 entries against a 4096-entry bimodal table. Both cost 8 Kbits (2<sup>2</sup> counters/entry × 2 bits/counter × 1024 entries = 8192 bits for the first, and 4096 counters × 2 bits/counter = 8192 bits for the second). The correlating predictor outperforms the bimodal table, and often beats even an infinite bimodal table. Two bits of history buy more than extra capacity does.</p>
+
+<h3 id="sec-local">Local History Predictors</h3>
+<p>Global history captures correlation <em>between</em> branches. Some branches are better predicted by their own past instead: a loop branch that is taken 7 times and then falls through, or a branch that alternates. Yeh and Patt's two-level adaptive predictors (1991) handle these with two tables:</p>
+<ol>
+<li>A <strong>branch history table</strong>, indexed by PC, holds each branch's own last k outcomes (its <em>local history</em>).</li>
+<li>A <strong>pattern history table</strong> of 2-bit counters is indexed by that local history (often combined with some PC bits). Each counter learns what follows one particular k-bit pattern.</li>
+</ol>
+<p>A local predictor with k = 10 learns any repeating pattern whose period is at most 10 branches, including the exit of a loop with a trip count of up to 10. Its cost is a second, dependent table read per prediction, and a speculative update problem that global history doesn't have: every in-flight instance of the branch needs its own copy of the history (see <a href="#/fe-direction/update">Speculative History and Repair</a>).</p>
+<p>Yeh and Patt's names describe the variants by where history and counters live. <strong>GAg</strong> uses one global history and one shared counter table. <strong>PAg</strong> uses per-address histories and one shared counter table. <strong>PAp</strong> uses per-address histories and per-address counter tables. Gshare, below, is a refinement of the global scheme.</p>
+
+<h3 id="sec-gshare">gshare and gselect</h3>
+<p>With a fixed index width, a predictor has to decide how to divide the bits between the PC and the history. McFarling compared two ways:</p>
+<ul>
+<li><strong>gselect</strong> concatenates n low PC bits with m history bits into an (n + m)-bit index. It is a correlating predictor laid out as a single table.</li>
+<li><strong>gshare</strong> XORs the history with the PC, so every index bit depends on both. With a 14-bit index, gshare can use 14 PC bits <em>and</em> 14 history bits, where gselect would have to split them, say 7 and 7.</li>
+</ul>
+<p>gshare wins because the (PC, history) pairs that actually occur are sparse. A strongly biased branch sees only a few history patterns, so gselect leaves most of the 2<sup>m</sup> counters reserved for its PC unused while other branches pile into the same PC slot. XOR spreads each branch's patterns over the whole table. McFarling found gshare better than gselect at every size he measured beyond the smallest.</p>
+<p>The cost is a new kind of collision. Under gselect, two branches whose n PC bits differ never share a counter. Under gshare, (PC<sub>1</sub>, H<sub>1</sub>) and (PC<sub>2</sub>, H<sub>2</sub>) collide whenever PC<sub>1</sub> ⊕ PC<sub>2</sub> = H<sub>1</sub> ⊕ H<sub>2</sub>, which can happen between any two branches.</p>
+
+<h3 id="sec-aliasing">Aliasing</h3>
+<p>Bimodal, correlating, and gshare tables have no tags, so any two (branch, history) pairs that map to one counter share it. This is <strong>aliasing</strong>, and its effect depends on the two branches:</p>
+<ul>
+<li><strong>Destructive:</strong> the two go opposite ways, so each drags the counter away from the other's direction and both mispredict more.</li>
+<li><strong>Constructive:</strong> the two go the same way, so one trains the counter for the other. This sometimes helps a cold branch.</li>
+<li><strong>Neutral:</strong> the sharing changes no prediction.</li>
+</ul>
+<p>Young, Gloy, and Smith (1995) measured that destructive aliasing dominates. Michaud, Seznec, and Uhlig (1997) borrowed the cache's three Cs. <em>Compulsory</em> aliasing is a first use of an entry. <em>Capacity</em> aliasing means the table is too small for the working set of (branch, history) pairs. <em>Conflict</em> aliasing means the index function maps too many pairs to the same entry while others sit idle. History makes aliasing worse, because each branch now occupies one entry per history pattern it has seen instead of one entry in total.</p>
+<p>The fixes match the causes:</p>
+<ul>
+<li><strong>Capacity:</strong> bigger tables, which run into the access-time limit of a single-cycle predictor.</li>
+<li><strong>Conflict:</strong> better index functions, and skewed predictors (gskew) that read several banks with different hashes and take a majority vote, so two branches that collide in one bank rarely collide in the others.</li>
+<li><strong>Turning destructive into constructive:</strong> the <strong>agree</strong> predictor (Sprangle et al., 1997) stores a bias bit per branch, usually in the BTB, and the counters predict whether the branch will <em>agree</em> with its bias. Two strongly biased branches with opposite directions both agree with their own bias, so they push a shared counter the same way. The <strong>bi-mode</strong> predictor (Lee, Chen, and Mudge, 1997) splits the counters into a taken-biased half and a not-taken-biased half and uses a bimodal choice table to send each branch to the matching half.</li>
+<li><strong>Tags:</strong> the step TAGE takes, which turns a collision into a detected miss instead of a silent wrong answer.</li>
+</ul>
+
+<h3 id="sec-tournament">Tournament Predictors</h3>
+<p>Local history is better for some branches, global history for others, and a single table has to pick one history for all of them. A <strong>tournament</strong> (McFarling's <em>combining</em>) predictor runs two component predictors side by side and adds a third table, the <strong>chooser</strong>, of 2-bit counters that decides per branch which component to believe.</p>
+<p>The update rule is the part people get wrong:</p>
+<ol>
+<li>Both components always train on the real outcome.</li>
+<li>The chooser trains only when the components <em>disagreed</em>. It counts toward whichever one was right.</li>
+<li>When both were right or both were wrong, the outcome says nothing about which component is better, so the chooser is left alone.</li>
+</ol>
+<p>McFarling's version combined bimodal and gshare, with the chooser indexed by PC. A side effect is fast warm-up. Bimodal trains in a couple of outcomes, while gshare needs one trained counter per history pattern, so after a context switch the chooser leans on bimodal first and moves to gshare as it fills.</p>
+<p>The <strong>Alpha 21264</strong> (Kessler, 1999) shipped the best-known tournament predictor:</p>
+<ul>
+<li><strong>Local component:</strong> 1024 entries of 10-bit local history, indexing 1024 3-bit counters.</li>
+<li><strong>Global component:</strong> 4096 2-bit counters, indexed by 12 bits of global history.</li>
+<li><strong>Chooser:</strong> 4096 2-bit counters, indexed by the same 12-bit global history, so the choice itself can depend on the path.</li>
+<li><strong>Total:</strong> 1024 entries × 10 bits + 1024 counters × 3 bits + 4096 counters × 2 bits + 4096 counters × 2 bits = 29,696 bits, about 29 Kbits.</li>
+</ul>
+<p>Hennessy and Patterson's Section 3.3 comparison shows tournament predictors beating correlating predictors of the same size on SPEC89, by the largest margin at small budgets. Later designs kept the idea of several components plus a selection rule. Hennessy and Patterson describe the Intel Core i7 920's predictor as combining a 2-bit predictor, a global history predictor, and a loop exit predictor, and TAGE's provider and alternate predictions are a generalized chooser.</p>
+
+<h3 id="sec-summary">What Each Predictor Captures</h3>
+<div class="tbl"><table>
+<tr><th>Predictor</th><th>Information it uses</th><th>Learns</th><th>Fails on</th></tr>
+<tr><td>Bimodal</td><td>PC</td><td>Each branch's bias</td><td>Any branch whose direction changes</td></tr>
+<tr><td>Local two-level</td><td>The branch's own last k outcomes</td><td>Short repeating patterns and loop exits up to k</td><td>Correlation with other branches</td></tr>
+<tr><td>Correlating or gshare</td><td>PC and global history</td><td>Correlation with the last m branches</td><td>Correlation older than m, and branches whose patterns alias</td></tr>
+<tr><td>Tournament</td><td>Both, plus a chooser</td><td>Per branch, the better of two components</td><td>Branches neither component predicts</td></tr>
+</table></div>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 5th ed., Appendix C.2 (2-bit prediction schemes) and Section 3.3 (correlating and tournament predictors, and the Intel Core i7 predictor) · McFarling, "Combining Branch Predictors," DEC WRL TN-36, 1993 · Yeh and Patt, "Two-Level Adaptive Training Branch Prediction," MICRO 1991 · Pan, So, and Rahmeh, "Improving the Accuracy of Dynamic Branch Prediction Using Branch Correlation," ASPLOS 1992 · Young, Gloy, and Smith, "A Comparative Analysis of Schemes for Correlated Branch Prediction," ISCA 1995 · Michaud, Seznec, and Uhlig, "Trading Conflict and Capacity Aliasing in Conditional Branch Predictors," ISCA 1997 · Sprangle, Chappell, Alsup, and Patt, "The Agree Predictor," ISCA 1997 · Lee, Chen, and Mudge, "The Bi-Mode Branch Predictor," MICRO 1997 · Kessler, "The Alpha 21264 Microprocessor," IEEE Micro, 1999</p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A tournament predictor combines a bimodal component and a gshare component that uses 1 bit of global history. All 2-bit counters predict taken at 2 or 3. The bimodal counter starts at 2, both gshare counters (history 0 and history 1) start at 2, and the history starts at 0. The chooser counter starts at 1, where 0 and 1 select bimodal and 2 and 3 select gshare. It trains only when the components disagree. One branch runs alone, so the history bit is its own last outcome, and it alternates T, N, T, N, … starting with T. Trace the first 6 executions (numbered 0 to 5). How many mispredict, and what happens after that?</p>`,
+        a: `<ol><li>Execution 0, outcome T, history 0. Bimodal (2) predicts T and moves to 3. Gshare counter for history 0 (2) predicts T and moves to 3. They agree, so the chooser stays at 1. The chosen bimodal prediction is correct. History becomes 1.</li><li>Execution 1, outcome N, history 1. Bimodal (3) predicts T and drops to 2. Gshare counter for history 1 (2) predicts T and drops to 1. Both are wrong, so the chooser stays at 1. <strong>Mispredict.</strong> History becomes 0.</li><li>Execution 2, outcome T, history 0. Bimodal (2) predicts T and moves to 3. Gshare counter for history 0 (3) predicts T and stays at 3. Both are right, so the chooser stays at 1. Correct. History becomes 1.</li><li>Execution 3, outcome N, history 1. Bimodal (3) predicts T and drops to 2. Gshare counter for history 1 (1) predicts N and drops to 0. They disagree and gshare was right, so the chooser moves from 1 to 2. The prediction used was the chooser's old choice, bimodal, so this is a <strong>mispredict</strong>. History becomes 0.</li><li>Execution 4, outcome T, history 0. Both predict T and are right, and the chooser (2) now selects gshare. Correct.</li><li>Execution 5, outcome N, history 1. Bimodal (3) predicts T, gshare (0) predicts N. They disagree, gshare is right, and the chooser moves to 3. The chosen gshare prediction is correct.</li><li>Total: <strong>2 mispredicts</strong> in 6 executions. From then on gshare predicts every outcome, the chooser saturates at 3, and the predictor never mispredicts again, even though bimodal keeps mispredicting every N. The chooser moved only on executions 3 and 5, the two where the components disagreed.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Your tournament predictor's chooser is indexed by PC, as in McFarling's design. One hot branch in a shared library is called from two places. Called from one, it follows global history closely. Called from the other, it follows only its own local pattern. Assume the two callers interleave in roughly equal numbers. What does the PC-indexed chooser do with this branch, and how would you change the design?</p>`,
+        a: `<p>Assume both components are big enough that the branch's entries don't alias with other branches. A PC-indexed chooser has one counter for the branch, so it sees a mix of disagreements where global was right (calls from the first site) and where local was right (calls from the second). It drifts toward whichever wins more disagreements overall, or wanders between them, and the branch ends up predicted by the wrong component for about half of its executions.</p><p>The fix is to let the choice depend on context. Index the chooser with global history, as the Alpha 21264 did, or with PC XOR history. The two call sites leave different recent outcomes in the history, so they reach different chooser counters and each learns its own choice. The cost is that the chooser now aliases and trains like a gshare table, so it needs more entries and warms up more slowly. The more general answer is TAGE, which drops the fixed two-way choice and lets a tagged entry for each history length compete per context.</p>`
+      }
+    ]
+  }
+},
+
+{
   id: "fe-direction",
   region: "fe",
-  title: "Branch Direction Predictors",
+  title: "Modern Direction Predictors",
   sections: [
-    { id: "counters", label: "Counters and Bimodal Tables" },
-    { id: "history", label: "Global History and gshare" },
     { id: "perceptron", label: "Perceptron Predictors" },
+    { id: "separability", label: "The Linear-Separability Limit" },
     { id: "tage", label: "TAGE" },
     { id: "extras", label: "Loop and Statistical Correctors" },
     { id: "update", label: "Speculative History and Repair" },
     { id: "model", label: "Modeling a Predictor" }
   ],
   body: `
-<p>A direction predictor answers one question per conditional branch: taken or not taken. Every design since the 1980s is built from the same pieces: small saturating counters, tables indexed by the branch address and by history, and a rule for which table to trust. This page goes from the simplest table to TAGE, the basis of most high-end predictors today.</p>
-
-<h3 id="sec-counters">Counters and Bimodal Tables</h3>
-<p>A <strong>2-bit saturating counter</strong> counts up when the branch is taken and down when it isn't, between 0 and 3; it predicts taken at 2 or 3. It needs two wrong outcomes in a row to flip, so a loop branch that is taken many times and falls through once mispredicts only at the exit, not again at re-entry.</p>
-<p>A <strong>bimodal</strong> predictor is a table of these counters indexed by low bits of the branch PC. It learns each branch's bias and nothing else. Two branches that share an entry <em>alias</em>; when their biases differ, they fight. A 16K-entry table of 2-bit counters is 4 KB.</p>
-
-<h3 id="sec-history">Global History and gshare</h3>
-<p>Many branches are predictable only from what happened before them: <code>if (x &gt; 0)</code> followed by <code>if (x &gt; 5)</code> is correlated. A <strong>global history register</strong> records the outcomes of the last h branches as h bits. <strong>gshare</strong> (McFarling, 1993) indexes the counter table with PC XOR history, so the same branch gets a different counter for each recent path.</p>
-<p>The trade-off is the history length. Short histories train fast but miss long-range correlation; long histories capture it but spread each branch over many entries (more aliasing, slower training). A single table forces one choice, which is the problem the next two designs solve.</p>
-<p>Tournament predictors (the Alpha 21264's, for example) ran a local-history and a global-history predictor side by side and used a third table of counters to choose between them per branch.</p>
+<p>The predictors on <a href="#/fe-classic">Classic Direction Predictors</a> index untagged counter tables with a fixed amount of history, so they force one history length on every branch and can't tell when two branches collide. This page covers the designs that fixed both problems. Perceptrons use long histories at linear cost, TAGE uses many history lengths at once with tags, and side predictors cover what TAGE misses. It ends with the parts of a predictor a model has to get right: speculative history and update timing.</p>
 
 <h3 id="sec-perceptron">Perceptron Predictors</h3>
-<p>A perceptron predictor (Jiménez and Lin, 2001) keeps a small vector of signed weights per branch, one per history bit. The prediction is the sign of the dot product of the weights with the history (taken = +1, not taken = −1), plus a bias weight. Training adds or subtracts 1 from each weight when the prediction was wrong or the sum was below a threshold.</p>
+<p>A perceptron predictor (Jiménez and Lin, 2001) replaces the table of counters with a table of small weight vectors, one vector per branch (selected by PC), with one signed weight per history bit plus a bias weight. It treats each history bit as a vote, and learns how much each vote counts.</p>
 <ul>
-<li><strong>Strength:</strong> storage grows linearly with history length, not exponentially, so it can use long histories; it learns which history bits matter.</li>
-<li><strong>Weakness:</strong> it can only learn linearly separable functions of the history (an XOR of two earlier outcomes defeats it), and the adder tree adds latency.</li>
+<li><strong>Inputs:</strong> x<sub>0</sub> = 1 for the bias, and x<sub>1</sub> … x<sub>h</sub> are the last h global outcomes, with taken = +1 and not taken = −1.</li>
+<li><strong>Prediction:</strong> y = w<sub>0</sub> + Σ w<sub>i</sub> x<sub>i</sub> over i = 1 … h. Predict taken when y ≥ 0. Because every x<sub>i</sub> is ±1, each product is just w<sub>i</sub> or −w<sub>i</sub>, so the hardware is a conditional negate per weight and an adder tree.</li>
+<li><strong>Training:</strong> with t = +1 for taken and −1 for not taken, update when the prediction was wrong <em>or</em> when |y| ≤ θ. The update is w<sub>i</sub> ← w<sub>i</sub> + t x<sub>i</sub> for every i, saturating at the weight width (8-bit signed weights in the paper). A weight grows when its history bit agrees with the outcome and shrinks when it disagrees.</li>
+<li><strong>Threshold:</strong> θ keeps training going until the prediction has a margin, so one unusual outcome can't flip it. Jiménez and Lin found the best value empirically, θ = ⌊1.93 h + 14⌋. It grows with h because the noise from the weights of uncorrelated history bits grows with the number of bits.</li>
 </ul>
-<p><strong>Hashed perceptrons</strong> index several weight tables with hashes of different history segments and sum the selected weights. AMD has described its Zen predictors as perceptron-based.</p>
+<p>Each weight's sign says which way its history bit pushes and its magnitude says how strongly, so the trained weights show directly which earlier branches the prediction depends on. Weights for uncorrelated bits stay near 0.</p>
+<p>The main strength is storage. A perceptron costs (h + 1) weights, so storage grows linearly with history length, where a gshare table indexed by h history bits needs 2<sup>h</sup> counters. At h = 40 with 8-bit weights, each perceptron is 41 bytes, θ = ⌊1.93 × 40 + 14⌋ = 91, and a 4 KB budget holds 4096 bytes / 41 bytes ≈ 99 perceptrons. A gshare predictor with the same 4 KB holds 4096 bytes × 8 bits/byte / 2 bits/counter = 16,384 counters, a 14-bit index, so it can't use more than 14 history bits without folding them. The perceptron's weakness is the other half of that trade: 99 perceptrons for hundreds of hot branches means heavy aliasing between branches.</p>
+<p>Latency is the practical problem. An adder tree over h + 1 weights has about log<sub>2</sub>(h + 1) levels, which takes several cycles at a high clock. Two refinements fix it:</p>
+<ul>
+<li><strong>Path-based perceptrons</strong> (Jiménez, 2003) pick each weight by the address of the branch at that history position and accumulate the sum ahead of time, branch by branch, so only the last addition is on the critical path.</li>
+<li><strong>Hashed perceptrons</strong> (Tarjan and Skadron, 2005) index several weight tables with hashes of the PC and different history segments and sum one weight from each. Fewer, wider-reaching weights per prediction mean a shorter adder tree and less aliasing between branches. AMD has described its Zen predictors as perceptron-based.</li>
+</ul>
+<p>Even then, perceptrons usually sit in the slower, overriding level of the predictor (see <a href="#/fe-decoupled/overriding">Fast and Slow Predictors</a>).</p>
+
+<h3 id="sec-separability">The Linear-Separability Limit</h3>
+<p>A perceptron can only learn outcomes that are a <strong>linearly separable</strong> function of the history: taken exactly when a weighted vote of the history bits passes a threshold. That covers a lot. It learns "same as the branch 5 back," "taken if either of two branches was taken" (OR), "taken if both were" (AND), and majority votes over many bits, and it ignores the noise of everything else.</p>
+<p>It can't learn XOR. Suppose a branch is taken exactly when one of two earlier outcomes x<sub>1</sub> and x<sub>2</sub> was taken, and the other history bits are uncorrelated, so their weights go to 0. The perceptron would need:</p>
+<ol>
+<li>x<sub>1</sub> = +1, x<sub>2</sub> = +1, not taken: w<sub>0</sub> + w<sub>1</sub> + w<sub>2</sub> &lt; 0.</li>
+<li>x<sub>1</sub> = −1, x<sub>2</sub> = −1, not taken: w<sub>0</sub> − w<sub>1</sub> − w<sub>2</sub> &lt; 0.</li>
+<li>x<sub>1</sub> = +1, x<sub>2</sub> = −1, taken: w<sub>0</sub> + w<sub>1</sub> − w<sub>2</sub> ≥ 0.</li>
+<li>x<sub>1</sub> = −1, x<sub>2</sub> = +1, taken: w<sub>0</sub> − w<sub>1</sub> + w<sub>2</sub> ≥ 0.</li>
+</ol>
+<p>Adding inequalities 1 and 2 gives 2w<sub>0</sub> &lt; 0. Adding 3 and 4 gives 2w<sub>0</sub> ≥ 0. No weights satisfy both, so training never converges and the branch stays near 50% mispredicted however long the history is. The same holds for any parity-like function.</p>
+<p>A table-based predictor has no such limit: gshare or TAGE gives each history pattern its own counter, so it can learn any function of the history, XOR included, as long as the patterns fit in the table. Jiménez and Lin observed that this is exactly where gshare still beat the perceptron. It is the reason designs combine the two kinds, a perceptron-style corrector on top of TAGE (below) or a TAGE behind a perceptron (Zen 2).</p>
 
 <h3 id="sec-tage">TAGE</h3>
 <p><strong>TAGE</strong> (TAgged GEometric history length, Seznec and Michaud, 2006) uses many history lengths at once and picks the longest one that has seen this situation before.</p>
@@ -423,9 +547,13 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <li><strong>Count storage honestly.</strong> Championship predictors are compared at a fixed budget (64 KB in recent contests), including tags and useful bits.</li>
 <li><strong>Remember latency.</strong> A predictor that needs 3 cycles is paired with a fast one, and its overrides cost bubbles (see <a href="#/fe-decoupled/overriding">Fast and Slow Predictors</a>).</li>
 </ul>
-<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3 (correlating and tournament predictors, and the tagged hybrid predictors section) · McFarling, "Combining Branch Predictors," DEC WRL TN-36, 1993 · Jiménez and Lin, "Dynamic Branch Prediction with Perceptrons," HPCA 2001 · Seznec and Michaud, "A Case for (Partially) TAgged GEometric History Length Branch Prediction," JILP 2006 · Seznec, "TAGE-SC-L Branch Predictors," CBP-4, 2014</p>`,
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3 (tagged hybrid predictors) · Jiménez and Lin, "Dynamic Branch Prediction with Perceptrons," HPCA 2001 · Jiménez, "Fast Path-Based Neural Branch Prediction," MICRO 2003 · Tarjan and Skadron, "Merging Path and Gshare Indexing in Perceptron Branch Prediction," ACM TACO, 2005 · Seznec and Michaud, "A Case for (Partially) TAgged GEometric History Length Branch Prediction," JILP 2006 · Seznec, "TAGE-SC-L Branch Predictors," CBP-4, 2014</p>`,
   practice: {
     guided: [
+      {
+        q: `<p>To keep the arithmetic short, take a perceptron with h = 4 history bits. Its weights are w<sub>0</sub> = 2 (bias), w<sub>1</sub> = 3, w<sub>2</sub> = −1, w<sub>3</sub> = −4, w<sub>4</sub> = 1, and the last four outcomes, newest first, are T, N, T, T. Use θ = ⌊1.93 h + 14⌋. (a) What does it predict? (b) The branch is not taken. Apply the training rule. (c) The same history comes back and the branch is again not taken. Does the perceptron train again?</p>`,
+        a: `<ol><li>Inputs: x<sub>0</sub> = +1 (bias), x<sub>1</sub> = +1, x<sub>2</sub> = −1, x<sub>3</sub> = +1, x<sub>4</sub> = +1.</li><li>y = 2 × (+1) + 3 × (+1) + (−1) × (−1) + (−4) × (+1) + 1 × (+1) = 2 + 3 + 1 − 4 + 1 = 3. Since y ≥ 0, it predicts <strong>taken</strong>.</li><li>θ = ⌊1.93 × 4 + 14⌋ = ⌊21.72⌋ = 21.</li><li>Outcome not taken, t = −1. The prediction was wrong, so every weight updates by w<sub>i</sub> ← w<sub>i</sub> + t x<sub>i</sub>: w<sub>0</sub> = 2 + (−1)(+1) = 1, w<sub>1</sub> = 3 + (−1)(+1) = 2, w<sub>2</sub> = −1 + (−1)(−1) = 0, w<sub>3</sub> = −4 + (−1)(+1) = −5, w<sub>4</sub> = 1 + (−1)(+1) = 0.</li><li>Same history again: y = 1 × (+1) + 2 × (+1) + 0 × (−1) + (−5) × (+1) + 0 × (+1) = 1 + 2 + 0 − 5 + 0 = −2, so it now predicts <strong>not taken</strong>, which is correct.</li><li>But |y| = 2 ≤ θ = 21, so it <strong>trains again</strong>, even though it was right.</li><li>Each update moves y for this history by t × (number of inputs) = (−1) × 5 = −5, since every x<sub>i</sub><sup>2</sup> = 1. So y goes −2, −7, −12, −17, −22: after <strong>4 more</strong> not-taken outcomes on this history, |y| = 22 &gt; θ = 21 and training stops. The threshold builds a margin so one stray outcome can't flip the prediction.</li></ol>`
+      },
       {
         q: `<p>A TAGE predictor has 12 tagged tables with history lengths from 4 to 640 branches, spaced geometrically. Number the tables 0 to 11, so L(i) = L(0) × α<sup>i</sup>. Find α and the 12 lengths, rounded to whole branches.</p>`,
         a: `<ol><li>L(11) = L(0) × α<sup>11</sup>, so α = (640 / 4)<sup>1/11</sup> = 160<sup>1/11</sup>.</li><li>ln 160 ≈ 5.075, divided by 11 ≈ 0.461, so α ≈ e<sup>0.461</sup> ≈ <strong>1.586</strong>.</li><li>Lengths: 4, 6, 10, 16, 25, 40, 64, 101, 160, 254, 403, 640.</li><li>Half the tables cover histories up to 40 branches, where most correlation lives; the rest reach far back for the rare branches that need it, at no more storage per table.</li></ol>`
@@ -447,16 +575,24 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
   sections: [
     { id: "btb", label: "The BTB" },
     { id: "misses", label: "BTB Misses and Decode Redirects" },
+    { id: "folding", label: "Branch Folding" },
     { id: "indirect", label: "Indirect Branches" },
     { id: "ras", label: "The Return Address Stack" },
     { id: "footprint", label: "Large Code Footprints" }
   ],
   body: `
-<p>Knowing a branch is taken is useless without knowing where it goes, and a decoupled predictor has to know both before the instruction bytes are even fetched. Three structures supply targets: the branch target buffer for most branches, an indirect predictor for branches whose target varies, and the return address stack for returns.</p>
+<p>Knowing a branch is taken is useless without knowing where it goes, and a decoupled predictor has to know both before the instruction bytes are even fetched. Three structures supply targets: the branch target buffer for most branches, an indirect predictor for branches whose target varies, and the return address stack for returns. What each wrong guess costs is on <a href="#/fe-mispredict">Mispredict Cost in Deep Pipelines</a>.</p>
 
 <h3 id="sec-btb">The BTB</h3>
 <p>The <strong>branch target buffer</strong> is a cache indexed by fetch address. A hit says "there is a branch at this offset in the block," gives its type (conditional, unconditional, call, return, indirect), and its last target. In a decoupled front end, the BTB is how the predictor finds branches at all: a branch missing from the BTB is invisible, and the predictor carries on sequentially as if it weren't there.</p>
 <p>Like caches, BTBs come in levels. A small, fast level gives zero-bubble taken branches; a larger level behind it covers more code at a cycle or more of bubble per taken branch. AMD's Zen 4, for example, has a 1.5K-entry first-level BTB and a 7K-entry second level; Intel's Golden Cove has 12K entries in total. Entries store compressed targets (only the low bits that differ from the branch address for short branches) to fit more of them.</p>
+<p>What an entry holds, and why:</p>
+<ul>
+<li><strong>Tag.</strong> Hennessy and Patterson's BTB matches the full PC, because a hit on an address that isn't a branch would send fetch somewhere wrong. Real first-level BTBs use partial tags to save area. A false hit is caught when decode finds no branch at that offset, so it costs a redirect, never correctness.</li>
+<li><strong>Branch type and offset.</strong> The type says which structure supplies the target (the BTB itself, the return stack, or the indirect predictor) and whether to consult the direction predictor. The offset says where in the fetch block the branch ends, so fetch knows how many bytes to use.</li>
+<li><strong>Target.</strong> The last target, or the only one for a direct branch.</li>
+</ul>
+<p>Which branches get an entry is a policy. Hennessy and Patterson's design stores only taken branches, since a not-taken branch just continues to the next sequential PC and an entry for it would waste space. A decoupled front end keeps the same rule at the door: a branch is inserted the first time it is taken, so branches that are never taken never cost an entry. Once inserted, a conditional branch stays even when it goes not taken, because the predictor needs to know it is there to ask the direction predictor about it. BTBs are set-associative and indexed by fetch-block address, and some designs hold two or more branches per entry so one lookup covers a whole fetch block.</p>
 
 <h3 id="sec-misses">BTB Misses and Decode Redirects</h3>
 <p>What happens when a branch isn't in the BTB depends on its kind (for a cycle-by-cycle walk through one decode redirect, see <a href="#/branch-hazards/btb">The BTB and Decode Redirects</a>):</p>
@@ -470,9 +606,23 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 </table></div>
 <p>Decode redirects are cheaper than mispredicts because nothing past decode was fetched on the wrong path, but they are frequent on large code and they also stop the predictor from running ahead, which breaks <a href="#/fe-decoupled/fdip">fetch-directed prefetching</a>.</p>
 
+<h3 id="sec-folding">Branch Folding</h3>
+<p>Hennessy and Patterson describe a BTB variant that stores the <em>target instruction</em>, or the first few of them, instead of (or alongside) the target address. It buys two things:</p>
+<ul>
+<li><strong>Slack:</strong> the BTB lookup can take longer than one cycle, because fetch doesn't need the target address in time to read the instruction cache. The instructions arrive with the hit.</li>
+<li><strong>Branch folding:</strong> for an unconditional branch, the BTB can hand fetch the target instruction <em>in place of</em> the branch. The branch disappears from the pipeline and takes zero cycles. AT&amp;T's CRISP processor (Ditzel and McLellan, 1987) did this. A conditional branch can be folded the same way on its prediction, but it still has to be checked when it resolves.</li>
+</ul>
+<p>Modern cores get most of the same effect differently. A zero-bubble first-level BTB lets the predictor follow a taken branch every cycle, the fetch target queue hides any extra lookup latency, and the op cache delivers decoded instructions at the target without going back through decode. Storing instruction bytes in a 16K-entry BTB would cost far more area than storing targets.</p>
+
 <h3 id="sec-indirect">Indirect Branches</h3>
 <p>An indirect branch jumps to an address in a register: virtual calls, function pointers, <code>switch</code> statements compiled to jump tables, and interpreter dispatch. A BTB entry holds one target, so it predicts the last target seen. That's fine for a virtual call that almost always reaches the same class, and poor for an interpreter's dispatch jump, which goes to a different handler for every bytecode.</p>
-<p>Indirect predictors index target tables with global path history, so the same branch can predict different targets on different paths. <strong>ITTAGE</strong> (Seznec, 2011) applies the TAGE idea to targets: tagged tables with geometric history lengths, each entry storing a target instead of a counter. Intel has used history-based indirect prediction since Haswell, which made switch-based interpreters far more predictable than they used to be.</p>
+<p>The fix is to let the target depend on context, the way gshare lets direction depend on history. Chang, Hao, and Patt's <strong>target cache</strong> (1997), the design Shen and Lipasti use to introduce the topic, is a table of targets indexed by PC XOR history. It is consulted only for branches the BTB marks as indirect, and its prediction is used in place of the BTB's last target. Two choices matter:</p>
+<ul>
+<li><strong>Which history.</strong> <em>Pattern history</em> is the global taken/not-taken bits, which works when a conditional branch decides the target (an <code>if</code> that chooses which object to call). <em>Path history</em> is a few low address bits from each of the last several branch targets, which works when the previous targets decide the next one, as in an interpreter where one bytecode's handler predicts the next.</li>
+<li><strong>Tagged or tagless.</strong> A tagless table is cheap but aliases, like gshare. A set-associative tagged table only gives a prediction on a real match and otherwise falls back to the BTB.</li>
+</ul>
+<p>Most indirect branches are monomorphic in practice (one target at run time), and a target cache wastes entries on them. Driesen and Hölzle's <strong>cascaded predictor</strong> (1998) uses a cheap last-target first stage and only allocates a history-indexed entry when the first stage has mispredicted, so only the polymorphic branches use the expensive table.</p>
+<p>Indirect predictors in current cores index target tables with global path history, so the same branch can predict different targets on different paths. <strong>ITTAGE</strong> (Seznec, 2011) applies the TAGE idea to targets: tagged tables with geometric history lengths, each entry storing a target instead of a counter. Intel has used history-based indirect prediction since Haswell, which made switch-based interpreters far more predictable than they used to be.</p>
 
 <h3 id="sec-ras">The Return Address Stack</h3>
 <p>Returns are indirect branches with a perfect predictor available: the address after the matching call. The <strong>return address stack (RAS)</strong> pushes that address on every predicted call and pops it on every predicted return. 16 to 32 entries per thread is typical.</p>
@@ -481,6 +631,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <li><strong>Wrong-path corruption:</strong> calls and returns on a mispredicted path push and pop entries. Cores checkpoint the top-of-stack pointer (and often the top entry) per branch and restore them on a mispredict, which repairs almost all of the damage (Skadron et al., 1998).</li>
 <li><strong>Non-standard returns:</strong> code that returns somewhere other than its caller (longjmp, some coroutine and exception schemes, return-oriented tricks) mispredicts every time.</li>
 </ul>
+<p>Without a return stack, returns are among the worst-predicted branches: the BTB holds the target of the last return from that function, which is wrong whenever the function is called from more than one site. Hennessy and Patterson's SPEC CPU95 data show return mispredictions falling steeply over the first few stack entries and leveling off by 8 to 16 entries, since few programs nest calls deeper than that between returns. Today's larger stacks (52 entries on Zen 5, for example) cover deeper call chains in object-oriented and server code and leave room for wrong-path pushes and pops.</p>
 
 <h3 id="sec-footprint">Large Code Footprints</h3>
 <p>Datacenter workloads (databases, web servers, JIT-compiled code) execute megabytes of hot code, with many thousands of distinct taken branches. Their BTB miss rates stay high even with 12K entries, so they lose cycles to decode redirects, instruction cache misses that prefetching didn't hide, and lost predictor run-ahead. The fixes:</p>
@@ -488,7 +639,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <li><strong>Hardware:</strong> larger and multi-level BTBs, BTB entries that cover a whole fetch region with several branches, and BTB prefetching driven by instruction cache fills.</li>
 <li><strong>Software:</strong> profile-guided layout (BOLT, AutoFDO) that packs hot code together and straightens hot paths so fewer branches are taken; huge pages for code to cut ITLB misses.</li>
 </ul>
-<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3 (branch-target buffers and return address predictors) · Seznec, "A 64-Kbytes ITTAGE Indirect Branch Predictor," CBP-3, 2011 · Skadron, Ahuja, Martonosi, and Clark, "Improving Prediction for Procedure Returns with Return-Address-Stack Repair Mechanisms," MICRO 1998 · AMD, <em>Software Optimization Guide for the AMD Zen 4 Microarchitecture</em></p>`,
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 5th ed., Section 3.9 (branch-target buffers, branch folding, and return address predictors) · Shen and Lipasti, <em>Modern Processor Design</em>, Chapter 9 (target prediction for indirect jumps) · Chang, Hao, and Patt, "Target Prediction for Indirect Jumps," ISCA 1997 · Driesen and Hölzle, "The Cascaded Predictor: Economical and Adaptive Branch Target Prediction," MICRO 1998 · Ditzel and McLellan, "Branch Folding in the CRISP Microprocessor," ISCA 1987 · Seznec, "A 64-Kbytes ITTAGE Indirect Branch Predictor," CBP-3, 2011 · Skadron, Ahuja, Martonosi, and Clark, "Improving Prediction for Procedure Returns with Return-Address-Stack Repair Mechanisms," MICRO 1998 · AMD, <em>Software Optimization Guide for the AMD Zen 4 Microarchitecture</em></p>`,
   practice: {
     guided: [
       {
@@ -500,6 +651,113 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
       {
         q: `<p>A recursive function reaches depth 100 on a core with a 32-entry circular return stack. How many return mispredicts happen while it unwinds? Does the answer change for a tree traversal that recurses from two call sites?</p>`,
         a: `<p>With one recursive call site, every recursive call pushes the same return address, so the 100 pushes leave all 32 entries holding that address. The first 99 returns all go back to that call site, and every entry they pop, including the wrapped-around ones, holds the right address: they all predict correctly. Only the last return, to the original caller, finds an overwritten entry and mispredicts: <strong>about 1</strong>.</p><p>With two call sites (left and right child), the overwritten entries hold whichever site pushed last, so once the unwind passes the 32 newest entries, each return is right only when its call site happens to match: if the two sites are equally likely, about half of the remaining 68 returns mispredict, roughly 34. Deep recursion from several call sites is one of the few places return mispredicts show up in profiles.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "fe-mispredict",
+  region: "fe",
+  title: "Mispredict Cost in Deep Pipelines",
+  sections: [
+    { id: "baseline", label: "From the 5-Stage Pipeline" },
+    { id: "anatomy", label: "Where the Penalty Comes From" },
+    { id: "resolution", label: "Resolution Time" },
+    { id: "depth", label: "Pipeline Depth and Its Optimum" },
+    { id: "p4", label: "Pentium 4 and the Turn Back" },
+    { id: "shorten", label: "Shortening the Penalty" },
+    { id: "model", label: "Modeling the Penalty" }
+  ],
+  body: `
+<p>A predictor's accuracy only matters through what each mispredict costs, and that cost grows with the pipeline. This page covers what a mispredict costs in a deep out-of-order core, why the cost isn't a constant, and how it bounds how deep a pipeline should be. How the core squashes and restores state is on <a href="#/flush-recovery">Pipeline Flush and Recovery</a>. This page is about the cycles.</p>
+
+<h3 id="sec-baseline">From the 5-Stage Pipeline</h3>
+<p>Hennessy and Patterson's Appendix C.2 sets up the accounting. With an ideal CPI of 1, every branch that goes the wrong way costs the stages between fetch and the stage where it resolves:</p>
+<div class="math">\\[ \\text{CPI} = \\text{CPI}_0 + \\frac{\\text{branches}}{\\text{instruction}} \\times \\frac{\\text{mispredicts}}{\\text{branch}} \\times \\text{penalty} \\]</div>
+<p>In the classic 5-stage pipeline with the branch resolved in ID, the penalty is 1 cycle, and the details are in <a href="#/branch-hazards">Branch Hazards</a>. The formula is still the right first-order model for a wide out-of-order core. Three things change: the penalty is now tens of cycles, CPI<sub>0</sub> is a fraction of a cycle so each mispredict cycle is worth several instructions, and the penalty stops being a single number.</p>
+
+<h3 id="sec-anatomy">Where the Penalty Comes From</h3>
+<p>Interval analysis (Eyerman, Smith, and Eeckhout, 2006) splits a mispredict into pieces by asking when useful instructions stop entering the window and when they start again. From the moment the mispredicted branch is dispatched, everything behind it is wrong-path work:</p>
+<div class="tbl"><table>
+<tr><th>Piece</th><th>From and to</th><th>What sets it</th></tr>
+<tr><td>Resolution time</td><td>The branch dispatches → it executes and the mispredict is detected</td><td>The latency of the instructions the branch depends on, and how long it waits in the scheduler</td></tr>
+<tr><td>Refill time</td><td>Fetch is redirected → the first correct-path instruction reaches dispatch</td><td>Front-end depth: predictor, instruction cache or op cache, decode, rename</td></tr>
+<tr><td>Ramp-up</td><td>The first correct-path instructions dispatch → the window is full enough to run at full IPC again</td><td>How much independent work the new path offers. A nearly empty window finds little parallelism at first</td></tr>
+</table></div>
+<p>The older instructions already in the window keep executing during resolution time, so not every one of those cycles is wasted. But nothing new and useful enters, and once the older work drains the core idles until the refill arrives. The first-order penalty is resolution time plus refill time.</p>
+
+<h3 id="sec-resolution">Resolution Time</h3>
+<p>The usual quoted penalty ("15 to 20 cycles" for a recent x86 core) is close to the refill time alone, the minimum for a branch whose operands are ready when it dispatches. Eyerman and colleagues found that resolution time is often as large as the front-end depth or larger, for a reason that makes the problem worse than it looks: the branches that are hard to predict are the ones that resolve late.</p>
+<ul>
+<li>A branch that is hard to predict usually depends on data: a comparison of a loaded value, a hash, a key in a search tree.</li>
+<li>Its condition then waits on a load, often one that misses in the L1 or L2, and on the chain of instructions behind that load.</li>
+<li>So the mispredicts that happen most often sit at the end of the longest dependence chains, and each one costs refill plus a cache-miss-sized resolution time.</li>
+</ul>
+<p>Resolution time also grows with the window. A larger ROB lets the front end dispatch a branch earlier relative to the work it depends on, so the branch waits longer before it can execute, and more wrong-path work fills the window behind it.</p>
+<p>The opposite case exists too. When the mispredicted branch sits behind a long-latency load that blocks retirement anyway, the refill overlaps the miss and the mispredict costs almost nothing extra. That is why a mispredict count times a fixed penalty overestimates the gain from a better predictor.</p>
+
+<h3 id="sec-depth">Pipeline Depth and Its Optimum</h3>
+<p>Adding stages raises the clock and the penalty together. A first-order model, in the spirit of Hartstein and Puzak (2002), makes the trade explicit. Let:</p>
+<ul>
+<li>p be the number of pipeline stages,</li>
+<li>t<sub>p</sub> the total logic delay of the whole pipeline, divided evenly among the stages,</li>
+<li>t<sub>o</sub> the overhead per stage for latches, clock skew, and jitter,</li>
+<li>CPI<sub>0</sub> the CPI from everything that doesn't scale with depth, and</li>
+<li>h the stall cycles per instruction that each extra stage adds. Mispredicts contribute (mispredicts per instruction) × (penalty cycles per stage), and load-use and dependent-operation latencies add their own share.</li>
+</ul>
+<p>Time per instruction is cycle time times CPI:</p>
+<div class="math">\\[ T(p) = \\left(t_o + \\frac{t_p}{p}\\right)\\left(\\text{CPI}_0 + h\\,p\\right) = \\text{CPI}_0\\,t_o + h\\,t_p + \\frac{\\text{CPI}_0\\,t_p}{p} + h\\,t_o\\,p \\]</div>
+<p>Setting dT/dp = 0 gives</p>
+<div class="math">\\[ p^* = \\sqrt{\\frac{\\text{CPI}_0\\,t_p}{h\\,t_o}} \\]</div>
+<p>At the optimum the two depth-dependent terms are equal: the logic time saved by one more stage just matches the stall time it adds. The model says the optimum gets deeper when stalls per stage (h) fall, for example with a better predictor, or when latch overhead (t<sub>o</sub>) falls. But because of the square root, halving h moves the optimum only √2 ≈ 1.41× deeper, and only if mispredicts were all of h.</p>
+<p>An example with numbers from the deep-pipeline era: CPI<sub>0</sub> = 0.3 cycles/instruction, t<sub>p</sub> = 3.2 ns, t<sub>o</sub> = 0.04 ns/stage, and h = 0.024 cycles/instruction per stage. Then p* = √(0.3 cycles/instruction × 3.2 ns / (0.024 cycles/instruction × 0.04 ns)) = √1000 ≈ 31.6 stages.</p>
+<div class="tbl"><table>
+<tr><th>Stages</th><th>Cycle time</th><th>Clock</th><th>CPI (cycles/instruction)</th><th>Time per instruction</th><th>Relative to 32 stages</th></tr>
+<tr><td>16</td><td>0.04 ns + 3.2 ns / 16 = 0.24 ns</td><td>4.17 GHz</td><td>0.3 + 0.024 × 16 stages = 0.684</td><td>0.164 ns</td><td>1.10× slower</td></tr>
+<tr><td>32</td><td>0.04 ns + 3.2 ns / 32 = 0.14 ns</td><td>7.14 GHz</td><td>0.3 + 0.024 × 32 stages = 1.068</td><td>0.150 ns</td><td>1.00×</td></tr>
+<tr><td>64</td><td>0.04 ns + 3.2 ns / 64 = 0.09 ns</td><td>11.1 GHz</td><td>0.3 + 0.024 × 64 stages = 1.836</td><td>0.165 ns</td><td>1.11× slower</td></tr>
+</table></div>
+<p>The curve is flat near the bottom: halving or doubling the depth costs about 10%. That flatness is what lets everything the model leaves out decide the real answer, and all of it pushes toward shallower pipelines:</p>
+<ul>
+<li><strong>Power.</strong> Clock and latch power grow with the number of latches times the frequency, both of which rise with p. Srinivasan et al. (2002) found that adding power to the metric moves the optimum much shallower than performance alone does.</li>
+<li><strong>Loops that can't be pipelined.</strong> Wakeup and select, the bypass network, and the load-use path have to complete in a fixed number of cycles to keep dependent instructions back to back. Cutting them across more stages adds a cycle to every dependent pair, which is part of h and grows faster than linearly once a loop no longer fits in one cycle.</li>
+<li><strong>More in-flight state.</strong> A longer pipeline needs a bigger window to keep the same number of cycles of independent work in flight.</li>
+</ul>
+
+<h3 id="sec-p4">Pentium 4 and the Turn Back</h3>
+<p>Intel's NetBurst cores are the experiment that tested the argument. Sprangle and Carmean (2002), from the Pentium 4 team, argued that deeper pipelines still paid as long as the structures around them scaled. Willamette (2000) had a 20-stage misprediction pipeline, counted from the trace cache, so x86 decode wasn't even in the loop (Hinton et al., 2001). Prescott (2004) went to 31 stages.</p>
+<p>Prescott never reached its clock targets. It topped out at 3.8 GHz, held there by power density, and its successor Tejas was cancelled in 2004. With frequency capped by power, the extra stages bought no clock and kept their full cost in penalty cycles. Intel's next design, Core (2006), came from the Pentium M line, with a pipeline of about 14 stages, lower clocks, and much higher IPC. High-performance cores since then have kept their pipelines far shorter than Prescott's and spent their transistors on width, window size, and prediction accuracy instead.</p>
+
+<h3 id="sec-shorten">Shortening the Penalty</h3>
+<p>Each piece of the penalty has its own fixes:</p>
+<ul>
+<li><strong>Refill:</strong> a redirect that hits in the op cache skips the instruction cache and decode stages. Agner Fog measures a shorter mispredict penalty on Intel cores when the correct path is in the µop cache. Shallow front ends and fast redirect paths from the execution units matter too.</li>
+<li><strong>Resolution:</strong> schedulers that pick branches, and the instructions that feed them, ahead of other ready work. Compilers can compute conditions earlier.</li>
+<li><strong>Recovery:</strong> checkpointing the rename map at each branch so recovery is a single cycle instead of a walk of the ROB (see <a href="#/flush-recovery">Pipeline Flush and Recovery</a>).</li>
+<li><strong>Avoiding the branch:</strong> if-conversion to a conditional move or select turns an unpredictable branch into a data dependence. It pays when the branch mispredicts often and both sides are short.</li>
+<li><strong>Limiting the damage:</strong> confidence estimators (Jacobsen, Rotenberg, and Smith, 1996) flag predictions that are likely wrong. Pipeline gating (Manne, Klauser, and Grunwald, 1998) uses them to stop fetching down a low-confidence path, which saves energy rather than cycles. Research designs go further and keep control-independent work after the branch's reconvergence point instead of squashing it.</li>
+</ul>
+
+<h3 id="sec-model">Modeling the Penalty</h3>
+<ul>
+<li><strong>Don't charge a constant.</strong> Model refill as the real front-end depth along the path the redirect takes (op cache or decoders), and let resolution time come out of the timing model.</li>
+<li><strong>Log the pieces per mispredict.</strong> Record dispatch-to-resolve and redirect-to-dispatch for each mispredict. Their distributions tell you whether to work on the predictor, the front end, or the scheduler.</li>
+<li><strong>Keep the overlap.</strong> A mispredict under a long cache miss is nearly free. A model that adds the penalty on top of every miss overstates the cost of both.</li>
+<li><strong>Simulate the wrong path when it matters.</strong> Wrong-path instructions occupy the window, consume bandwidth and energy, and touch the caches. A model that just stalls fetch until resolution misses all of that.</li>
+</ul>
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 5th ed., Appendix C.2 (performance of branch schemes) · Shen and Lipasti, <em>Modern Processor Design</em>, Chapter 9 (branch misprediction recovery and confidence) · Eyerman, Smith, and Eeckhout, "Characterizing the Branch Misprediction Penalty," ISPASS 2006 · Hartstein and Puzak, "The Optimum Pipeline Depth for a Microprocessor," ISCA 2002 · Sprangle and Carmean, "Increasing Processor Performance by Implementing Deeper Pipelines," ISCA 2002 · Srinivasan et al., "Optimizing Pipelines for Power and Performance," MICRO 2002 · Hinton et al., "The Microarchitecture of the Pentium 4 Processor," Intel Technology Journal, 2001 · Jacobsen, Rotenberg, and Smith, "Assigning Confidence to Conditional Branch Predictions," MICRO 1996 · Manne, Klauser, and Grunwald, "Pipeline Gating: Speculation Control for Energy Reduction," ISCA 1998 · Agner Fog, <em>The Microarchitecture of Intel, AMD and VIA CPUs</em></p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>On a Golden Cove-like core, a redirect reaches dispatch 11 cycles after the mispredict is detected when the correct path hits in the µop cache, and 16 cycles when it goes through the legacy decoders. 70% of redirects hit in the µop cache. Mispredicted branches wait on average 9 cycles in the scheduler after dispatch and then take 2 cycles to execute and signal the mispredict. The workload has 6 mispredicts per 1,000 instructions. Use the interval model (penalty = resolution time + refill time), ignore ramp-up, and assume no cache miss overlaps a mispredict. (a) What CPI do mispredicts add? (b) What would a model that charges only the front-end refill report? (c) Which saves more per mispredict: raising the µop cache hit rate on redirects to 90%, or a scheduler change that cuts the branch's wait by 4 cycles?</p>`,
+        a: `<ol><li>Refill: 0.7 × 11 cycles + 0.3 × 16 cycles = 7.7 cycles + 4.8 cycles = 12.5 cycles.</li><li>Resolution: 9 cycles + 2 cycles = 11 cycles.</li><li>Penalty: 12.5 cycles + 11 cycles = 23.5 cycles/mispredict.</li><li>(a) Added CPI: 6 mispredicts / 1,000 instructions × 23.5 cycles/mispredict = <strong>0.141 cycles/instruction</strong>.</li><li>(b) Refill only: 6 mispredicts / 1,000 instructions × 12.5 cycles/mispredict = 0.075 cycles/instruction, about half the real cost.</li><li>(c) At 90%: refill = 0.9 × 11 cycles + 0.1 × 16 cycles = 9.9 cycles + 1.6 cycles = 11.5 cycles, saving 12.5 cycles − 11.5 cycles = 1.0 cycle/mispredict. The scheduler change saves <strong>4 cycles/mispredict</strong>, four times as much. When resolution time is a large share of the penalty, speeding up the branch matters more than speeding up the front end.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>Prescott's pipeline was more than twice as deep as Core 2's and ran at a higher clock, yet Core 2, two years later, was faster on most integer code. Using the depth model on this page, explain how the deeper design could lose. Then name two effects the model leaves out that also worked against Prescott.</p>`,
+        a: `<p>The model's optimum assumes the clock rises as 1 / (t<sub>o</sub> + t<sub>p</sub> / p). Prescott's depth was chosen for clocks well above 3.8 GHz, but power density capped it at 3.8 GHz. With the clock capped, the cycle-time term no longer improves with depth, while the stall term h × p still grows: every mispredict and every dependent-latency stall costs about twice as many cycles as on a 14-stage pipeline. A deep pipeline at a capped clock is on the wrong side of the curve, paying for the depth without collecting the frequency. Core 2 sat near the bottom of a flat curve, with a lower clock but a much lower CPI.</p><p>Effects the model leaves out:</p><ul><li><strong>Power:</strong> latch and clock power scale with stages × frequency, which is what capped the clock in the first place.</li><li><strong>Non-linear loop costs:</strong> Prescott's deep scheduling pipeline issued load-dependent instructions before knowing whether the load hit, and replayed them on a miss, which wasted execution bandwidth on integer code. Splitting tight loops over more stages costs more than a linear h × p.</li><li><strong>Width and window:</strong> Core 2 used the transistors and power that depth would have taken on a wider core with better prediction, lowering CPI<sub>0</sub>, which the model treats as fixed.</li></ul>`
       }
     ]
   }
