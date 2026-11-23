@@ -664,6 +664,16 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <pre><code>if (aa == 2) aa = 0;     /* b1 */
 if (bb == 2) bb = 0;     /* b2 */
 if (aa != bb) { ... }    /* b3 */</code></pre>
+<p>Their RISC-V version, with aa in x1 and bb in x2:</p>
+<pre><code>      addi x3,x1,-2
+      bnez x3,L1      // branch b1 (aa != 2)
+      add  x1,x0,x0   // aa = 0
+L1:   addi x3,x2,-2
+      bnez x3,L2      // branch b2 (bb != 2)
+      add  x2,x0,x0   // bb = 0
+L2:   sub  x3,x1,x2   // x3 = aa - bb
+      beqz x3,L3      // branch b3 (aa == bb)</code></pre>
+<p>Each branch tests the opposite of its C condition, because it jumps around the code the <code>if</code> guards. So b1 and b2 not taken means both assignments ran, and then b3 is taken.</p>
 <p>If b1 and b2 both find their values equal to 2 (so both assignments run), aa and bb are both 0 and b3's condition is false. A bimodal counter for b3 can't see that. A predictor that knows the outcomes of b1 and b2 can.</p>
 <p>A <strong>global history register</strong> (GHR) records the outcomes of the last m branches as m bits, newest in the low bit. An <strong>(m, n) correlating predictor</strong> uses those m bits to choose among 2<sup>m</sup> n-bit counters in each entry. Its storage is 2<sup>m</sup> counters/entry × n bits/counter × the number of entries.</p>
 <p>Hennessy and Patterson compare a (2, 2) predictor with 1024 entries against a 4096-entry bimodal table. Both cost 8 Kbits (2<sup>2</sup> counters/entry × 2 bits/counter × 1024 entries = 8192 bits for the first, and 4096 counters × 2 bits/counter = 8192 bits for the second). The correlating predictor outperforms the bimodal table, and often beats even an infinite bimodal table. Two bits of history buy more than extra capacity does.</p>
