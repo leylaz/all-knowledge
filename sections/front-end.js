@@ -482,8 +482,176 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <li>A <strong>branch history table</strong>, indexed by PC, holds each branch's own last k outcomes (its <em>local history</em>).</li>
 <li>A <strong>pattern history table</strong> of 2-bit counters is indexed by that local history (often combined with some PC bits). Each counter learns what follows one particular k-bit pattern.</li>
 </ol>
+<p>The first figure follows one branch through both tables and then over two visits to its loop.</p>
+<div class="tbl"><svg viewBox="0 0 680 566" role="img" aria-label="A two-level local predictor with 3 history bits predicting a loop branch that goes T T T N on every visit. The branch at PC 0x401C uses PC bits 3 to 2, value 3, to select entry 3 of the branch history table, which holds one 3-bit history per branch. Entry 3 holds 011. That history indexes the pattern history table of eight 2-bit counters, one per pattern 000 to 111. Counter 011 holds 11, so bit 1 predicts taken. When the branch resolves taken, counter 011 counts up and saturates at 11, and T shifts into the history, which becomes 111. Only four patterns occur for this branch: 110, 101, and 011 precede taken iterations and their counters hold 11, and 111 precedes the exit and its counter holds 00. Below, eight executions over two visits: the outcomes T T T N T T T N, histories 110, 101, 011, 111 repeating, and the local predictor predicts all eight correctly. A bimodal counter indexed only by PC predicts taken every time and misses both exits." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrLoc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<text x="0" y="16" style="fill:var(--ink);font-size:13px;font-weight:600">One prediction: a 4-iteration loop branch (T T T N) with k = 3 history bits</text>
+<rect x="10" y="140" width="90" height="40" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.5"/>
+<text x="55" y="157" text-anchor="middle" style="fill:var(--muted);font-size:10px">Branch PC</text>
+<text x="55" y="173" text-anchor="middle" style="fill:var(--ink);font-size:13px;font-weight:600;font-family:var(--mono)">0x401C</text>
+<text x="55" y="198" text-anchor="middle" style="fill:var(--muted);font-size:10px">PC bits [3:2] = 3</text>
+<text x="150" y="44" style="fill:var(--ink);font-size:11px;font-weight:600">Level 1: branch history table</text>
+<text x="150" y="58" style="fill:var(--muted);font-size:10px">one k-bit history per branch</text>
+<rect x="150" y="90" width="150" height="28" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="162" y="108" style="fill:var(--muted);font-size:11px">entry 0</text>
+<text x="286" y="109" text-anchor="end" style="fill:var(--muted);font-size:13px;font-family:var(--mono)">100</text>
+<rect x="150" y="118" width="150" height="28" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="162" y="136" style="fill:var(--muted);font-size:11px">entry 1</text>
+<text x="286" y="137" text-anchor="end" style="fill:var(--muted);font-size:13px;font-family:var(--mono)">010</text>
+<rect x="150" y="146" width="150" height="28" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="162" y="164" style="fill:var(--muted);font-size:11px">entry 2</text>
+<text x="286" y="165" text-anchor="end" style="fill:var(--muted);font-size:13px;font-family:var(--mono)">111</text>
+<rect x="150" y="174" width="150" height="28" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2.5"/>
+<text x="162" y="192" style="fill:var(--ink);font-size:11px">entry 3</text>
+<text x="286" y="193" text-anchor="end" style="fill:var(--ink);font-size:13px;font-family:var(--mono);font-weight:600">011</text>
+<path d="M102,160 L148,160" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrLoc)"/>
+<text x="390" y="44" style="fill:var(--ink);font-size:11px;font-weight:600">Level 2: pattern history table</text>
+<text x="390" y="58" style="fill:var(--muted);font-size:10px">one 2-bit counter per history pattern</text>
+<rect x="390" y="66" width="150" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="402" y="81" style="fill:var(--muted);font-size:12px;font-family:var(--mono)">000</text>
+<text x="528" y="81" text-anchor="end" style="fill:var(--muted);font-size:12px;font-family:var(--mono)">01</text>
+<rect x="390" y="88" width="150" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="402" y="103" style="fill:var(--muted);font-size:12px;font-family:var(--mono)">001</text>
+<text x="528" y="103" text-anchor="end" style="fill:var(--muted);font-size:12px;font-family:var(--mono)">01</text>
+<rect x="390" y="110" width="150" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="402" y="125" style="fill:var(--muted);font-size:12px;font-family:var(--mono)">010</text>
+<text x="528" y="125" text-anchor="end" style="fill:var(--muted);font-size:12px;font-family:var(--mono)">01</text>
+<rect x="390" y="132" width="150" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2.5"/>
+<text x="402" y="147" style="fill:var(--ink);font-size:12px;font-family:var(--mono)">011</text>
+<text x="528" y="147" text-anchor="end" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">11</text>
+<rect x="390" y="154" width="150" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="402" y="169" style="fill:var(--muted);font-size:12px;font-family:var(--mono)">100</text>
+<text x="528" y="169" text-anchor="end" style="fill:var(--muted);font-size:12px;font-family:var(--mono)">01</text>
+<rect x="390" y="176" width="150" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="402" y="191" style="fill:var(--ink);font-size:12px;font-family:var(--mono)">101</text>
+<text x="528" y="191" text-anchor="end" style="fill:var(--ink);font-size:12px;font-family:var(--mono)">11</text>
+<rect x="390" y="198" width="150" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="402" y="213" style="fill:var(--ink);font-size:12px;font-family:var(--mono)">110</text>
+<text x="528" y="213" text-anchor="end" style="fill:var(--ink);font-size:12px;font-family:var(--mono)">11</text>
+<rect x="390" y="220" width="150" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="402" y="235" style="fill:var(--ink);font-size:12px;font-family:var(--mono)">111</text>
+<text x="528" y="235" text-anchor="end" style="fill:var(--ink);font-size:12px;font-family:var(--mono)">00</text>
+<text x="402" y="252" style="fill:var(--muted);font-size:10px">history</text>
+<text x="528" y="252" text-anchor="end" style="fill:var(--muted);font-size:10px">counter</text>
+<path d="M302,160 C340,160 350,143 388,143" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrLoc)"/>
+<text x="345" y="182" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">history 011</text>
+<text x="345" y="195" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">is the index</text>
+<path d="M542,143 L578,143" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrLoc)"/>
+<rect x="580" y="120" width="90" height="46" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<text x="625" y="140" text-anchor="middle" style="fill:var(--trace);font-size:13px;font-weight:600">Predict T</text>
+<text x="625" y="157" text-anchor="middle" style="fill:var(--muted);font-size:10px">bit 1 of 11</text>
+<g style="fill:var(--ink);font-size:11px">
+<text x="10" y="280"><tspan style="font-weight:600">Update, once the branch resolves taken:</tspan> counter 011 counts up (it saturates at 11),</text>
+<text x="10" y="297">and T shifts into entry 3's history: the oldest bit drops out and T enters bit 0, so 011 becomes 111.</text>
+<text x="10" y="314">Gray counters are patterns this branch never makes.</text>
+</g>
+<text x="0" y="351" style="fill:var(--ink);font-size:13px;font-weight:600">Every visit to the loop, after the four used counters have trained</text>
+<text x="10" y="377" style="fill:var(--muted);font-size:11px;font-weight:600">Execution</text>
+<text x="227" y="377" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">0</text>
+<text x="285" y="377" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">1</text>
+<text x="343" y="377" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">2</text>
+<text x="401" y="377" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">3</text>
+<text x="459" y="377" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">4</text>
+<text x="517" y="377" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">5</text>
+<text x="575" y="377" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">6</text>
+<text x="633" y="377" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">7</text>
+<text x="10" y="405" style="fill:var(--ink);font-size:11px;font-weight:600">Outcome</text>
+<rect x="200" y="390" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="227" y="405" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">T</text>
+<rect x="258" y="390" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="285" y="405" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">T</text>
+<rect x="316" y="390" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="343" y="405" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">T</text>
+<rect x="374" y="390" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="401" y="405" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">N</text>
+<rect x="432" y="390" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="459" y="405" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">T</text>
+<rect x="490" y="390" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="517" y="405" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">T</text>
+<rect x="548" y="390" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="575" y="405" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">T</text>
+<rect x="606" y="390" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="633" y="405" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">N</text>
+<text x="10" y="433" style="fill:var(--ink);font-size:11px;font-weight:600">History before (old → new)</text>
+<rect x="200" y="418" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="227" y="433" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">110</text>
+<rect x="258" y="418" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="285" y="433" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">101</text>
+<rect x="316" y="418" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="343" y="433" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">011</text>
+<rect x="374" y="418" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="401" y="433" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">111</text>
+<rect x="432" y="418" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="459" y="433" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">110</text>
+<rect x="490" y="418" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="517" y="433" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">101</text>
+<rect x="548" y="418" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="575" y="433" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">011</text>
+<rect x="606" y="418" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="633" y="433" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">111</text>
+<text x="10" y="461" style="fill:var(--ink);font-size:11px;font-weight:600">Local: counter → prediction</text>
+<rect x="200" y="446" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="227" y="461" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="258" y="446" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="285" y="461" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="316" y="446" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="343" y="461" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="374" y="446" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="401" y="461" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">00 → N</text>
+<rect x="432" y="446" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="459" y="461" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="490" y="446" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="517" y="461" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="548" y="446" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="575" y="461" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="606" y="446" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="633" y="461" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">00 → N</text>
+<text x="10" y="489" style="fill:var(--ink);font-size:11px;font-weight:600">Bimodal: counter → prediction</text>
+<rect x="200" y="474" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="227" y="489" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="258" y="474" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="285" y="489" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="316" y="474" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="343" y="489" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="374" y="474" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--accent-red);stroke-width:2"/><text x="401" y="489" text-anchor="middle" style="fill:var(--accent-red);font-size:11px;font-family:var(--mono);font-weight:600">11 → T</text>
+<rect x="432" y="474" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="459" y="489" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">10 → T</text>
+<rect x="490" y="474" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="517" y="489" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="548" y="474" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="575" y="489" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="606" y="474" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--accent-red);stroke-width:2"/><text x="633" y="489" text-anchor="middle" style="fill:var(--accent-red);font-size:11px;font-family:var(--mono);font-weight:600">11 → T</text>
+<text x="10" y="521" style="fill:var(--muted);font-size:11px">Each iteration leaves a different history, so each gets its own counter.</text>
+<text x="10" y="538" style="fill:var(--muted);font-size:11px">Only 111 (three taken in a row) comes right before the exit, so its counter learns N and nothing misses.</text>
+<text x="10" y="555" style="fill:var(--muted);font-size:11px">The bimodal counter, indexed by PC alone, misses every exit.</text>
+</svg></div>
 <p>A local predictor with k = 10 learns any repeating pattern whose period is at most 10 branches, including the exit of a loop with a trip count of up to 10. Its cost is a second, dependent table read per prediction, and a speculative update problem that the single global history below doesn't have: every in-flight instance of the branch needs its own copy of the history (see <a href="#/fe-direction/update">Speculative History and Repair</a>).</p>
 <p>Yeh and Patt's names describe the variants by where history and counters live. <strong>GAg</strong> uses one global history and one shared counter table. <strong>PAg</strong> uses per-address histories and one shared counter table. <strong>PAp</strong> uses per-address histories and per-address counter tables. Gshare, below, is a refinement of the global scheme.</p>
+<div class="tbl"><svg viewBox="0 0 680 334" role="img" aria-label="Three panels compare Yeh and Patt's two-level variants. GAg: one global history register holding the last 4 outcomes of any branch indexes one counter table shared by all branches. PAg: the PC selects a per-branch history from a branch history table, and that history indexes one counter table shared by all branches. PAp: the PC selects a per-branch history and also selects which counter table to use, so each branch has its own history and its own counters. The shared tables save storage but let two branches with the same history pattern fight over one counter, which gshare reduces by XORing PC bits into the global history." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrYP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<text x="0" y="16" style="fill:var(--ink);font-size:13px;font-weight:600">Yeh and Patt's variants: where the histories and the counters live</text>
+<rect x="10" y="28" width="210" height="236" rx="6" style="fill:var(--pad-soft);stroke:none"/>
+<text x="22" y="48" style="fill:var(--ink);font-size:13px;font-weight:600;font-family:var(--mono)">GAg</text>
+<text x="22" y="64" style="fill:var(--muted);font-size:10px">Global history, shared counters</text>
+<text x="59" y="128" text-anchor="middle" style="fill:var(--muted);font-size:10px">GHR</text>
+<rect x="24" y="134" width="70" height="24" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2.5"/><text x="59" y="151" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">1011</text>
+<text x="59" y="174" text-anchor="middle" style="fill:var(--muted);font-size:9px">last 4 branches,</text>
+<text x="59" y="186" text-anchor="middle" style="fill:var(--muted);font-size:9px">any PC</text>
+<path d="M96,146 L136,146" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrYP)"/>
+<rect x="138" y="98" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><rect x="138" y="114" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><rect x="138" y="130" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><rect x="138" y="146" width="64" height="16" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2.5"/><rect x="138" y="162" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><rect x="138" y="178" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="170" y="212" text-anchor="middle" style="fill:var(--muted);font-size:9px">one shared</text>
+<text x="170" y="224" text-anchor="middle" style="fill:var(--muted);font-size:9px">table</text>
+<text x="22" y="244" style="fill:var(--ink);font-size:10px">One history for all branches,</text>
+<text x="22" y="257" style="fill:var(--ink);font-size:10px">one counter table for all.</text>
+<rect x="236" y="28" width="210" height="236" rx="6" style="fill:var(--pad-soft);stroke:none"/>
+<text x="248" y="48" style="fill:var(--ink);font-size:13px;font-weight:600;font-family:var(--mono)">PAg</text>
+<text x="248" y="64" style="fill:var(--muted);font-size:10px">Per-branch history, shared counters</text>
+<rect x="265" y="76" width="40" height="20" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.5"/><text x="285" y="90" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-weight:600">PC</text>
+<path d="M285,98 L285,108" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrYP)"/>
+<rect x="250" y="110" width="70" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="285" y="125" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">0110</text>
+<rect x="250" y="132" width="70" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="285" y="147" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">1111</text>
+<rect x="250" y="154" width="70" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2.5"/><text x="285" y="169" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono);font-weight:600">1011</text>
+<rect x="250" y="176" width="70" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="285" y="191" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">0001</text>
+<text x="285" y="213" text-anchor="middle" style="fill:var(--muted);font-size:9px">one per branch</text>
+<path d="M322,165 L362,146" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrYP)"/>
+<rect x="364" y="98" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><rect x="364" y="114" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><rect x="364" y="130" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><rect x="364" y="146" width="64" height="16" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2.5"/><rect x="364" y="162" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><rect x="364" y="178" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="396" y="212" text-anchor="middle" style="fill:var(--muted);font-size:9px">one shared</text>
+<text x="396" y="224" text-anchor="middle" style="fill:var(--muted);font-size:9px">table</text>
+<text x="248" y="244" style="fill:var(--ink);font-size:10px">Each branch has its own history,</text>
+<text x="248" y="257" style="fill:var(--ink);font-size:10px">and all share one counter table.</text>
+<rect x="462" y="28" width="210" height="236" rx="6" style="fill:var(--pad-soft);stroke:none"/>
+<text x="474" y="48" style="fill:var(--ink);font-size:13px;font-weight:600;font-family:var(--mono)">PAp</text>
+<text x="474" y="64" style="fill:var(--muted);font-size:10px">Per-branch history and counters</text>
+<rect x="491" y="76" width="40" height="20" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.5"/><text x="511" y="90" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-weight:600">PC</text>
+<path d="M511,98 L511,108" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrYP)"/>
+<rect x="476" y="110" width="70" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="511" y="125" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">0110</text>
+<rect x="476" y="132" width="70" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="511" y="147" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">1111</text>
+<rect x="476" y="154" width="70" height="22" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2.5"/><text x="511" y="169" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono);font-weight:600">1011</text>
+<rect x="476" y="176" width="70" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="511" y="191" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">0001</text>
+<text x="511" y="213" text-anchor="middle" style="fill:var(--muted);font-size:9px">one per branch</text>
+<path d="M548,165 L588,146" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrYP)"/>
+<rect x="602" y="86" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.7"/><rect x="602" y="102" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.7"/><rect x="602" y="118" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.7"/><rect x="602" y="134" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.7"/><rect x="602" y="150" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.7"/><rect x="602" y="166" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.7"/>
+<rect x="596" y="92" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.7"/><rect x="596" y="108" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.7"/><rect x="596" y="124" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.7"/><rect x="596" y="140" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.7"/><rect x="596" y="156" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.7"/><rect x="596" y="172" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.7"/>
+<rect x="590" y="98" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><rect x="590" y="114" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><rect x="590" y="130" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><rect x="590" y="146" width="64" height="16" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2.5"/><rect x="590" y="162" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><rect x="590" y="178" width="64" height="16" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<path d="M533,86 C570,70 630,62 634,82" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrYP)"/>
+<text x="622" y="212" text-anchor="middle" style="fill:var(--muted);font-size:9px">one table</text>
+<text x="622" y="224" text-anchor="middle" style="fill:var(--muted);font-size:9px">per branch</text>
+<text x="474" y="244" style="fill:var(--ink);font-size:10px">Each branch has its own history</text>
+<text x="474" y="257" style="fill:var(--ink);font-size:10px">and its own counter table.</text>
+<text x="10" y="290" style="fill:var(--muted);font-size:11px">In PAp the PC also picks which counter table to read. Sharing a table saves storage,</text>
+<text x="10" y="307" style="fill:var(--muted);font-size:11px">but two branches with the same history pattern then fight over one counter.</text>
+<text x="10" y="324" style="fill:var(--muted);font-size:11px">gshare, below, XORs PC bits into the global history to spread them apart.</text>
+</svg></div>
 
 <h3 id="sec-correlating">Correlating Predictors</h3>
 <p>Local history sees only the branch's own past. Many branches are predictable only from what other branches just did. Hennessy and Patterson's example is from eqntott:</p>
