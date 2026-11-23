@@ -367,14 +367,14 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
   sections: [
     { id: "counters", label: "Saturating Counters" },
     { id: "bimodal", label: "Bimodal Tables" },
-    { id: "correlating", label: "Correlating Predictors" },
     { id: "local", label: "Local History Predictors" },
+    { id: "correlating", label: "Correlating Predictors" },
     { id: "gshare", label: "gshare and gselect" },
     { id: "aliasing", label: "Aliasing" },
     { id: "tournament", label: "Tournament Predictors" },
+    { id: "summary", label: "What Each Predictor Captures" },
     { id: "size", label: "When Bigger Tables Stop Helping" },
-    { id: "workloads", label: "Where They Work and Where They Fail" },
-    { id: "summary", label: "What Each Predictor Captures" }
+    { id: "workloads", label: "Where They Work and Where They Fail" }
   ],
   body: `
 <p>A direction predictor answers one question per conditional branch: taken or not taken. The predictors on this page are the ones Hennessy and Patterson build up in Appendix C.2 and Section 3.3, ending with McFarling's 1993 combining predictor. They are no longer the best designs on their own, but every modern predictor is assembled from their parts: saturating counters, tables indexed by the PC and by history, and a rule for choosing between predictions. <a href="#/fe-direction">Modern Direction Predictors</a> picks up from here with perceptrons and TAGE.</p>
@@ -476,23 +476,23 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <p>He also weighs tags. A tagged, set-associative table beats an untagged array with the same number of counters, because branches stop sharing counters, but it saturates at the same 93.5%. Once the tag bits are counted, a plain array is often better for the same storage. The exception is a design that already keeps tags for a BTB, where the counters can live in the BTB entries at no extra tag cost.</p>
 <p>Bimodal tables are still in every predictor. They are TAGE's base table, the fallback when no tagged entry matches, and they make good single-cycle first-level predictors because they are small and fast (see <a href="#/fe-decoupled/overriding">Fast and Slow Predictors</a>).</p>
 
+<h3 id="sec-local">Local History Predictors</h3>
+<p>A bimodal counter learns only a branch's bias. Many branches follow a pattern in their own past instead: a loop branch that is taken 7 times and then falls through, or a branch that alternates. Yeh and Patt's two-level adaptive predictors (1991) handle these with two tables:</p>
+<ol>
+<li>A <strong>branch history table</strong>, indexed by PC, holds each branch's own last k outcomes (its <em>local history</em>).</li>
+<li>A <strong>pattern history table</strong> of 2-bit counters is indexed by that local history (often combined with some PC bits). Each counter learns what follows one particular k-bit pattern.</li>
+</ol>
+<p>A local predictor with k = 10 learns any repeating pattern whose period is at most 10 branches, including the exit of a loop with a trip count of up to 10. Its cost is a second, dependent table read per prediction, and a speculative update problem that the single global history below doesn't have: every in-flight instance of the branch needs its own copy of the history (see <a href="#/fe-direction/update">Speculative History and Repair</a>).</p>
+<p>Yeh and Patt's names describe the variants by where history and counters live. <strong>GAg</strong> uses one global history and one shared counter table. <strong>PAg</strong> uses per-address histories and one shared counter table. <strong>PAp</strong> uses per-address histories and per-address counter tables. Gshare, below, is a refinement of the global scheme.</p>
+
 <h3 id="sec-correlating">Correlating Predictors</h3>
-<p>Many branches are predictable only from what other branches just did. Hennessy and Patterson's example is from eqntott:</p>
+<p>Local history sees only the branch's own past. Many branches are predictable only from what other branches just did. Hennessy and Patterson's example is from eqntott:</p>
 <pre><code>if (aa == 2) aa = 0;     /* b1 */
 if (bb == 2) bb = 0;     /* b2 */
 if (aa != bb) { ... }    /* b3 */</code></pre>
 <p>If b1 and b2 both find their values equal to 2 (so both assignments run), aa and bb are both 0 and b3's condition is false. A bimodal counter for b3 can't see that. A predictor that knows the outcomes of b1 and b2 can.</p>
 <p>A <strong>global history register</strong> (GHR) records the outcomes of the last m branches as m bits, newest in the low bit. An <strong>(m, n) correlating predictor</strong> uses those m bits to choose among 2<sup>m</sup> n-bit counters in each entry. Its storage is 2<sup>m</sup> counters/entry × n bits/counter × the number of entries.</p>
 <p>Hennessy and Patterson compare a (2, 2) predictor with 1024 entries against a 4096-entry bimodal table. Both cost 8 Kbits (2<sup>2</sup> counters/entry × 2 bits/counter × 1024 entries = 8192 bits for the first, and 4096 counters × 2 bits/counter = 8192 bits for the second). The correlating predictor outperforms the bimodal table, and often beats even an infinite bimodal table. Two bits of history buy more than extra capacity does.</p>
-
-<h3 id="sec-local">Local History Predictors</h3>
-<p>Global history captures correlation <em>between</em> branches. Some branches are better predicted by their own past instead: a loop branch that is taken 7 times and then falls through, or a branch that alternates. Yeh and Patt's two-level adaptive predictors (1991) handle these with two tables:</p>
-<ol>
-<li>A <strong>branch history table</strong>, indexed by PC, holds each branch's own last k outcomes (its <em>local history</em>).</li>
-<li>A <strong>pattern history table</strong> of 2-bit counters is indexed by that local history (often combined with some PC bits). Each counter learns what follows one particular k-bit pattern.</li>
-</ol>
-<p>A local predictor with k = 10 learns any repeating pattern whose period is at most 10 branches, including the exit of a loop with a trip count of up to 10. Its cost is a second, dependent table read per prediction, and a speculative update problem that global history doesn't have: every in-flight instance of the branch needs its own copy of the history (see <a href="#/fe-direction/update">Speculative History and Repair</a>).</p>
-<p>Yeh and Patt's names describe the variants by where history and counters live. <strong>GAg</strong> uses one global history and one shared counter table. <strong>PAg</strong> uses per-address histories and one shared counter table. <strong>PAp</strong> uses per-address histories and per-address counter tables. Gshare, below, is a refinement of the global scheme.</p>
 
 <h3 id="sec-gshare">gshare and gselect</h3>
 <p>gshare comes from McFarling's 1993 DEC WRL report, written as branches were becoming the main limit on instruction-level parallelism. Superscalar and superpipelined machines, especially ones that execute speculatively, have more instructions in flight per branch, so each mispredicted branch throws away more work. The compiler techniques that had kept branches cheap on early RISC machines were also running out. A delayed branch helps less as the number of delay slots to fill grows, and an architecture with several implementations, each with its own pipeline, can't choose one delay-slot count that suits them all. That left the job to hardware. McFarling splits it in two: predicting the direction, and supplying the target instructions of a taken branch quickly (the BTB's job). He studies only the direction. He starts from the three known schemes, each suited to one kind of branch:</p>
@@ -511,13 +511,13 @@ if (aa != bb) { ... }    /* b3 */</code></pre>
 </ul>
 
 <h4 id="sec-mcf-local">Local Branch Prediction</h4>
-<p>McFarling's local predictor is the two-level structure from <a href="#/fe-classic/local">Local History Predictors</a>, Yeh and Patt's per-address scheme. A history table indexed by low PC bits holds each entry's last n outcomes, and that history indexes a table of 2-bit counters. He uses a plain array for the history table, with no tags, where Yeh and Patt assumed a set-associative one.</p>
+<p>McFarling uses the two-level structure from <a href="#/fe-classic/local">Local History Predictors</a> with one change: the history table is a plain array with no tags, where Yeh and Patt assumed a set-associative one.</p>
 <p>His example is a loop that runs 4 times with its test at the bottom, <code>for (i = 1; i &lt;= 4; i++)</code>. Its branch produces the pattern (1110)<sup>n</sup>, so with 3 bits of history and 2<sup>3</sup> counters, the history always says which iteration comes next, and after the counters settle the predictor never misses. With more branches in the program, two kinds of contention appear:</p>
 <ul>
 <li><strong>History contention:</strong> branches that map to the same history entry mix their outcomes into one history, which then describes none of them.</li>
 <li><strong>Pattern contention:</strong> every branch shares the one counter table, so two branches can need opposite predictions after the same history. A branch running (0110)<sup>n</sup> and one running (1110)<sup>n</sup> collide this way at history 110. With 4 bits of history and 2<sup>4</sup> counters, their histories no longer overlap. If one pattern runs for a long time before the other starts, 3 bits are still enough, because the counters retrain to whichever pattern is current.</li>
 </ul>
-<p>McFarling sets the history table and the counter table to the same number of entries. Below about 128 B, local prediction is worse than bimodal, because there are so few history entries that contention leaves the stored histories worthless. Above that it is much better, and large local predictors approach 97.1%, with fewer than half the mispredictions of bimodal (2.9% against 6.5%). His appendix adds two refinements. Indexing the counters with a few address bits and fewer history bits sometimes helps, mostly because the history table gets smaller. Giving the history table as many entries as the counter table is usually a good choice. The cost that remains is two dependent table reads per prediction.</p>
+<p>McFarling sets the history table and the counter table to the same number of entries. Below about 128 B, local prediction is worse than bimodal, because there are so few history entries that contention leaves the stored histories worthless. Above that it is much better, and large local predictors approach 97.1%, with fewer than half the mispredictions of bimodal (2.9% against 6.5%). His appendix adds two refinements. Indexing the counters with a few address bits and fewer history bits sometimes helps, mostly because the history table gets smaller. Giving the history table as many entries as the counter table is usually a good choice.</p>
 
 <h4 id="sec-mcf-global">Global Branch Prediction</h4>
 <p>A global predictor keeps a single shift register, GR, holding the outcomes of the last n conditional branches, and uses it alone to index the counter table. It captures two kinds of patterns:</p>
@@ -560,15 +560,7 @@ if (aa != bb) { ... }    /* b3 */</code></pre>
 <p>The cost is a new kind of collision. Under gselect, two branches whose n PC bits differ never share a counter. Under gshare, (PC<sub>1</sub>, H<sub>1</sub>) and (PC<sub>2</sub>, H<sub>2</sub>) collide whenever PC<sub>1</sub> ⊕ PC<sub>2</sub> = H<sub>1</sub> ⊕ H<sub>2</sub>, which can happen between any two branches.</p>
 
 <h4 id="sec-mcf-combining">Combining Branch Predictors</h4>
-<p>Since each scheme wins on different branches, McFarling's second idea is to run two predictors, P1 and P2, of any kind, and add a third array of 2-bit counters, indexed by PC, that tracks which one has been more accurate for the branches sharing each counter. With P1c and P2c being 1 when P1 or P2 was correct, the counter changes by P1c − P2c:</p>
-<div class="tbl"><table>
-<tr><th>P1 correct</th><th>P2 correct</th><th>Change</th></tr>
-<tr><td>No</td><td>No</td><td>None</td></tr>
-<tr><td>No</td><td>Yes</td><td>Decrement (toward P2)</td></tr>
-<tr><td>Yes</td><td>No</td><td>Increment (toward P1)</td></tr>
-<tr><td>Yes</td><td>Yes</td><td>None</td></tr>
-</table></div>
-<p>This is the chooser described in <a href="#/fe-classic/tournament">Tournament Predictors</a>, which later designs such as the Alpha 21264 built on.</p>
+<p>Since each scheme wins on different branches, McFarling's second idea is to run two predictors of any kind side by side and add a PC-indexed array of 2-bit counters that tracks which one has been more accurate for each branch. The structure and its update rule are in <a href="#/fe-classic/tournament">Tournament Predictors</a>. Here are his results.</p>
 <p>His main pairing is <strong>bimodal/gshare</strong>: global information is used where it helps, and the bimodal prediction otherwise. The gshare half uses as many history bits as address bits, the most global information it can hold, because diluting the address information no longer matters when bimodal is always there as a fallback. The same reason makes gshare a better partner than gselect. With each of the three arrays holding 1K counters (3 arrays × 1024 counters × 2 bits = 768 B) and every benchmark run to completion:</p>
 <ul>
 <li><strong>Accuracy:</strong> the combination beats both of its components on every benchmark. On eqntott, gshare is far better than bimodal (about 94% against about 82%), and the combination matches gshare.</li>
@@ -611,6 +603,15 @@ if (aa != bb) { ... }    /* b3 */</code></pre>
 </ul>
 <p>Hennessy and Patterson's Section 3.3 comparison shows tournament predictors beating correlating predictors of the same size on SPEC89, by the largest margin at small budgets. Later designs kept the idea of several components plus a selection rule. Hennessy and Patterson describe the Intel Core i7 920's predictor as combining a 2-bit predictor, a global history predictor, and a loop exit predictor, and TAGE's provider and alternate predictions are a generalized chooser.</p>
 
+<h3 id="sec-summary">What Each Predictor Captures</h3>
+<div class="tbl"><table>
+<tr><th>Predictor</th><th>Information it uses</th><th>Learns</th><th>Fails on</th></tr>
+<tr><td>Bimodal</td><td>PC</td><td>Each branch's bias</td><td>Any branch whose direction changes</td></tr>
+<tr><td>Local two-level</td><td>The branch's own last k outcomes</td><td>Short repeating patterns and loop exits up to k</td><td>Correlation with other branches</td></tr>
+<tr><td>Correlating or gshare</td><td>PC and global history</td><td>Correlation with the last m branches</td><td>Correlation older than m, and branches whose patterns alias</td></tr>
+<tr><td>Tournament</td><td>Both, plus a chooser</td><td>Per branch, the better of two components</td><td>Branches neither component predicts</td></tr>
+</table></div>
+
 <h3 id="sec-size">When Bigger Tables Stop Helping</h3>
 <p>Every curve of misprediction rate against predictor size has the same shape: a steep drop while the table is too small for the program's branches, then a flat tail. Hennessy and Patterson show it twice. In Appendix C.2, a 4096-entry bimodal table and an infinite one mispredict at essentially the same rate on every SPEC89 program. In Section 3.3, the local, correlating, and tournament predictors all flatten as their total storage grows, with the tournament predictor lowest at every size. Adding bits stops paying for four reasons:</p>
 <ul>
@@ -636,15 +637,6 @@ if (aa != bb) { ... }    /* b3 */</code></pre>
 <li><strong>Large code footprints.</strong> Server and datacenter workloads touch so many static branches that the tables thrash. That is capacity aliasing rather than an information limit (Ferdman et al., 2012, measured how large these instruction footprints are), so here bigger tables, and bigger BTBs, keep paying off.</li>
 <li><strong>Frequent context switches and short phases.</strong> The tables never finish training, and the history-based components suffer most, which is why a tournament chooser leans on bimodal right after a switch.</li>
 </ul>
-
-<h3 id="sec-summary">What Each Predictor Captures</h3>
-<div class="tbl"><table>
-<tr><th>Predictor</th><th>Information it uses</th><th>Learns</th><th>Fails on</th></tr>
-<tr><td>Bimodal</td><td>PC</td><td>Each branch's bias</td><td>Any branch whose direction changes</td></tr>
-<tr><td>Local two-level</td><td>The branch's own last k outcomes</td><td>Short repeating patterns and loop exits up to k</td><td>Correlation with other branches</td></tr>
-<tr><td>Correlating or gshare</td><td>PC and global history</td><td>Correlation with the last m branches</td><td>Correlation older than m, and branches whose patterns alias</td></tr>
-<tr><td>Tournament</td><td>Both, plus a chooser</td><td>Per branch, the better of two components</td><td>Branches neither component predicts</td></tr>
-</table></div>
 <p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 5th ed., Appendix C.2 (2-bit prediction schemes) and Section 3.3 (correlating and tournament predictors, and the Intel Core i7 predictor) · McFarling, "Combining Branch Predictors," DEC WRL TN-36, 1993 · Yeh and Patt, "Two-Level Adaptive Training Branch Prediction," MICRO 1991 · Pan, So, and Rahmeh, "Improving the Accuracy of Dynamic Branch Prediction Using Branch Correlation," ASPLOS 1992 · Young, Gloy, and Smith, "A Comparative Analysis of Schemes for Correlated Branch Prediction," ISCA 1995 · Michaud, Seznec, and Uhlig, "Trading Conflict and Capacity Aliasing in Conditional Branch Predictors," ISCA 1997 · Sprangle, Chappell, Alsup, and Patt, "The Agree Predictor," ISCA 1997 · Lee, Chen, and Mudge, "The Bi-Mode Branch Predictor," MICRO 1997 · Kessler, "The Alpha 21264 Microprocessor," IEEE Micro, 1999 · Juan, Sanjeevan, and Navarro, "Dynamic History-Length Fitting: A Third Level of Adaptivity for Branch Prediction," ISCA 1998 · Jiménez, Keckler, and Lin, "The Impact of Delay on the Design of Branch Predictors," MICRO 2000 · Ferdman et al., "Clearing the Clouds: A Study of Emerging Scale-Out Workloads on Modern Hardware," ASPLOS 2012</p>`,
   practice: {
     guided: [
