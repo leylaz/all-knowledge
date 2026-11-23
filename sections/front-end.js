@@ -369,6 +369,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
     { id: "bimodal", label: "Bimodal Tables" },
     { id: "local", label: "Local History Predictors" },
     { id: "correlating", label: "Correlating Predictors" },
+    { id: "global", label: "Global History Predictors" },
     { id: "gshare", label: "gshare and gselect" },
     { id: "aliasing", label: "Aliasing" },
     { id: "tournament", label: "Tournament Predictors" },
@@ -676,7 +677,7 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <p>Each branch tests the opposite of its C condition, because it jumps around the code the <code>if</code> guards. So b1 and b2 not taken means both assignments ran, and then b3 is taken.</p>
 <p>If b1 and b2 both find their values equal to 2 (so both assignments run), aa and bb are both 0 and b3's condition is false. A bimodal counter for b3 can't see that. A predictor that knows the outcomes of b1 and b2 can.</p>
 <p>A <strong>global history register</strong> (GHR) records the outcomes of the last m branches as m bits, newest in the low bit. In the assembly, a branch is taken (1) when it jumps and not taken (0) when it falls through. With m = 2, here is what the GHR holds when aa and bb both start at 2:</p>
-<div class="tbl"><svg viewBox="0 0 680 252" role="img" aria-label="A 2-bit global history register traced through the eqntott code, with 1 for taken and the newest outcome in bit 0. Before b1 it holds 11 from older branches, such as a taken loop back edge. When aa equals 2, b1’s bnez is not taken, so 0 shifts into bit 0, the old bit 0 moves to bit 1, and the old bit 1 falls off, leaving 10. When bb equals 2, b2’s bnez is also not taken and the GHR becomes 00, with b1 in bit 1 and b2 in bit 0. When b3 is fetched, the predictor reads GHR 00, which means both assignments ran, so aa and bb are both 0 and b3’s beqz is taken." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<div class="tbl"><svg viewBox="0 0 680 252" role="img" aria-label="A 2-bit global history register traced through the eqntott code, with 1 for taken and the newest outcome in bit 0. Before b1 it holds 11 from older branches, such as a taken loop back edge. When aa equals 2, b1's bnez is not taken, so 0 shifts into bit 0, the old bit 0 moves to bit 1, and the old bit 1 falls off, leaving 10. When bb equals 2, b2's bnez is also not taken and the GHR becomes 00, with b1 in bit 1 and b2 in bit 0. When b3 is fetched, the predictor reads GHR 00, which means both assignments ran, so aa and bb are both 0 and b3's beqz is taken." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
 <defs><marker id="arrGHR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
 <text x="0" y="16" style="fill:var(--ink);font-size:13px;font-weight:600">What a 2-bit GHR holds as the eqntott code runs (1 = taken, newest in bit 0)</text>
 <rect x="10" y="28" width="150" height="196" rx="6" style="fill:var(--pad-soft);stroke:none"/>
@@ -701,7 +702,7 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <text x="595" y="48" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">Predicting b3</text><text x="595" y="64" text-anchor="middle" style="fill:var(--muted);font-size:10px">fetch reads GHR = 00</text>
 <text x="567" y="88" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 1</text><rect x="547" y="94" width="40" height="30" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2.5"/><text x="567" y="113.94" text-anchor="middle" style="fill:var(--ink);font-size:13px;font-family:var(--mono);font-weight:600">0</text><text x="567" y="140" text-anchor="middle" style="fill:var(--muted);font-size:9px">b1</text>
 <text x="623" y="88" text-anchor="middle" style="fill:var(--muted);font-size:9px">bit 0</text><rect x="603" y="94" width="40" height="30" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2.5"/><text x="623" y="113.94" text-anchor="middle" style="fill:var(--ink);font-size:13px;font-family:var(--mono);font-weight:600">0</text><text x="623" y="140" text-anchor="middle" style="fill:var(--muted);font-size:9px">b2</text>
-<text x="595" y="172" text-anchor="middle" style="fill:var(--ink);font-size:10px">Both assignments ran,</text><text x="595" y="186" text-anchor="middle" style="fill:var(--ink);font-size:10px">so aa = bb = 0 and</text><text x="595" y="200" text-anchor="middle" style="fill:var(--ink);font-size:10px">b3’s beqz is taken.</text>
+<text x="595" y="172" text-anchor="middle" style="fill:var(--ink);font-size:10px">Both assignments ran,</text><text x="595" y="186" text-anchor="middle" style="fill:var(--ink);font-size:10px">so aa = bb = 0 and</text><text x="595" y="200" text-anchor="middle" style="fill:var(--ink);font-size:10px">b3's beqz is taken.</text>
 <text x="10" y="244" style="fill:var(--muted);font-size:11px">Each resolved conditional branch shifts the register left by 1. Bit 0 takes the new outcome and the old bit 1 falls off.</text>
 </svg></div>
 <p>An <strong>(m, n) correlating predictor</strong> uses those m bits to choose among 2<sup>m</sup> n-bit counters in each entry. Low-order PC bits pick the entry, and the GHR picks the counter within it. Its storage is 2<sup>m</sup> counters/entry × n bits/counter × the number of entries.</p>
@@ -713,12 +714,12 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <tr><td><code>10</code></td><td>aa ≠ 2 kept its value, and bb = 0</td><td>Taken only when aa was already 0</td></tr>
 <tr><td><code>11</code></td><td>Neither assignment ran</td><td>Taken only when aa == bb on entry</td></tr>
 </table></div>
-<p>Hennessy and Patterson’s (2, 2) predictor with 1024 entries has 4 counters of 2 bits in each entry. Place the code at 0x10400, so b1 is at 0x10404, b2 at 0x10410, and b3 at 0x1041C. With 4-byte instructions, PC bits 1:0 are always 0, so PC bits 11:2 index the 1024 entries. Predicting b3 then takes two steps:</p>
+<p>Hennessy and Patterson's (2, 2) predictor with 1024 entries has 4 counters of 2 bits in each entry. Place the code at 0x10400, so b1 is at 0x10404, b2 at 0x10410, and b3 at 0x1041C. With 4-byte instructions, PC bits 1:0 are always 0, so PC bits 11:2 index the 1024 entries. Predicting b3 then takes two steps:</p>
 <ol>
-<li>PC bits 11:2 of 0x1041C are 0x107, so the predictor reads entry 263. b1 and b2 land in entries 257 and 260, so the three branches don’t share counters.</li>
-<li>The GHR is 00, so the predictor uses entry 263’s first counter. It has learned that b3 is always taken after 00, so it holds 11 and predicts taken.</li>
+<li>PC bits 11:2 of 0x1041C are 0x107, so the predictor reads entry 263. b1 and b2 land in entries 257 and 260, so the three branches don't share counters.</li>
+<li>The GHR is 00, so the predictor uses entry 263's first counter. It has learned that b3 is always taken after 00, so it holds 11 and predicts taken.</li>
 </ol>
-<div class="tbl"><svg viewBox="0 0 680 376" role="img" aria-label="A (2, 2) correlating predictor with 1024 entries, each holding four 2-bit counters, one per GHR value 00, 01, 10, and 11. The eqntott code starts at 0x10400, so b1 is at 0x10404 (entry 257), b2 at 0x10410 (entry 260), and b3 at 0x1041C. To predict b3, PC bits 11 to 2, 0x107, select entry 263, and the GHR, 00 because b1 and b2 were not taken, selects the first counter in that entry. That counter holds 11, so bit 1 predicts taken. Entry 263’s other counters, for histories 01, 10, and 11, hold 00, 01, and 00 in this example state. b3 resolves taken, the counter stays at 11, and 1 shifts into the GHR, which becomes 01. Storage is 1024 entries times 4 counters per entry times 2 bits per counter, 8192 bits." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<div class="tbl"><svg viewBox="0 0 680 376" role="img" aria-label="A (2, 2) correlating predictor with 1024 entries, each holding four 2-bit counters, one per GHR value 00, 01, 10, and 11. The eqntott code starts at 0x10400, so b1 is at 0x10404 (entry 257), b2 at 0x10410 (entry 260), and b3 at 0x1041C. To predict b3, PC bits 11 to 2, 0x107, select entry 263, and the GHR, 00 because b1 and b2 were not taken, selects the first counter in that entry. That counter holds 11, so bit 1 predicts taken. Entry 263's other counters, for histories 01, 10, and 11, hold 00, 01, and 00 in this example state. b3 resolves taken, the counter stays at 11, and 1 shifts into the GHR, which becomes 01. Storage is 1024 entries times 4 counters per entry times 2 bits per counter, 8192 bits." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
 <defs><marker id="arrCP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
 <text x="0" y="16" style="fill:var(--ink);font-size:13px;font-weight:600">A (2, 2) predictor with 1024 entries predicting b3</text>
 <rect x="230" y="34" width="86" height="26" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2.5"/><text x="273" y="52" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">GHR = 00</text>
@@ -745,12 +746,34 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <p>A bimodal table gives b3 a single counter, which sees the mix of all four rows of the table above. The (2, 2) predictor gives each row its own counter, so once trained it never mispredicts b3 after history 00. Reading the entry and then the counter is the same as indexing one table of 4096 counters with PC bits 11:2 followed by the 2 GHR bits, which is gselect, below.</p>
 <p>Hennessy and Patterson compare a (2, 2) predictor with 1024 entries against a 4096-entry bimodal table. Both cost 8 Kbits (2<sup>2</sup> counters/entry × 2 bits/counter × 1024 entries = 8192 bits for the first, and 4096 counters × 2 bits/counter = 8192 bits for the second). The correlating predictor outperforms the bimodal table, and often beats even an infinite bimodal table. Two bits of history buy more than extra capacity does.</p>
 
+<h3 id="sec-global">Global History Predictors</h3>
+<p>Drop the PC bits from the correlating predictor's index and you get a <strong>global</strong> predictor: the GHR alone indexes one table of 2<sup>m</sup> counters, shared by every branch. This is Yeh and Patt's GAg, the first panel of the figure in <a href="#/fe-classic/local">Local History Predictors</a>. It captures two kinds of patterns:</p>
+<ul>
+<li><strong>Correlation between branches.</strong> The eqntott code above is one case. Another is <code>if (x &lt; 1) ...</code> followed by <code>if (x &gt; 1) ...</code>, where the first branch's outcome says a lot about the second. If x &lt; 1, the second condition can't hold. If not, the second is still likely to lean one way. Pan, So, and Rahmeh found many neighboring branches in SPEC with conditions correlated like this.</li>
+<li><strong>Local patterns, duplicated.</strong> When the global history happens to contain all the local history a branch needs, global prediction does as well as local prediction.</li>
+</ul>
+<p>McFarling's example of the second kind is a nested loop, <code>for (i = 0; i &lt; 100; i++)</code> around <code>for (j = 0; j &lt; 3; j++)</code>. With a 4-bit GHR, the branches settle into:</p>
+<div class="tbl"><table>
+<tr><th>Branch test</th><th>Value</th><th>GHR</th><th>Result</th></tr>
+<tr><td>j &lt; 3</td><td>j = 1</td><td>1101</td><td>Taken</td></tr>
+<tr><td>j &lt; 3</td><td>j = 2</td><td>1011</td><td>Taken</td></tr>
+<tr><td>j &lt; 3</td><td>j = 3</td><td>0111</td><td>Not taken</td></tr>
+<tr><td>i &lt; 100</td><td></td><td>1110</td><td>Usually taken</td></tr>
+</table></div>
+<p>Each history value appears before exactly one branch at exactly one value of j, so the history tells the predictor both which branch is executing and where the inner loop is.</p>
+<p>In general, though, history is a poor stand-in for the PC. McFarling explains why with the information content of the counter index:</p>
+<ul>
+<li><strong>Address bits</strong> are worth a lot in a small table. Each doubling of the counters roughly halves the number of branches sharing a counter. Once every frequent branch has its own counter, each further address bit adds nothing.</li>
+<li><strong>History bits</strong> start out worth little but keep gaining. Each branch goes the same way more than 90% of the time, so the sequence of branches leading to a given branch is highly repetitive for that branch and usually different from the sequence leading to others. History therefore identifies the branch, less efficiently than the address does, and it also carries information the address doesn't. That is why it wins in large tables.</li>
+</ul>
+<p>That is why practical designs feed both into the index: by concatenation in the correlating predictor above and in gselect, or by XOR in gshare, below.</p>
+
 <h3 id="sec-gshare">gshare and gselect</h3>
 <p>gshare comes from McFarling's 1993 DEC WRL report, written as branches were becoming the main limit on instruction-level parallelism. Superscalar and superpipelined machines, especially ones that execute speculatively, have more instructions in flight per branch, so each mispredicted branch throws away more work. The compiler techniques that had kept branches cheap on early RISC machines were also running out. A delayed branch helps less as the number of delay slots to fill grows, and an architecture with several implementations, each with its own pipeline, can't choose one delay-slot count that suits them all. That left the job to hardware. McFarling splits it in two: predicting the direction, and supplying the target instructions of a taken branch quickly (the BTB's job). He studies only the direction. He starts from the three known schemes, each suited to one kind of branch:</p>
 <ul>
-<li><strong>Bimodal:</strong> branches strongly biased one way.</li>
-<li><strong>Local:</strong> branches with simple repeating patterns of their own.</li>
-<li><strong>Global:</strong> branches correlated with the branches executed just before them.</li>
+<li><strong><a href="#/fe-classic/bimodal">Bimodal</a>:</strong> branches strongly biased one way. His results for it are in that section.</li>
+<li><strong><a href="#/fe-classic/local">Local</a>:</strong> branches with simple repeating patterns of their own.</li>
+<li><strong><a href="#/fe-classic/global">Global</a>:</strong> branches correlated with the branches executed just before them.</li>
 </ul>
 <p>His two contributions are hashing the global history together with the branch address (gshare) and combining two predictors with a selector that picks, per branch, the one doing better. Together they reached 98.1% accuracy against 97.1% for the most accurate earlier scheme, typically at half the size or less for the same accuracy.</p>
 <p>All the numbers in the subsections below come from one setup:</p>
@@ -763,32 +786,14 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 
 <h4 id="sec-mcf-local">Local Branch Prediction</h4>
 <p>McFarling uses the two-level structure from <a href="#/fe-classic/local">Local History Predictors</a> with one change: the history table is a plain array with no tags, where Yeh and Patt assumed a set-associative one.</p>
-<p>His example is a loop that runs 4 times with its test at the bottom, <code>for (i = 1; i &lt;= 4; i++)</code>. Its branch produces the pattern (1110)<sup>n</sup>, so with 3 bits of history and 2<sup>3</sup> counters, the history always says which iteration comes next, and after the counters settle the predictor never misses. With more branches in the program, it suffers the history and pattern contention described in <a href="#/fe-classic/local">Local History Predictors</a>.</p>
+<p>His example, a loop branch with the pattern (1110)<sup>n</sup>, is the one worked through in that section, and so are the history and pattern contention that hurt it once more branches share the tables.</p>
 <p>McFarling sets the history table and the counter table to the same number of entries. Below about 128 B, local prediction is worse than bimodal, because there are so few history entries that contention leaves the stored histories worthless. Above that it is much better, and large local predictors approach 97.1%, with fewer than half the mispredictions of bimodal (2.9% against 6.5%). His appendix adds two refinements. Indexing the counters with a few address bits and fewer history bits sometimes helps, mostly because the history table gets smaller. Giving the history table as many entries as the counter table is usually a good choice.</p>
 
 <h4 id="sec-mcf-global">Global Branch Prediction</h4>
-<p>A global predictor keeps a single shift register, GR, holding the outcomes of the last n conditional branches, and uses it alone to index the counter table. It captures two kinds of patterns:</p>
-<ul>
-<li><strong>Correlation between branches.</strong> In <code>if (x &lt; 1) ...</code> followed by <code>if (x &gt; 1) ...</code>, the first branch's outcome says a lot about the second. If x &lt; 1, the second condition can't hold. If not, the second is still likely to lean one way. Pan, So, and Rahmeh found many neighboring branches in SPEC with conditions correlated like this.</li>
-<li><strong>Local patterns, duplicated.</strong> When the global history happens to contain all the local history a branch needs, global prediction does as well as local prediction.</li>
-</ul>
-<p>McFarling's example of the second kind is a nested loop, <code>for (i = 0; i &lt; 100; i++)</code> around <code>for (j = 0; j &lt; 3; j++)</code>. With GR shifted left (newest outcome in the low bit, 1 for taken), the branches settle into:</p>
-<div class="tbl"><table>
-<tr><th>Branch test</th><th>Value</th><th>GR</th><th>Result</th></tr>
-<tr><td>j &lt; 3</td><td>j = 1</td><td>1101</td><td>Taken</td></tr>
-<tr><td>j &lt; 3</td><td>j = 2</td><td>1011</td><td>Taken</td></tr>
-<tr><td>j &lt; 3</td><td>j = 3</td><td>0111</td><td>Not taken</td></tr>
-<tr><td>i &lt; 100</td><td></td><td>1110</td><td>Usually taken</td></tr>
-</table></div>
-<p>Each history value appears before exactly one branch at exactly one value of j, so the history tells the predictor both which branch is executing and where the inner loop is.</p>
-<p>Even so, at a fixed size global prediction is clearly worse than local, and it beats bimodal only above 1 KB. McFarling explains why with the information content of the counter index:</p>
-<ul>
-<li><strong>Address bits</strong> are worth a lot in a small table. Each doubling of the counters roughly halves the number of branches sharing a counter. Once every frequent branch has its own counter, each further address bit adds nothing.</li>
-<li><strong>History bits</strong> start out worth little but keep gaining. Each branch goes the same way more than 90% of the time, so the sequence of branches leading to a given branch is highly repetitive for that branch and usually different from the sequence leading to others. History therefore identifies the branch, less efficiently than the address does, and it also carries information the address doesn't. That is why it wins in large tables.</li>
-</ul>
+<p>McFarling's global predictor is the one in <a href="#/fe-classic/global">Global History Predictors</a>: the global history alone indexes the counter table. At a fixed size it is clearly worse than local prediction, and it beats bimodal only above 1 KB. His explanation, also in that section, is that history identifies the branch less efficiently than the address does.</p>
 
 <h4 id="sec-mcf-gselect">Global Predictor with Index Selection</h4>
-<p>If history identifies the branch less efficiently than the address, the obvious fix is to use both. Pan, So, and Rahmeh's predictor, which McFarling calls <strong>gselect</strong>, indexes the counter table with low PC bits concatenated with global history bits. A table of 2<sup>K</sup> counters can use anywhere from 1 to K − 1 address bits, with history filling the rest. McFarling plots only the best split at each size (gselect-best).</p>
+<p>If history identifies the branch less efficiently than the address, the obvious fix is to use both. That is the predictor in <a href="#/fe-classic/correlating">Correlating Predictors</a>, read as one table indexed by low PC bits concatenated with global history bits. Pan, So, and Rahmeh proposed it, and McFarling calls it <strong>gselect</strong>. A table of 2<sup>K</sup> counters can use anywhere from 1 to K − 1 address bits, with history filling the rest. McFarling plots only the best split at each size (gselect-best).</p>
 <p>gselect-best beats both bimodal and global prediction, since each of those is a degenerate case of it, all address bits or all history bits. At small sizes it tracks bimodal, because it needs its bits to tell branches apart. Once there are enough address bits to identify most branches, the extra bits go to history, and it pulls well ahead of bimodal and of plain global prediction.</p>
 <p>Against local prediction, gselect-best is better below 1 KB and close above it. McFarling finds that notable, because gselect needs one table access where local prediction needs two in sequence, and its history costs almost no storage. A gselect predictor should therefore have less delay and be easier to pipeline than a local one.</p>
 
