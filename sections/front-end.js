@@ -472,6 +472,8 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <h3 id="sec-bimodal">Bimodal Tables</h3>
 <p>A <strong>bimodal</strong> predictor is a table of 2-bit counters indexed by low bits of the branch PC, with no tag. Each counter learns the bias of the branches that map to it, and nothing else. A 4096-entry table costs 4096 counters × 2 bits/counter = 8 Kbits, which is 1 KB.</p>
 <p>The useful result from Hennessy and Patterson's SPEC89 data is where bimodal stops improving. A 4096-entry table mispredicts from about 1% of branches on the floating-point codes to 18% on eqntott, and an infinite table does essentially no better. Past a few thousand entries, capacity isn't the limit. The limit is the information: a counter indexed only by PC can't predict a branch whose direction changes, however much storage it has.</p>
+<p>McFarling's name for the scheme comes from how branches behave. Most branches are either usually taken or usually not taken, so branch behavior has a bimodal distribution, and the predictor only has to tell the two groups apart. His SPEC89 measurements show the same saturation as Hennessy and Patterson's, plotted against size. Average accuracy rises from about 89% at 32 B (128 counters) to about 93% at 1 KB (4096 counters), then stops at 93.5% once every branch has a counter of its own.</p>
+<p>He also weighs tags. A tagged, set-associative table beats an untagged array with the same number of counters, because branches stop sharing counters, but it saturates at the same 93.5%. Once the tag bits are counted, a plain array is often better for the same storage. The exception is a design that already keeps tags for a BTB, where the counters can live in the BTB entries at no extra tag cost.</p>
 <p>Bimodal tables are still in every predictor. They are TAGE's base table, the fallback when no tagged entry matches, and they make good single-cycle first-level predictors because they are small and fast (see <a href="#/fe-decoupled/overriding">Fast and Slow Predictors</a>).</p>
 
 <h3 id="sec-correlating">Correlating Predictors</h3>
@@ -493,13 +495,87 @@ if (aa != bb) { ... }    /* b3 */</code></pre>
 <p>Yeh and Patt's names describe the variants by where history and counters live. <strong>GAg</strong> uses one global history and one shared counter table. <strong>PAg</strong> uses per-address histories and one shared counter table. <strong>PAp</strong> uses per-address histories and per-address counter tables. Gshare, below, is a refinement of the global scheme.</p>
 
 <h3 id="sec-gshare">gshare and gselect</h3>
-<p>With a fixed index width, a predictor has to decide how to divide the bits between the PC and the history. McFarling compared two ways:</p>
+<p>gshare comes from McFarling's 1993 DEC WRL report, written as branches were becoming the main limit on instruction-level parallelism. Superscalar and superpipelined machines, especially ones that execute speculatively, have more instructions in flight per branch, so each mispredicted branch throws away more work. The compiler techniques that had kept branches cheap on early RISC machines were also running out. A delayed branch helps less as the number of delay slots to fill grows, and an architecture with several implementations, each with its own pipeline, can't choose one delay-slot count that suits them all. That left the job to hardware. McFarling splits it in two: predicting the direction, and supplying the target instructions of a taken branch quickly (the BTB's job). He studies only the direction. He starts from the three known schemes, each suited to one kind of branch:</p>
 <ul>
-<li><strong>gselect</strong> concatenates n low PC bits with m history bits into an (n + m)-bit index. It is a correlating predictor laid out as a single table.</li>
-<li><strong>gshare</strong> XORs the history with the PC, so every index bit depends on both. With a 14-bit index, gshare can use 14 PC bits <em>and</em> 14 history bits, where gselect would have to split them, say 7 and 7.</li>
+<li><strong>Bimodal:</strong> branches strongly biased one way.</li>
+<li><strong>Local:</strong> branches with simple repeating patterns of their own.</li>
+<li><strong>Global:</strong> branches correlated with the branches executed just before them.</li>
 </ul>
-<p>gshare wins because the (PC, history) pairs that actually occur are sparse. A strongly biased branch sees only a few history patterns, so gselect leaves most of the 2<sup>m</sup> counters reserved for its PC unused while other branches pile into the same PC slot. XOR spreads each branch's patterns over the whole table. McFarling found gshare better than gselect at every size he measured beyond the smallest.</p>
+<p>His two contributions are hashing the global history together with the branch address (gshare) and combining two predictors with a selector that picks, per branch, the one doing better. Together they reached 98.1% accuracy against 97.1% for the most accurate earlier scheme, typically at half the size or less for the same accuracy.</p>
+<p>All the numbers in the subsections below come from one setup:</p>
+<ul>
+<li><strong>Workload:</strong> the 10 SPEC89 benchmarks (doduc, eqntott, espresso, fpppp, gcc, li, matrix300, nasa7, spice, and tomcatv), a mix of symbolic and numeric programs.</li>
+<li><strong>Traces:</strong> the first 10 million instructions of each, traced on a DECstation 5000 with pixie.</li>
+<li><strong>Initial state:</strong> every counter set as if all earlier branches had been taken.</li>
+<li><strong>Metric:</strong> conditional branch prediction accuracy averaged over the benchmarks, plotted against predictor size from 32 B to 64 KB.</li>
+</ul>
+
+<h4 id="sec-mcf-local">Local Branch Prediction</h4>
+<p>McFarling's local predictor is the two-level structure from <a href="#/fe-classic/local">Local History Predictors</a>, Yeh and Patt's per-address scheme. A history table indexed by low PC bits holds each entry's last n outcomes, and that history indexes a table of 2-bit counters. He uses a plain array for the history table, with no tags, where Yeh and Patt assumed a set-associative one.</p>
+<p>His example is a loop that runs 4 times with its test at the bottom, <code>for (i = 1; i &lt;= 4; i++)</code>. Its branch produces the pattern (1110)<sup>n</sup>, so with 3 bits of history and 2<sup>3</sup> counters, the history always says which iteration comes next, and after the counters settle the predictor never misses. With more branches in the program, two kinds of contention appear:</p>
+<ul>
+<li><strong>History contention:</strong> branches that map to the same history entry mix their outcomes into one history, which then describes none of them.</li>
+<li><strong>Pattern contention:</strong> every branch shares the one counter table, so two branches can need opposite predictions after the same history. A branch running (0110)<sup>n</sup> and one running (1110)<sup>n</sup> collide this way at history 110. With 4 bits of history and 2<sup>4</sup> counters, their histories no longer overlap. If one pattern runs for a long time before the other starts, 3 bits are still enough, because the counters retrain to whichever pattern is current.</li>
+</ul>
+<p>McFarling sets the history table and the counter table to the same number of entries. Below about 128 B, local prediction is worse than bimodal, because there are so few history entries that contention leaves the stored histories worthless. Above that it is much better, and large local predictors approach 97.1%, with fewer than half the mispredictions of bimodal (2.9% against 6.5%). His appendix adds two refinements. Indexing the counters with a few address bits and fewer history bits sometimes helps, mostly because the history table gets smaller. Giving the history table as many entries as the counter table is usually a good choice. The cost that remains is two dependent table reads per prediction.</p>
+
+<h4 id="sec-mcf-global">Global Branch Prediction</h4>
+<p>A global predictor keeps a single shift register, GR, holding the outcomes of the last n conditional branches, and uses it alone to index the counter table. It captures two kinds of patterns:</p>
+<ul>
+<li><strong>Correlation between branches.</strong> In <code>if (x &lt; 1) ...</code> followed by <code>if (x &gt; 1) ...</code>, the first branch's outcome says a lot about the second. If x &lt; 1, the second condition can't hold. If not, the second is still likely to lean one way. Pan, So, and Rahmeh found many neighboring branches in SPEC with conditions correlated like this.</li>
+<li><strong>Local patterns, duplicated.</strong> When the global history happens to contain all the local history a branch needs, global prediction does as well as local prediction.</li>
+</ul>
+<p>McFarling's example of the second kind is a nested loop, <code>for (i = 0; i &lt; 100; i++)</code> around <code>for (j = 0; j &lt; 3; j++)</code>. With GR shifted left (newest outcome in the low bit, 1 for taken), the branches settle into:</p>
+<div class="tbl"><table>
+<tr><th>Branch test</th><th>Value</th><th>GR</th><th>Result</th></tr>
+<tr><td>j &lt; 3</td><td>j = 1</td><td>1101</td><td>Taken</td></tr>
+<tr><td>j &lt; 3</td><td>j = 2</td><td>1011</td><td>Taken</td></tr>
+<tr><td>j &lt; 3</td><td>j = 3</td><td>0111</td><td>Not taken</td></tr>
+<tr><td>i &lt; 100</td><td></td><td>1110</td><td>Usually taken</td></tr>
+</table></div>
+<p>Each history value appears before exactly one branch at exactly one value of j, so the history tells the predictor both which branch is executing and where the inner loop is.</p>
+<p>Even so, at a fixed size global prediction is clearly worse than local, and it beats bimodal only above 1 KB. McFarling explains why with the information content of the counter index:</p>
+<ul>
+<li><strong>Address bits</strong> are worth a lot in a small table. Each doubling of the counters roughly halves the number of branches sharing a counter. Once every frequent branch has its own counter, each further address bit adds nothing.</li>
+<li><strong>History bits</strong> start out worth little but keep gaining. Each branch goes the same way more than 90% of the time, so the sequence of branches leading to a given branch is highly repetitive for that branch and usually different from the sequence leading to others. History therefore identifies the branch, less efficiently than the address does, and it also carries information the address doesn't. That is why it wins in large tables.</li>
+</ul>
+
+<h4 id="sec-mcf-gselect">Global Predictor with Index Selection</h4>
+<p>If history identifies the branch less efficiently than the address, the obvious fix is to use both. Pan, So, and Rahmeh's predictor, which McFarling calls <strong>gselect</strong>, indexes the counter table with low PC bits concatenated with global history bits. A table of 2<sup>K</sup> counters can use anywhere from 1 to K − 1 address bits, with history filling the rest. McFarling plots only the best split at each size (gselect-best).</p>
+<p>gselect-best beats both bimodal and global prediction, since each of those is a degenerate case of it, all address bits or all history bits. At small sizes it tracks bimodal, because it needs its bits to tell branches apart. Once there are enough address bits to identify most branches, the extra bits go to history, and it pulls well ahead of bimodal and of plain global prediction.</p>
+<p>Against local prediction, gselect-best is better below 1 KB and close above it. McFarling finds that notable, because gselect needs one table access where local prediction needs two in sequence, and its history costs almost no storage. A gselect predictor should therefore have less delay and be easier to pipeline than a local one.</p>
+
+<h4 id="sec-mcf-gshare">Global History with Index Sharing</h4>
+<p>Because global history only weakly identifies the branch, gselect's index is redundant. Once the address bits identify the branch, each branch sees only a few of its possible history values, so most (address, history) combinations never occur. McFarling hashes the two together instead, with a bitwise XOR, and calls the result <strong>gshare</strong>. The XOR carries more information than either input alone, and it can use more address bits <em>and</em> more history bits than a concatenation of the same width. His example has two branches with two common histories each:</p>
+<div class="tbl"><table>
+<tr><th>Branch address</th><th>Global history</th><th>gselect 4/4 index</th><th>gshare 8/8 index</th></tr>
+<tr><td><code>00000000</code></td><td><code>00000001</code></td><td><code>00000001</code></td><td><code>00000001</code></td></tr>
+<tr><td><code>00000000</code></td><td><code>00000000</code></td><td><code>00000000</code></td><td><code>00000000</code></td></tr>
+<tr><td><code>11111111</code></td><td><code>00000000</code></td><td><code>11110000</code></td><td><code>11111111</code></td></tr>
+<tr><td><code>11111111</code></td><td><code>10000000</code></td><td><code>11110000</code></td><td><code>01111111</code></td></tr>
+</table></div>
+<p>gselect 4/4 concatenates the low 4 bits of the address with the low 4 bits of the history, so it drops the upper history bit that tells the last two cases apart and sends both to one counter. gshare 8/8 XORs all 8 bits of each and gives all four cases their own counter. At a realistic size the same holds: with a 14-bit index, gshare can use 14 PC bits <em>and</em> 14 history bits, where gselect would have to split them, say 7 and 7.</p>
+<p>gshare can also use fewer history bits than address bits. The history is then XORed into the higher-order address bits, which are sparser than the low ones, so they waste less of the index.</p>
+<p>Comparing the best history length for each, gshare-best beats gselect-best by a small margin at 256 B and above. Below 256 B it is worse: different branches already contend heavily for the few counters, and mixing in global history makes the contention worse.</p>
 <p>The cost is a new kind of collision. Under gselect, two branches whose n PC bits differ never share a counter. Under gshare, (PC<sub>1</sub>, H<sub>1</sub>) and (PC<sub>2</sub>, H<sub>2</sub>) collide whenever PC<sub>1</sub> ⊕ PC<sub>2</sub> = H<sub>1</sub> ⊕ H<sub>2</sub>, which can happen between any two branches.</p>
+
+<h4 id="sec-mcf-combining">Combining Branch Predictors</h4>
+<p>Since each scheme wins on different branches, McFarling's second idea is to run two predictors, P1 and P2, of any kind, and add a third array of 2-bit counters, indexed by PC, that tracks which one has been more accurate for the branches sharing each counter. With P1c and P2c being 1 when P1 or P2 was correct, the counter changes by P1c − P2c:</p>
+<div class="tbl"><table>
+<tr><th>P1 correct</th><th>P2 correct</th><th>Change</th></tr>
+<tr><td>No</td><td>No</td><td>None</td></tr>
+<tr><td>No</td><td>Yes</td><td>Decrement (toward P2)</td></tr>
+<tr><td>Yes</td><td>No</td><td>Increment (toward P1)</td></tr>
+<tr><td>Yes</td><td>Yes</td><td>None</td></tr>
+</table></div>
+<p>This is the chooser described in <a href="#/fe-classic/tournament">Tournament Predictors</a>, which later designs such as the Alpha 21264 built on.</p>
+<p>His main pairing is <strong>bimodal/gshare</strong>: global information is used where it helps, and the bimodal prediction otherwise. The gshare half uses as many history bits as address bits, the most global information it can hold, because diluting the address information no longer matters when bimodal is always there as a fallback. The same reason makes gshare a better partner than gselect. With each of the three arrays holding 1K counters (3 arrays × 1024 counters × 2 bits = 768 B) and every benchmark run to completion:</p>
+<ul>
+<li><strong>Accuracy:</strong> the combination beats both of its components on every benchmark. On eqntott, gshare is far better than bimodal (about 94% against about 82%), and the combination matches gshare.</li>
+<li><strong>Which side predicts:</strong> bimodal supplies most predictions, about 75% on average and nearly all of them on matrix300 and nasa7. eqntott is the exception, with gshare supplying most. The choice is made per branch, so within one benchmark some branches use bimodal and others gshare.</li>
+<li><strong>Mispredictions spread out:</strong> the number of instructions between mispredicted branches rises, most on the less predictable benchmarks such as gcc.</li>
+</ul>
+<p>Across sizes, McFarling gives the gshare array twice the counters of the other two (bimodalN/gshareN+1), so the total is a whole number of bytes and the selector's cost is spread over more counters. This predictor is significantly better than gselect-best: a 1 KB combined predictor does about as well as a 16 KB gselect-best one. From 2 KB up, a <strong>local/gshare</strong> combination does better still, approaching 98.1% in large sizes, since a large local predictor already captures everything a bimodal one does. His conclusion is that predictors needing only one level of table access, such as gselect, gshare, and bimodal/gshare, beat the two-level local schemes at all but the largest sizes.</p>
 
 <h3 id="sec-aliasing">Aliasing</h3>
 <p>Bimodal, correlating, and gshare tables have no tags, so any two (branch, history) pairs that map to one counter share it. This is <strong>aliasing</strong>, and its effect depends on the two branches:</p>
