@@ -643,12 +643,101 @@ if (aa != bb) { ... }    /* b3 */</code></pre>
       {
         q: `<p>A tournament predictor combines a bimodal component and a gshare component that uses 1 bit of global history. All 2-bit counters predict taken at 2 or 3. The bimodal counter starts at 2, both gshare counters (history 0 and history 1) start at 2, and the history starts at 0. The chooser counter starts at 1, where 0 and 1 select bimodal and 2 and 3 select gshare. It trains only when the components disagree. One branch runs alone, so the history bit is its own last outcome, and it alternates T, N, T, N, … starting with T. Trace the first 6 executions (numbered 0 to 5). How many mispredict, and what happens after that?</p>`,
         a: `<ol><li>Execution 0, outcome T, history 0. Bimodal (2) predicts T and moves to 3. Gshare counter for history 0 (2) predicts T and moves to 3. They agree, so the chooser stays at 1. The chosen bimodal prediction is correct. History becomes 1.</li><li>Execution 1, outcome N, history 1. Bimodal (3) predicts T and drops to 2. Gshare counter for history 1 (2) predicts T and drops to 1. Both are wrong, so the chooser stays at 1. <strong>Mispredict.</strong> History becomes 0.</li><li>Execution 2, outcome T, history 0. Bimodal (2) predicts T and moves to 3. Gshare counter for history 0 (3) predicts T and stays at 3. Both are right, so the chooser stays at 1. Correct. History becomes 1.</li><li>Execution 3, outcome N, history 1. Bimodal (3) predicts T and drops to 2. Gshare counter for history 1 (1) predicts N and drops to 0. They disagree and gshare was right, so the chooser moves from 1 to 2. The prediction used was the chooser's old choice, bimodal, so this is a <strong>mispredict</strong>. History becomes 0.</li><li>Execution 4, outcome T, history 0. Both predict T and are right, and the chooser (2) now selects gshare. Correct.</li><li>Execution 5, outcome N, history 1. Bimodal (3) predicts T, gshare (0) predicts N. They disagree, gshare is right, and the chooser moves to 3. The chosen gshare prediction is correct.</li><li>Total: <strong>2 mispredicts</strong> in 6 executions. From then on gshare predicts every outcome, the chooser saturates at 3, and the predictor never mispredicts again, even though bimodal keeps mispredicting every N. The chooser moved only on executions 3 and 5, the two where the components disagreed.</li></ol>`
+      },
+      {
+        q: `<p>The Alpha 21264's local component uses 3-bit counters that predict taken at 4 or more, and its global component uses 2-bit counters that predict taken at 2 or 3. Compare one 2-bit counter that starts at 3 with one 3-bit counter that starts at 7, each predicting one branch by itself.</p>
+<ol>
+<li>Branch A is taken 300 times, then not taken 300 times, then taken 300 times. How many of its 900 executions does each counter mispredict?</li>
+<li>Branch B repeats a 50-execution pattern: 48 taken, then 2 not taken. In steady state, how many mispredictions per 50 executions does each counter make?</li>
+<li>What do the two results say about widening the counter?</li>
+</ol>`,
+        a: `<ol>
+<li>Branch A, 2-bit counter. The first 300 taken outcomes keep it at 3 with no misses. At the switch to not taken, it predicts taken at 3 (miss, down to 2) and at 2 (miss, down to 1), then predicts not taken from 1 on and ends the phase at 0. At the switch back, it predicts not taken at 0 (miss, up to 1) and at 1 (miss, up to 2), then predicts taken. Total: 2 mispredictions + 2 mispredictions = <strong>4 mispredictions</strong> in 900 executions.</li>
+<li>Branch A, 3-bit counter. At the switch to not taken, it predicts taken at 7, 6, 5, and 4, so it misses 4 times before reaching 3, where it predicts not taken. It ends the phase at 0. At the switch back, it predicts not taken at 0, 1, 2, and 3, missing 4 more times. Total: 4 mispredictions + 4 mispredictions = <strong>8 mispredictions</strong> in 900 executions. Each phase change costs 2<sup>n−1</sup> mispredictions: 2<sup>1</sup> = 2 for n = 2 bits, 2<sup>2</sup> = 4 for n = 3 bits.</li>
+<li>Branch B, 2-bit counter. The 48 taken outcomes leave it at 3. The first not-taken outcome is predicted taken at 3 (miss, down to 2), and the second is predicted taken at 2 (miss, down to 1). The next taken outcome is predicted not taken at 1 (miss, up to 2), and from there it predicts taken and returns to 3. That is <strong>3 mispredictions per 50 executions</strong>, a rate of 3 mispredictions / 50 executions = 6%.</li>
+<li>Branch B, 3-bit counter. From 7, the two not-taken outcomes are both predicted taken (misses, down to 6 and then 5). At 5 it still predicts taken, so the next taken outcome is correct, and it climbs back to 7. That is <strong>2 mispredictions per 50 executions</strong>, a rate of 2 mispredictions / 50 executions = 4%.</li>
+<li>Conclusion. A wider counter helps only when anomalies come in short runs, longer than 1 outcome but shorter than 2<sup>n−1</sup> outcomes, like Branch B's pair. It costs twice as much on every real change of direction, like Branch A's phases. That trade is why Hennessy and Patterson find n-bit counters little better than 2-bit ones, and why 3-bit counters show up only in specific components, such as the 21264's local table and TAGE's tagged entries.</li>
+</ol>`
+      },
+      {
+        q: `<p>A predictor has a 6-bit counter index. Bit 0 is the least significant bit everywhere, and the global history holds the newest outcome in bit 0. Two branches, A and B, have these 6 PC bits (taken after dropping the byte offset) and each arrives with the histories shown:</p>
+<div class="tbl"><table>
+<tr><th>Pair</th><th>Branch</th><th>PC bits</th><th>History</th></tr>
+<tr><td>1</td><td>A</td><td><code>010110</code></td><td><code>000011</code></td></tr>
+<tr><td>2</td><td>A</td><td><code>010110</code></td><td><code>100011</code></td></tr>
+<tr><td>3</td><td>B</td><td><code>110110</code></td><td><code>000011</code></td></tr>
+<tr><td>4</td><td>B</td><td><code>110110</code></td><td><code>010101</code></td></tr>
+</table></div>
+<ol>
+<li>Compute each pair's index under gselect 3/3 (the low 3 PC bits followed by the low 3 history bits) and under gshare 6/6 (all 6 PC bits XOR all 6 history bits). Which pairs share a counter under each?</li>
+<li>Could any other gselect split of the 6 index bits give all four pairs their own counter?</li>
+<li>Explain gshare's one collision using the collision condition from the page.</li>
+</ol>`,
+        a: `<ol>
+<li>gselect 3/3. A's low 3 PC bits are <code>110</code>, and so are B's. The low 3 history bits are <code>011</code> for pairs 1, 2, and 3, and <code>101</code> for pair 4. The indices are <code>110011</code> for pairs 1, 2, and 3, and <code>110101</code> for pair 4. <strong>Three of the four pairs share one counter.</strong></li>
+<li>gshare 6/6, one XOR per pair:
+<ul>
+<li>Pair 1: <code>010110</code> ⊕ <code>000011</code> = <code>010101</code></li>
+<li>Pair 2: <code>010110</code> ⊕ <code>100011</code> = <code>110101</code></li>
+<li>Pair 3: <code>110110</code> ⊕ <code>000011</code> = <code>110101</code></li>
+<li>Pair 4: <code>110110</code> ⊕ <code>010101</code> = <code>100011</code></li>
+</ul>
+<strong>Only pairs 2 and 3 share a counter</strong>, so gshare uses 3 counters where gselect uses 2.</li>
+<li>Other gselect splits. A and B differ only in PC bit 5, and pairs 1 and 2 differ only in history bit 5. A gselect index with k PC bits and 6 − k history bits includes PC bit 5 only when k = 6 bits (pure bimodal, no history) and history bit 5 only when k = 0 bits (pure global, no address). No split includes both, so <strong>no gselect split separates all four pairs</strong>. This is McFarling's point: the distinguishing information sits in bits that a concatenation of the same width has to drop.</li>
+<li>gshare's collision. Two pairs collide when PC<sub>1</sub> ⊕ PC<sub>2</sub> = H<sub>1</sub> ⊕ H<sub>2</sub>. Here PC<sub>A</sub> ⊕ PC<sub>B</sub> = <code>010110</code> ⊕ <code>110110</code> = <code>100000</code>, and H<sub>2</sub> ⊕ H<sub>3</sub> = <code>100011</code> ⊕ <code>000011</code> = <code>100000</code>. They match, so pairs 2 and 3 meet in counter <code>110101</code>. Whether that hurts depends on the outcomes: if both pairs usually go the same way the aliasing is constructive or neutral, and if they go opposite ways it is destructive.</li>
+</ol>`
       }
     ],
     interview: [
       {
         q: `<p>Your tournament predictor's chooser is indexed by PC, as in McFarling's design. One hot branch in a shared library is called from two places. Called from one, it follows global history closely. Called from the other, it follows only its own local pattern. Assume the two callers interleave in roughly equal numbers. What does the PC-indexed chooser do with this branch, and how would you change the design?</p>`,
         a: `<p>Assume both components are big enough that the branch's entries don't alias with other branches. A PC-indexed chooser has one counter for the branch, so it sees a mix of disagreements where global was right (calls from the first site) and where local was right (calls from the second). It drifts toward whichever wins more disagreements overall, or wanders between them, and the branch ends up predicted by the wrong component for about half of its executions.</p><p>The fix is to let the choice depend on context. Index the chooser with global history, as the Alpha 21264 did, or with PC XOR history. The two call sites leave different recent outcomes in the history, so they reach different chooser counters and each learns its own choice. The cost is that the chooser now aliases and trains like a gshare table, so it needs more entries and warms up more slowly. The more general answer is TAGE, which drops the fixed two-way choice and lets a tagged entry for each history length compete per context.</p>`
+      },
+      {
+        q: `<p>A filter loop runs <code>if (x[i] &lt; t) out[k++] = x[i];</code> over 16,777,216 bytes drawn uniformly and independently from 0 to 255. On your core, the branchy version takes 1.0 cycles/element when the branch is predicted perfectly, a mispredict costs 17 cycles, and a branchless version (a conditional move and an unconditional store) takes 1.6 cycles/element no matter what. Assume the loop's own back-edge branch is always predicted correctly and the filter branch gets a 2-bit counter in a predictor with no aliasing. Compare the two versions in total cycles for t = 128 and for t = 250, and give the mispredict rate at which they break even. What happens to the t = 128 case if the input is sorted first?</p>`,
+        a: `<p>Assume no other stalls, so the 17-cycle penalty is the whole cost of a mispredict.</p>
+<ul>
+<li><strong>t = 128.</strong> The branch is taken with probability 128 values / 256 values = 50%, independently each time. Neither the counter nor any history can learn anything, so assume it mispredicts 50% of the time. Branchy: 16,777,216 elements × (1.0 cycles/element + 128/256 mispredicts/element × 17 cycles/mispredict) = 159,383,552 cycles. Branchless: 16,777,216 elements × 1.6 cycles/element = 26,843,545.6 cycles. The branchless version is about 5.9× faster.</li>
+<li><strong>t = 250.</strong> The branch is taken with probability 250/256, so the counter sits in its taken half. A lone not-taken outcome only drops it to weak taken. Assume two rare outcomes in a row are negligible, since that has probability (6/256)<sup>2</sup> ≈ 0.05% per element. Then it mispredicts only the 6/256 not-taken outcomes. Branchy: 16,777,216 elements × (1.0 cycles/element + 6/256 mispredicts/element × 17 cycles/mispredict) = 23,461,888 cycles. Branchless is unchanged at 26,843,545.6 cycles, so <strong>the branchy version wins</strong>: branchless takes 26,843,545.6 cycles / 23,461,888 cycles ≈ 1.14× as long.</li>
+<li><strong>Break-even.</strong> 1.0 cycles/element + p × 17 cycles/mispredict = 1.6 cycles/element gives p = (1.6 cycles/element − 1.0 cycles/element) / 17 cycles/mispredict ≈ 3.5% mispredicts/element. A data-dependent branch is worth keeping only when its data is biased enough to stay below that.</li>
+<li><strong>Sorted input, t = 128.</strong> The branch becomes 8,388,608 taken outcomes followed by 8,388,608 not-taken outcomes. The 2-bit counter mispredicts about twice at the switch, so branchy takes about 16,777,216 elements × 1.0 cycles/element = 16,777,216 cycles plus 2 mispredicts × 17 cycles/mispredict. It beats branchless by about 1.6×. The data, not the predictor, decides which version is faster, and no larger or smarter predictor would rescue the random case.</li>
+</ul>`
+      },
+      {
+        q: `<p>In your simulator, doubling a gshare table from 16K to 32K 2-bit counters (4 KB to 8 KB) changes MPKI (mispredictions per 1000 instructions) very differently on two traces. Both runs use the same 14 bits of history and fully warmed tables, and each measures 200 million instructions:</p>
+<ul>
+<li><strong>505.mcf_r:</strong> 9.80 MPKI to 9.74 MPKI.</li>
+<li><strong>A web-search leaf server trace, with about 40,000 static conditional branches executed in the window:</strong> 6.1 MPKI to 4.9 MPKI.</li>
+</ul>
+<p>Explain the difference, describe the experiments that would confirm your explanation, and say what you would try next on each workload.</p>`,
+        a: `<p>The two traces are limited by different things. mcf is limited by information and the server trace by capacity.</p>
+<ul>
+<li><strong>mcf.</strong> Its hot code is small, so 16K counters already hold its (branch, history) pairs, and the extra 16K counters remove almost no aliasing: 9.80 MPKI − 9.74 MPKI = 0.06 MPKI. Its mispredictions come from branches on data it loads while chasing pointers through a large graph, such as cost comparisons, so no PC-and-history index can predict them.</li>
+<li><strong>Server trace.</strong> 40,000 static branches, each seen with several histories, are far more pairs than 16K counters can hold. The misses are capacity and conflict aliasing, so doubling the table removes many of them: 6.1 MPKI − 4.9 MPKI = 1.2 MPKI, about 20% of the original 6.1 MPKI.</li>
+</ul>
+<p>To confirm it:</p>
+<ol>
+<li>Run an aliasing-free version, with one counter per distinct (PC, history) pair in an unbounded map. If mcf stays near 9.7 MPKI, its limit is information. If the server trace falls well below 4.9 MPKI, more capacity, or tags, would keep paying off.</li>
+<li>Count the distinct (PC, history) pairs each trace touches, and the share of predictions made by a counter that a different pair trained last. That share should be high for the server trace and low for mcf.</li>
+<li>Rank static branches by mispredictions. mcf's should concentrate in a handful of data-dependent branches that mispredict at a high rate even with no aliasing. The server trace's should spread across many branches that are individually predictable.</li>
+</ol>
+<p>Next steps. For mcf, a bigger table won't help. Try more information instead, such as TAGE's longer histories or a statistical corrector, and accept that some branches stay near their data's entropy. The real fix there is often in software: branchless code or a data layout that makes the outcomes regular. For the server trace, try bigger or tagged tables (TAGE turns silent collisions into detected misses) and better index hashing. Check that the 8 KB table still fits the predictor's cycle budget, or put it behind a fast first-level predictor that it overrides. Also check the BTB: a footprint this large usually overflows it too.</p>`
+      },
+      {
+        q: `<p>You are adding a first-level direction predictor to a decoupled front end. It must answer in one cycle and has a budget of 64 B. The hot code has about 1,500 static conditional branches. The candidates are:</p>
+<ul>
+<li>Bimodal: 256 2-bit counters.</li>
+<li>Local: 64 history entries of 6 bits each indexing 64 2-bit counters (64 entries × 6 bits/entry + 64 counters × 2 bits/counter = 512 bits = 64 B).</li>
+<li>gshare: 256 2-bit counters indexed by 8 PC bits XOR 8 history bits.</li>
+</ul>
+<p>Which do you choose, and why do the other two lose at this size? Which would you choose if the budget grew to 8 KB and the one-cycle constraint were lifted?</p>`,
+        a: `<p>Choose <strong>bimodal</strong>. Assume the branches spread evenly over the index bits, and that "hot" means each of the 1,500 branches runs often enough to train a counter.</p>
+<ul>
+<li><strong>Why bimodal wins at 64 B.</strong> Even it is crowded: 1,500 branches / 256 counters ≈ 5.9 branches/counter. It survives because most branches are strongly biased, so branches sharing a counter often push it the same way. Its PC bits are the most efficient information at this size, as McFarling's information-content argument says.</li>
+<li><strong>Why local loses.</strong> 1,500 branches / 64 history entries ≈ 23 branches/entry, so each stored history is a mix of about 23 branches' outcomes and describes none of them. This is McFarling's history contention, and it is why his local predictor falls below bimodal under about 128 B. It also needs two dependent table reads, which makes one cycle hard to meet.</li>
+<li><strong>Why gshare loses.</strong> It has the same 256 counters as bimodal, but each branch now spreads over one counter per history value it sees. A table already shared by about 5.9 branches per counter gets more crowded, and destructive aliasing rises. McFarling found that gshare loses to gselect below 256 B, and that gselect tracks bimodal at small sizes.</li>
+</ul>
+<p>At <strong>8 KB</strong>, that is 8 KB × 8 bits/B / 2 bits/counter = 32,768 counters, about 22 counters per branch. Bimodal stops improving once every branch has its own counter, so the extra space should buy history. Among the designs on this page, choose a combined predictor, either bimodal/gshare or, at this size, local/gshare, which McFarling found best from 2 KB up. A modern design would use TAGE instead. Either way, a predictor this large will likely take more than one cycle, so keep the 64 B bimodal as the fast first level and let the large predictor override it.</p>`
       }
     ]
   }
