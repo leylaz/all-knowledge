@@ -372,6 +372,8 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
     { id: "gshare", label: "gshare and gselect" },
     { id: "aliasing", label: "Aliasing" },
     { id: "tournament", label: "Tournament Predictors" },
+    { id: "size", label: "When Bigger Tables Stop Helping" },
+    { id: "workloads", label: "Where They Work and Where They Fail" },
     { id: "summary", label: "What Each Predictor Captures" }
   ],
   body: `
@@ -379,7 +381,92 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 
 <h3 id="sec-counters">Saturating Counters</h3>
 <p>The simplest dynamic predictor keeps one bit per branch: the last outcome. On a loop branch it mispredicts twice per visit to the loop, once at the exit (it predicts taken, the loop falls through) and again on the next entry (it predicts not taken, the loop branch is taken).</p>
-<p>A <strong>2-bit saturating counter</strong> fixes that with hysteresis. It counts up on a taken outcome and down on a not-taken one, stays within 0 to 3, and predicts taken at 2 or 3. A branch in a strong state (0 or 3) has to go the other way twice in a row before the prediction flips, so a loop branch mispredicts only at the exit. The state diagram is in <a href="#/branch-hazards/dynamic">Dynamic Prediction</a>.</p>
+<p>A <strong>2-bit saturating counter</strong> fixes that with hysteresis. It counts up on a taken outcome and down on a not-taken one, stays within 0 to 3, and predicts taken at 2 or 3. A branch in a strong state (0 or 3) has to go the other way twice in a row before the prediction flips, so a loop branch mispredicts only at the exit. The figure lays the states out in counter order (the same machine is drawn as a state diagram in <a href="#/branch-hazards/dynamic">Dynamic Prediction</a>).</p>
+<div class="tbl"><svg viewBox="0 0 680 468" role="img" aria-label="A 2-bit saturating counter drawn as four states in counter order: 00 strong not taken, 01 weak not taken, 10 weak taken, 11 strong taken. Bit 1, the high bit, is the prediction: 00 and 01 predict not taken, 10 and 11 predict taken. Bit 0 is the confidence: the state is strong when bit 0 equals bit 1. A taken outcome adds 1 and a not-taken outcome subtracts 1, saturating at 11 and 00. Below, a loop branch that goes T T T N on every visit: starting from 11, the 2-bit counter mispredicts only the N at each exit, dropping to 10 and coming straight back to 11. A 1-bit predictor mispredicts the exit and also the first T of the next visit." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrCtr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<text x="0" y="16" style="fill:var(--ink);font-size:13px;font-weight:600">The four states of a 2-bit counter, in counter order</text>
+<rect x="10" y="28" width="325" height="184" rx="6" style="fill:var(--pad-soft);stroke:none"/>
+<rect x="345" y="28" width="325" height="184" rx="6" style="fill:var(--trace-soft);stroke:none"/>
+<text x="22" y="48" style="fill:var(--ink);font-size:11px;font-weight:600">Bit 1 = 0: predict not taken</text>
+<text x="357" y="48" style="fill:var(--trace);font-size:11px;font-weight:600">Bit 1 = 1: predict taken</text>
+<rect x="45" y="85" width="100" height="70" rx="6" style="fill:var(--surface);stroke:var(--trace);stroke-width:2.5"/>
+<text x="95" y="113" text-anchor="middle" style="fill:var(--ink);font-size:20px;font-weight:600;font-family:var(--mono)">00</text>
+<text x="95" y="130" text-anchor="middle" style="fill:var(--muted);font-size:10px">value 0</text>
+<text x="95" y="146" text-anchor="middle" style="fill:var(--ink);font-size:10px">Strong not taken</text>
+<rect x="200" y="85" width="100" height="70" rx="6" style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5"/>
+<text x="250" y="113" text-anchor="middle" style="fill:var(--ink);font-size:20px;font-weight:600;font-family:var(--mono)">01</text>
+<text x="250" y="130" text-anchor="middle" style="fill:var(--muted);font-size:10px">value 1</text>
+<text x="250" y="146" text-anchor="middle" style="fill:var(--ink);font-size:10px">Weak not taken</text>
+<rect x="380" y="85" width="100" height="70" rx="6" style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5"/>
+<text x="430" y="113" text-anchor="middle" style="fill:var(--ink);font-size:20px;font-weight:600;font-family:var(--mono)">10</text>
+<text x="430" y="130" text-anchor="middle" style="fill:var(--muted);font-size:10px">value 2</text>
+<text x="430" y="146" text-anchor="middle" style="fill:var(--ink);font-size:10px">Weak taken</text>
+<rect x="535" y="85" width="100" height="70" rx="6" style="fill:var(--surface);stroke:var(--trace);stroke-width:2.5"/>
+<text x="585" y="113" text-anchor="middle" style="fill:var(--ink);font-size:20px;font-weight:600;font-family:var(--mono)">11</text>
+<text x="585" y="130" text-anchor="middle" style="fill:var(--muted);font-size:10px">value 3</text>
+<text x="585" y="146" text-anchor="middle" style="fill:var(--ink);font-size:10px">Strong taken</text>
+<path d="M147,108 L198,108" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrCtr)"/>
+<text x="172.5" y="102" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">T: +1</text>
+<path d="M198,136 L147,136" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrCtr)"/>
+<text x="172.5" y="150" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">N: −1</text>
+<path d="M302,108 L378,108" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrCtr)"/>
+<text x="340" y="102" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">T: +1</text>
+<path d="M378,136 L302,136" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrCtr)"/>
+<text x="340" y="150" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">N: −1</text>
+<path d="M482,108 L533,108" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrCtr)"/>
+<text x="507.5" y="102" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">T: +1</text>
+<path d="M533,136 L482,136" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrCtr)"/>
+<text x="507.5" y="150" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">N: −1</text>
+<path d="M570,85 C558,48 612,48 600,83" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrCtr)"/>
+<text x="585" y="46" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">T: stays at 11</text>
+<path d="M110,155 C122,192 68,192 80,157" style="fill:none;stroke:var(--muted);stroke-width:1.5" marker-end="url(#arrCtr)"/>
+<text x="95" y="203" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-weight:600">N: stays at 00</text>
+<g style="fill:var(--ink);font-size:11px">
+<text x="10" y="234"><tspan style="font-weight:600">Bit 1 (high bit)</tspan> is the prediction: 1 predicts taken, 0 predicts not taken.</text>
+<text x="10" y="252"><tspan style="font-weight:600">Bit 0 (low bit)</tspan> is the confidence: strong when it equals bit 1 (00, 11), weak when it differs (01, 10).</text>
+<text x="10" y="270"><tspan style="font-weight:600">Update:</tspan> taken adds 1, not taken subtracts 1, and the counter saturates at 00 and 11 instead of wrapping.</text>
+</g>
+<text x="0" y="306" style="fill:var(--ink);font-size:13px;font-weight:600">A loop branch with 4 iterations per visit (T T T N), already warmed up</text>
+<text x="10" y="334" style="fill:var(--muted);font-size:11px;font-weight:600">Execution</text>
+<text x="227" y="334" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">0</text>
+<text x="285" y="334" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">1</text>
+<text x="343" y="334" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">2</text>
+<text x="401" y="334" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">3</text>
+<text x="459" y="334" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">4</text>
+<text x="517" y="334" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">5</text>
+<text x="575" y="334" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">6</text>
+<text x="633" y="334" text-anchor="middle" style="fill:var(--muted);font-size:11px;font-family:var(--mono)">7</text>
+<text x="10" y="362" style="fill:var(--ink);font-size:11px;font-weight:600">Outcome</text>
+<rect x="200" y="347" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="227" y="362" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">T</text>
+<rect x="258" y="347" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="285" y="362" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">T</text>
+<rect x="316" y="347" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="343" y="362" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">T</text>
+<rect x="374" y="347" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="401" y="362" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">N</text>
+<rect x="432" y="347" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="459" y="362" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">T</text>
+<rect x="490" y="347" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="517" y="362" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">T</text>
+<rect x="548" y="347" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="575" y="362" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">T</text>
+<rect x="606" y="347" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="633" y="362" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">N</text>
+<text x="10" y="390" style="fill:var(--ink);font-size:11px;font-weight:600">2-bit: state → prediction</text>
+<rect x="200" y="375" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="227" y="390" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="258" y="375" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="285" y="390" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="316" y="375" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="343" y="390" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="374" y="375" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--accent-red);stroke-width:2"/><text x="401" y="390" text-anchor="middle" style="fill:var(--accent-red);font-size:11px;font-family:var(--mono);font-weight:600">11 → T</text>
+<rect x="432" y="375" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="459" y="390" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">10 → T</text>
+<rect x="490" y="375" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="517" y="390" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="548" y="375" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="575" y="390" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">11 → T</text>
+<rect x="606" y="375" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--accent-red);stroke-width:2"/><text x="633" y="390" text-anchor="middle" style="fill:var(--accent-red);font-size:11px;font-family:var(--mono);font-weight:600">11 → T</text>
+<text x="10" y="418" style="fill:var(--ink);font-size:11px;font-weight:600">1-bit: state → prediction</text>
+<rect x="200" y="403" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="227" y="418" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">1 → T</text>
+<rect x="258" y="403" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="285" y="418" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">1 → T</text>
+<rect x="316" y="403" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="343" y="418" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">1 → T</text>
+<rect x="374" y="403" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--accent-red);stroke-width:2"/><text x="401" y="418" text-anchor="middle" style="fill:var(--accent-red);font-size:11px;font-family:var(--mono);font-weight:600">1 → T</text>
+<rect x="432" y="403" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--accent-red);stroke-width:2"/><text x="459" y="418" text-anchor="middle" style="fill:var(--accent-red);font-size:11px;font-family:var(--mono);font-weight:600">0 → N</text>
+<rect x="490" y="403" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="517" y="418" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">1 → T</text>
+<rect x="548" y="403" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/><text x="575" y="418" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-family:var(--mono)">1 → T</text>
+<rect x="606" y="403" width="54" height="22" rx="3" style="fill:var(--surface);stroke:var(--accent-red);stroke-width:2"/><text x="633" y="418" text-anchor="middle" style="fill:var(--accent-red);font-size:11px;font-family:var(--mono);font-weight:600">1 → T</text>
+<text x="10" y="440" style="fill:var(--muted);font-size:11px">Red cells mispredict. The exit drops the 2-bit counter only to 10 (weak taken): 1 miss per visit.</text>
+<text x="10" y="458" style="fill:var(--muted);font-size:11px">The 1-bit predictor flips to N at the exit and misses the re-entry too: 2 misses per visit.</text>
+</svg></div>
+<p>Hennessy and Patterson define the general n-bit counter the same way: it holds a value from 0 to 2<sup>n</sup> − 1, a taken branch increments it and a not-taken branch decrements it (both saturating), and it predicts taken when the value is at least half its maximum, 2<sup>n−1</sup>. That threshold is exactly the counter's top bit, so reading the prediction costs nothing. The lower bits only set how many wrong outcomes in a row it takes to flip that bit: 2<sup>n−1</sup> from a strong state.</p>
 <p>Wider counters exist (TAGE's tagged entries use 3 bits), but Hennessy and Patterson note that an n-bit counter does little better than a 2-bit one for most branches. Two bits is the standard building block.</p>
 
 <h3 id="sec-bimodal">Bimodal Tables</h3>
@@ -448,6 +535,32 @@ if (aa != bb) { ... }    /* b3 */</code></pre>
 </ul>
 <p>Hennessy and Patterson's Section 3.3 comparison shows tournament predictors beating correlating predictors of the same size on SPEC89, by the largest margin at small budgets. Later designs kept the idea of several components plus a selection rule. Hennessy and Patterson describe the Intel Core i7 920's predictor as combining a 2-bit predictor, a global history predictor, and a loop exit predictor, and TAGE's provider and alternate predictions are a generalized chooser.</p>
 
+<h3 id="sec-size">When Bigger Tables Stop Helping</h3>
+<p>Every curve of misprediction rate against predictor size has the same shape: a steep drop while the table is too small for the program's branches, then a flat tail. Hennessy and Patterson show it twice. In Appendix C.2, a 4096-entry bimodal table and an infinite one mispredict at essentially the same rate on every SPEC89 program. In Section 3.3, the local, correlating, and tournament predictors all flatten as their total storage grows, with the tournament predictor lowest at every size. Adding bits stops paying for four reasons:</p>
+<ul>
+<li><strong>The information runs out before the capacity does.</strong> Once every hot static branch has its own counter, the remaining mispredictions come from branches whose outcome isn't a function of what the predictor looks at. More entries indexed by the same PC and history can only repeat the same guess. This is why Hennessy and Patterson's (2, 2) correlating predictor beats an infinite bimodal table: it adds information, not entries.</li>
+<li><strong>Longer history dilutes training.</strong> The usual way to spend a bigger budget is more history bits, but each extra bit can double the number of (branch, history) patterns a branch spreads over. Each counter then sees fewer outcomes and takes longer to train, and history bits that don't correlate with the branch add noise that splits one well-trained counter into many cold ones. Juan, Sanjeevan, and Navarro (1998) found that the best history length differs per program and that going past it raises the misprediction rate. TAGE answers this by keeping several history lengths at once and choosing per branch (see <a href="#/fe-direction/tage">TAGE</a>).</li>
+<li><strong>Bigger tables are slower.</strong> Access time grows with table size, and a prediction is needed every cycle to fetch the next block. Jiménez, Keckler, and Lin (2000) showed that once delay is counted, a large predictor that can't answer in one cycle can lose to a smaller one that can. Real designs pair a small fast predictor with a large slow one that overrides it (see <a href="#/fe-decoupled/overriding">Fast and Slow Predictors</a>).</li>
+<li><strong>Bigger tables warm up more slowly.</strong> After a context switch or phase change, a large history-indexed table needs many outcomes before most of its counters are trained, so short-running or frequently switched code sees little of the extra capacity.</li>
+</ul>
+<p>The one place size keeps helping is a large code footprint: when there are more hot branches than entries, the misses are capacity aliasing, and a bigger table removes them. That is the server-workload case below.</p>
+
+<h3 id="sec-workloads">Where They Work and Where They Fail</h3>
+<p>How well a predictor does depends far more on the program than on the predictor. Hennessy and Patterson's SPEC89 numbers for a 4096-entry 2-bit table make the split plain: the floating-point programs nasa7, matrix300, and tomcatv mispredict about 1% of branches or less, while the integer programs gcc, li, and eqntott mispredict 12%, 10%, and 18%. Their Core i7 data on SPEC CPU2006 shows the same split with a modern predictor: the integer benchmarks mispredict more often than the floating-point ones. Integer programs also execute more branches per instruction, so the gap in mispredictions per 1000 instructions is wider than the gap in rates.</p>
+<p>Predictors do best on:</p>
+<ul>
+<li><strong>Loop-heavy scientific and floating-point code.</strong> Most branches are loop back edges with long trip counts, taken nearly every time, so even a bimodal counter misses only the exit.</li>
+<li><strong>Strongly biased branches.</strong> Error checks, bounds checks, and null tests almost always go one way, and a 2-bit counter learns them in one or two outcomes.</li>
+<li><strong>Branches that follow a fixed pattern or other branches.</strong> Short loops with a constant trip count, and branches that test the same condition as an earlier branch, are what local history, gshare, and TAGE capture.</li>
+</ul>
+<p>They do worst on:</p>
+<ul>
+<li><strong>Branches on unpredictable data.</strong> A test such as <code>if (x[i] &gt;= threshold)</code> on random input, a comparison in a sort or binary search, a hash-table probe, or a decision in a compressor goes either way with no pattern in any history, so every predictor mispredicts it close to half the time. The same loop over sorted input predicts almost perfectly. The fix is in the code, not the predictor: branchless code (a conditional move or predication) turns the control dependence into a data dependence.</li>
+<li><strong>Integer code with irregular control flow.</strong> Compilers, interpreters, and logic tools have many branches that depend on the input being processed, which is why gcc, li, and eqntott sit at the top of Hennessy and Patterson's table.</li>
+<li><strong>Large code footprints.</strong> Server and datacenter workloads touch so many static branches that the tables thrash. That is capacity aliasing rather than an information limit (Ferdman et al., 2012, measured how large these instruction footprints are), so here bigger tables, and bigger BTBs, keep paying off.</li>
+<li><strong>Frequent context switches and short phases.</strong> The tables never finish training, and the history-based components suffer most, which is why a tournament chooser leans on bimodal right after a switch.</li>
+</ul>
+
 <h3 id="sec-summary">What Each Predictor Captures</h3>
 <div class="tbl"><table>
 <tr><th>Predictor</th><th>Information it uses</th><th>Learns</th><th>Fails on</th></tr>
@@ -456,7 +569,7 @@ if (aa != bb) { ... }    /* b3 */</code></pre>
 <tr><td>Correlating or gshare</td><td>PC and global history</td><td>Correlation with the last m branches</td><td>Correlation older than m, and branches whose patterns alias</td></tr>
 <tr><td>Tournament</td><td>Both, plus a chooser</td><td>Per branch, the better of two components</td><td>Branches neither component predicts</td></tr>
 </table></div>
-<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 5th ed., Appendix C.2 (2-bit prediction schemes) and Section 3.3 (correlating and tournament predictors, and the Intel Core i7 predictor) · McFarling, "Combining Branch Predictors," DEC WRL TN-36, 1993 · Yeh and Patt, "Two-Level Adaptive Training Branch Prediction," MICRO 1991 · Pan, So, and Rahmeh, "Improving the Accuracy of Dynamic Branch Prediction Using Branch Correlation," ASPLOS 1992 · Young, Gloy, and Smith, "A Comparative Analysis of Schemes for Correlated Branch Prediction," ISCA 1995 · Michaud, Seznec, and Uhlig, "Trading Conflict and Capacity Aliasing in Conditional Branch Predictors," ISCA 1997 · Sprangle, Chappell, Alsup, and Patt, "The Agree Predictor," ISCA 1997 · Lee, Chen, and Mudge, "The Bi-Mode Branch Predictor," MICRO 1997 · Kessler, "The Alpha 21264 Microprocessor," IEEE Micro, 1999</p>`,
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 5th ed., Appendix C.2 (2-bit prediction schemes) and Section 3.3 (correlating and tournament predictors, and the Intel Core i7 predictor) · McFarling, "Combining Branch Predictors," DEC WRL TN-36, 1993 · Yeh and Patt, "Two-Level Adaptive Training Branch Prediction," MICRO 1991 · Pan, So, and Rahmeh, "Improving the Accuracy of Dynamic Branch Prediction Using Branch Correlation," ASPLOS 1992 · Young, Gloy, and Smith, "A Comparative Analysis of Schemes for Correlated Branch Prediction," ISCA 1995 · Michaud, Seznec, and Uhlig, "Trading Conflict and Capacity Aliasing in Conditional Branch Predictors," ISCA 1997 · Sprangle, Chappell, Alsup, and Patt, "The Agree Predictor," ISCA 1997 · Lee, Chen, and Mudge, "The Bi-Mode Branch Predictor," MICRO 1997 · Kessler, "The Alpha 21264 Microprocessor," IEEE Micro, 1999 · Juan, Sanjeevan, and Navarro, "Dynamic History-Length Fitting: A Third Level of Adaptivity for Branch Prediction," ISCA 1998 · Jiménez, Keckler, and Lin, "The Impact of Delay on the Design of Branch Predictors," MICRO 2000 · Ferdman et al., "Clearing the Clouds: A Study of Emerging Scale-Out Workloads on Modern Hardware," ASPLOS 2012</p>`,
   practice: {
     guided: [
       {
