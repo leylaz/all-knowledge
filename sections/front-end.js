@@ -980,7 +980,107 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <p>gselect 4/4 concatenates the low 4 bits of the address with the low 4 bits of the history, so it drops the upper history bit that tells the last two cases apart and sends both to one counter. gshare 8/8 XORs all 8 bits of each and gives all four cases their own counter. At a realistic size the same holds: with a 14-bit index, gshare can use 14 PC bits <em>and</em> 14 history bits, where gselect would have to split them, say 7 and 7.</p>
 <p>gshare can also use fewer history bits than address bits. The history is then XORed into the higher-order address bits, which are sparser than the low ones, so they waste less of the index.</p>
 <p>Comparing the best history length for each, gshare-best beats gselect-best by a small margin at 256 B and above. Below 256 B it is worse: different branches already contend heavily for the few counters, and mixing in global history makes the contention worse.</p>
-<p>The cost is a new kind of collision. Under gselect, two branches whose n PC bits differ never share a counter. Under gshare, (PC<sub>1</sub>, H<sub>1</sub>) and (PC<sub>2</sub>, H<sub>2</sub>) collide whenever PC<sub>1</sub> ⊕ PC<sub>2</sub> = H<sub>1</sub> ⊕ H<sub>2</sub>, which can happen between any two branches.</p>
+<div class="tbl"><svg viewBox="0 0 680 390" role="img" aria-label="Six branches, A to F, with PC index bits 0 to 5, each arriving with two global histories, H = 0 and H = 1, are placed in a gshare table that XORs the history bit into the top index bit. In a 4-counter table, PC bits alone give 1.5 branches per counter: counter 0 holds A and E, counter 1 holds B and F, counter 2 holds C, and counter 3 holds D. XORing in the history makes 12 (branch, history) pairs, 3 per counter: counter 0 holds A0, C1, and E0, counter 1 holds B0, D1, and F0, counter 2 holds A1, C0, and E1, and counter 3 holds B1, D0, and F1. Half the counters were already shared, and now every one is, so the history makes contention worse. In a 16-counter table, PC bits alone put A to F in counters 0 to 5. With the history bit, the H = 0 pairs stay in counters 0 to 5 and the H = 1 pairs move to counters 8 to 13, so all 12 pairs have their own counter and the history's information comes at no cost. McFarling's crossover for SPEC89 is near 256 B, 1024 counters." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="16" style="fill:var(--ink);font-size:13px;font-weight:600">The same 6 branches before and after XORing in 1 history bit</text>
+<text x="0" y="42" style="fill:var(--ink);font-size:12px;font-weight:600">Small table: 4 counters, index = PC[1:0] ⊕ (H &lt;&lt; 1)</text>
+<text x="173" y="58" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">0</text>
+<text x="303" y="58" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">1</text>
+<text x="433" y="58" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">2</text>
+<text x="563" y="58" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">3</text>
+<text x="102" y="86" text-anchor="end" style="fill:var(--muted);font-size:10px">PC only</text>
+<rect x="110" y="64" width="126" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2"/>
+<text x="173" y="85" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">A E</text>
+<rect x="240" y="64" width="126" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2"/>
+<text x="303" y="85" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">B F</text>
+<rect x="370" y="64" width="126" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="433" y="85" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">C</text>
+<rect x="500" y="64" width="126" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="563" y="85" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">D</text>
+<text x="102" y="126" text-anchor="end" style="fill:var(--muted);font-size:10px">PC ⊕ history</text>
+<rect x="110" y="104" width="126" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2"/>
+<text x="173" y="125" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">A<tspan style="font-size:9px" dy="3">0</tspan><tspan dy="-3"> </tspan> C<tspan style="font-size:9px" dy="3">1</tspan><tspan dy="-3"> </tspan> E<tspan style="font-size:9px" dy="3">0</tspan><tspan dy="-3"> </tspan></text>
+<rect x="240" y="104" width="126" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2"/>
+<text x="303" y="125" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">B<tspan style="font-size:9px" dy="3">0</tspan><tspan dy="-3"> </tspan> D<tspan style="font-size:9px" dy="3">1</tspan><tspan dy="-3"> </tspan> F<tspan style="font-size:9px" dy="3">0</tspan><tspan dy="-3"> </tspan></text>
+<rect x="370" y="104" width="126" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2"/>
+<text x="433" y="125" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">A<tspan style="font-size:9px" dy="3">1</tspan><tspan dy="-3"> </tspan> C<tspan style="font-size:9px" dy="3">0</tspan><tspan dy="-3"> </tspan> E<tspan style="font-size:9px" dy="3">1</tspan><tspan dy="-3"> </tspan></text>
+<rect x="500" y="104" width="126" height="34" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:2"/>
+<text x="563" y="125" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">B<tspan style="font-size:9px" dy="3">1</tspan><tspan dy="-3"> </tspan> D<tspan style="font-size:9px" dy="3">0</tspan><tspan dy="-3"> </tspan> F<tspan style="font-size:9px" dy="3">1</tspan><tspan dy="-3"> </tspan></text>
+<text x="110" y="156" style="fill:var(--ink);font-size:11px">6 branches / 4 counters = 1.5 branches/counter, then 12 pairs / 4 counters = 3 pairs/counter.</text>
+<text x="110" y="172" style="fill:var(--muted);font-size:10px">Half the counters were already shared, and now all are: the extra pairs pile onto other branches’ counters.</text>
+<text x="0" y="204" style="fill:var(--ink);font-size:12px;font-weight:600">Large table: 16 counters, index = PC[3:0] ⊕ (H &lt;&lt; 3)</text>
+<text x="124" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">0</text>
+<text x="156" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">1</text>
+<text x="188" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">2</text>
+<text x="220" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">3</text>
+<text x="252" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">4</text>
+<text x="284" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">5</text>
+<text x="316" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">6</text>
+<text x="348" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">7</text>
+<text x="380" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">8</text>
+<text x="412" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">9</text>
+<text x="444" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">10</text>
+<text x="476" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">11</text>
+<text x="508" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">12</text>
+<text x="540" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">13</text>
+<text x="572" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">14</text>
+<text x="604" y="220" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-size:9px;font-family:var(--mono)">15</text>
+<text x="102" y="248" text-anchor="end" style="fill:var(--muted);font-size:10px">PC only</text>
+<rect x="110" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="124" y="247" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">A</text>
+<rect x="142" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="156" y="247" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">B</text>
+<rect x="174" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="188" y="247" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">C</text>
+<rect x="206" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="220" y="247" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">D</text>
+<rect x="238" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="252" y="247" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">E</text>
+<rect x="270" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="284" y="247" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">F</text>
+<rect x="302" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<rect x="334" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<rect x="366" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<rect x="398" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<rect x="430" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<rect x="462" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<rect x="494" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<rect x="526" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<rect x="558" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<rect x="590" y="226" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<text x="102" y="288" text-anchor="end" style="fill:var(--muted);font-size:10px">PC ⊕ history</text>
+<rect x="110" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="124" y="287" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">A<tspan style="font-size:9px" dy="3">0</tspan><tspan dy="-3"> </tspan></text>
+<rect x="142" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="156" y="287" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">B<tspan style="font-size:9px" dy="3">0</tspan><tspan dy="-3"> </tspan></text>
+<rect x="174" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="188" y="287" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">C<tspan style="font-size:9px" dy="3">0</tspan><tspan dy="-3"> </tspan></text>
+<rect x="206" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="220" y="287" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">D<tspan style="font-size:9px" dy="3">0</tspan><tspan dy="-3"> </tspan></text>
+<rect x="238" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="252" y="287" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">E<tspan style="font-size:9px" dy="3">0</tspan><tspan dy="-3"> </tspan></text>
+<rect x="270" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="284" y="287" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">F<tspan style="font-size:9px" dy="3">0</tspan><tspan dy="-3"> </tspan></text>
+<rect x="302" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<rect x="334" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<rect x="366" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="380" y="287" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">A<tspan style="font-size:9px" dy="3">1</tspan><tspan dy="-3"> </tspan></text>
+<rect x="398" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="412" y="287" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">B<tspan style="font-size:9px" dy="3">1</tspan><tspan dy="-3"> </tspan></text>
+<rect x="430" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="444" y="287" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">C<tspan style="font-size:9px" dy="3">1</tspan><tspan dy="-3"> </tspan></text>
+<rect x="462" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="476" y="287" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">D<tspan style="font-size:9px" dy="3">1</tspan><tspan dy="-3"> </tspan></text>
+<rect x="494" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="508" y="287" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">E<tspan style="font-size:9px" dy="3">1</tspan><tspan dy="-3"> </tspan></text>
+<rect x="526" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1"/>
+<text x="540" y="287" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-family:var(--mono);font-weight:600">F<tspan style="font-size:9px" dy="3">1</tspan><tspan dy="-3"> </tspan></text>
+<rect x="558" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<rect x="590" y="266" width="28" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule);stroke-width:1;opacity:0.45"/>
+<text x="110" y="318" style="fill:var(--ink);font-size:11px">6 branches / 16 counters = 0.375 branches/counter, then 12 pairs / 16 counters = 0.75 pairs/counter.</text>
+<text x="110" y="334" style="fill:var(--muted);font-size:10px">The extra pairs land on free counters, so no counter is shared and the history’s information comes at no cost.</text>
+<text x="0" y="366" style="fill:var(--muted);font-size:10px">Branches A to F have PC index bits 0 to 5, and each one arrives with both histories, H = 0 and H = 1 (the subscript).</text>
+<text x="0" y="382" style="fill:var(--muted);font-size:10px">Highlighted counters hold 2 or more pairs, dimmed ones are unused. McFarling’s crossover for SPEC89 is near 256 B, 1024 counters.</text>
+</svg></div><p>The cost is a new kind of collision. Under gselect, two branches whose n PC bits differ never share a counter. Under gshare, (PC<sub>1</sub>, H<sub>1</sub>) and (PC<sub>2</sub>, H<sub>2</sub>) collide whenever PC<sub>1</sub> ⊕ PC<sub>2</sub> = H<sub>1</sub> ⊕ H<sub>2</sub>, which can happen between any two branches.</p>
 
 <h4 id="sec-mcf-combining">Combining Branch Predictors</h4>
 <p>Since each scheme wins on different branches, McFarling's second idea is to run two predictors of any kind side by side and add a PC-indexed array of 2-bit counters that tracks which one has been more accurate for each branch. The structure and its update rule are in <a href="#/fe-classic/tournament">Tournament Predictors</a>. Here are his results.</p>
