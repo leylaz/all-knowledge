@@ -1757,6 +1757,64 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
   ],
   body: `
 <p>The predictors on <a href="#/fe-classic">Classic Direction Predictors</a> index untagged counter tables with a fixed amount of history, so they force one history length on every branch and can't tell when two branches collide. This page covers the designs that fixed both problems. Perceptrons use long histories at linear cost, TAGE uses many history lengths at once with tags, and side predictors cover what TAGE misses. It ends with the parts of a predictor a model has to get right: speculative history, update timing, and the fast predictor that covers a slow one's latency.</p>
+<p>These predictors are read where the classic ones are: in the prediction stage ahead of fetch, indexed by the fetch address and the global history, not at decode (see <a href="#/fe-classic">Classic Direction Predictors</a> for why). What changes is latency. TAGE's tagged tables and the side predictors next to it take more than one cycle to read and combine, so the read is spread over two or more prediction stages, and a single-cycle predictor in front of it keeps fetch moving (see <a href="#/fe-direction/overriding">Fast and Slow Predictors</a>). The timeline at the bottom shows what it costs when the two disagree.</p>
+<div class="tbl"><svg viewBox="0 0 680 566" role="img" aria-label="Where a TAGE-class predictor is read. Top, a decoupled front end with stages Predict 0 (a fast micro-BTB predictor), Predict 1 (TAGE, statistical corrector, and loop predictor), fetch target queue, Fetch, Decode, Execute, and Retire. The fetch address and folded global histories enter both prediction stages. Step 1, fast predict in cycle 0: a micro-BTB with simple direction bits picks the next block and fetch follows it, the global history shifts in the predicted outcome, and each branch saves a checkpoint of the history pointer. Step 2, full predict over cycles 0 and 1: TAGE indexes its tagged tables with the PC hashed with folded histories of geometric lengths, the longest matching table provides the prediction, and the statistical corrector and loop predictor can revert it. If the result disagrees with the fast prediction it overrides, flushing the blocks fetched on the fast prediction. Step 3, resolve at execute: a mispredict flushes the back end, restores the global history from the branch's checkpoint, and shifts in the real outcome, costing a full refill of about 13 cycles on Zen 4. Step 4, train at retire: the provider's counter and useful bits update through indices saved at prediction time, and a mispredict allocates an entry in a longer-history table. An override path runs from Predict 1 to Predict 0, a mispredict path from Execute to Predict 0, and a training path from Retire to Predict 1. Bottom, a timeline over cycles 0 to 3 of an override, for block A ending in a branch that the fast predictor calls not taken and TAGE calls taken with target T. Cycle 0: the fast predictor predicts A with next block A plus 1, TAGE starts reading A's tables, and fetch reads the previous block. Cycle 1: the fast predictor predicts A plus 1, fetch reads A, and at the end of the cycle TAGE returns taken and overrides. Cycle 2: the fast predictor predicts T, A plus 1 was flushed before it was read so fetch is idle, which is the 1 bubble, and TAGE starts on T. Cycle 3: fetch reads T. An override costs 1 bubble with a 2-cycle TAGE, against about 13 cycles for a full mispredict." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrMp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--pad)"/></marker><marker id="arrMt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker><marker id="arrMr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--redirect)"/></marker><marker id="arrMm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<text x="0" y="16" style="fill:var(--ink);font-size:13px;font-weight:600">A TAGE-class predictor: read over two prediction stages, ahead of fetch</text>
+<text x="99" y="34" text-anchor="middle" style="fill:var(--muted);font-size:10px">fetch address + folded global histories</text>
+<g style="fill:none;stroke:var(--pad);stroke-width:1.5"><path d="M52,40 V60" marker-end="url(#arrMp)"/><path d="M146,40 V60" marker-end="url(#arrMp)"/></g>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:2.5"><rect x="10" y="64" width="84" height="44" rx="3"/><rect x="104" y="64" width="84" height="44" rx="3"/></g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"><rect x="198" y="64" width="84" height="44" rx="3"/><rect x="292" y="64" width="84" height="44" rx="3"/><rect x="386" y="64" width="84" height="44" rx="3"/></g>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5"><rect x="480" y="64" width="84" height="44" rx="3"/><rect x="574" y="64" width="84" height="44" rx="3"/></g>
+<g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle"><text x="52" y="83">Predict 0</text><text x="146" y="83">Predict 1</text><text x="240" y="83">FTQ</text><text x="334" y="83">Fetch</text><text x="428" y="90">Decode</text><text x="522" y="90">Execute</text><text x="616" y="90">Retire</text></g>
+<g style="fill:var(--ink);font-size:10px" text-anchor="middle"><text x="52" y="98">fast, micro-BTB</text><text x="146" y="98">TAGE + SC + L</text><text x="240" y="98">fetch blocks</text><text x="334" y="98">I-cache, ITLB</text></g>
+<g style="fill:none;stroke:var(--trace);stroke-width:1.5"><path d="M94,86 H100" marker-end="url(#arrMt)"/><path d="M188,86 H194" marker-end="url(#arrMt)"/><path d="M282,86 H288" marker-end="url(#arrMt)"/><path d="M376,86 H382" marker-end="url(#arrMt)"/><path d="M470,86 H476" marker-end="url(#arrMt)"/><path d="M564,86 H570" marker-end="url(#arrMt)"/></g>
+<g style="fill:var(--pad);stroke:none"><circle cx="88" cy="64" r="9"/><circle cx="182" cy="64" r="9"/><circle cx="558" cy="64" r="9"/><circle cx="652" cy="64" r="9"/></g>
+<g style="fill:var(--surface);font-size:11px;font-weight:700" text-anchor="middle"><text x="88" y="68">1</text><text x="182" y="68">2</text><text x="558" y="68">3</text><text x="652" y="68">4</text></g>
+<g style="fill:none;stroke:var(--redirect);stroke-width:1.75"><path d="M130,108 V122 H62 V112" marker-end="url(#arrMr)"/><path d="M522,108 V146 H36 V112" marker-end="url(#arrMr)"/></g>
+<path d="M616,108 V162 H170 V112" style="fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3" marker-end="url(#arrMm)"/>
+<g style="font-size:10px"><text x="72" y="136" style="fill:var(--redirect)">override</text><text x="200" y="142" style="fill:var(--redirect)">mispredict: redirect, restore history</text><text x="440" y="158" style="fill:var(--muted)">train with saved indices</text></g>
+<g style="fill:var(--pad);stroke:none"><circle cx="9" cy="186" r="8"/><circle cx="9" cy="222" r="8"/><circle cx="9" cy="286" r="8"/><circle cx="9" cy="322" r="8"/></g>
+<g style="fill:var(--surface);font-size:10px;font-weight:700" text-anchor="middle"><text x="9" y="190">1</text><text x="9" y="226">2</text><text x="9" y="290">3</text><text x="9" y="326">4</text></g>
+<g style="fill:var(--ink);font-size:11px">
+<text x="24" y="190"><tspan style="font-weight:600">Fast predict, cycle 0.</tspan> A micro-BTB with simple direction bits picks the next block, and fetch follows it.</text>
+<text x="24" y="204">The global history shifts in the predicted outcome now, and each branch saves a history-pointer checkpoint.</text>
+<text x="24" y="226"><tspan style="font-weight:600">Full predict, cycles 0 and 1.</tspan> TAGE indexes its tagged tables with the PC hashed with folded histories</text>
+<text x="24" y="240">of geometric lengths, and the longest matching table provides. The statistical corrector and loop predictor</text>
+<text x="24" y="254">can revert it. If the result disagrees with the fast prediction, it overrides: the blocks fetched on the fast</text>
+<text x="24" y="268">prediction are flushed and fetch restarts on the new path, a bubble of a cycle or two.</text>
+<text x="24" y="290"><tspan style="font-weight:600">Resolve.</tspan> A mispredict at execute flushes the back end, restores the global history from the branch's</text>
+<text x="24" y="304">checkpoint, and shifts in the real outcome. It costs a full refill, about 13 cycles on Zen 4.</text>
+<text x="24" y="326"><tspan style="font-weight:600">Train.</tspan> At retire, the provider's counter and useful bits update through indices saved at prediction</text>
+<text x="24" y="340">time, and a mispredict allocates an entry in a longer-history table.</text>
+</g>
+<path d="M0,354 H680" style="stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3"/>
+<text x="0" y="374" style="fill:var(--ink);font-size:13px;font-weight:600">What an override costs: the fast predictor says not taken, TAGE says taken</text>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle"><text x="195" y="394">cycle 0</text><text x="325" y="394">cycle 1</text><text x="455" y="394">cycle 2</text><text x="585" y="394">cycle 3</text></g>
+<g style="fill:var(--ink);font-size:11px;font-weight:600"><text x="0" y="420">Fast predictor</text><text x="0" y="456">TAGE + SC + L</text><text x="0" y="492">Fetch</text></g>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"><rect x="134" y="402" width="122" height="28" rx="3"/><rect x="394" y="402" width="122" height="28" rx="3"/><rect x="524" y="402" width="122" height="28" rx="3"/><rect x="134" y="438" width="252" height="28" rx="3"/><rect x="394" y="438" width="252" height="28" rx="3"/></g>
+<g style="fill:none;stroke:var(--redirect);stroke-width:1.5;stroke-dasharray:4 3"><rect x="264" y="402" width="122" height="28" rx="3"/><rect x="394" y="474" width="122" height="28" rx="3"/></g>
+<rect x="134" y="474" width="122" height="28" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5"/>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"><rect x="264" y="474" width="122" height="28" rx="3"/><rect x="524" y="474" width="122" height="28" rx="3"/></g>
+<g style="font-size:10px;fill:var(--ink)" text-anchor="middle">
+<text x="195" y="420">A: not taken, next A+1</text><text x="455" y="420">T</text><text x="585" y="420">T+1</text>
+<text x="260" y="456">reads A's tables: taken, target T</text><text x="520" y="456">reads T's tables</text>
+<text x="195" y="492" style="fill:var(--muted)">previous block</text><text x="325" y="492">A</text><text x="585" y="492">T</text>
+</g>
+<g style="font-size:10px;fill:var(--redirect)" text-anchor="middle"><text x="325" y="420">A+1 (flushed)</text><text x="455" y="492">idle: 1 bubble</text></g>
+<path d="M386,446 H390 V424 H394" style="fill:none;stroke:var(--redirect);stroke-width:1.75" marker-end="url(#arrMr)"/>
+<g style="fill:var(--ink);font-size:11px">
+<text x="0" y="524">TAGE returns at the end of cycle 1 and overrides, so A+1 is flushed before fetch reads it. With a 2-cycle TAGE that</text>
+<text x="0" y="538">is 1 bubble, against about 13 cycles for a full mispredict, so letting the slow predictor override pays off.</text>
+</g>
+<g style="font-size:11px;fill:var(--muted)">
+<rect x="0" y="550" width="12" height="12" rx="2" style="fill:var(--pad-soft);stroke:var(--pad)"/><text x="18" y="560">where the predictor is read</text>
+<rect x="170" y="550" width="12" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--trace)"/><text x="188" y="560">fetch and decode</text>
+<rect x="290" y="550" width="12" height="12" rx="2" style="fill:var(--surface);stroke:var(--muted)"/><text x="308" y="560">back end</text>
+<path d="M370,556 H394" style="stroke:var(--redirect);stroke-width:1.75"/><text x="400" y="560">redirect or flushed</text>
+<path d="M510,556 H534" style="stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3"/><text x="540" y="560">training</text>
+</g>
+</svg></div>
 
 <h3 id="sec-perceptron">Perceptron Predictors</h3>
 <p>A perceptron predictor (Jiménez and Lin, 2001) replaces the table of counters with a table of small weight vectors, one vector per branch (selected by PC), with one signed weight per history bit plus a bias weight. It treats each history bit as a vote, and learns how much each vote counts.</p>
