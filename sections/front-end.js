@@ -612,8 +612,23 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <text x="10" y="538" style="fill:var(--muted);font-size:11px">Only 111 (three taken in a row) comes right before the exit, so its counter learns N and nothing misses.</text>
 <text x="10" y="555" style="fill:var(--muted);font-size:11px">The bimodal counter, indexed by PC alone, misses every exit.</text>
 </svg></div>
-<p>A local predictor with k = 10 learns any repeating pattern whose period is at most 10 branches, and the exit of a loop with a trip count of up to k + 1, which is 11. A loop with trip count N produces N − 1 taken outcomes and then the not-taken exit. The exit is predictable when the history before it (all taken, at the limit) differs from the history before every taken outcome. Before the j-th taken outcome of an iteration (j = 0 … N − 2), the previous exit is j + 1 outcomes back, and it stays inside the k-bit window when j + 1 ≤ k. The worst case, j = N − 2, needs N − 1 ≤ k, so N ≤ k + 1. The figure above is the k = 3, trip count 4 case, and the Alpha 21264's 10-bit local histories handle loop exits up to trip count 11.</p>
-<p>A local predictor's cost is a second, dependent table read per prediction, and a speculative update problem that the single global history below doesn't have: every in-flight instance of the branch needs its own copy of the history (see <a href="#/fe-direction/update">Speculative History and Repair</a>).</p>
+<p>Once trained, a local predictor with k history bits predicts any repeating pattern whose period is at most k + 1 outcomes, as long as the branch has its history entry and counters to itself. With a period of k or less, the window holds a whole period, and the next outcome repeats the one a period back. With a period of exactly k + 1, the window holds every outcome of the period except the next one. Every rotation of the period has the same number of taken outcomes, so the missing outcome is fixed by how many taken outcomes the window holds, and two equal windows can't be followed by different outcomes. At period k + 2 that argument fails, because the window now misses two outcomes.</p>
+<p>A loop that runs the same number of times on every visit is such a pattern, and its period is the number of times its branch is checked per visit. Tested at the bottom, a visit is a run of taken checks and then the not-taken exit (T T T N in the figure). Tested at the top, it is a run of not-taken checks that fall into the body and then the taken exit. Either way, the predictor gets every check right, exit included, for up to k + 1 checks per visit. The figure is the k = 3, 4-check case, and the Alpha 21264's 10-bit local histories handle patterns with a period of up to 11, so loops with up to 11 checks per visit.</p>
+<p>One check past the limit, two checks with opposite outcomes see the same history and share a counter. Take k = 3 and a loop tested at the top with 5 checks per visit, so every visit is N N N N T:</p>
+<div class="tbl"><table>
+<tr><th>Check</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th></tr>
+<tr><td>Outcome</td><td>N</td><td>N</td><td>N</td><td>N</td><td>T</td></tr>
+<tr><td>History before (old → new)</td><td>001</td><td>010</td><td>100</td><td>000</td><td>000</td></tr>
+</table></div>
+<p>Checks 0 to 2 have histories of their own, and their counters still predict N correctly. Checks 3 and 4 both see 000, so counter 000 sees N and T alternating. What that costs depends on its state when check 3 arrives:</p>
+<ul>
+<li><strong>At 00 or 01:</strong> it settles into 00 ↔ 01, predicts N both times, and misses the exit: 1 miss per visit.</li>
+<li><strong>At 11:</strong> it moves between 11 and 10, predicts T both times, and misses check 3: 1 miss per visit.</li>
+<li><strong>At 10:</strong> the N moves it to 01 and the T moves it back to 10, so it misses both: 2 misses per visit.</li>
+</ul>
+<p>A bimodal counter on this branch stays near 00 and misses only the exit, so past the limit the local predictor ties bimodal at best and doubles its misses at worst.</p>
+<p>A local predictor's cost is a second, dependent table read per prediction, and a history that has to be updated speculatively, at fetch. Suppose instead each instance writes the history only when it retires. In a tight loop on a deep out-of-order core, many instances of the loop branch are in flight at once, and each one reads the history left by the last retired instance, several checks behind its own. The exit check then reads a mid-loop history, whose counter says taken, and mispredicts just as bimodal does, and a later check can read the pre-exit history and mispredict as well. So the benefit over bimodal is lost whenever an older instance of the same branch is still in flight at fetch, which in a tight loop is nearly always. Only loops whose iterations are long enough that each instance retires before the next is fetched keep it. Loops with more than k + 1 checks per visit lose nothing, but local history never predicted their exits anyway. Training the counters at retire is still correct, because at retire the history in the table is exactly the history that came before that instance.</p>
+<p>Updating the history at fetch with the predicted outcome fixes the reads, but then a mispredict leaves wrong-path outcomes in an arbitrary set of history entries, and every in-flight branch must save what is needed to undo them. The single global history below needs only one checkpoint. <a href="#/fe-direction/update">Speculative History and Repair</a> covers both repairs.</p>
 <p>In the figure the loop branch has both tables to itself. With more branches in the program, McFarling points out two kinds of contention:</p>
 <ul>
 <li><strong>History contention:</strong> the history table is indexed by a few PC bits, so several branches can map to the same entry. Their outcomes interleave in one history, which then describes none of them.</li>
@@ -1180,7 +1195,7 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <div class="tbl"><table>
 <tr><th>Predictor</th><th>Information it uses</th><th>Learns</th><th>Fails on</th></tr>
 <tr><td>Bimodal</td><td>PC</td><td>Each branch's bias</td><td>Any branch whose direction changes</td></tr>
-<tr><td>Local two-level</td><td>The branch's own last k outcomes</td><td>Short repeating patterns and loop exits up to a trip count of k + 1</td><td>Correlation with other branches</td></tr>
+<tr><td>Local two-level</td><td>The branch's own last k outcomes</td><td>Repeating patterns with a period of up to k + 1, including loops with up to k + 1 checks per visit</td><td>Correlation with other branches</td></tr>
 <tr><td>Correlating or gshare</td><td>PC and global history</td><td>Correlation with the last m branches</td><td>Correlation older than m, and branches whose patterns alias</td></tr>
 <tr><td>Tournament</td><td>Both, plus a chooser</td><td>Per branch, the better of two components</td><td>Branches neither component predicts</td></tr>
 </table></div>
@@ -1380,8 +1395,20 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <p>The combination, <strong>TAGE-SC-L</strong>, won the 2014 and 2016 Championship Branch Prediction contests, and descendants of it are in many shipping cores. Intel and Apple don't publish their predictor designs.</p>
 
 <h3 id="sec-update">Speculative History and Repair</h3>
-<p>The predictor runs far ahead of execution, so the global history must be updated with <em>predicted</em> outcomes; waiting for real outcomes would leave it many branches stale. On a mispredict, the history must be restored to its value at the branch and the correct outcome shifted in. Cores keep a checkpoint of the history pointer per in-flight branch (the history itself is a circular buffer, so a pointer is enough).</p>
+<p>The predictor runs far ahead of execution, so the global history must be updated with <em>predicted</em> outcomes; waiting for real outcomes would leave it many branches stale. On a mispredict, the history must be restored to its value at the branch and the correct outcome shifted in. That repair is cheap because the global history is one shift register: at every point in program order it has exactly one correct value, so a single checkpoint restores it in one cycle. Cores keep a checkpoint of the history pointer per in-flight branch (the history itself, hundreds of bits in TAGE, is a circular buffer with a head pointer, so a pointer is enough).</p>
 <p>Counter and table updates, by contrast, usually happen at retire or at branch resolution, with the indices saved at prediction time. Updating counters speculatively helps a little on tight loops but risks training on wrong-path branches.</p>
+<p>Local histories (see <a href="#/fe-classic/local">Local History Predictors</a>) are harder to repair. They also have to be updated at fetch with the predicted outcome, because the instances of a tight loop branch in flight would otherwise all read the same stale history. But the table holds one history per branch, so a mispredict leaves wrong-path outcomes in an arbitrary set of entries, not in one register. The usual repair:</p>
+<ol>
+<li><strong>Save:</strong> each branch carries the history it read and its history-table index.</li>
+<li><strong>Train with the saved history:</strong> at retire, the counter is indexed by the saved history, not the table's current value, which may already include younger instances' predicted outcomes.</li>
+<li><strong>Undo the squashed branches:</strong> on a mispredict, walk the squashed branches from youngest to oldest and write each one's saved history back to its entry. When several squashed instances share an entry, the last write comes from the oldest of them, which read the entry before any squashed instance changed it.</li>
+<li><strong>Fix the mispredicted branch:</strong> restore its entry from its saved history and shift in its real outcome.</li>
+</ol>
+<p>Flushes that aren't mispredictions, such as exceptions and memory-ordering violations, need the same walk, with no outcome to shift in. The cost is the walk: it is serial, a few entries per cycle at most, and it sits on the mispredict recovery path, so a flush of dozens of branches adds cycles to every recovery. There are two cheaper alternatives:</p>
+<ul>
+<li><strong>Repair only the mispredicted branch's entry,</strong> and accept that other entries keep a few wrong-path outcomes until they retrain.</li>
+<li><strong>Keep speculative histories out of the table.</strong> A small in-flight buffer holds each speculative history with its branch's PC. Fetch searches the buffer by PC, the youngest match wins, and a branch with no match reads the table. The table is written only at retire, so it holds only retired history, and a flush just drops the squashed slots.</li>
+</ul>
 
 <h3 id="sec-model">Modeling a Predictor</h3>
 <ul>
