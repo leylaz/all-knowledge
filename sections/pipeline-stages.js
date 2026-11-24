@@ -1375,14 +1375,13 @@ sub r5, r3, r6</code></pre>`,
   id: "branch-hazards",
   region: "pipe",
   title: "Branch Hazards",
-  book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.2 The Major Hurdle of Pipelining—Pipeline Hazards: “Branch Hazards,” “Reducing Pipeline Branch Penalties,” “Performance of Branch Schemes,” and “Reducing the Cost of Branches Through Prediction”.`,
+  book: `Textbook: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Appendix C.2 The Major Hurdle of Pipelining—Pipeline Hazards: “Branch Hazards,” “Reducing Pipeline Branch Penalties,” “Performance of Branch Schemes,” and “Reducing the Cost of Branches Through Prediction,” and Section 3.9 (branch-target buffers).`,
   sections: [
     { id: "schemes", label: "Reducing Branch Penalties" },
     { id: "delay-slot", label: "Scheduling the Delay Slot" },
     { id: "branch-perf", label: "Performance of Branch Schemes" },
     { id: "dynamic", label: "Dynamic Prediction" },
     { id: "btb", label: "The BTB and Decode Redirects" },
-    { id: "btb-hit", label: "What Happens on a BTB Hit" },
     { id: "control-table", label: "Control Hazard Table" },
     { id: "in-ooo", label: "In Out-of-Order Cores" }
   ],
@@ -1518,42 +1517,13 @@ sub r5, r3, r6</code></pre>`,
 <ol>
 <li><strong>Cycle 0:</strong> fetch group A is fetched, and the BTB misses, so fetch continues sequentially.</li>
 <li><strong>Cycle 1:</strong> group A is in decode, and group B (the next sequential block) is in fetch. Decode finds a branch in A.</li>
-<li>If the branch is an unconditional direct jump, or a conditional branch predicted taken, decode computes the target and redirects fetch. Group B is flushed, along with any instructions after the branch within group A. If the branch is predicted not taken, the sequential instructions were the right ones, and nothing is flushed.</li>
+<li>If the branch is an unconditional direct jump, or a conditional branch the direction predictor says is taken, decode computes the target and redirects fetch. Group B is flushed, along with any instructions after the branch within group A. If the branch is predicted not taken, the sequential instructions were the right ones, and nothing is flushed.</li>
 <li><strong>Cycle 2:</strong> fetch starts at the branch target. Cycle 1's fetch was wasted: that's the bubble.</li>
 </ol>
 <p>In a deeper front end with several fetch stages before decode, more groups are in flight when decode redirects, so the BTB-miss penalty is several cycles rather than one.</p>
-<p><strong>How decode knows the target depends on the kind of branch:</strong></p>
-<div class="tbl"><table>
-<tr><th>Kind of branch</th><th>Target</th><th>Can decode redirect?</th></tr>
-<tr><td>Direct jump (unconditional)</td><td>PC-relative: the branch's PC plus the offset encoded in the instruction (the PC is implicit, not an operand)</td><td>Yes, always</td></tr>
-<tr><td>Conditional branch</td><td>PC-relative, so the target is known; the <em>direction</em> isn't, since the condition needs register values</td><td>Only if the direction predictor says taken</td></tr>
-<tr><td>Indirect jump or return</td><td>Base + offset: comes from a register value, which decode doesn't have yet</td><td>Generally no; the target is predicted instead by the BTB, an indirect target predictor, or (for returns) a return-address stack, and checked once the register value is known</td></tr>
-</table></div>
-<p>For branches, the computed address is called the <strong>branch target</strong>; “effective address” is the term for a load's or store's memory address.</p>
-<p><strong>Resolution and mispredicts.</strong> A conditional branch is resolved when its condition is evaluated, typically in execute. A mispredict in <em>either</em> direction flushes everything fetched after the branch on the wrong path: predicted taken but actually not taken means refetching the fall-through instructions; predicted not taken but actually taken means fetching from the target. That full mispredict penalty is much larger than the decode-redirect bubble. A mispredict doesn't flush the whole pipeline: instructions <em>older</em> than the branch are still valid and keep going; only the instructions fetched after the branch on the wrong path are flushed.</p>
-<p><strong>In one paragraph:</strong> on a BTB miss, fetch continues sequentially and decode discovers the branch a cycle later. For an unconditional direct jump, decode adds the offset encoded in the instruction to the branch's own PC to get the branch target, flushes the sequentially fetched instructions, and restarts fetch at the target. For a conditional branch, decode can compute the target the same way but doesn't know the condition, so it follows the direction predictor: if predicted taken, it flushes the sequential instructions and redirects to the target; if predicted not taken, fetch continues. When the condition is evaluated later in the pipeline, a mispredict in either direction flushes the wrong-path instructions and fetch restarts on the correct path. Indirect jumps take their target from a register that decode doesn't have yet, so the front end predicts the target and checks it later.</p>
-<h3 id="sec-btb-hit">What Happens on a BTB Hit</h3>
-<p>Usually little or no stall, but a hit doesn't guarantee a free ride.</p>
-<ul>
-<li><strong>Best case, no bubble:</strong> if the BTB answers in the same cycle it's probed, fetch redirects to the target on the very next cycle. The only cost is fetch bandwidth: the slots after the branch in that fetch block are thrown away, because the instructions after a taken branch aren't on the path.</li>
-<li><strong>A small bubble if the lookup is slow:</strong> large BTBs can't answer in one cycle. If the hit comes from a bigger second-level BTB that takes two cycles, fetch has already started on the next sequential block, which is discarded: a one- or two-cycle bubble. That's why cores keep a tiny, fast first-level BTB for the hottest branches.</li>
-</ul>
-<p><strong>A hit can still be wrong,</strong> and then a penalty is paid after all:</p>
-<ul>
-<li><strong>Wrong direction:</strong> the BTB says <em>where</em> a branch goes; the direction predictor says <em>whether</em> it goes. If a conditional branch was predicted taken but isn't (or the reverse), it's caught at execute: the full mispredict penalty.</li>
-<li><strong>Wrong target:</strong> an indirect jump whose target changed (such as a virtual function call made through different objects) gets a stale target from the BTB. Its real target comes from a register, so the error is caught at execute: the full mispredict penalty.</li>
-<li><strong>Aliasing:</strong> BTBs often store only part of the address tag to save space, so occasionally an entry belongs to a <em>different</em> branch. For a direct branch, decode notices the computed target doesn't match and redirects early (a small bubble); otherwise the error is caught later.</li>
-</ul>
-<p><strong>A stall unrelated to prediction:</strong> even with a perfect prediction, if the target's code isn't in the instruction cache, fetch stalls on the miss. Decoupled front ends, where the predictor runs ahead and prefetches target blocks, exist largely to hide this.</p>
-<div class="tbl"><table>
-<tr><th>Situation</th><th>Cost</th></tr>
-<tr><td>BTB hit, fast lookup, correct prediction</td><td>No bubble; only the slots after the branch in its fetch block are lost</td></tr>
-<tr><td>BTB hit from a slower second-level BTB</td><td>1–2 cycle bubble</td></tr>
-<tr><td>BTB hit, direct branch with a wrong (aliased) target</td><td>Decode redirect: a small bubble</td></tr>
-<tr><td>BTB hit, wrong direction or wrong indirect target</td><td>Full mispredict penalty</td></tr>
-<tr><td>Target not in the instruction cache</td><td>Instruction cache miss stall</td></tr>
-</table></div>
-<p><strong>Decoupled front ends.</strong> Many high-performance cores run the branch predictor and BTB <em>ahead</em> of instruction cache fetch, producing a queue of predicted fetch addresses that the instruction cache works through, and that can also drive instruction prefetching (see <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>, <a href="#/fe-targets">The Branch Target Buffer</a> for multi-level BTBs, and <a href="#/fe-indirect">Indirect Branches and Returns</a> for indirect branches and the return stack). The classic 5-stage pipeline has no BTB at all, which is why it computes branch targets in ID.</p>
+<p><strong>Why decode can redirect some branches and not others.</strong> A direct branch's target is PC-relative: the branch's own PC plus the offset encoded in the instruction (the PC is implicit, not an operand), so decode can compute it. A conditional branch's target is known the same way, but its direction needs register values, so decode can redirect it only on a prediction. An indirect jump or a return takes its target from a register that decode doesn't have yet, so the target has to be predicted instead, by the BTB, an indirect target predictor, or (for returns) a return address stack, and checked once the register value is known. For branches, the computed address is called the <strong>branch target</strong>. “Effective address” is the term for a load's or store's memory address.</p>
+<p><strong>Resolution and mispredicts.</strong> A conditional branch is resolved when its condition is evaluated, typically in execute. A mispredict in <em>either</em> direction flushes everything fetched after the branch on the wrong path. If it was predicted taken but isn't, fetch restarts at the fall-through instruction. If it was predicted not taken but is, fetch restarts at the target. That full mispredict penalty is much larger than the decode-redirect bubble. A mispredict doesn't flush the whole pipeline. Instructions <em>older</em> than the branch are still valid and keep going, and only the instructions fetched after the branch are flushed.</p>
+<p>A BTB hit isn't always free either. A large second-level BTB can answer a cycle or two late, and a hit can carry the wrong direction or a stale target. What each kind of hit and miss costs in a wide core with multi-level BTBs is on <a href="#/fe-targets/hits">The Branch Target Buffer</a>. The classic 5-stage pipeline has no BTB at all, which is why it computes branch targets in ID.</p>
 <h3 id="sec-control-table">Control Hazards</h3>
 <div class="tbl"><table>
 <tr><th>Hazard</th><th>What happens</th><th>Classic 5-stage (in-order)</th><th>Out-of-order core</th><th>Reduced by</th></tr>
