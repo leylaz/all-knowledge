@@ -1529,7 +1529,7 @@ sub r5, r3, r6</code></pre>`,
 <tr><th>Hazard</th><th>What happens</th><th>Classic 5-stage (in-order)</th><th>Out-of-order core</th><th>Reduced by</th></tr>
 <tr><td>Conditional branch mispredict</td><td>Wrong direction predicted; everything fetched after it is flushed</td><td>2 cycles if resolved in EX, 1 if resolved in ID</td><td>Fetch-to-resolve distance: ~10–20 cycles; can't be hidden</td><td>Better predictors, resolving earlier, branchless code</td></tr>
 <tr><td>Indirect target mispredict</td><td>Wrong target for a jump through a register (virtual calls, switch tables, interpreters)</td><td>Same as a branch mispredict</td><td>Same as a full mispredict</td><td>Indirect target predictors</td></tr>
-<tr><td>Return mispredict</td><td>The return address stack overflows or is corrupted</td><td>Same as a branch mispredict</td><td>Same as a full mispredict</td><td>Deeper return stacks</td></tr>
+<tr><td>Return mispredict</td><td>The return address stack overflows or is corrupted</td><td>Same as a branch mispredict</td><td>Same as a full mispredict</td><td>Deeper return stacks, repairing the stack pointer after a mispredict</td></tr>
 <tr><td>BTB miss on a taken branch</td><td>Fetch didn't know a branch was there and kept going sequentially</td><td>Covered by the branch rows (usually no BTB)</td><td>A few cycles: decode catches it and redirects</td><td>Larger BTBs</td></tr>
 <tr><td>Taken-branch bubble</td><td>Even a correct prediction takes time to redirect fetch</td><td>1 cycle if the target is computed in ID</td><td>0–2 cycles per taken branch</td><td>Faster first-level predictors, loop buffers</td></tr>
 </table></div>
