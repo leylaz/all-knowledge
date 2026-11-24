@@ -1823,6 +1823,56 @@ M(`<p>You have 4 KB for a PC-indexed table of 2-bit direction counters.</p>
 <li><strong>(c)</strong> Each of the other 2,999 hot branches lands on a given branch's counter with probability 1/16,384, so the fraction that share is 1 − (1 − 1/16,384)<sup>2,999</sup> ≈ <strong>16.7%</strong>. Only sharing with a branch of opposite bias costs anything, so the harmful fraction is smaller still.</li>
 <li><strong>(d)</strong> A predicts better. It has room for every hot branch, and most of its aliasing is harmless, while B loses about a third of the hot branches to capacity alone. B could win only if the hot set fit in its 2,048 entries, and then A would have 16,384 counters for at most 2,048 hot branches, 8 or more counters per branch, so it would have little aliasing left for tags to remove. Tags pay off when they are already there for another reason, as in a BTB that holds the counters, or in TAGE's tagged tables, where the tag is what tells a long-history match from a miss.</li>
 </ol>`, "hard") +
+Q(`<p>A bimodal table holds 4,096 2-bit counters and is indexed directly by PC bits, with no hashing. Instructions are a fixed 4 bytes long and 4-byte aligned, as in AArch64. Which PC bits form the index, and why low-order bits rather than high-order ones? Which pairs of branches end up sharing a counter?</p>`,
+`<p>The index is <strong>PC bits [13:2]</strong>: 12 bits, because 2<sup>12</sup> = 4,096 counters.</p>
+<ul>
+<li><strong>Bits [1:0] are skipped:</strong> every instruction address is a multiple of 4 bytes, so these bits are always 00. Including them would leave 3 of every 4 counters unreachable, so the 4,096-counter table would act like a 1,024-counter one.</li>
+<li><strong>Low bits spread nearby branches apart:</strong> bits [13:2] change from one instruction to the next, so any 4,096 consecutive instructions (4,096 instructions × 4 bytes/instruction = 16 KB of code) map to 4,096 different counters. Hot code is clustered, so most hot branches get a counter of their own.</li>
+<li><strong>High bits barely change:</strong> a program's hot code usually spans a few hundred KB to a few MB, and all of it shares its high address bits. Indexing by a high slice such as bits [31:20] would put every branch in the same 1 MB region on one counter, so a few counters would serve thousands of branches.</li>
+</ul>
+<p>Two branches share a counter when their addresses match in bits [13:2], which means they are a multiple of 16 KB apart. Aliasing then depends on code layout: two hot branches collide only if they sit exactly 16 KB, 32 KB, and so on apart. Some designs also XOR higher PC bits into the index to break up that 16 KB stride, at the cost of a little index logic.</p>`, "medium") +
+M(`<p>Two branches each have a 2-bit saturating counter to themselves in a bimodal table, so there is no aliasing. A counter predicts taken at 10 or 11 and is updated before its branch's next execution.</p>
+<ul>
+<li>Branch A is data-dependent: each execution is taken with probability 0.7, independent of every other execution.</li>
+<li>Branch B strictly alternates T, N, T, N, and so on. Its counter is at 01 when B's first execution, a taken one, arrives.</li>
+</ul>
+<ol>
+<li>What is A's long-run misprediction rate? Compare it with a 1-bit last-outcome predictor, with always predicting taken, and with a 3-bit counter that predicts taken at 4 or more.</li>
+<li>What is B's misprediction rate? What would it be if B's counter started at 11 instead?</li>
+<li>What does a bimodal entry actually learn, and what would do better on each branch?</li>
+</ol>`,
+`<ol>
+<li><strong>Branch A.</strong> The counter is a random walk that steps up with probability p = 0.7 (taken) and down with probability q = 0.3 (not taken), saturating at 00 and 11. In steady state, the flow between neighboring states balances, π<sub>i+1</sub> × q = π<sub>i</sub> × p, so π<sub>i</sub> is proportional to r<sup>i</sup> with r = 0.7 / 0.3 = 7/3 ≈ 2.333.
+<ul>
+<li>The weights of states 00, 01, 10, and 11 are 1, 2.333, 5.444, and 12.704. The counter predicts taken with probability (5.444 + 12.704) / (1 + 2.333 + 5.444 + 12.704) = 18.148 / 21.481 ≈ 0.845, which simplifies to r<sup>2</sup> / (1 + r<sup>2</sup>).</li>
+<li>Accuracy = 0.845 (predict T) × 0.7 (taken) + 0.155 (predict N) × 0.3 (not taken) = 0.591 + 0.047 = 0.638, so the 2-bit counter mispredicts <strong>36.2%</strong>.</li>
+<li>A 1-bit predictor is right when two consecutive outcomes agree: 0.7 × 0.7 + 0.3 × 0.3 = 0.49 + 0.09 = 0.58, so it mispredicts <strong>42%</strong>.</li>
+<li>Always predicting taken mispredicts <strong>30%</strong>, and no predictor can do better on independent outcomes.</li>
+<li>For the 3-bit counter, the same balance gives P(predict T) = r<sup>4</sup> / (1 + r<sup>4</sup>) = 29.642 / 30.642 ≈ 0.967. Accuracy = 0.967 × 0.7 + 0.033 × 0.3 = 0.677 + 0.010 = 0.687, so it mispredicts <strong>31.3%</strong>.</li>
+</ul>
+A run of not-taken outcomes drags the counter into its not-taken half, and there it mispredicts the majority outcome. More hysteresis bits make those excursions rarer, so the counter approaches the static 30%.</li>
+<li><strong>Branch B.</strong> From 01, the T is predicted not taken (wrong) and moves the counter to 10. The N is then predicted taken (wrong) and moves it back to 01. The cycle repeats, so B mispredicts <strong>100%</strong>, worse than always predicting taken (50%) and the same as a 1-bit predictor. From 11, the T is right and the counter stays at 11, then the N is wrong and moves it to 10, and the next T is right and moves it back: <strong>50%</strong>. The same branch costs 50% or 100% depending only on the counter's starting state and the branch's phase.</li>
+<li>A bimodal entry learns only a bias, and the counter tracks it roughly, pulled around by recent runs of outcomes. For A there is nothing more to learn: its outcomes are independent, so no history helps, and the best is the static 30% that a counter with more hysteresis approaches. Removing the branch in software (a conditional move or select) avoids the cost altogether. B is the opposite case: it is perfectly predictable from its own last outcome, so a local predictor with 1 bit of history, or a global predictor whose history holds B's last outcome, gets it right every time after warm-up.</li>
+</ol>`, "hard") +
+Q(`<p>A local predictor has a first-level table of 4-bit histories indexed by PC and a second-level table of 16 2-bit counters indexed by the history alone, like a small version of the Alpha 21264's local predictor. Branch X closes a loop that always runs 4 iterations (T T T N), and branch Y closes a loop that always runs 3 iterations (T T N). Each branch has a history entry to itself. The program runs one full visit of X's loop, then one of Y's, and repeats. All counters start at 00, and each history and counter is updated before the next prediction that reads it.</p>
+<ol>
+<li>What does each table hold, and how does the predictor get X's loop exit right when a bimodal counter can't?</li>
+<li>List the history each branch sees before each of its outcomes. Which counters do X and Y share, and does the sharing hurt?</li>
+<li>After warm-up, how many mispredicts does one visit of X plus one visit of Y cost, compared with a bimodal predictor that gives each branch a counter of its own?</li>
+<li>How would you remove the conflict, and why does the 21264 share one counter table anyway?</li>
+</ol>`,
+`<p>Histories are written oldest outcome first.</p>
+<ol>
+<li>The first-level table holds each branch's last 4 outcomes and is read with the PC. The second-level table holds 2-bit counters and is read with that history, so each counter learns what follows one history pattern. X's exit always follows N T T T, a history that none of X's taken outcomes sees, so the exit trains a counter of its own to not taken. A bimodal counter has one counter for all 4 of X's outcomes. It sits at taken and misses every exit.</li>
+<li>The histories, with the outcome that follows each:
+<ul>
+<li>X: T T T N → T, T T N T → T, T N T T → T, and N T T T → N.</li>
+<li>Y: N T T N → T, T T N T → T, and T N T T → N.</li>
+</ul>
+X and Y share two counters. T T N T is harmless sharing, because both need taken. T N T T is a conflict: X needs taken there (before its third taken outcome) and Y needs not taken (before its exit).</li>
+<li>The conflicting counter is touched only by X's third taken outcome and Y's exit, in the order X, Y, X, Y. From 00, X's T is predicted not taken (a mispredict) and moves the counter to 01, then Y's N is predicted not taken (correct) and moves it back to 00. Every other counter is used by one outcome only, or by outcomes that agree, so after warm-up they are all right. The pair costs <strong>1 mispredict</strong> (X's third taken outcome on every visit). Bimodal costs 2 (each loop's exit). Sharing turns a perfect predictor into one that is only twice as good as bimodal here. The count depends on the start state: from 01, the counter would swing between 01 and 10 and miss both outcomes, 2 per pair, no better than bimodal.</li>
+<li>Index the counters with the history combined with PC bits (concatenated or XORed). Yeh and Patt call a separate pattern table per branch PAp and one per group of branches PAs. That costs more counters or moves the aliasing elsewhere. A longer history does not fix it reliably: with 5 bits, X and Y both see T T N T T and still need opposite outcomes. The 21264 shares one table of 1,024 3-bit counters because per-branch tables would multiply the storage, many patterns mean the same thing for every branch that sees them (a long run of taken outcomes, or T T N T here), so sharing trains them once, and real conflicts need two hot branches with opposite outcomes after the same history. When the local side fails anyway, the 21264's tournament chooser can pick the global prediction instead.</li>
+</ol>`, "hard") +
 `<h3 id="sec-counters">Saturating Counters and Update Timing</h3>` +
 Q(`<p>Explain how a 2-bit saturating counter predicts a branch and how it is updated, and why it beats a 1-bit last-outcome predictor on a loop branch. Then work this example. A cache simulator's inner loop scans the 8 ways of a set, compiled with the test at the top, so each visit runs the loop branch 9 times (tests 0 to 8). Tests 0 to 7 are not taken and fall through into the body, and test 8 is taken and exits. The 2-bit counter starts at 10 (weak taken) and the 1-bit predictor starts at T. The branch has its predictor entry to itself, and each entry is updated before the branch's next execution. How many mispredictions does each predictor make on the first visit and on each visit after that, and what is each one's steady-state misprediction rate?</p>`,
 `<p>A 2-bit counter holds a value from 00 to 11. The high bit is the prediction (1 predicts taken). After the branch resolves, a taken outcome adds 1 and a not-taken outcome subtracts 1, saturating at 00 and 11. From a strong state (00 or 11) it takes 2 opposite outcomes in a row to flip the prediction, so a single unusual outcome only weakens it. A 1-bit predictor just stores the last outcome, so every unusual outcome flips it and costs a second miss when the usual direction returns.</p>

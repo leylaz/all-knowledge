@@ -1180,7 +1180,7 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <div class="tbl"><table>
 <tr><th>Predictor</th><th>Information it uses</th><th>Learns</th><th>Fails on</th></tr>
 <tr><td>Bimodal</td><td>PC</td><td>Each branch's bias</td><td>Any branch whose direction changes</td></tr>
-<tr><td>Local two-level</td><td>The branch's own last k outcomes</td><td>Short repeating patterns and loop exits up to trip count k + 1</td><td>Correlation with other branches</td></tr>
+<tr><td>Local two-level</td><td>The branch's own last k outcomes</td><td>Short repeating patterns and loop exits up to a trip count of k + 1</td><td>Correlation with other branches</td></tr>
 <tr><td>Correlating or gshare</td><td>PC and global history</td><td>Correlation with the last m branches</td><td>Correlation older than m, and branches whose patterns alias</td></tr>
 <tr><td>Tournament</td><td>Both, plus a chooser</td><td>Per branch, the better of two components</td><td>Branches neither component predicts</td></tr>
 </table></div>
