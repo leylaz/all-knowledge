@@ -138,11 +138,12 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
   title: "The Branch Target Buffer",
   sections: [
     { id: "btb", label: "The BTB" },
+    { id: "hits", label: "BTB Hits and Their Costs" },
     { id: "misses", label: "BTB Misses and Decode Redirects" },
     { id: "folding", label: "Branch Folding" }
   ],
   body: `
-<p>Knowing a branch is taken is useless without knowing where it goes, and a wide core has to know both before the instruction bytes are even fetched. <a href="#/branch-hazards/btb">Branch Hazards</a> introduced the branch target buffer in a 5-stage pipeline: a cache probed with the fetch PC, a decode redirect when it misses, and a bubble when a large BTB answers late. This page covers what a wide core's BTB holds, how it is split into levels, which branches get an entry, and what each kind of miss costs. The next page, <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>, builds on it. Indirect branches and returns, whose targets the BTB can't supply well, come after the direction predictors on <a href="#/fe-indirect">Indirect Branches and Returns</a>.</p>
+<p>Knowing a branch is taken is useless without knowing where it goes, and a wide core has to know both before the instruction bytes are even fetched. <a href="#/branch-hazards/btb">Branch Hazards</a> introduced the branch target buffer in a simple pipeline: a cache probed with the fetch PC in the same cycle as the instruction cache, with a decode redirect when it misses. This page covers what a wide core's BTB holds, how it is split into levels, which branches get an entry, and what each kind of hit and miss costs. The next page, <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>, builds on it. Indirect branches and returns, whose targets the BTB can't supply well, come after the direction predictors on <a href="#/fe-indirect">Indirect Branches and Returns</a>.</p>
 
 <h3 id="sec-btb">The BTB</h3>
 <p>The <strong>branch target buffer</strong> is a cache indexed by fetch address. A hit says "there is a branch at this offset in the block," gives its type (conditional, unconditional, call, return, indirect), and its last target. Once the predictor runs ahead of fetch, the BTB is how it finds branches at all: a branch missing from the BTB is invisible, and the predictor carries on sequentially as if it weren't there.</p>
@@ -155,15 +156,37 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 </ul>
 <p>Which branches get an entry is a policy. Hennessy and Patterson's design stores only taken branches, since a not-taken branch just continues to the next sequential PC and an entry for it would waste space. A decoupled front end keeps the same rule at the door: a branch is inserted the first time it is taken, so branches that are never taken never cost an entry. Once inserted, a conditional branch stays even when it goes not taken, because the predictor needs to know it is there to ask the direction predictor about it. BTBs are set-associative and indexed by fetch-block address, and some designs hold two or more branches per entry so one lookup covers a whole fetch block.</p>
 
+<h3 id="sec-hits">BTB Hits and Their Costs</h3>
+<p>A hit usually means little or no stall, but it doesn't guarantee a free ride. Which level the hit comes from sets the bubble:</p>
+<ul>
+<li><strong>First-level hit, no bubble.</strong> The BTB answers in the cycle it is probed, so the predictor follows the taken branch on the very next cycle. The only loss is fetch bandwidth. The slots after the branch in its fetch block are thrown away, because those instructions aren't on the path.</li>
+<li><strong>Second-level hit, a small bubble.</strong> A larger BTB can't answer in one cycle. By the time a two-cycle second level supplies the target, the predictor has already moved on to the next sequential block, which is discarded, for a one- or two-cycle bubble per taken branch. That is why cores keep a small, fast first level for the hottest branches. In a decoupled front end, the fetch target queue hides these bubbles as long as the predictor stays ahead of fetch (see <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>).</li>
+</ul>
+<p>A hit can also be wrong, and then a penalty is paid after all:</p>
+<ul>
+<li><strong>Wrong direction.</strong> The BTB says where a branch goes, and the direction predictor says whether it goes. A conditional branch predicted the wrong way is caught at execute, for the full mispredict penalty.</li>
+<li><strong>Wrong indirect target.</strong> An indirect jump whose target changed, such as a virtual call made through objects of different types, gets a stale target from the BTB. Its real target comes from a register, so the error is caught at execute, for the full mispredict penalty (see <a href="#/fe-indirect">Indirect Branches and Returns</a>).</li>
+<li><strong>False hit from a partial tag.</strong> The entry belongs to a different block. If decode finds no branch at the predicted offset, or finds a direct branch whose computed target doesn't match the BTB's, it redirects early, for a decode redirect. A false hit that lands on an indirect branch can't be checked until the branch executes.</li>
+</ul>
+<p>Even a perfect prediction stalls if the target's code isn't in the instruction cache. Decoupled front ends exist largely to hide this, by prefetching down the predicted path (see <a href="#/fe-decoupled/fdip">Fetch-Directed Prefetching</a>).</p>
+<div class="tbl"><table>
+<tr><th>Situation</th><th>Cost</th></tr>
+<tr><td>First-level hit, correct prediction</td><td>No bubble. Only the slots after the branch in its fetch block are lost</td></tr>
+<tr><td>Second-level hit, correct prediction</td><td>A 1–2 cycle bubble, hidden by the fetch target queue when the predictor is ahead</td></tr>
+<tr><td>False hit or wrong direct target, caught at decode</td><td>Decode redirect</td></tr>
+<tr><td>Wrong direction or wrong indirect target</td><td>Full mispredict penalty</td></tr>
+<tr><td>Target not in the instruction cache</td><td>Instruction cache miss stall</td></tr>
+</table></div>
+
 <h3 id="sec-misses">BTB Misses and Decode Redirects</h3>
 <p>What happens when a branch isn't in the BTB depends on its kind (for a cycle-by-cycle walk through one decode redirect, see <a href="#/branch-hazards/btb">The BTB and Decode Redirects</a>):</p>
 <div class="tbl"><table>
 <tr><th>Branch</th><th>On a BTB miss</th><th>Cost</th></tr>
 <tr><td>Conditional, actually not taken</td><td>Fall-through was right by luck</td><td>None (but nothing trains until it's inserted)</td></tr>
-<tr><td>Conditional, actually taken</td><td>Fetch falls through. Decode can redirect if it applies a static guess (backward branches taken); otherwise the branch mispredicts when it executes</td><td>A decode redirect or a full mispredict</td></tr>
-<tr><td>Unconditional direct jump or call</td><td>Decode sees the branch, computes the target from the instruction, and redirects fetch</td><td>A <strong>decode redirect</strong>: the front-end depth up to decode, several cycles</td></tr>
+<tr><td>Conditional, actually taken</td><td>Fetch falls through, because the predictor never saw the branch. Decode can redirect if it applies a static guess (backward branches taken) or reads a direction predictor itself, as simpler cores do. Otherwise the branch mispredicts when it executes</td><td>A decode redirect or a full mispredict</td></tr>
+<tr><td>Unconditional direct jump or call</td><td>Decode sees the branch, computes the target (the branch's PC plus the offset encoded in the instruction), and redirects fetch</td><td>A <strong>decode redirect</strong>: the front-end depth up to decode, several cycles</td></tr>
 <tr><td>Return</td><td>Decode recognizes it and uses the return stack (see <a href="#/fe-indirect/ras">The Return Address Stack</a>)</td><td>Decode redirect</td></tr>
-<tr><td>Indirect</td><td>No target until it executes</td><td>A full mispredict</td></tr>
+<tr><td>Indirect</td><td>No target until it executes, because the target comes from a register that decode doesn't have</td><td>A full mispredict</td></tr>
 </table></div>
 <p>Decode redirects are cheaper than mispredicts because nothing past decode was fetched on the wrong path, but they are frequent on large code. They also cost a second time, by emptying the queue of predicted addresses that fetch-directed prefetching works from (see <a href="#/fe-decoupled/btb-reach">How the BTB Limits Prefetching</a>).</p>
 
