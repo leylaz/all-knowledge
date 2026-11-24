@@ -218,7 +218,15 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <p>What an entry holds, and why:</p>
 <ul>
 <li><strong>Tag.</strong> Hennessy and Patterson's BTB matches the full PC, because a hit on an address that isn't a branch would send fetch somewhere wrong. Real first-level BTBs use partial tags to save area. A false hit is caught when decode finds no branch at that offset, so it costs a redirect, never correctness.</li>
-<li><strong>Branch type and offset.</strong> The type says which structure supplies the target (the BTB itself, the return stack, or the indirect predictor) and whether to consult the direction predictor. The offset says where in the fetch block the branch ends, so fetch knows how many bytes to use.</li>
+<li><strong>Branch type.</strong> The predictor works from fetch addresses before any bytes are decoded, so the type in the BTB entry is the only early sign of what kind of branch is coming. It drives the next-address select: it picks which structure supplies the target and which others to consult or update. What each type does:
+<ul>
+<li><strong>Conditional.</strong> The stored target is right, but the branch may fall through, so the direction predictor chooses between the target and the sequential address.</li>
+<li><strong>Unconditional jump.</strong> The stored target is right and the branch is always taken, so the direction predictor is skipped.</li>
+<li><strong>Call.</strong> A direct call's stored target is right. Every call, direct or indirect, also pushes its return address onto the return stack at prediction time, so the address is already there when the matching return is predicted.</li>
+<li><strong>Return.</strong> The target is popped from the return stack. The stored target is only where the last return from this code went, which is wrong whenever the function has more than one caller.</li>
+<li><strong>Indirect.</strong> The target comes from the indirect predictor, which can choose among several targets using history. The stored last target covers single-target indirects and is the fallback when the indirect predictor has no match.</li>
+</ul></li>
+<li><strong>Offset.</strong> Where in the fetch block the branch ends, so fetch knows how many bytes to use.</li>
 <li><strong>Target.</strong> The last target, or the only one for a direct branch.</li>
 </ul>
 <p>Which branches get an entry is a policy. Hennessy and Patterson's design stores only taken branches, since a not-taken branch just continues to the next sequential PC and an entry for it would waste space. A decoupled front end keeps the same rule at the door: a branch is inserted the first time it is taken, so branches that are never taken never cost an entry. Once inserted, a conditional branch stays even when it goes not taken, because the predictor needs to know it is there to ask the direction predictor about it. BTBs are set-associative and indexed by fetch-block address, and some designs hold two or more branches per entry so one lookup covers a whole fetch block.</p>
