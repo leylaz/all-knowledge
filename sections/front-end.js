@@ -116,7 +116,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <li><strong>Redirects.</strong> When decode finds a branch the BTB missed, or the back end resolves a mispredicted branch, the predictor restarts at the correct address. The fetch target queue and everything younger than the branch are flushed (see <a href="#/fe-targets/misses">BTB Misses and Decode Redirects</a>).</li>
 </ul>
 <p>When the front end falls behind, the back end starves however wide it is. When it predicts wrong, everything fetched after the bad prediction is thrown away (see <a href="#/fe-mispredict">Mispredict Cost in Deep Pipelines</a>). Front-end stalls take a large share of cycles on server workloads with large code footprints, and mispredicts are often the largest single loss on integer code with hard-to-predict branches.</p>
-<p>The classic 5-stage pipeline's view of branches is in <a href="#/branch-hazards">Branch Hazards</a>; these pages cover how a wide out-of-order core does it.</p>`,
+<p>The classic 5-stage pipeline's view of branches is in <a href="#/branch-hazards">Branch Hazards</a>, and these pages cover how a wide out-of-order core does it. Start with <a href="#/fe-branch-types">Branch Types and When They Resolve</a>, which lists each kind of x86-64 branch with when the core finds it and when it learns whether the guess was right.</p>`,
   practice: {
     guided: [
       {
@@ -132,6 +132,87 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
     ]
   }
 }, [
+{
+  id: "fe-branch-types",
+  region: "fe",
+  title: "Branch Types and When They Resolve",
+  sections: [
+    { id: "three-times", label: "Three Moments for Every Branch" },
+    { id: "types", label: "x86-64 Control-Flow Instructions" },
+    { id: "stages", label: "What Each Stage Can Check" },
+    { id: "late", label: "Why Some Branches Resolve Late" }
+  ],
+  body: `
+<p>Every page in this section depends on one question: for a given branch, how early can the core <em>find</em> it, and how late does it <em>know</em> whether the guess was right? The gap between those two times is what the predictor has to cover, and the stage where a wrong guess is caught sets what it costs. This page lists the x86-64 control-flow instructions with those times, as a map for the pages that follow (<a href="#/fe-targets">The Branch Target Buffer</a>, the direction predictor pages, <a href="#/fe-indirect">Indirect Branches and Returns</a>, and <a href="#/fe-mispredict">Mispredict Cost in Deep Pipelines</a>).</p>
+
+<h3 id="sec-three-times">Three Moments for Every Branch</h3>
+<ul>
+<li><strong>Identified.</strong> The core learns that a branch exists at some address. With a BTB hit, that happens at prediction time, before the instruction's bytes are even fetched, and this is the normal case for hot code. With a BTB miss, the core only finds the branch once the bytes reach predecode and decode, and until then fetch has carried on sequentially past it.</li>
+<li><strong>Target known.</strong> For a direct branch, the target is the address of the next instruction plus an offset encoded in the instruction, so decode can compute it. For an indirect branch or a return, the target lives in a register or in memory, and only execution can read it.</li>
+<li><strong>Direction known.</strong> Unconditional branches are always taken, so decode knows the direction from the opcode. A conditional branch's direction depends on the flags (or RCX), which only exist once the instruction that sets them has executed.</li>
+</ul>
+<p>A prediction is checked at the later of the two "known" times. If either part was guessed wrong, the fix starts there: at decode for a <strong>decode redirect</strong> (a few cycles, nothing past decode was on the wrong path), or at execute for a full <strong>mispredict</strong> (everything younger than the branch is flushed).</p>
+
+<h3 id="sec-types">x86-64 Control-Flow Instructions</h3>
+<p>The table assumes the branch is <em>not</em> in the BTB for the "Identified" column. With a BTB hit, every row is identified at prediction time. Encodings are from Intel's and AMD's manuals, and "rel8" and "rel32" are the signed 8- and 32-bit offsets added to the address of the next instruction.</p>
+<div class="tbl"><table>
+<tr><th>Type</th><th>Example</th><th>Target comes from</th><th>Identified (BTB miss)</th><th>Direction known</th><th>Target known</th><th>Predicted by</th><th>Wrong guess caught at</th></tr>
+<tr><td>Direct unconditional jump</td><td><code>jmp .L3</code><small class="vars">EB rel8, E9 rel32</small></td><td>Offset in the instruction</td><td>Predecode marks it from the opcode, decode redirects</td><td>Decode (always taken)</td><td>Decode</td><td>BTB</td><td>Decode</td></tr>
+<tr><td>Direct conditional jump</td><td><code>cmp eax, ebx</code><br><code>jne .L2</code><small class="vars">7x rel8, 0F 8x rel32. Usually macro-fused with the <code>cmp</code> or <code>test</code> before it</small></td><td>Offset in the instruction</td><td>Predecode, from the opcode</td><td>Execute, from RFLAGS</td><td>Decode</td><td>BTB for the target, direction predictor (TAGE and its relatives) for taken or not</td><td>Execute for direction, decode for target</td></tr>
+<tr><td>Count-based conditional jump</td><td><code>jrcxz .L9</code><br><code>loop .L1</code><small class="vars">E3 rel8, E2 rel8. <code>loop</code> is microcoded and slow on Intel cores, fast on AMD</small></td><td>Offset in the instruction</td><td>Predecode, from the opcode</td><td>Execute, from RCX</td><td>Decode</td><td>BTB and direction predictor</td><td>Execute for direction, decode for target</td></tr>
+<tr><td>Direct call</td><td><code>call foo</code><small class="vars">E8 rel32</small></td><td>Offset in the instruction. Also pushes the return address</td><td>Predecode, from the opcode</td><td>Decode (always taken)</td><td>Decode</td><td>BTB, and the return stack is pushed</td><td>Decode</td></tr>
+<tr><td>Indirect jump, register</td><td><code>jmp rax</code><small class="vars">FF /4 (the ModRM reg field picks the operation)</small></td><td>A register</td><td>Predecode, from the opcode and ModRM</td><td>Decode (always taken)</td><td>Execute, once RAX is ready</td><td>BTB last target, or an indirect target predictor (ITTAGE-style) for multi-target branches</td><td>Execute</td></tr>
+<tr><td>Indirect jump, memory (jump table)</td><td><code>jmp qword ptr [8*rax + .LJTI0_0]</code><small class="vars">FF /4 with a memory operand. Splits into a load and a branch</small></td><td>Memory, through a load</td><td>Predecode, from the opcode and ModRM</td><td>Decode (always taken)</td><td>Execute, after the load returns</td><td>BTB or indirect target predictor</td><td>Execute</td></tr>
+<tr><td>Indirect call (function pointer, virtual call)</td><td><code>mov rax, [rdi]</code><br><code>call qword ptr [rax + 16]</code><small class="vars">FF /2. Also pushes the return address</small></td><td>A register or memory</td><td>Predecode, from the opcode and ModRM</td><td>Decode (always taken)</td><td>Execute, after the vtable load chain</td><td>BTB or indirect target predictor, and the return stack is pushed</td><td>Execute</td></tr>
+<tr><td>Return</td><td><code>ret</code><br><code>ret 16</code><small class="vars">C3, C2 imm16 (pops 16 more bytes)</small></td><td>Memory at [RSP], popped</td><td>Predecode, from the opcode</td><td>Decode (always taken)</td><td>Execute, after the load from [RSP]</td><td>Return address stack (pop)</td><td>Execute</td></tr>
+<tr><td>System call and return</td><td><code>syscall</code><br><code>sysret</code><br><code>iretq</code><small class="vars">0F 05, 0F 07, 48 CF</small></td><td>A model-specific register (IA32_LSTAR for <code>syscall</code>), RCX for <code>sysret</code>, the stack for <code>iretq</code></td><td>Decode, which sends it to the microcode unit</td><td>Decode (always taken)</td><td>Microcode, at execute</td><td>Typically not predicted. They change privilege level and are rare compared with ordinary branches</td><td>Execute or retire, depending on the core</td></tr>
+</table></div>
+<p>Two things on x86 change control flow without being in the table:</p>
+<ul>
+<li><strong>Faults and interrupts</strong> (a page fault, a divide error, a timer interrupt) are never predicted. The core takes them at retire, flushes everything, and fetches from the handler (see <a href="#/flush-recovery">Pipeline Flush and Recovery</a>).</li>
+<li><strong>Conditional moves</strong> (<code>cmovne rax, rbx</code>) aren't branches at all. They turn a control dependence into a data dependence: nothing is predicted, so nothing can mispredict, but the instruction waits for both inputs and the flags. Compilers use them for branches they expect to be unpredictable.</li>
+</ul>
+
+<h3 id="sec-stages">What Each Stage Can Check</h3>
+<p>Read the same information the other way, by stage, and it says which mistakes each part of the pipeline can catch:</p>
+<div class="tbl"><table>
+<tr><th>Stage</th><th>What it knows about branches</th><th>What it can fix</th></tr>
+<tr><td>Prediction (BTB, direction predictor, return stack, indirect predictor)</td><td>Every branch the BTB holds: its offset in the fetch block, its type, and a predicted target and direction</td><td>Nothing yet. It makes the guess the later stages check</td></tr>
+<tr><td>Predecode</td><td>Instruction boundaries, and which instructions are branches, from their opcode bytes</td><td>Marks branches for decode. On x86 this is where variable-length bytes become instructions (see <a href="#/fe-decode/x86">Variable-Length Decode on x86</a>)</td></tr>
+<tr><td>Decode (or the op cache read-out)</td><td>The full branch type, every direct target, and the direction of every unconditional branch</td><td>A decode redirect for: <ul><li>a direct jump or call the BTB missed</li><li>a wrong direct target</li><li>a BTB false hit with no branch at the predicted offset</li><li>a return the BTB missed, which then takes its target from the return stack</li></ul></td></tr>
+<tr><td>Execute</td><td>Flags, RCX, and the real target of every indirect branch and return</td><td>A full mispredict flush for: <ul><li>a wrong conditional direction</li><li>a wrong indirect target</li><li>a wrong return address</li></ul></td></tr>
+<tr><td>Retire</td><td>Faults, interrupts, and the end of microcoded control transfers</td><td>A full flush of the whole window</td></tr>
+</table></div>
+<p>The rows that can only be caught at execute are where the predictor earns its keep: conditional direction (the direction predictor pages), indirect targets, and returns (<a href="#/fe-indirect">Indirect Branches and Returns</a>). Everything caught at decode is a BTB capacity and coverage problem (<a href="#/fe-targets/misses">BTB Misses and Decode Redirects</a>).</p>
+
+<h3 id="sec-late">Why Some Branches Resolve Late</h3>
+<p>"Caught at execute" isn't one time. A branch executes once its inputs are ready, so the time from dispatch to resolution depends on what it reads:</p>
+<ul>
+<li><strong>A conditional branch fused with a register compare</strong> (<code>cmp eax, ebx</code> then <code>jne</code>) can resolve one cycle after its operands are ready.</li>
+<li><strong>A conditional branch on loaded data</strong> (<code>cmp dword ptr [rdi], 0</code> then <code>je</code>) waits for the load, and a cache miss there turns into a long resolution time.</li>
+<li><strong>A jump-table dispatch</strong> waits for the index computation and then the table load.</li>
+<li><strong>A virtual call</strong> waits for two dependent loads: the object's vtable pointer, then the entry in the vtable.</li>
+<li><strong>A return</strong> waits for the load from [RSP]. The return address was usually just stored by the call, so it often comes from store-to-load forwarding or the L1.</li>
+</ul>
+<p>The hard-to-predict branches tend to be the data-dependent ones, so they are also the ones that resolve late. The full accounting is on <a href="#/fe-mispredict/resolution">Resolution Time</a>.</p>
+
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 5th ed., Appendix C.2 and Section 3.9 · Shen and Lipasti, <em>Modern Processor Design</em>, Chapter 9 · Intel, <em>Intel 64 and IA-32 Architectures Software Developer's Manual</em>, Volume 2 (instruction encodings for JMP, Jcc, CALL, RET, LOOP, JRCXZ, SYSCALL) · Intel, <em>Intel 64 and IA-32 Architectures Optimization Reference Manual</em> (macro-fusion, branch prediction) · AMD, <em>Software Optimization Guide for the AMD Zen 5 Microarchitecture</em> · Agner Fog, <em>The Microarchitecture of Intel, AMD and VIA CPUs</em></p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>On an Intel Golden Cove core, assume an L1 data cache load-to-use latency of 5 cycles, an L2 hit latency of 16 cycles, a branch that executes 1 cycle after its last input is ready, and 15 cycles of refill from a mispredict being detected to the first correct-path macro-op dispatching. Each branch below dispatches with its producers, and its first producer's inputs are ready at dispatch. Each one is mispredicted. How many cycles pass from dispatch until the correct path dispatches?</p><ol><li><code>cmp eax, ebx</code> then <code>jne .L2</code>, with the direction wrong.</li><li>A virtual call, <code>mov rax, [rdi]</code> (the vtable pointer hits the L1) then <code>call qword ptr [rax + 24]</code> (the vtable entry hits the L2), with the target wrong.</li><li>A <code>ret</code> whose return stack entry was overwritten, with its return address in the L1.</li></ol>`,
+        a: `<ol><li>The fused compare and branch executes 1 cycle after dispatch. Total: 1 cycle + 15 cycles = <strong>16 cycles</strong>.</li><li>Vtable pointer: 5 cycles. Vtable entry: 16 cycles after that. Branch check: 1 cycle more. Resolution: 5 cycles + 16 cycles + 1 cycle = 22 cycles. Total: 22 cycles + 15 cycles = <strong>37 cycles</strong>.</li><li>Load from [RSP]: 5 cycles. Branch check: 1 cycle. Resolution: 5 cycles + 1 cycle = 6 cycles. Total: 6 cycles + 15 cycles = <strong>21 cycles</strong>.</li><li>The refill is the same 15 cycles every time. The difference is all resolution time, which comes from where the branch's inputs come from, and that is set by the branch's type. The virtual call costs more than twice the register-compare branch.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A performance model charges every mispredicted or BTB-missed branch the same fixed penalty, measured as the refill time from execute. For which x86-64 branch types does this overstate the cost, for which does it understate it, and what would you change in the model?</p>`,
+        a: `<ul><li><strong>Overstated:</strong> direct unconditional jumps and direct calls that miss the BTB. Decode computes their targets and knows they are taken, so they cost a decode redirect, which is only the front-end depth up to decode. Returns that miss the BTB also get fixed at decode from the return stack, as long as the stack entry is right.</li><li><strong>Understated:</strong> branches whose inputs come from loads. A conditional branch comparing loaded data, a jump-table dispatch, a virtual call (two dependent loads), and a return whose stack entry is wrong all resolve only when their loads return. Their resolution time adds to the refill, and a cache miss makes it much larger.</li><li><strong>The fix:</strong> tag each branch with its type, charge a decode-redirect penalty to the types decode can fix, and for the ones caught at execute, charge the actual cycles from dispatch to execute (from the model's dependence tracking) plus the refill. Also allow for the opposite case, where the branch sits behind a load miss that blocks retirement anyway and the refill overlaps it.</li></ul>`
+      }
+    ]
+  }
+},
+
 {
   id: "fe-targets",
   region: "fe",
