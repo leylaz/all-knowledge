@@ -1477,7 +1477,7 @@ sub r5, r3, r6</code></pre>`,
 <p>Static schemes use the same guess for every branch. A <strong>branch-prediction buffer</strong> (branch history table) instead keeps a small amount of history per branch, indexed by low-order bits of the branch's address.</p>
 <ul>
 <li><strong>1-bit:</strong> remember the last outcome. A loop branch mispredicts twice per loop run: at the exit, and again on the first iteration next time.</li>
-<li><strong>2-bit saturating counter:</strong> the prediction flips only after two mispredictions in a row, so a single unusual outcome (like a loop exit) doesn't change it.</li>
+<li><strong>2-bit saturating counter:</strong> from a strong state, the prediction flips only after two mispredictions in a row, so a single unusual outcome (like a loop exit) only moves it to a weak state without changing the prediction. From a weak state, one misprediction flips it.</li>
 </ul>
 <div class="tbl"><svg viewBox="0 0 680 200" role="img" aria-label="Two-bit predictor state machine with four states in a row: strongly taken, weakly taken, weakly not taken, strongly not taken. A taken outcome moves one state toward strongly taken; a not-taken outcome moves one state toward strongly not taken. The first two states predict taken, the last two predict not taken." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
 <defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
