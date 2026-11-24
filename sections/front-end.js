@@ -147,6 +147,73 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 
 <h3 id="sec-btb">The BTB</h3>
 <p>The <strong>branch target buffer</strong> is a cache indexed by fetch address. A hit says "there is a branch at this offset in the block," gives its type (conditional, unconditional, call, return, indirect), and its last target. Once the predictor runs ahead of fetch, the BTB is how it finds branches at all: a branch missing from the BTB is invisible, and the predictor carries on sequentially as if it weren't there.</p>
+<p>Where the BTB sits, and who talks to it. Every cycle the predictor looks up one fetch address in the BTB, the direction predictor, the return stack, and the indirect predictor at once, picks the next fetch address from their answers, and feeds it straight back in. The blocks it predicts go into the fetch target queue, which drives both the instruction cache and the prefetcher. Information flows back the other way along three paths:</p>
+<ul>
+<li><strong>Decode redirect.</strong> Decode finds a direct branch the BTB missed, or no branch where a false hit said one was, and restarts the predictor at the right address.</li>
+<li><strong>Mispredict redirect.</strong> A branch executes and its direction or indirect target was wrong. The predictor restarts there, and everything younger is flushed.</li>
+<li><strong>Training.</strong> Branches update the BTB and the other predictors, at decode or execute in some designs and at retire in others. A branch's first taken execution is what inserts it into the BTB.</li>
+</ul>
+<p>Op cache and macro-op details are left out here (see the Zen 5 diagram on <a href="#/r/fe">Front End and Branch Prediction</a>).</p>
+<div class="tbl"><svg viewBox="0 0 680 370" role="img" aria-label="Where the BTB sits in a decoupled front end. Inside the branch predictor, the BTB, direction predictor, return stack, and indirect predictor are all looked up with the same fetch address. Their answers go to a next-address select, whose output loops back as the next cycle's fetch address and is also written as a fetch block into the fetch target queue. The fetch target queue sends fetch addresses to the L1 instruction cache and ITLB, and prefetch requests to the L2 cache, which fills the instruction cache on a miss. The instruction cache sends bytes to predecode and decode, which sends macro-ops to the macro-op queue, then rename, execute, and retire. Two redirect paths go back to the next-address select: a decode redirect from decode, and a mispredict redirect from execute. Retire sends training updates back to the branch predictor." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrB1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrB1t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker><marker id="arrB1p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--pad)"/></marker><marker id="arrB1r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--redirect)"/></marker></defs>
+<rect x="8" y="40" width="244" height="222" rx="5" style="fill:none;stroke:var(--pad);stroke-width:1.5;stroke-dasharray:5 4"/>
+<text x="20" y="58" style="fill:var(--pad);font-size:12px;font-weight:600">Branch predictor</text>
+<rect x="26" y="70" width="124" height="28" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:2.5"/>
+<g style="fill:var(--surface);stroke:var(--pad);stroke-width:1.5">
+<rect x="26" y="106" width="124" height="28" rx="3"/><rect x="26" y="142" width="124" height="28" rx="3"/><rect x="26" y="178" width="124" height="28" rx="3"/>
+<rect x="172" y="70" width="68" height="154" rx="3"/>
+</g>
+<g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
+<rect x="280" y="115" width="70" height="50" rx="3"/><rect x="380" y="115" width="100" height="50" rx="3"/><rect x="510" y="115" width="90" height="50" rx="3"/><rect x="510" y="290" width="90" height="40" rx="3"/>
+</g>
+<g style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5">
+<rect x="380" y="50" width="100" height="30" rx="3"/><rect x="390" y="290" width="90" height="40" rx="3"/><rect x="270" y="290" width="90" height="40" rx="3"/><rect x="150" y="290" width="90" height="40" rx="3"/>
+</g>
+<g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle">
+<text x="88" y="89">BTB</text>
+<text x="430" y="70">L2 cache</text>
+<text x="555" y="307" style="font-size:11px">Macro-op</text><text x="555" y="321" style="font-size:11px">queue</text><text x="435" y="314">Rename</text><text x="315" y="314">Execute</text><text x="195" y="314">Retire</text>
+</g>
+<g style="fill:var(--ink);font-size:11px" text-anchor="middle">
+<text x="88" y="124">Direction predictor</text><text x="88" y="160">Return stack</text><text x="88" y="196">Indirect predictor</text>
+<text x="206" y="136">Next-</text><text x="206" y="150">address</text><text x="206" y="164">select</text>
+<text x="315" y="133">Fetch</text><text x="315" y="146">target</text><text x="315" y="159">queue</text>
+<text x="430" y="137">L1 I-cache</text><text x="430" y="151">and ITLB</text>
+<text x="555" y="137">Predecode</text><text x="555" y="151">and decode</text>
+</g>
+<g style="fill:none;stroke:var(--pad);stroke-width:1.5">
+<path d="M150,84 H168" marker-end="url(#arrB1p)"/><path d="M150,120 H168" marker-end="url(#arrB1p)"/><path d="M150,156 H168" marker-end="url(#arrB1p)"/><path d="M150,192 H168" marker-end="url(#arrB1p)"/>
+<path d="M206,224 V244 H16 V84 H22" marker-end="url(#arrB1p)"/><path d="M16,120 H22" marker-end="url(#arrB1p)"/><path d="M16,156 H22" marker-end="url(#arrB1p)"/><path d="M16,192 H22" marker-end="url(#arrB1p)"/>
+</g>
+<text x="24" y="257" style="fill:var(--muted);font-size:10px">next fetch address, one block per cycle</text>
+<g style="fill:none;stroke:var(--trace);stroke-width:2">
+<path d="M240,140 H276" marker-end="url(#arrB1t)"/><path d="M350,140 H376" marker-end="url(#arrB1t)"/><path d="M480,140 H506" marker-end="url(#arrB1t)"/>
+<path d="M580,165 V286" marker-end="url(#arrB1t)"/>
+<path d="M510,310 H484" marker-end="url(#arrB1t)"/><path d="M390,310 H364" marker-end="url(#arrB1t)"/><path d="M270,310 H244" marker-end="url(#arrB1t)"/>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M430,84 V111" marker-start="url(#arrB1)" marker-end="url(#arrB1)"/>
+<path d="M315,113 V65 H376" stroke-dasharray="4 3" marker-end="url(#arrB1)"/>
+<path d="M228,288 V266" stroke-dasharray="4 3" marker-end="url(#arrB1)"/>
+</g>
+<g style="fill:var(--muted);font-size:10px">
+<text x="436" y="102">miss, fill</text><text x="322" y="60">prefetch</text><text x="222" y="281" text-anchor="end">train</text>
+</g>
+<g style="fill:none;stroke:var(--redirect);stroke-width:1.75">
+<path d="M530,165 V196 H244" marker-end="url(#arrB1r)"/>
+<path d="M300,288 V216 H244" marker-end="url(#arrB1r)"/>
+</g>
+<g style="fill:var(--redirect);font-size:10px">
+<text x="390" y="191" text-anchor="middle">decode redirect</text><text x="306" y="252">mispredict redirect</text>
+</g>
+<g style="font-size:11px;fill:var(--muted)">
+<rect x="10" y="346" width="12" height="12" rx="2" style="fill:var(--pad-soft);stroke:var(--pad)"/><text x="28" y="356">prediction</text>
+<rect x="110" y="346" width="12" height="12" rx="2" style="fill:var(--trace-soft);stroke:var(--trace)"/><text x="128" y="356">fetch and decode</text>
+<rect x="240" y="346" width="12" height="12" rx="2" style="fill:var(--surface);stroke:var(--muted)"/><text x="258" y="356">back end</text>
+<path d="M330,352 H354" style="stroke:var(--redirect);stroke-width:1.75"/><text x="360" y="356">redirect</text>
+<path d="M420,352 H444" style="stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3"/><text x="450" y="356">prefetch or training</text>
+</g>
+</svg></div>
 <p>Like caches, BTBs come in levels. A small, fast level gives zero-bubble taken branches; a larger level behind it covers more code at a cycle or more of bubble per taken branch. AMD's Zen 4, for example, has a 1.5K-entry first-level BTB and a 7K-entry second level; Intel's Golden Cove has 12K entries in total. Entries store compressed targets (only the low bits that differ from the branch address for short branches) to fit more of them.</p>
 <p>What an entry holds, and why:</p>
 <ul>
@@ -155,6 +222,86 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <li><strong>Target.</strong> The last target, or the only one for a direct branch.</li>
 </ul>
 <p>Which branches get an entry is a policy. Hennessy and Patterson's design stores only taken branches, since a not-taken branch just continues to the next sequential PC and an entry for it would waste space. A decoupled front end keeps the same rule at the door: a branch is inserted the first time it is taken, so branches that are never taken never cost an entry. Once inserted, a conditional branch stays even when it goes not taken, because the predictor needs to know it is there to ask the direction predictor about it. BTBs are set-associative and indexed by fetch-block address, and some designs hold two or more branches per entry so one lookup covers a whole fetch block.</p>
+<p>One lookup in a single-level BTB, drawn as a 4K-entry, 4-way BTB (1,024 sets) with 32-byte fetch blocks and one branch per entry. The index picks a set, and all four ways' tags are compared with the fetch address's tag at once, the same as in a set-associative data cache. Here way 1 matches: there is a call 9 bytes into the block, going to 0x40A200. The next-address select then chooses among four candidates:</p>
+<ul>
+<li><strong>Sequential</strong> (the fetch address + 32 B), on a miss or a conditional branch predicted not taken.</li>
+<li><strong>The BTB's target</strong>, for a direct jump or call, or a conditional branch the direction predictor calls taken.</li>
+<li><strong>The return stack's top</strong>, when the type is a return.</li>
+<li><strong>The indirect predictor's target</strong>, when the type is an indirect branch.</li>
+</ul>
+<div class="tbl"><svg viewBox="0 0 680 418" role="img" aria-label="Lookup in a single-level, 4K-entry, 4-way BTB with 32-byte fetch blocks. The 48-bit fetch address splits into a tag (bits 47 to 15, hashed to 12 bits, here 0x0B7), an index (bits 14 to 5), and an offset (bits 4 to 0). The index selects 1 of 1,024 sets. Each of the set's four ways holds a valid bit, a tag, a branch type, the branch's offset in the block, and a target. Way 0 holds a conditional branch with tag 0x2C4 at offset 22 to 0x401F80. Way 1 holds a call with tag 0x0B7 at offset 9 to 0x40A200. Way 2 is invalid. Way 3 holds a jump with tag 0x3F2 at offset 30 to 0x402C40. Four comparators check each way's tag against the address tag, and only way 1 matches. The match signals drive a way select, which picks the matching way's type, offset, and target and outputs hit, type, and offset, plus the target. A next-address select chooses among the sequential address (fetch address plus 32 bytes), the return stack, the indirect predictor, and the BTB target, steered by hit, type, offset, and the direction predictor's taken or not-taken guess. Its output becomes the next cycle's fetch address and is also written to the fetch target queue." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrB2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrB2t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--trace)"/></marker><marker id="arrB2p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--pad)"/></marker></defs>
+<g style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5">
+<rect x="20" y="40" width="180" height="34"/><rect x="200" y="40" width="120" height="34"/><rect x="320" y="40" width="80" height="34"/>
+<rect x="16" y="120" width="420" height="148" rx="4"/>
+</g>
+<g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle">
+<text x="110" y="54">tag = 0x0B7</text><text x="260" y="54">index</text><text x="360" y="54">offset</text>
+</g>
+<g style="fill:var(--muted);font-size:10.5px" text-anchor="middle">
+<text x="110" y="68">bits 47–15, 12-bit hash</text><text x="260" y="68">bits 14–5</text><text x="360" y="68">bits 4–0</text>
+<text x="84" y="138">V</text><text x="141" y="138">tag</text><text x="221" y="138">type</text><text x="286" y="138">offset</text><text x="371" y="138">target</text>
+</g>
+<text x="20" y="92" style="fill:var(--muted);font-size:11px">fetch address (48 bits)</text>
+<path d="M260,74 V116" style="fill:none;stroke:var(--trace);stroke-width:1.5" marker-end="url(#arrB2t)"/>
+<text x="268" y="100" style="fill:var(--muted);font-size:11px">1 of 1,024 sets</text>
+<path d="M110,40 V22 H460 V249" style="fill:none;stroke:var(--trace);stroke-width:1.5"/>
+<text x="300" y="17" style="fill:var(--muted);font-size:10.5px" text-anchor="middle">address tag to all 4 comparators</text>
+<g style="fill:var(--surface);stroke:var(--rule);stroke-width:1">
+<rect x="72" y="146" width="24" height="26"/><rect x="96" y="146" width="90" height="26"/><rect x="186" y="146" width="70" height="26"/><rect x="256" y="146" width="60" height="26"/><rect x="316" y="146" width="110" height="26"/>
+<rect x="72" y="206" width="24" height="26"/><rect x="96" y="206" width="90" height="26"/><rect x="186" y="206" width="70" height="26"/><rect x="256" y="206" width="60" height="26"/><rect x="316" y="206" width="110" height="26"/>
+<rect x="72" y="236" width="24" height="26"/><rect x="96" y="236" width="90" height="26"/><rect x="186" y="236" width="70" height="26"/><rect x="256" y="236" width="60" height="26"/><rect x="316" y="236" width="110" height="26"/>
+</g>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5">
+<rect x="72" y="176" width="24" height="26"/><rect x="96" y="176" width="90" height="26"/><rect x="186" y="176" width="70" height="26"/><rect x="256" y="176" width="60" height="26"/><rect x="316" y="176" width="110" height="26"/>
+</g>
+<g style="fill:var(--muted);font-size:11px">
+<text x="24" y="163">way 0</text><text x="24" y="193" style="fill:var(--pad);font-weight:600">way 1</text><text x="24" y="223">way 2</text><text x="24" y="253">way 3</text>
+</g>
+<g style="fill:var(--ink);font-size:11px;font-family:var(--mono)" text-anchor="middle">
+<text x="84" y="163">1</text><text x="141" y="163">0x2C4</text><text x="221" y="163">cond</text><text x="286" y="163">22</text><text x="371" y="163">0x401F80</text>
+<text x="84" y="193">1</text><text x="141" y="193">0x0B7</text><text x="221" y="193">call</text><text x="286" y="193">9</text><text x="371" y="193">0x40A200</text>
+<text x="84" y="223">0</text><text x="141" y="223" style="fill:var(--muted)">–</text><text x="221" y="223" style="fill:var(--muted)">–</text><text x="286" y="223" style="fill:var(--muted)">–</text><text x="371" y="223" style="fill:var(--muted)">–</text>
+<text x="84" y="253">1</text><text x="141" y="253">0x3F2</text><text x="221" y="253">jump</text><text x="286" y="253">30</text><text x="371" y="253">0x402C40</text>
+</g>
+<g style="fill:none;stroke:var(--trace);stroke-width:1.5">
+<path d="M426,159 H450"/><path d="M426,219 H450"/><path d="M426,249 H450"/>
+<path d="M470,159 H506" marker-end="url(#arrB2t)"/><path d="M470,219 H506" marker-end="url(#arrB2t)"/><path d="M470,249 H506" marker-end="url(#arrB2t)"/>
+</g>
+<g style="fill:none;stroke:var(--pad);stroke-width:2"><path d="M426,189 H450"/><path d="M470,189 H506" marker-end="url(#arrB2p)"/></g>
+<g style="fill:var(--surface);stroke:var(--trace);stroke-width:1.5">
+<circle cx="460" cy="159" r="10"/><circle cx="460" cy="219" r="10"/><circle cx="460" cy="249" r="10"/>
+</g>
+<circle cx="460" cy="189" r="10" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:2"/>
+<g style="fill:var(--ink);font-size:13px;font-weight:600" text-anchor="middle">
+<text x="460" y="163">=</text><text x="460" y="193">=</text><text x="460" y="223">=</text><text x="460" y="253">=</text>
+</g>
+<text x="488" y="183" style="fill:var(--pad);font-size:10px" text-anchor="middle">match</text>
+<path d="M510,140 L570,160 L570,248 L510,268 Z" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<g style="fill:var(--ink);font-size:11px;font-weight:600" text-anchor="middle"><text x="540" y="200">way</text><text x="540" y="214">select</text></g>
+<path d="M226,268 V282 H540 V262" style="fill:none;stroke:var(--trace);stroke-width:2.5" marker-end="url(#arrB2t)"/>
+<text x="218" y="290" style="fill:var(--muted);font-size:10px" text-anchor="end">type, offset, and target of all 4 ways</text>
+<g style="fill:none;stroke:var(--trace);stroke-width:1.5">
+<path d="M570,180 H650 V344 H568" marker-end="url(#arrB2t)"/>
+<path d="M570,230 H600 V316 H550 V332" marker-end="url(#arrB2t)"/>
+<path d="M345,312 V332" marker-end="url(#arrB2t)"/><path d="M425,312 V332" marker-end="url(#arrB2t)"/><path d="M495,312 V332" marker-end="url(#arrB2t)"/>
+<path d="M600,372 V358 H559" marker-end="url(#arrB2t)"/>
+</g>
+<g style="fill:var(--muted);font-size:10.5px">
+<text x="574" y="174">hit, type, offset</text><text x="574" y="224">target</text>
+</g>
+<g style="fill:var(--muted);font-size:10.5px" text-anchor="middle">
+<text x="345" y="296">sequential</text><text x="345" y="307">(+32 B)</text>
+<text x="425" y="296">return</text><text x="425" y="307">stack</text>
+<text x="495" y="296">indirect</text><text x="495" y="307">predictor</text>
+</g>
+<path d="M310,336 L570,336 L550,366 L330,366 Z" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<text x="440" y="355" style="fill:var(--ink);font-size:11px;font-weight:600" text-anchor="middle">next-address select</text>
+<rect x="590" y="372" width="86" height="36" rx="3" style="fill:var(--surface);stroke:var(--pad);stroke-width:1.5"/>
+<g style="fill:var(--ink);font-size:11px" text-anchor="middle"><text x="633" y="387">Direction</text><text x="633" y="400">predictor</text></g>
+<path d="M440,366 V392 H8 V57 H16" style="fill:none;stroke:var(--pad);stroke-width:1.5" marker-end="url(#arrB2p)"/>
+<text x="24" y="408" style="fill:var(--muted);font-size:10.5px">next cycle's fetch address, also written to the fetch target queue</text>
+</svg></div>
 
 <h3 id="sec-hits">BTB Hits and Their Costs</h3>
 <p>A hit usually means little or no stall, but it doesn't guarantee a free ride. Which level the hit comes from sets the bubble:</p>
@@ -162,6 +309,67 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <li><strong>First-level hit, no bubble.</strong> The BTB answers in the cycle it is probed, so the predictor follows the taken branch on the very next cycle. The only loss is fetch bandwidth. The slots after the branch in its fetch block are thrown away, because those instructions aren't on the path.</li>
 <li><strong>Second-level hit, a small bubble.</strong> A larger BTB can't answer in one cycle. By the time a two-cycle second level supplies the target, the predictor has already moved on to the next sequential block, which is discarded, for a one- or two-cycle bubble per taken branch. That is why cores keep a small, fast first level for the hottest branches. In a decoupled front end, the fetch target queue hides these bubbles as long as the predictor stays ahead of fetch (see <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>).</li>
 </ul>
+<p>A two-level BTB, sized like AMD's Zen 4. Both levels are probed with the same fetch address in the same cycle, so the second level costs no extra cycle on a first-level hit. The first level answers in time for the next cycle's prediction. The second level answers a cycle later, after the predictor has already guessed the sequential block, so its target overrides that guess and the guessed block is thrown away. Entries move between the levels like cache lines: a second-level hit is copied into the first level, and in an exclusive design the first level's victim moves down to make room. The 2-cycle second-level read is an illustration, not a Zen 4 figure.</p>
+<div class="tbl"><svg viewBox="0 0 680 386" role="img" aria-label="A two-level BTB. The fetch address probes the L1 BTB (1.5K entries, 1-cycle read) and the L2 BTB (7K entries, 2-cycle read) in parallel. The L1 target, the sequential address (plus 32 bytes), and the L2's late target go into a next-address select, whose output is written to the fetch target queue and loops back as the next fetch address. An L2 hit is copied into the L1, and the L1's victim moves to the L2. Below, a timeline of the predictor's output for a taken branch at the end of block A. With the branch in the L1: cycle 0 predicts A, and the L1 hit gives T as the next block, so cycle 1 predicts T, cycle 2 T+1, and cycle 3 T+2, with no bubble. With the branch only in the L2: cycle 0 predicts A, and the L1 misses, so the predictor guesses A+1. Cycle 1 predicts A+1 while the L2 returns T, and A+1 is discarded. Cycle 2 predicts T and cycle 3 T+1, one bubble later." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrB3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrB3p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--pad)"/></marker><marker id="arrB3r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--redirect)"/></marker></defs>
+<rect x="10" y="110" width="90" height="40" rx="3" style="fill:var(--surface);stroke:var(--pad);stroke-width:1.5"/>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5">
+<rect x="170" y="40" width="180" height="60" rx="3"/><rect x="170" y="170" width="180" height="60" rx="3"/>
+</g>
+<rect x="560" y="115" width="110" height="50" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
+<path d="M440,40 L470,60 L470,220 L440,240 Z" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle">
+<text x="260" y="60">L1 BTB</text><text x="260" y="190">L2 BTB</text>
+</g>
+<g style="fill:var(--ink);font-size:11px" text-anchor="middle">
+<text x="55" y="127">Fetch</text><text x="55" y="140">address</text>
+<text x="615" y="137">Fetch target</text><text x="615" y="150">queue</text>
+</g>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle">
+<text x="260" y="75">1.5K entries</text><text x="260" y="89">1-cycle read, 0 bubbles</text>
+<text x="260" y="205">7K entries</text><text x="260" y="219">2-cycle read, 1 bubble</text>
+</g>
+<text x="455" y="256" style="fill:var(--muted);font-size:10.5px" text-anchor="middle">next-address select</text>
+<g style="fill:none;stroke:var(--pad);stroke-width:1.5">
+<path d="M100,130 H135 V70 H166" marker-end="url(#arrB3p)"/><path d="M135,130 V200 H166" marker-end="url(#arrB3p)"/>
+<path d="M350,70 H436" marker-end="url(#arrB3p)"/>
+<path d="M405,140 H436" marker-end="url(#arrB3p)"/>
+<path d="M470,140 H556" marker-end="url(#arrB3p)"/>
+<path d="M510,140 V22 H55 V106" marker-end="url(#arrB3p)"/>
+</g>
+<path d="M350,200 H436" style="fill:none;stroke:var(--redirect);stroke-width:1.75" marker-end="url(#arrB3r)"/>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3">
+<path d="M230,170 V104" marker-end="url(#arrB3)"/><path d="M300,100 V166" marker-end="url(#arrB3)"/>
+</g>
+<g style="fill:var(--muted);font-size:10.5px">
+<text x="224" y="132" text-anchor="end">L2 hit is</text><text x="224" y="145" text-anchor="end">copied up</text>
+<text x="306" y="132">L1 victim</text><text x="306" y="145">moves down</text>
+<text x="421" y="132" text-anchor="middle">+32 B</text>
+<text x="393" y="64" text-anchor="middle">target</text>
+<text x="282" y="16" text-anchor="middle">next fetch address, every cycle</text>
+<text x="10" y="168">same address,</text><text x="10" y="181">both levels</text>
+</g>
+<text x="393" y="194" style="fill:var(--redirect);font-size:10.5px" text-anchor="middle">late target</text>
+<text x="10" y="276" style="fill:var(--muted);font-size:12px;font-weight:600">Block predicted each cycle, for a taken branch at the end of block A</text>
+<g style="fill:var(--muted);font-size:11px" text-anchor="middle">
+<text x="230" y="298">cycle 0</text><text x="350" y="298">cycle 1</text><text x="470" y="298">cycle 2</text><text x="590" y="298">cycle 3</text>
+</g>
+<g style="fill:var(--ink);font-size:11px;font-weight:600"><text x="10" y="320">Branch in the L1</text><text x="10" y="364">Branch only in the L2</text></g>
+<g style="fill:var(--muted);font-size:10.5px"><text x="10" y="333">0 bubbles</text><text x="10" y="377">1 bubble</text></g>
+<g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5">
+<rect x="175" y="306" width="110" height="34" rx="3"/><rect x="295" y="306" width="110" height="34" rx="3"/><rect x="415" y="306" width="110" height="34" rx="3"/><rect x="535" y="306" width="110" height="34" rx="3"/>
+<rect x="175" y="346" width="110" height="34" rx="3"/><rect x="415" y="346" width="110" height="34" rx="3"/><rect x="535" y="346" width="110" height="34" rx="3"/>
+</g>
+<rect x="295" y="346" width="110" height="34" rx="3" style="fill:none;stroke:var(--redirect);stroke-width:1.5;stroke-dasharray:4 3"/>
+<g style="fill:var(--ink);font-size:12px;font-family:var(--mono)" text-anchor="middle">
+<text x="230" y="321">A</text><text x="350" y="327">T</text><text x="470" y="327">T+1</text><text x="590" y="327">T+2</text>
+<text x="230" y="361">A</text><text x="350" y="361" style="fill:var(--muted)">A+1</text><text x="470" y="367">T</text><text x="590" y="367">T+1</text>
+</g>
+<g style="fill:var(--muted);font-size:10px" text-anchor="middle">
+<text x="230" y="334">L1 hit: next is T</text>
+<text x="230" y="374">L1 miss: guess A+1</text><text x="350" y="374" style="fill:var(--redirect)">L2 gives T, drop A+1</text>
+</g>
+</svg></div>
 <p>A hit can also be wrong, and then a penalty is paid after all:</p>
 <ul>
 <li><strong>Wrong direction.</strong> The BTB says where a branch goes, and the direction predictor says whether it goes. A conditional branch predicted the wrong way is caught at execute, for the full mispredict penalty.</li>
