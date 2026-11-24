@@ -394,7 +394,7 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
 <p><strong>What's different about it.</strong></p>
 <ul>
 <li><strong>Read-only from the pipeline's side.</strong> Fetch never writes it, so it needs no dirty bits or write policy, and an evicted line is simply dropped.</li>
-<li><strong>Lower miss rates.</strong> For the same size, instruction caches miss far less often than data caches, because code is reused in loops and runs sequentially (H&amp;P Appendix B compares them). Large server binaries are the exception (see <a href="#/fe-targets/footprint">Large Code Footprints</a>).</li>
+<li><strong>Lower miss rates.</strong> For the same size, instruction caches miss far less often than data caches, because code is reused in loops and runs sequentially (H&amp;P Appendix B compares them). Large server binaries are the exception (see <a href="#/fe-decoupled/footprint">Large Code Footprints</a>).</li>
 <li><strong>Sequential use of a line.</strong> A 64-byte line holds 16 fixed-length 4-byte instructions, so one miss serves the next 16 fetches if no branch leaves the line. Many designs keep the last line read in a <em>line buffer</em> and skip the array read while fetch stays in it, which saves energy.</li>
 <li><strong>Way prediction</strong> works well here for the same reason: consecutive fetches usually hit the same way, so the cache can read one way instead of all of them (see <a href="#/stage-if/way-pred">Way Prediction</a>).</li>
 </ul>
@@ -629,7 +629,7 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
 <p>A superscalar core has to fetch several instructions per cycle, and that turns this one-read stage into the front end. The problems, each covered in the Front End section:</p>
 <ul>
 <li><strong>Fetch blocks.</strong> Fetch reads an aligned window (16 or 32 bytes) per cycle. A block that crosses a line boundary, or a taken branch in the middle of one, cuts delivery short (see <a href="#/fe-decoupled/blocks">Fetch Blocks and Taken Branches</a>).</li>
-<li><strong>Prediction before decode.</strong> The predictor must find branches and their targets from the fetch address alone, through multi-level BTBs, a return stack, and an indirect predictor (see <a href="#/fe-targets">Branch Targets</a>).</li>
+<li><strong>Prediction before decode.</strong> The predictor must find branches and their targets from the fetch address alone, through multi-level BTBs, a return stack, and an indirect predictor (see <a href="#/fe-targets">The Branch Target Buffer</a> and <a href="#/fe-indirect">Indirect Branches and Returns</a>).</li>
 <li><strong>Decoupling.</strong> A queue of predicted fetch addresses lets the predictor run ahead of the instruction cache and drive prefetching (see <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>).</li>
 <li><strong>Variable-length instructions.</strong> On x86, the next PC isn't PC + a constant, so finding instruction boundaries takes length decoding, predecode bits stored with the cache, and micro-op caches that skip fetch and decode on hot code (see <a href="#/fe-decode">Decoders and the Op Cache</a>).</li>
 <li><strong>Instruction buffering.</strong> A queue between fetch and decode absorbs bubbles from misses and taken branches, so decode keeps busy while fetch catches up. Loop buffers go further: Intel's loop stream detector replays a tight loop from the decoded micro-op queue, letting fetch and decode idle.</li>
@@ -1553,7 +1553,7 @@ sub r5, r3, r6</code></pre>`,
 <tr><td>BTB hit, wrong direction or wrong indirect target</td><td>Full mispredict penalty</td></tr>
 <tr><td>Target not in the instruction cache</td><td>Instruction cache miss stall</td></tr>
 </table></div>
-<p><strong>Decoupled front ends.</strong> Many high-performance cores run the branch predictor and BTB <em>ahead</em> of instruction cache fetch, producing a queue of predicted fetch addresses that the instruction cache works through, and that can also drive instruction prefetching (see <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>, and <a href="#/fe-targets">Branch Targets</a> for multi-level BTBs, indirect branches, and the return stack). The classic 5-stage pipeline has no BTB at all, which is why it computes branch targets in ID.</p>
+<p><strong>Decoupled front ends.</strong> Many high-performance cores run the branch predictor and BTB <em>ahead</em> of instruction cache fetch, producing a queue of predicted fetch addresses that the instruction cache works through, and that can also drive instruction prefetching (see <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>, <a href="#/fe-targets">The Branch Target Buffer</a> for multi-level BTBs, and <a href="#/fe-indirect">Indirect Branches and Returns</a> for indirect branches and the return stack). The classic 5-stage pipeline has no BTB at all, which is why it computes branch targets in ID.</p>
 <h3 id="sec-control-table">Control Hazards</h3>
 <div class="tbl"><table>
 <tr><th>Hazard</th><th>What happens</th><th>Classic 5-stage (in-order)</th><th>Out-of-order core</th><th>Reduced by</th></tr>

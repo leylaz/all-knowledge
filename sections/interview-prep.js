@@ -1526,7 +1526,7 @@ M(`<p>An integer loop keeps 20 values live across its body: pointers, counters, 
   id: "intv-branch",
   title: "Branch Prediction and Speculation",
   body: `
-<p>Background: <a href="#/branch-hazards">Branch Hazards</a>, <a href="#/stage-if">Instruction Fetch</a>, <a href="#/fe-classic">Classic Direction Predictors</a>, <a href="#/fe-direction">Modern Direction Predictors</a>, <a href="#/fe-targets">Branch Targets</a>, <a href="#/fe-mispredict">Mispredict Cost in Deep Pipelines</a>.</p>
+<p>Background: <a href="#/branch-hazards">Branch Hazards</a>, <a href="#/stage-if">Instruction Fetch</a>, <a href="#/fe-classic">Classic Direction Predictors</a>, <a href="#/fe-direction">Modern Direction Predictors</a>, <a href="#/fe-targets">The Branch Target Buffer</a>, <a href="#/fe-indirect">Indirect Branches and Returns</a>, <a href="#/fe-mispredict">Mispredict Cost in Deep Pipelines</a>.</p>
 <h3 id="sec-cost">The Cost of a Mispredict</h3>` +
 M(`<p>A workload runs at IPC 3.0 if every branch were predicted correctly. 20% of instructions are branches, prediction accuracy is 97%, and each mispredict costs 17 cycles. What is the real IPC? What would raising accuracy to 98% buy?</p><p>Then: suppose 4 of the 6 MPKI resolve promptly (17-cycle penalty), but 2 MPKI are branches that depend on L2 misses and resolve 60 cycles later than usual. What is the IPC now?</p>`,
 `<ol>
@@ -2118,7 +2118,7 @@ Q(`<p>A new predictor lowers MPKI on your trace suite, but on the real system it
   id: "intv-fe",
   title: "Front End and Fetch",
   body: `
-<p>Background: <a href="#/r/fe">Front End and Branch Prediction</a>, <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>, <a href="#/fe-targets">Branch Targets</a>, <a href="#/fe-decode">Decoders and the Op Cache</a>, <a href="#/stage-if/way-pred">Way Prediction</a>.</p>
+<p>Background: <a href="#/r/fe">Front End and Branch Prediction</a>, <a href="#/fe-targets">The Branch Target Buffer</a>, <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>, <a href="#/fe-indirect">Indirect Branches and Returns</a>, <a href="#/fe-decode">Decoders and the Op Cache</a>, <a href="#/stage-if/way-pred">Way Prediction</a>.</p>
 <h3 id="sec-decouple">Decoupling and Run-Ahead</h3>` +
 Q(`<p>In a coupled front end, an instruction cache miss stops the branch predictor too. What changes when a fetch target queue (FTQ) sits between them? Name two front-end losses the queue can’t hide.</p>`,
 `<p>The predictor no longer waits for fetch:</p>

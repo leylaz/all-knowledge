@@ -106,7 +106,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 </svg></div>
 <p>What each unit does, in the order a fetch block passes through them:</p>
 <ul>
-<li><strong>Branch prediction unit.</strong> Each cycle it takes the current fetch address and the global history and predicts one fetch block: the BTB finds the branches in it and their targets, the direction predictor decides whether conditional branches are taken, and the indirect predictor and return address stack supply targets the BTB can't (see <a href="#/fe-classic">Classic Direction Predictors</a>, <a href="#/fe-direction">Modern Direction Predictors</a>, and <a href="#/fe-targets">Branch Targets</a>). The predicted next address feeds straight back in for the next cycle.</li>
+<li><strong>Branch prediction unit.</strong> Each cycle it takes the current fetch address and the global history and predicts one fetch block: the BTB finds the branches in it and their targets, the direction predictor decides whether conditional branches are taken, and the indirect predictor and return address stack supply targets the BTB can't (see <a href="#/fe-targets">The Branch Target Buffer</a>, <a href="#/fe-classic">Classic Direction Predictors</a>, <a href="#/fe-direction">Modern Direction Predictors</a>, and <a href="#/fe-indirect">Indirect Branches and Returns</a>). The predicted next address feeds straight back in for the next cycle.</li>
 <li><strong>Fetch target queue.</strong> Holds the predicted blocks until fetch is ready for them, along with the history needed to repair the predictor. Its occupancy is how far the predictor runs ahead (see <a href="#/fe-decoupled/ftq">The Fetch Target Queue</a>).</li>
 <li><strong>Prefetcher.</strong> Probes the instruction cache tags with the addresses in the queue and sends the misses to the L2, so lines arrive before fetch reaches them (see <a href="#/fe-decoupled/fdip">Fetch-Directed Prefetching</a>).</li>
 <li><strong>Instruction cache.</strong> Read at the head of the queue, with the ITLB translating in parallel. The queue entry can carry the predicted way, so only one way is read (see <a href="#/stage-if/way-pred">Way Prediction</a>). A miss goes to the L2.</li>
@@ -133,6 +133,66 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
   }
 }, [
 {
+  id: "fe-targets",
+  region: "fe",
+  title: "The Branch Target Buffer",
+  sections: [
+    { id: "btb", label: "The BTB" },
+    { id: "misses", label: "BTB Misses and Decode Redirects" },
+    { id: "folding", label: "Branch Folding" }
+  ],
+  body: `
+<p>Knowing a branch is taken is useless without knowing where it goes, and a wide core has to know both before the instruction bytes are even fetched. <a href="#/branch-hazards/btb">Branch Hazards</a> introduced the branch target buffer in a 5-stage pipeline: a cache probed with the fetch PC, a decode redirect when it misses, and a bubble when a large BTB answers late. This page covers what a wide core's BTB holds, how it is split into levels, which branches get an entry, and what each kind of miss costs. The next page, <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>, builds on it. Indirect branches and returns, whose targets the BTB can't supply well, come after the direction predictors on <a href="#/fe-indirect">Indirect Branches and Returns</a>.</p>
+
+<h3 id="sec-btb">The BTB</h3>
+<p>The <strong>branch target buffer</strong> is a cache indexed by fetch address. A hit says "there is a branch at this offset in the block," gives its type (conditional, unconditional, call, return, indirect), and its last target. Once the predictor runs ahead of fetch, the BTB is how it finds branches at all: a branch missing from the BTB is invisible, and the predictor carries on sequentially as if it weren't there.</p>
+<p>Like caches, BTBs come in levels. A small, fast level gives zero-bubble taken branches; a larger level behind it covers more code at a cycle or more of bubble per taken branch. AMD's Zen 4, for example, has a 1.5K-entry first-level BTB and a 7K-entry second level; Intel's Golden Cove has 12K entries in total. Entries store compressed targets (only the low bits that differ from the branch address for short branches) to fit more of them.</p>
+<p>What an entry holds, and why:</p>
+<ul>
+<li><strong>Tag.</strong> Hennessy and Patterson's BTB matches the full PC, because a hit on an address that isn't a branch would send fetch somewhere wrong. Real first-level BTBs use partial tags to save area. A false hit is caught when decode finds no branch at that offset, so it costs a redirect, never correctness.</li>
+<li><strong>Branch type and offset.</strong> The type says which structure supplies the target (the BTB itself, the return stack, or the indirect predictor) and whether to consult the direction predictor. The offset says where in the fetch block the branch ends, so fetch knows how many bytes to use.</li>
+<li><strong>Target.</strong> The last target, or the only one for a direct branch.</li>
+</ul>
+<p>Which branches get an entry is a policy. Hennessy and Patterson's design stores only taken branches, since a not-taken branch just continues to the next sequential PC and an entry for it would waste space. A decoupled front end keeps the same rule at the door: a branch is inserted the first time it is taken, so branches that are never taken never cost an entry. Once inserted, a conditional branch stays even when it goes not taken, because the predictor needs to know it is there to ask the direction predictor about it. BTBs are set-associative and indexed by fetch-block address, and some designs hold two or more branches per entry so one lookup covers a whole fetch block.</p>
+
+<h3 id="sec-misses">BTB Misses and Decode Redirects</h3>
+<p>What happens when a branch isn't in the BTB depends on its kind (for a cycle-by-cycle walk through one decode redirect, see <a href="#/branch-hazards/btb">The BTB and Decode Redirects</a>):</p>
+<div class="tbl"><table>
+<tr><th>Branch</th><th>On a BTB miss</th><th>Cost</th></tr>
+<tr><td>Conditional, actually not taken</td><td>Fall-through was right by luck</td><td>None (but nothing trains until it's inserted)</td></tr>
+<tr><td>Conditional, actually taken</td><td>Fetch falls through. Decode can redirect if it applies a static guess (backward branches taken); otherwise the branch mispredicts when it executes</td><td>A decode redirect or a full mispredict</td></tr>
+<tr><td>Unconditional direct jump or call</td><td>Decode sees the branch, computes the target from the instruction, and redirects fetch</td><td>A <strong>decode redirect</strong>: the front-end depth up to decode, several cycles</td></tr>
+<tr><td>Return</td><td>Decode recognizes it and uses the return stack (see <a href="#/fe-indirect/ras">The Return Address Stack</a>)</td><td>Decode redirect</td></tr>
+<tr><td>Indirect</td><td>No target until it executes</td><td>A full mispredict</td></tr>
+</table></div>
+<p>Decode redirects are cheaper than mispredicts because nothing past decode was fetched on the wrong path, but they are frequent on large code. They also cost a second time, by emptying the queue of predicted addresses that fetch-directed prefetching works from (see <a href="#/fe-decoupled/btb-reach">How the BTB Limits Prefetching</a>).</p>
+
+<h3 id="sec-folding">Branch Folding</h3>
+<p>Hennessy and Patterson describe a BTB variant that stores the <em>target instruction</em>, or the first few of them, instead of (or alongside) the target address. It buys two things:</p>
+<ul>
+<li><strong>Slack:</strong> the BTB lookup can take longer than one cycle, because fetch doesn't need the target address in time to read the instruction cache. The instructions arrive with the hit.</li>
+<li><strong>Branch folding:</strong> for an unconditional branch, the BTB can hand fetch the target instruction <em>in place of</em> the branch. The branch disappears from the pipeline and takes zero cycles. AT&amp;T's CRISP processor (Ditzel and McLellan, 1987) did this. A conditional branch can be folded the same way on its prediction, but it still has to be checked when it resolves.</li>
+</ul>
+<p>Modern cores get most of the same effect differently. A zero-bubble first-level BTB lets the predictor follow a taken branch every cycle, a queue between the predictor and fetch hides any extra lookup latency (see <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>), and the op cache delivers decoded instructions at the target without going back through decode. Storing instruction bytes in a 16K-entry BTB would cost far more area than storing targets.</p>
+
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 5th ed., Appendix C.2 and Section 3.9 (branch-target buffers and branch folding) · Ditzel and McLellan, "Branch Folding in the CRISP Microprocessor," ISCA 1987 · AMD, <em>Software Optimization Guide for the AMD Zen 4 Microarchitecture</em></p>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>A server workload on a 6-wide core misses the BTB on 6 taken branches per thousand instructions. Of those misses, 70% are direct jumps, calls, and returns that decode redirects at a cost of 8 cycles each. The other 30% are taken conditional branches and indirect branches that are caught only when they execute, at a 14-cycle mispredict penalty. The CPI without these misses is 0.45. What CPI do the BTB misses add, and what share of time do they take? Count only the redirect and mispredict cycles, not any instruction cache misses they expose.</p>`,
+        a: `<ol><li>Decode redirects: 6 misses/kilo-instruction × 0.7 × 8 cycles/miss = 33.6 cycles/kilo-instruction.</li><li>Caught at execute: 6 misses/kilo-instruction × 0.3 × 14 cycles/miss = 25.2 cycles/kilo-instruction.</li><li>Added CPI: (33.6 cycles + 25.2 cycles) / 1000 instructions = <strong>0.0588 cycles/instruction</strong>.</li><li>CPI = 0.45 cycles/instruction + 0.0588 cycles/instruction = 0.5088 cycles/instruction, and the share is 0.0588 / 0.5088 ≈ <strong>11.6%</strong>.</li><li>The 30% caught at execute cost 25.2 cycles, almost as much as the 70% caught at decode (33.6 cycles). That's why letting decode redirect taken conditional branches with a static guess (backward taken) is worth its small cost.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A 4096-entry, 4-way first-level BTB uses 8-bit partial tags. On a fetch block whose own branches aren't in the BTB, every way of the indexed set holds a valid entry for some other block, with a tag that matches by chance with probability 1 / 2<sup>8</sup> per way. 40% of lookups are for such blocks, the core looks up 200 fetch blocks per thousand instructions, and a false hit is caught at decode for an 8-cycle redirect. What do false hits cost? Would you widen the tags to 12 bits, given that an entry is about 36 bits?</p>`,
+        a: `<ol><li>False hit chance per lookup on such a block: 1 − (1 − 1/256)<sup>4</sup> ≈ 1.56%.</li><li>False hits: 200 lookups/kilo-instruction × 0.4 × 0.0156 ≈ 1.25 false hits/kilo-instruction.</li><li>Cost: 1.25 false hits/kilo-instruction × 8 cycles/false hit ≈ 10 cycles/kilo-instruction, or <strong>0.010 CPI</strong>.</li><li>With 12-bit tags: 1 − (1 − 1/4096)<sup>4</sup> ≈ 0.098%, so 200 lookups/kilo-instruction × 0.4 × 0.00098 × 8 cycles/false hit ≈ 0.6 cycles/kilo-instruction. That saves about 9.4 cycles/kilo-instruction.</li><li>The price: 4 bits/entry × 4096 entries = 16 Kbit, about 11% more storage (40 bits instead of 36). The same storage spent on entries instead would add about 455 entries. Whether that wins depends on the BTB miss rate: it pays only if those entries remove more than about 9.4 cycles/kilo-instruction of misses, which is about 1.2 decode redirects/kilo-instruction at 8 cycles each.</li></ol><p>So the answer depends on the workload. On small-footprint code that already fits, the wider tags win. On server code that overflows the BTB, more entries usually win, and the false hits are part of a decode redirect cost the core already pays. A false hit is never a correctness problem. Decode finds no branch at the offset and redirects.</p>`
+      }
+    ]
+  }
+},
+
+{
   id: "fe-decoupled",
   region: "fe",
   title: "Decoupled Fetch and the Fetch Target Queue",
@@ -143,7 +203,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
     { id: "blocks", label: "Fetch Blocks and Taken Branches" },
     { id: "fdip", label: "Fetch-Directed Prefetching" },
     { id: "btb-reach", label: "How the BTB Limits Prefetching" },
-    { id: "overriding", label: "Fast and Slow Predictors" }
+    { id: "footprint", label: "Large Code Footprints" }
   ],
   body: `
 <p>In the classic pipeline, fetch reads the instruction cache at the PC and the branch predictor is consulted along the way. Modern cores split these apart: the branch predictor runs in its own pipeline and produces a stream of addresses to fetch, and the instruction cache consumes that stream later. This page covers why, and what the queue between them makes possible.</p>
@@ -153,13 +213,13 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <ul>
 <li><strong>The predictor runs ahead.</strong> While the instruction cache waits on a miss, the predictor keeps predicting the following blocks, so their addresses are known before fetch needs them.</li>
 <li><strong>Bubbles are absorbed.</strong> A cycle where the predictor needs extra time (a second-level BTB lookup) costs nothing if the queue has work for fetch.</li>
-<li><strong>The predictor no longer needs the instruction bytes.</strong> It predicts from addresses and history alone, which is why it must find branches through the BTB rather than by decoding them (see <a href="#/fe-targets">Branch Targets</a>).</li>
+<li><strong>The predictor no longer needs the instruction bytes.</strong> It predicts from addresses and history alone, which is why it must find branches through the BTB rather than by decoding them (see <a href="#/fe-targets/btb">The BTB</a>).</li>
 </ul>
 <p>Reinman, Calder, and Austin proposed this organization in 1999; essentially every high-performance core since uses it (AMD since Zen, Intel's big cores, Arm's Cortex-X and Neoverse V lines, Apple's cores).</p>
 
 <h3 id="sec-ftq">The Fetch Target Queue</h3>
 <p>The <strong>fetch target queue (FTQ)</strong> holds predicted fetch blocks: a start address, an end (the predicted-taken branch, or the block's size limit, often the end of a fetch window), and the predicted next address. A <strong>fetch window</strong> is the aligned chunk of bytes fetch reads from the instruction cache in one cycle, 32 bytes on recent x86 cores, so a window always starts at an address whose low 5 bits are 0. The end is a position inside the block, not a second full address. Because a block can't run past its size limit, the end is stored as a small offset from the start of that aligned region (5 bits for a 32-byte window), along with a bit that says whether the block ended at a predicted-taken branch or simply ran out of room. Each entry also keeps what is needed to repair the predictor on a mispredict: the global history at prediction time (a copy, or a pointer into a circular history buffer), the return stack top, and which table entries made the prediction.</p>
-<div class="tbl"><svg viewBox="0 0 680 266" role="img" aria-label="Fields of one example FTQ entry, for the block from 0x4013 to a predicted-taken 2-byte jump at 0x4018. The first row holds the block itself, used by fetch and the prefetcher: start address (48 bits, 0x4013), end offset (5 bits, 25), ends-taken bit (1 bit, set), branch type (3 bits, direct jump), and next address (48 bits, 0x52A0). The second row holds side information: the predicted instruction cache way (3 bits for 8 ways, way 5), a global history pointer (10 bits, 412), the return stack top (6 bits, 17), and the provider, meaning which predictor entries made the prediction (TAGE table 3 and BTB way 1). The end offset counts from the 32-byte window base 0x4000, so the jump's last byte is 0x4019. A block that just runs out of window would have offset 31, the taken bit clear, and next address 0x4020." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<div class="tbl"><svg viewBox="0 0 680 266" role="img" aria-label="Fields of one example FTQ entry, for the block from 0x4013 to a predicted-taken 2-byte jump at 0x4018. The first row holds the block itself, used by fetch and the prefetcher: start address (48 bits, 0x4013), end offset (5 bits, 25), ends-taken bit (1 bit, set), branch type (3 bits, direct jump), and next address (48 bits, 0x52A0). The second row holds side information: the predicted instruction cache way (3 bits for 8 ways, way 5), a global history pointer (10 bits, 412), the return stack top (6 bits, 17), and the provider, meaning which predictor entries made the prediction (direction table 3 and BTB way 1). The end offset counts from the 32-byte window base 0x4000, so the jump's last byte is 0x4019. A block that just runs out of window would have offset 31, the taken bit clear, and next address 0x4020." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
 <text x="20" y="20" style="fill:var(--muted);font-size:12px;font-weight:600">One FTQ entry: the block from 0x4013 to a predicted-taken 2-byte jmp at 0x4018</text>
 <text x="20" y="48" style="fill:var(--trace);font-size:12px;font-weight:600">The block (used by fetch and the prefetcher)</text>
 <g style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5">
@@ -174,7 +234,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 </g>
 <g style="fill:var(--ink);font-size:11px;font-weight:600" text-anchor="middle"><text x="80" y="172">Predicted way</text><text x="223" y="172">History pointer</text><text x="366" y="172">Return stack top</text><text x="547" y="172">Provider</text></g>
 <g style="fill:var(--muted);font-size:10px" text-anchor="middle"><text x="80" y="187">3 bits (8 ways)</text><text x="223" y="187">10 bits</text><text x="366" y="187">6 bits</text><text x="547" y="187">which entries made the prediction</text></g>
-<g style="fill:var(--pad);font-size:12px;font-family:var(--mono)" text-anchor="middle"><text x="80" y="206">5</text><text x="223" y="206">412</text><text x="366" y="206">17</text><text x="547" y="206">TAGE T3, BTB way 1</text></g>
+<g style="fill:var(--pad);font-size:12px;font-family:var(--mono)" text-anchor="middle"><text x="80" y="206">5</text><text x="223" y="206">412</text><text x="366" y="206">17</text><text x="547" y="206">table 3, BTB way 1</text></g>
 <g style="fill:var(--muted);font-size:11px"><text x="20" y="242">End offset counts from the 32-byte window base 0x4000: the jmp's last byte is 0x4019 = 0x4000 + 25.</text>
 <text x="20" y="258">A block that just runs out of window has offset 31, the taken bit clear, and next address 0x4020.</text></g>
 </svg></div>
@@ -219,7 +279,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <p>Fetch reads one aligned window per cycle (32 bytes on recent x86 cores) and stops at the first predicted-taken branch, because the next bytes come from somewhere else. That gives two front-end limits that show up in tight loops and branchy code:</p>
 <ul>
 <li><strong>Taken branches per cycle.</strong> Most cores follow one taken branch per cycle; AMD's Zen 5 can follow two. A loop body with a taken branch every 3 instructions can't fetch more than 3 instructions per cycle on a one-taken core, however wide the decoders are.</li>
-<li><strong>Taken-branch bubbles.</strong> Following a taken branch with no lost cycle needs the target in the same cycle the branch is found. Small, fast BTBs (an L0 or L1 BTB) give zero-bubble redirects; a target found in a larger second-level BTB costs one or more bubble cycles.</li>
+<li><strong>Taken-branch bubbles.</strong> Following a taken branch with no lost cycle needs the target in the same cycle the branch is found. A target from the small first-level BTB gives a zero-bubble redirect, and one found only in a larger level costs one or more bubble cycles (see <a href="#/fe-targets/btb">The BTB</a> for the levels).</li>
 </ul>
 <div class="tbl"><svg viewBox="0 0 680 452" role="img" aria-label="Fetch timing after a predicted-taken branch at the end of block A, over cycles 0 to 3, with no back pressure and an empty FTQ. Each case has a predict lane and an instruction cache lane. With the branch in a 1-cycle BTB: in cycle 0 the predictor hits on A's branch and writes A to the FTQ with its end at the branch and next address T, while the instruction cache reads the previous block. In cycle 1 A passes through the empty FTQ and the instruction cache reads it (ITLB, tags, and data), while the predictor looks up T. In cycle 2 fetch reads T, so there is no bubble. With the branch only in a 2-cycle BTB: in cycle 0 the fast BTB sees no taken branch, so A is written as a full window with next address A+1. In cycle 1 the predictor guesses the fall-through block A+1 while the slow BTB is still reading, and fetch reads all of A's window. At the end of cycle 1 the slow BTB returns T, A's end and next address are fixed, the bytes of A past the branch are discarded, and A+1 is flushed. In cycle 2 the predictor predicts T and fetch is idle because A+1 was flushed before it was read, which is the 1 bubble. In cycle 3 fetch reads T. With a slower BTB with a (k + 1)-cycle read, k wrong-path blocks are predicted, fetch reads and discards k − 1 of them, then idles for 1 cycle. A predictor that waits for the slow BTB instead loses the same cycles with the instruction cache idle. In a tight loop where every block ends in a taken branch, fetch delivers 1 or 1/2 blocks per cycle." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
 <defs><marker id="arrTB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
@@ -267,7 +327,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <text x="10" y="426">A predictor that waits for the slow BTB instead loses the same cycles, with the I-cache idle.</text>
 <text x="10" y="442">Tight loop with a taken branch ending every block: 1 or 1/2 blocks per cycle.</text></g>
 </svg></div>
-<p>If the FTQ already held blocks, fetch would read those during the gap and the bubble would be hidden (see <a href="#/fe-decoupled/why">Why Decouple</a>). Tight loops expose it because the predictor can't get ahead there: every block needs a taken-branch prediction. The redirect is the same override as in <a href="#/fe-decoupled/overriding">Fast and Slow Predictors</a>.</p>
+<p>If the FTQ already held blocks, fetch would read those during the gap and the bubble would be hidden (see <a href="#/fe-decoupled/why">Why Decouple</a>). Tight loops expose it because the predictor can't get ahead there: every block needs a taken-branch prediction.</p>
 <p>The fetch-block rounding also matters: a loop whose 40 bytes straddle two 32-byte windows takes 2 fetch cycles, and one that starts near the end of a window can need 3. Aligning hot loop heads is a classic compiler fix.</p>
 <div class="tbl"><svg viewBox="0 0 680 272" role="img" aria-label="The same 40-byte loop at two start addresses, with 32-byte fetch windows starting at 0x401000, 0x401020, 0x401040, and 0x401060. Aligned at 0x401000, the loop covers bytes 0x401000 to 0x401027: cycle 0 fetches 32 bytes and cycle 1 fetches 8 bytes, so 2 fetch cycles per iteration. Starting at 0x40101C, it covers 0x40101C to 0x401043: cycle 0 fetches 4 bytes, cycle 1 fetches 32 bytes, and cycle 2 fetches 4 bytes, so 3 fetch cycles per iteration. In both rows the loop ends in a 2-byte taken jcc back to the top. A 40-byte loop needs a third cycle whenever it starts at offset 25 or later in a window." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
 <defs><marker id="arrLA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--redirect)"/></marker></defs>
@@ -305,7 +365,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <p><strong>What a BTB miss does to the lead.</strong> The predictor can only follow taken branches it knows about. When a taken branch misses in the BTB:</p>
 <ol>
 <li>The predictor doesn't see the branch and continues sequentially. Every FTQ entry after that point is on the wrong path, and so is every prefetch FDIP issues from them. Those prefetches waste L2 bandwidth and can evict useful lines.</li>
-<li>Fetch reaches the block holding the branch, which is still on the correct path, and decode finds it. A direct jump, call, or return redirects at decode. A conditional branch that decode doesn't redirect, or an indirect branch, waits until it executes and mispredicts (see <a href="#/fe-targets/misses">BTB Misses and Decode Redirects</a>).</li>
+<li>Fetch reaches the block holding the branch, which is still on the correct path, and decode finds it. Depending on its type, the branch redirects there or only when it executes (see <a href="#/fe-targets/misses">BTB Misses and Decode Redirects</a>).</li>
 <li>The redirect flushes the FTQ and the predictor restarts at the target with an empty queue, so the lead is 0. If the target line isn't in the instruction cache, it misses with its full latency exposed, right behind the redirect bubble.</li>
 <li>The lead rebuilds only as fast as the predictor outruns fetch, so the lines in the first stretch after the target are prefetched too late to hide much.</li>
 </ol>
@@ -323,7 +383,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <li><strong>Boomerang</strong> (Kumar et al., 2017) uses a basic-block BTB, where a miss is visible at prediction time instead of at decode. On a miss, the predictor stops instead of running down the fall-through path. The line is fetched and predecoded, the missing branch is inserted, and run-ahead resumes. Other branches found in prefetched lines are kept for later, too.</li>
 <li><strong>Shotgun</strong> (Kumar, Grot, and Nagarajan, 2018) splits the BTB by branch type. A large BTB for unconditional branches holds the program's coarse control flow, and each entry carries a bit vector of the cache lines used around its target, so one hit prefetches a whole code region. A small conditional-branch BTB is filled by predecoding those prefetched lines, and returns get their own small buffer.</li>
 </ul>
-<p>The simplest form, filling the BTB from predecoded instruction cache fills, is among the hardware fixes in <a href="#/fe-targets/footprint">Large Code Footprints</a>.</p>
+<p>The simplest form, filling the BTB from predecoded instruction cache fills, is among the hardware fixes in <a href="#/fe-decoupled/footprint">Large Code Footprints</a> below.</p>
 <p><strong>Modeling it:</strong></p>
 <ul>
 <li><strong>Don't let the predictor see branches the BTB doesn't hold.</strong> A trace-driven front end that takes the next PC from the trace after a BTB miss gives FDIP perfect run-ahead and overstates its coverage. After a BTB miss, the model has to predict fall-through addresses and issue wrong-path prefetches until decode or execute redirects.</li>
@@ -332,14 +392,13 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <li><strong>Charge exposed instruction cache misses after a BTB-miss redirect correctly.</strong> They show up as instruction cache stalls, but a perfect-BTB experiment removes many of them. Run both idealizations alone and together before deciding which structure to grow.</li>
 </ul>
 
-<h3 id="sec-overriding">Fast and Slow Predictors</h3>
-<p>The most accurate predictors (TAGE and its relatives) need several cycles to read their tables and combine results. Waiting for them every cycle would add bubbles to every taken branch. Cores pair them instead:</p>
-<ol>
-<li>A small, single-cycle predictor (a micro-BTB with simple direction bits) makes a prediction immediately, and fetch follows it.</li>
-<li>A cycle or two later, the large predictor finishes. If it agrees, nothing happens. If it disagrees, it <strong>overrides</strong>: the few blocks fetched on the fast prediction are flushed and fetch redirects, costing a short bubble instead of a full mispredict.</li>
-</ol>
-<p>Jiménez, Keckler, and Lin analyzed this "overriding" arrangement in 2000. The performance model has to include it: an override is a front-end bubble of a few cycles, distinct from a full back-end mispredict.</p>
-<p class="refs">References: Reinman, Calder, and Austin, "Fetch Directed Instruction Prefetching," MICRO 1999 · Ishii, Lee, Nathella, and Sunwoo, "Re-establishing Fetch-Directed Instruction Prefetching: An Industry Perspective," ISPASS 2021 · Kaynak, Grot, and Falsafi, "Confluence: Unified Instruction Supply for Scale-Out Servers," MICRO 2015 · Kumar, Huang, Grot, and Nagarajan, "Boomerang: A Metadata-Free Architecture for Control Flow Delivery," HPCA 2017 · Kumar, Grot, and Nagarajan, "Blasting Through the Front-End Bottleneck with Shotgun," ASPLOS 2018 · Jiménez, Keckler, and Lin, "The Impact of Delay on the Design of Branch Predictors," MICRO 2000 · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3</p>`,
+<h3 id="sec-footprint">Large Code Footprints</h3>
+<p>Datacenter workloads (databases, web servers, JIT-compiled code) execute megabytes of hot code, with many thousands of distinct taken branches. Their BTB miss rates stay high even with 12K entries, so they lose cycles to decode redirects, instruction cache misses that prefetching didn't hide, and lost predictor run-ahead. The fixes:</p>
+<ul>
+<li><strong>Hardware:</strong> larger and multi-level BTBs, BTB entries that cover a whole fetch region with several branches, and BTB filling from predecoded instruction cache fills (see <a href="#/fe-decoupled/btb-reach">How the BTB Limits Prefetching</a>).</li>
+<li><strong>Software:</strong> profile-guided layout (BOLT, AutoFDO) that packs hot code together and straightens hot paths so fewer branches are taken, and huge pages for code to cut ITLB misses.</li>
+</ul>
+<p class="refs">References: Reinman, Calder, and Austin, "Fetch Directed Instruction Prefetching," MICRO 1999 · Ishii, Lee, Nathella, and Sunwoo, "Re-establishing Fetch-Directed Instruction Prefetching: An Industry Perspective," ISPASS 2021 · Kaynak, Grot, and Falsafi, "Confluence: Unified Instruction Supply for Scale-Out Servers," MICRO 2015 · Kumar, Huang, Grot, and Nagarajan, "Boomerang: A Metadata-Free Architecture for Control Flow Delivery," HPCA 2017 · Kumar, Grot, and Nagarajan, "Blasting Through the Front-End Bottleneck with Shotgun," ASPLOS 2018 · Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3</p>`,
   practice: {
     guided: [
       {
@@ -353,8 +412,8 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
     ],
     interview: [
       {
-        q: `<p>Your model has a fast single-cycle predictor overridden two cycles later by a TAGE predictor. Profiling shows 8 overrides and 3 full mispredicts per thousand instructions on a 6-wide core with a 17-cycle mispredict penalty and a CPI of 0.25 without either cost. Which costs more, and what would you change in the model to get these costs right?</p>`,
-        a: `<p>Overrides: 8 × 2 = 16 lost fetch cycles per thousand instructions, but some are hidden if the queues in front of rename hold enough work. Mispredicts: 3 × 17 = 51 cycles, and nothing hides them. So mispredicts cost more than three times as much, but overrides aren't free: a CPI of 0.25 is 250 cycles per thousand instructions, so if none of the 16 cycles are hidden, overrides add 16 / 250 ≈ 6%.</p><p>In the model:</p><ul><li>Count overrides separately from mispredicts</li><li>Make the override flush only the blocks fetched after the fast prediction (not the back end)</li><li>Charge the bubble at fetch so the fetch and decode queues can absorb it</li><li>Check that the fast predictor's accuracy, not just TAGE's, matches the design, since the override rate depends on how often they disagree</li></ul>`
+        q: `<p>A search-serving binary executes about 6 MB of hot code, with one ever-taken branch per 48 bytes on average. It runs on a core with AMD Zen 3's BTB, 1K first-level plus 6.5K second-level entries. Assume one BTB entry per branch, LRU replacement, and that the hot code is swept rather than looped: every part of it runs between two visits to any one part. What share of the hot code's branches can the BTB hold, and what hit rate does it get? What does doubling the second level buy, and what would you try instead?</p>`,
+        a: `<ol><li>Branches to hold: 6 MB × 1,048,576 bytes/MB / 48 bytes/branch = 131,072 branches (128K).</li><li>Held: (1,024 entries + 6,656 entries) / 131,072 branches ≈ <strong>5.9%</strong>.</li><li>Hit rate: a cyclic sweep over more branches than the BTB holds evicts every entry before its next use under LRU, so the hit rate is close to <strong>0</strong>, not 5.9%. Every taken branch is a BTB miss, every miss empties the FTQ, and FDIP hides almost nothing.</li><li>Doubling the second level: (1,024 entries + 13,312 entries) / 131,072 branches ≈ 10.9% held, and the sweep still gets close to 0 hits. Size starts paying only when it approaches the reuse distance of the branches, here about 128K entries.</li><li>Instead, cut the number of branches that need entries:<ul><li>Profile-guided layout (BOLT, AutoFDO) makes hot paths fall through, so many branches are never taken and never get an entry, and it packs hot code into fewer lines.</li><li>Fill the BTB from predecoded instruction cache fills, so a branch is known when its line arrives instead of when decode sees it.</li><li>Region-based BTBs such as Shotgun hold one entry per unconditional branch and prefetch the code around its target.</li></ul></li></ol><p>Real servers aren't pure sweeps. Inner loops and hot helpers reuse their branches, so measured hit rates are well above 0. The first measurement to take is the reuse distance of taken branches, which shows what BTB size would actually help.</p>`
       }
     ]
   }
@@ -380,7 +439,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
   ],
   body: `
 <p>A direction predictor answers one question per conditional branch: taken or not taken. The predictors on this page are the ones Hennessy and Patterson build up in Appendix C.2 and Section 3.3, ending with McFarling's 1993 combining predictor. They are no longer the best designs on their own, but every modern predictor is assembled from their parts: saturating counters, tables indexed by the PC and by history, and a rule for choosing between predictions. <a href="#/fe-direction">Modern Direction Predictors</a> picks up from here with perceptrons and TAGE.</p>
-<p>Only conditional branches need a direction prediction. Unconditional direct jumps and calls are known to be taken as soon as decode sees them. Returns and indirect jumps are always taken too, and the hard part for them is the target, which comes from the BTB, the return address stack, or the indirect predictor, not from the direction predictor (see <a href="#/fe-targets">Branch Targets</a>).</p>
+<p>Only conditional branches need a direction prediction. Unconditional direct jumps and calls are known to be taken as soon as decode sees them. Returns and indirect jumps are always taken too, and the hard part for them is the target, which comes from the BTB, the return address stack, or the indirect predictor, not from the direction predictor (see <a href="#/fe-targets">The Branch Target Buffer</a> and <a href="#/fe-indirect">Indirect Branches and Returns</a>).</p>
 
 <h3 id="sec-counters">Saturating Counters</h3>
 <p>The simplest dynamic predictor keeps one bit per branch: the last outcome. On a loop branch it mispredicts twice per visit to the loop, once at the exit (it predicts taken, the loop falls through) and again on the next entry (it predicts not taken, the loop branch is taken).</p>
@@ -632,7 +691,7 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <p>McFarling measured local prediction with one change from Yeh and Patt: the history table is a plain array with no tags, where they assumed a set-associative one. He gives the history table and the counter table the same number of entries. Below about 128 B, local prediction is worse than bimodal, because there are so few history entries that contention leaves the stored histories worthless. Above that it is much better, and large local predictors approach 97.1%, with fewer than half the mispredictions of bimodal (2.9% against 6.5%). His appendix adds two refinements. Indexing the counters with a few address bits and fewer history bits sometimes helps, mostly because the history table gets smaller. Giving the history table as many entries as the counter table is usually a good choice.</p>
 
 <h4 id="sec-local-bimodal">Why Bimodal Stays the Fast First Level</h4>
-<p>Local prediction doesn't retire bimodal. Bimodal tables are still in every predictor. They are <a href="#/fe-direction/tage">TAGE</a>'s base table, the fallback when no tagged entry matches, and they make good single-cycle first-level predictors in an overriding design (see <a href="#/fe-decoupled/overriding">Fast and Slow Predictors</a>). Compared with a local predictor of the same size, bimodal suits that role for four reasons:</p>
+<p>Local prediction doesn't retire bimodal. Bimodal tables are still in every predictor. They are <a href="#/fe-direction/tage">TAGE</a>'s base table, the fallback when no tagged entry matches, and they make good single-cycle first-level predictors in an overriding design (see <a href="#/fe-direction/overriding">Fast and Slow Predictors</a>). Compared with a local predictor of the same size, bimodal suits that role for four reasons:</p>
 <ul>
 <li><strong>One array read:</strong> the PC is known at the start of the fetch cycle, and bimodal needs only one PC-indexed array read. A local predictor needs two dependent reads in series: the PC reads the history table, then the history reads the counter table.</li>
 <li><strong>Small budgets:</strong> at first-level sizes, a local predictor has so few history entries that history contention leaves them nearly useless. McFarling's numbers above put the crossover at about 128 B.</li>
@@ -1184,7 +1243,7 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <ul>
 <li><strong>The information runs out before the capacity does.</strong> Once every hot static branch has its own counter, the remaining mispredictions come from branches whose outcome isn't a function of what the predictor looks at. More entries indexed by the same PC and history can only repeat the same guess. This is why Hennessy and Patterson's (2, 2) correlating predictor beats an infinite bimodal table: it adds information, not entries.</li>
 <li><strong>Longer history dilutes training.</strong> The usual way to spend a bigger budget is more history bits, but each extra bit can double the number of (branch, history) patterns a branch spreads over. Each counter then sees fewer outcomes and takes longer to train, and history bits that don't correlate with the branch add noise that splits one well-trained counter into many cold ones. Juan, Sanjeevan, and Navarro (1998) found that the best history length differs per program and that going past it raises the misprediction rate. TAGE answers this by keeping several history lengths at once and choosing per branch (see <a href="#/fe-direction/tage">TAGE</a>).</li>
-<li><strong>Bigger tables are slower.</strong> Access time grows with table size, and a prediction is needed every cycle to fetch the next block. Jiménez, Keckler, and Lin (2000) showed that once delay is counted, a large predictor that can't answer in one cycle can lose to a smaller one that can. Real designs pair a small fast predictor with a large slow one that overrides it (see <a href="#/fe-decoupled/overriding">Fast and Slow Predictors</a>).</li>
+<li><strong>Bigger tables are slower.</strong> Access time grows with table size, and a prediction is needed every cycle to fetch the next block. Jiménez, Keckler, and Lin (2000) showed that once delay is counted, a large predictor that can't answer in one cycle can lose to a smaller one that can. Real designs pair a small fast predictor with a large slow one that overrides it (see <a href="#/fe-direction/overriding">Fast and Slow Predictors</a>).</li>
 <li><strong>Bigger tables warm up more slowly.</strong> After a context switch or phase change, a large history-indexed table needs many outcomes before most of its counters are trained, so short-running or frequently switched code sees little of the extra capacity.</li>
 </ul>
 <p>The one place size keeps helping is a large code footprint: when there are more hot branches than entries, the misses are capacity aliasing, and a bigger table removes them. That is the server-workload case below.</p>
@@ -1320,10 +1379,11 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
     { id: "tage", label: "TAGE" },
     { id: "extras", label: "Loop and Statistical Correctors" },
     { id: "update", label: "Speculative History and Repair" },
+    { id: "overriding", label: "Fast and Slow Predictors" },
     { id: "model", label: "Modeling a Predictor" }
   ],
   body: `
-<p>The predictors on <a href="#/fe-classic">Classic Direction Predictors</a> index untagged counter tables with a fixed amount of history, so they force one history length on every branch and can't tell when two branches collide. This page covers the designs that fixed both problems. Perceptrons use long histories at linear cost, TAGE uses many history lengths at once with tags, and side predictors cover what TAGE misses. It ends with the parts of a predictor a model has to get right: speculative history and update timing.</p>
+<p>The predictors on <a href="#/fe-classic">Classic Direction Predictors</a> index untagged counter tables with a fixed amount of history, so they force one history length on every branch and can't tell when two branches collide. This page covers the designs that fixed both problems. Perceptrons use long histories at linear cost, TAGE uses many history lengths at once with tags, and side predictors cover what TAGE misses. It ends with the parts of a predictor a model has to get right: speculative history, update timing, and the fast predictor that covers a slow one's latency.</p>
 
 <h3 id="sec-perceptron">Perceptron Predictors</h3>
 <p>A perceptron predictor (Jiménez and Lin, 2001) replaces the table of counters with a table of small weight vectors, one vector per branch (selected by PC), with one signed weight per history bit plus a bias weight. It treats each history bit as a vote, and learns how much each vote counts.</p>
@@ -1340,7 +1400,7 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <li><strong>Path-based perceptrons</strong> (Jiménez, 2003) pick each weight by the address of the branch at that history position and accumulate the sum ahead of time, branch by branch, so only the last addition is on the critical path.</li>
 <li><strong>Hashed perceptrons</strong> (Tarjan and Skadron, 2005) index several weight tables with hashes of the PC and different history segments and sum one weight from each. Fewer, wider-reaching weights per prediction mean a shorter adder tree and less aliasing between branches. AMD has described its Zen predictors as perceptron-based.</li>
 </ul>
-<p>Even then, perceptrons usually sit in the slower, overriding level of the predictor (see <a href="#/fe-decoupled/overriding">Fast and Slow Predictors</a>).</p>
+<p>Even then, perceptrons usually sit in the slower, overriding level of the predictor (see <a href="#/fe-direction/overriding">Fast and Slow Predictors</a>).</p>
 
 <h3 id="sec-separability">The Linear-Separability Limit</h3>
 <p>A perceptron can only learn outcomes that are a <strong>linearly separable</strong> function of the history: taken exactly when a weighted vote of the history bits passes a threshold. That covers a lot. It learns "same as the branch 5 back," "taken if either of two branches was taken" (OR), "taken if both were" (AND), and majority votes over many bits, and it ignores the noise of everything else.</p>
@@ -1389,14 +1449,22 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <li><strong>Keep speculative histories out of the table.</strong> A small in-flight buffer holds each speculative history with its branch's PC. Fetch searches the buffer by PC, the youngest match wins, and a branch with no match reads the table. The table is written only at retire, so it holds only retired history, and a flush just drops the squashed slots.</li>
 </ul>
 
+<h3 id="sec-overriding">Fast and Slow Predictors</h3>
+<p>The most accurate predictors (TAGE and its relatives) need several cycles to read their tables and combine results. Waiting for them every cycle would add bubbles to every taken branch. Cores pair them instead:</p>
+<ol>
+<li>A small, single-cycle predictor (a micro-BTB with simple direction bits) makes a prediction immediately, and fetch follows it.</li>
+<li>A cycle or two later, the large predictor finishes. If it agrees, nothing happens. If it disagrees, it <strong>overrides</strong>: the few blocks fetched on the fast prediction are flushed and fetch redirects, costing a short bubble instead of a full mispredict.</li>
+</ol>
+<p>It is the same correction as a slow BTB level finding a taken branch the fast level missed (see <a href="#/fe-decoupled/blocks">Fetch Blocks and Taken Branches</a>), applied to direction.</p>
+<p>Jiménez, Keckler, and Lin analyzed this "overriding" arrangement in 2000. The performance model has to include it: an override is a front-end bubble of a few cycles, distinct from a full back-end mispredict.</p>
 <h3 id="sec-model">Modeling a Predictor</h3>
 <ul>
 <li><strong>Measure MPKI, not accuracy.</strong> 97% accuracy can be 3 MPKI or 15 MPKI depending on how many branches the code has; MPKI is what multiplies the penalty.</li>
 <li><strong>Use the update timing of the real design.</strong> A trace-driven predictor study that updates instantly after each branch overstates accuracy on tight loops, where several instances of the same branch are in flight before the first resolves.</li>
 <li><strong>Count storage honestly.</strong> Championship predictors are compared at a fixed budget (64 KB in recent contests), including tags and useful bits.</li>
-<li><strong>Remember latency.</strong> A predictor that needs 3 cycles is paired with a fast one, and its overrides cost bubbles (see <a href="#/fe-decoupled/overriding">Fast and Slow Predictors</a>).</li>
+<li><strong>Remember latency.</strong> A predictor that needs 3 cycles is paired with a fast one, and its overrides cost bubbles (see <a href="#/fe-direction/overriding">Fast and Slow Predictors</a>).</li>
 </ul>
-<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3 (tagged hybrid predictors) · Jiménez and Lin, "Dynamic Branch Prediction with Perceptrons," HPCA 2001 · Jiménez, "Fast Path-Based Neural Branch Prediction," MICRO 2003 · Tarjan and Skadron, "Merging Path and Gshare Indexing in Perceptron Branch Prediction," ACM TACO, 2005 · Seznec and Michaud, "A Case for (Partially) TAgged GEometric History Length Branch Prediction," JILP 2006 · Seznec, "TAGE-SC-L Branch Predictors," CBP-4, 2014</p>`,
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, Chapter 3 (tagged hybrid predictors) · Jiménez and Lin, "Dynamic Branch Prediction with Perceptrons," HPCA 2001 · Jiménez, "Fast Path-Based Neural Branch Prediction," MICRO 2003 · Tarjan and Skadron, "Merging Path and Gshare Indexing in Perceptron Branch Prediction," ACM TACO, 2005 · Seznec and Michaud, "A Case for (Partially) TAgged GEometric History Length Branch Prediction," JILP 2006 · Seznec, "TAGE-SC-L Branch Predictors," CBP-4, 2014 · Jiménez, Keckler, and Lin, "The Impact of Delay on the Design of Branch Predictors," MICRO 2000</p>`,
   practice: {
     guided: [
       {
@@ -1412,66 +1480,35 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
       {
         q: `<p>A branch is taken when exactly one of two earlier branches (12 and 30 branches back) was taken. Which predictors can learn it: bimodal, gshare with 16 history bits, a perceptron with 64 history bits, TAGE with lengths up to 640?</p>`,
         a: `<p><strong>Bimodal:</strong> no; it sees only the PC, and the branch is 50/50 overall. <strong>gshare with 16 bits:</strong> no; the outcome 30 branches back isn't in its history. <strong>Perceptron:</strong> no, even though both bits are in its history: the outcome is the XOR of two history bits, which isn't linearly separable, so no weight vector predicts it. <strong>TAGE:</strong> yes, in a table with history of at least 30 branches. Each distinct history pattern gets its own tagged entry and counter, so it can learn any function of the history, at the cost of an entry per pattern that actually occurs. If the 18 branches in between vary a lot, the number of distinct patterns explodes and TAGE also struggles; in practice, combining TAGE with a perceptron-style corrector covers both cases.</p>`
+      },
+      {
+        q: `<p>Your model has a fast single-cycle predictor overridden two cycles later by a TAGE predictor. Profiling shows 8 overrides and 3 full mispredicts per thousand instructions on a 6-wide core with a 17-cycle mispredict penalty and a CPI of 0.25 without either cost. Which costs more, and what would you change in the model to get these costs right?</p>`,
+        a: `<p>Overrides: 8 × 2 = 16 lost fetch cycles per thousand instructions, but some are hidden if the queues in front of rename hold enough work. Mispredicts: 3 × 17 = 51 cycles, and nothing hides them. So mispredicts cost more than three times as much, but overrides aren't free: a CPI of 0.25 is 250 cycles per thousand instructions, so if none of the 16 cycles are hidden, overrides add 16 / 250 ≈ 6%.</p><p>In the model:</p><ul><li>Count overrides separately from mispredicts</li><li>Make the override flush only the blocks fetched after the fast prediction (not the back end)</li><li>Charge the bubble at fetch so the fetch and decode queues can absorb it</li><li>Check that the fast predictor's accuracy, not just TAGE's, matches the design, since the override rate depends on how often they disagree</li></ul>`
       }
     ]
   }
 },
 
 {
-  id: "fe-targets",
+  id: "fe-indirect",
   region: "fe",
-  title: "Branch Targets: BTB, Indirect Branches, and Returns",
+  title: "Indirect Branches and Returns",
   sections: [
-    { id: "btb", label: "The BTB" },
-    { id: "misses", label: "BTB Misses and Decode Redirects" },
-    { id: "folding", label: "Branch Folding" },
     { id: "indirect", label: "Indirect Branches" },
-    { id: "ras", label: "The Return Address Stack" },
-    { id: "footprint", label: "Large Code Footprints" }
+    { id: "ras", label: "The Return Address Stack" }
   ],
   body: `
-<p>Knowing a branch is taken is useless without knowing where it goes, and a decoupled predictor has to know both before the instruction bytes are even fetched. Three structures supply targets: the branch target buffer for most branches, an indirect predictor for branches whose target varies, and the return address stack for returns. What each wrong guess costs is on <a href="#/fe-mispredict">Mispredict Cost in Deep Pipelines</a>.</p>
-
-<h3 id="sec-btb">The BTB</h3>
-<p>The <strong>branch target buffer</strong> is a cache indexed by fetch address. A hit says "there is a branch at this offset in the block," gives its type (conditional, unconditional, call, return, indirect), and its last target. In a decoupled front end, the BTB is how the predictor finds branches at all: a branch missing from the BTB is invisible, and the predictor carries on sequentially as if it weren't there.</p>
-<p>Like caches, BTBs come in levels. A small, fast level gives zero-bubble taken branches; a larger level behind it covers more code at a cycle or more of bubble per taken branch. AMD's Zen 4, for example, has a 1.5K-entry first-level BTB and a 7K-entry second level; Intel's Golden Cove has 12K entries in total. Entries store compressed targets (only the low bits that differ from the branch address for short branches) to fit more of them.</p>
-<p>What an entry holds, and why:</p>
-<ul>
-<li><strong>Tag.</strong> Hennessy and Patterson's BTB matches the full PC, because a hit on an address that isn't a branch would send fetch somewhere wrong. Real first-level BTBs use partial tags to save area. A false hit is caught when decode finds no branch at that offset, so it costs a redirect, never correctness.</li>
-<li><strong>Branch type and offset.</strong> The type says which structure supplies the target (the BTB itself, the return stack, or the indirect predictor) and whether to consult the direction predictor. The offset says where in the fetch block the branch ends, so fetch knows how many bytes to use.</li>
-<li><strong>Target.</strong> The last target, or the only one for a direct branch.</li>
-</ul>
-<p>Which branches get an entry is a policy. Hennessy and Patterson's design stores only taken branches, since a not-taken branch just continues to the next sequential PC and an entry for it would waste space. A decoupled front end keeps the same rule at the door: a branch is inserted the first time it is taken, so branches that are never taken never cost an entry. Once inserted, a conditional branch stays even when it goes not taken, because the predictor needs to know it is there to ask the direction predictor about it. BTBs are set-associative and indexed by fetch-block address, and some designs hold two or more branches per entry so one lookup covers a whole fetch block.</p>
-
-<h3 id="sec-misses">BTB Misses and Decode Redirects</h3>
-<p>What happens when a branch isn't in the BTB depends on its kind (for a cycle-by-cycle walk through one decode redirect, see <a href="#/branch-hazards/btb">The BTB and Decode Redirects</a>):</p>
-<div class="tbl"><table>
-<tr><th>Branch</th><th>On a BTB miss</th><th>Cost</th></tr>
-<tr><td>Conditional, actually not taken</td><td>Fall-through was right by luck</td><td>None (but nothing trains until it's inserted)</td></tr>
-<tr><td>Conditional, actually taken</td><td>Fetch falls through. Decode can redirect if it applies a static guess (backward branches taken); otherwise the branch mispredicts when it executes</td><td>A decode redirect or a full mispredict</td></tr>
-<tr><td>Unconditional direct jump or call</td><td>Decode sees the branch, computes the target from the instruction, and redirects fetch</td><td>A <strong>decode redirect</strong>: the front-end depth up to decode, several cycles</td></tr>
-<tr><td>Return</td><td>Decode recognizes it and uses the return stack</td><td>Decode redirect</td></tr>
-<tr><td>Indirect</td><td>No target until it executes</td><td>A full mispredict</td></tr>
-</table></div>
-<p>Decode redirects are cheaper than mispredicts because nothing past decode was fetched on the wrong path, but they are frequent on large code and they also stop the predictor from running ahead, which breaks <a href="#/fe-decoupled/fdip">fetch-directed prefetching</a>.</p>
-
-<h3 id="sec-folding">Branch Folding</h3>
-<p>Hennessy and Patterson describe a BTB variant that stores the <em>target instruction</em>, or the first few of them, instead of (or alongside) the target address. It buys two things:</p>
-<ul>
-<li><strong>Slack:</strong> the BTB lookup can take longer than one cycle, because fetch doesn't need the target address in time to read the instruction cache. The instructions arrive with the hit.</li>
-<li><strong>Branch folding:</strong> for an unconditional branch, the BTB can hand fetch the target instruction <em>in place of</em> the branch. The branch disappears from the pipeline and takes zero cycles. AT&amp;T's CRISP processor (Ditzel and McLellan, 1987) did this. A conditional branch can be folded the same way on its prediction, but it still has to be checked when it resolves.</li>
-</ul>
-<p>Modern cores get most of the same effect differently. A zero-bubble first-level BTB lets the predictor follow a taken branch every cycle, the fetch target queue hides any extra lookup latency, and the op cache delivers decoded instructions at the target without going back through decode. Storing instruction bytes in a 16K-entry BTB would cost far more area than storing targets.</p>
+<p>A BTB entry holds one target per branch, which is all a direct branch needs. Two kinds of branch go to different places on different executions: indirect branches, whose target comes from a register, and returns, which go back to whichever site made the call. The BTB marks both by type, and the predictor takes their targets from structures of their own. The indirect predictors reuse the ideas of the direction predictor pages, history-indexed tables and TAGE, with targets in place of counters. What each wrong guess costs is on <a href="#/fe-mispredict">Mispredict Cost in Deep Pipelines</a>.</p>
 
 <h3 id="sec-indirect">Indirect Branches</h3>
-<p>An indirect branch jumps to an address in a register: virtual calls, function pointers, <code>switch</code> statements compiled to jump tables, and interpreter dispatch. A BTB entry holds one target, so it predicts the last target seen. That's fine for a virtual call that almost always reaches the same class, and poor for an interpreter's dispatch jump, which goes to a different handler for every bytecode.</p>
-<p>The fix is to let the target depend on context, the way gshare lets direction depend on history. Chang, Hao, and Patt's <strong>target cache</strong> (1997), the design Shen and Lipasti use to introduce the topic, is a table of targets indexed by PC XOR history. It is consulted only for branches the BTB marks as indirect, and its prediction is used in place of the BTB's last target. Two choices matter:</p>
+<p>An indirect branch jumps to an address in a register: virtual calls, function pointers, <code>switch</code> statements compiled to jump tables, and interpreter dispatch. A BTB entry holds one target, so it predicts the last target seen (see <a href="#/fe-targets/btb">The BTB</a>). That's fine for a virtual call that almost always reaches the same class, and poor for an interpreter's dispatch jump, which goes to a different handler for every bytecode.</p>
+<p>The fix is to let the target depend on context, the way gshare lets direction depend on history (see <a href="#/fe-classic">Classic Direction Predictors</a>). Chang, Hao, and Patt's <strong>target cache</strong> (1997), the design Shen and Lipasti use to introduce the topic, is a table of targets indexed by PC XOR history. It is consulted only for branches the BTB marks as indirect, and its prediction is used in place of the BTB's last target. Two choices matter:</p>
 <ul>
 <li><strong>Which history.</strong> <em>Pattern history</em> is the global taken/not-taken bits, which works when a conditional branch decides the target (an <code>if</code> that chooses which object to call). <em>Path history</em> is a few low address bits from each of the last several branch targets, which works when the previous targets decide the next one, as in an interpreter where one bytecode's handler predicts the next.</li>
 <li><strong>Tagged or tagless.</strong> A tagless table is cheap but aliases, like gshare. A set-associative tagged table only gives a prediction on a real match and otherwise falls back to the BTB.</li>
 </ul>
 <p>Most indirect branches are monomorphic in practice (one target at run time), and a target cache wastes entries on them. Driesen and Hölzle's <strong>cascaded predictor</strong> (1998) uses a cheap last-target first stage and only allocates a history-indexed entry when the first stage has mispredicted, so only the polymorphic branches use the expensive table.</p>
-<p>Indirect predictors in current cores index target tables with global path history, so the same branch can predict different targets on different paths. <strong>ITTAGE</strong> (Seznec, 2011) applies the TAGE idea to targets: tagged tables with geometric history lengths, each entry storing a target instead of a counter. Intel has used history-based indirect prediction since Haswell, which made switch-based interpreters far more predictable than they used to be.</p>
+<p>Indirect predictors in current cores index target tables with global path history, so the same branch can predict different targets on different paths. <strong>ITTAGE</strong> (Seznec, 2011) applies the TAGE idea (see <a href="#/fe-direction/tage">TAGE</a>) to targets: tagged tables with geometric history lengths, each entry storing a target instead of a counter. Intel has used history-based indirect prediction since Haswell, which made switch-based interpreters far more predictable than they used to be.</p>
 
 <h3 id="sec-ras">The Return Address Stack</h3>
 <p>Returns are indirect branches with a perfect predictor available: the address after the matching call. The <strong>return address stack (RAS)</strong> pushes that address on every predicted call and pops it on every predicted return. 16 to 32 entries per thread is typical.</p>
@@ -1481,14 +1518,7 @@ L2:   sub  x3,x1,x2   // x3 = aa - bb
 <li><strong>Non-standard returns:</strong> code that returns somewhere other than its caller (longjmp, some coroutine and exception schemes, return-oriented tricks) mispredicts every time.</li>
 </ul>
 <p>Without a return stack, returns are among the worst-predicted branches: the BTB holds the target of the last return from that function, which is wrong whenever the function is called from more than one site. Hennessy and Patterson's SPEC CPU95 data show return mispredictions falling steeply over the first few stack entries and leveling off by 8 to 16 entries, since few programs nest calls deeper than that between returns. Today's larger stacks (52 entries on Zen 5, for example) cover deeper call chains in object-oriented and server code and leave room for wrong-path pushes and pops.</p>
-
-<h3 id="sec-footprint">Large Code Footprints</h3>
-<p>Datacenter workloads (databases, web servers, JIT-compiled code) execute megabytes of hot code, with many thousands of distinct taken branches. Their BTB miss rates stay high even with 12K entries, so they lose cycles to decode redirects, instruction cache misses that prefetching didn't hide, and lost predictor run-ahead. The fixes:</p>
-<ul>
-<li><strong>Hardware:</strong> larger and multi-level BTBs, BTB entries that cover a whole fetch region with several branches, and BTB prefetching driven by instruction cache fills.</li>
-<li><strong>Software:</strong> profile-guided layout (BOLT, AutoFDO) that packs hot code together and straightens hot paths so fewer branches are taken; huge pages for code to cut ITLB misses.</li>
-</ul>
-<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 5th ed., Section 3.9 (branch-target buffers, branch folding, and return address predictors) · Shen and Lipasti, <em>Modern Processor Design</em>, Chapter 9 (target prediction for indirect jumps) · Chang, Hao, and Patt, "Target Prediction for Indirect Jumps," ISCA 1997 · Driesen and Hölzle, "The Cascaded Predictor: Economical and Adaptive Branch Target Prediction," MICRO 1998 · Ditzel and McLellan, "Branch Folding in the CRISP Microprocessor," ISCA 1987 · Seznec, "A 64-Kbytes ITTAGE Indirect Branch Predictor," CBP-3, 2011 · Skadron, Ahuja, Martonosi, and Clark, "Improving Prediction for Procedure Returns with Return-Address-Stack Repair Mechanisms," MICRO 1998 · AMD, <em>Software Optimization Guide for the AMD Zen 4 Microarchitecture</em></p>`,
+<p class="refs">References: Hennessy &amp; Patterson, <em>Computer Architecture: A Quantitative Approach</em>, 5th ed., Section 3.9 (return address predictors) · Shen and Lipasti, <em>Modern Processor Design</em>, Chapter 9 (target prediction for indirect jumps) · Chang, Hao, and Patt, "Target Prediction for Indirect Jumps," ISCA 1997 · Driesen and Hölzle, "The Cascaded Predictor: Economical and Adaptive Branch Target Prediction," MICRO 1998 · Seznec, "A 64-Kbytes ITTAGE Indirect Branch Predictor," CBP-3, 2011 · Skadron, Ahuja, Martonosi, and Clark, "Improving Prediction for Procedure Returns with Return-Address-Stack Repair Mechanisms," MICRO 1998 · AMD, <em>Software Optimization Guide for the AMD Zen 5 Microarchitecture</em></p>`,
   practice: {
     guided: [
       {
