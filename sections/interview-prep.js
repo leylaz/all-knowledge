@@ -1775,6 +1775,108 @@ M(`<p>You have an 8 KB budget for a global-history perceptron predictor with 8-b
 <li>8,192 bytes × 8 bits/byte / 2 bits/counter = 32,768 counters = 2<sup>15</sup>, a <strong>15-bit index</strong>. gshare can use at most 15 history bits without folding longer history into the index, which loses information.</li>
 <li>h = 31 sums 32 terms, which takes log<sub>2</sub> 32 = <strong>5 levels</strong>. h = 63 sums 64 terms, which takes log<sub>2</sub> 64 = <strong>6 levels</strong>, and the sum can reach 64 × 127 = 8,128, so it needs 14-bit signed adders. Carry-save compression shortens each level, but at 5 GHz this is still more than one cycle, so the perceptron belongs in the slower, overriding level behind a single-cycle predictor, or needs path-based precomputation of the sum.</li>
 </ol>`, "hard") +
+`<h3 id="sec-counters">Saturating Counters and Update Timing</h3>` +
+Q(`<p>Explain how a 2-bit saturating counter predicts a branch and how it is updated, and why it beats a 1-bit last-outcome predictor on a loop branch. Then work this example. A cache simulator's inner loop scans the 8 ways of a set, compiled with the test at the top, so each visit runs the loop branch 9 times (tests 0 to 8). Tests 0 to 7 are not taken and fall through into the body, and test 8 is taken and exits. The 2-bit counter starts at 10 (weak taken) and the 1-bit predictor starts at T. The branch has its predictor entry to itself, and each entry is updated before the branch's next execution. How many mispredictions does each predictor make on the first visit and on each visit after that, and what is each one's steady-state misprediction rate?</p>`,
+`<p>A 2-bit counter holds a value from 00 to 11. The high bit is the prediction (1 predicts taken). After the branch resolves, a taken outcome adds 1 and a not-taken outcome subtracts 1, saturating at 00 and 11. From a strong state (00 or 11) it takes 2 opposite outcomes in a row to flip the prediction, so a single unusual outcome only weakens it. A 1-bit predictor just stores the last outcome, so every unusual outcome flips it and costs a second miss when the usual direction returns.</p>
+<ol>
+<li><strong>2-bit, first visit.</strong> Test 0 reads 10 and predicts T, but the branch is not taken: miss, down to 01. Test 1 reads 01 and predicts N: correct, down to 00. Tests 2 to 7 read 00 and are correct. Test 8 reads 00 and predicts N, but the branch is taken: miss, up to 01. That is 2 mispredictions.</li>
+<li><strong>2-bit, each later visit.</strong> Test 0 reads 01 and predicts N: correct, down to 00. Tests 1 to 7 are correct, and test 8 misses again and leaves 01. That is <strong>1 misprediction per visit</strong>, a rate of 1 misprediction / 9 executions ≈ 11.1%.</li>
+<li><strong>1-bit, first visit.</strong> Test 0 predicts T (the starting value) and misses, and the bit becomes N. Tests 1 to 7 are correct. Test 8 predicts N and misses, and the bit becomes T. That is 2 mispredictions.</li>
+<li><strong>1-bit, each later visit.</strong> The bit is T at the start of every visit, so test 0 misses again, and test 8 misses as before. That is <strong>2 mispredictions per visit</strong>, a rate of 2 mispredictions / 9 executions ≈ 22.2%.</li>
+</ol>
+<p>This is the mirror image of the usual bottom-tested loop (taken until a not-taken exit): here the counter lives at the not-taken end, the exit only weakens it to 01, and the re-entry is still predicted correctly. Compilers usually rotate loops into the bottom-tested form, but the counter treats both the same way. Neither predictor can get the exit itself right, which takes history or a loop predictor.</p>`, "easy") +
+Q(`<p>What does the low bit of a 2-bit saturating counter do? Starting from each of the 4 states (00, 01, 10, and 11), how many consecutive outcomes opposite to the current prediction does it take to flip the prediction? Generalize to an n-bit counter that predicts taken at 2<sup>n−1</sup> or more, and check your formula on the Alpha 21264's 3-bit local counters.</p>`,
+`<p>The low bit never changes the prediction, which is the high bit alone. It is the hysteresis: it records whether the last outcomes agreed with the prediction (strong, 00 and 11) or a recent outcome went the other way (weak, 01 and 10). That makes it a free confidence estimate, which some designs use, for example to decide when a newly allocated entry should not be trusted yet.</p>
+<ul>
+<li><strong>00 (strong not taken):</strong> 2 taken outcomes (00 → 01 → 10).</li>
+<li><strong>01 (weak not taken):</strong> 1 taken outcome (01 → 10).</li>
+<li><strong>10 (weak taken):</strong> 1 not-taken outcome (10 → 01).</li>
+<li><strong>11 (strong taken):</strong> 2 not-taken outcomes (11 → 10 → 01).</li>
+</ul>
+<p>Each of those outcomes is also a misprediction, because each one is predicted the old way.</p>
+<p><strong>n bits.</strong> The threshold is 2<sup>n−1</sup>. From a value v ≥ 2<sup>n−1</sup> (predicting taken), it takes v − 2<sup>n−1</sup> + 1 not-taken outcomes to fall below the threshold. From v &lt; 2<sup>n−1</sup>, it takes 2<sup>n−1</sup> − v taken outcomes to reach it. From the strong taken state v = 2<sup>n</sup> − 1, that is 2<sup>n</sup> − 1 − 2<sup>n−1</sup> + 1 = 2<sup>n−1</sup>, and from v = 0 it is 2<sup>n−1</sup> − 0 = 2<sup>n−1</sup>. So <strong>2<sup>n−1</sup> from a strong state</strong> and 1 from either weakest state.</p>
+<p><strong>3-bit check.</strong> The threshold is 2<sup>3−1</sup> = 4. From 7 it takes 7 − 4 + 1 = 4 not-taken outcomes, and from 0 it takes 4 − 0 = 4 taken outcomes, matching 2<sup>3−1</sup> = 4. In order from 0 to 7, the counts are 4, 3, 2, 1, 1, 2, 3, and 4. The 21264 can afford this slower reaction in its local predictor because a local history already separates the pattern positions, so each counter sees a strongly biased stream.</p>`, "medium") +
+M(`<p>You are choosing between 2-bit counters and the 3-bit counters the Alpha 21264 uses in its local predictor (3-bit counters predict taken at 4 or more). Three branches each have a counter to themselves, and every counter is updated before its branch's next execution. Over a 10,000,000-instruction window:</p>
+<ul>
+<li>Branch X flips direction every 96 executions (96 taken, then 96 not taken, repeating) and executes 384,000 times.</li>
+<li>Branch Y repeats 21 taken, then 3 not taken, and executes 480,000 times.</li>
+<li>Branch Z is <code>if (j &lt; 5)</code> inside an inner loop over j = 0 to 9, so it repeats 5 taken, then 5 not taken, and executes 100,000 times.</li>
+</ul>
+<p>Ignore warm-up: use each branch's steady-state count for every period. Find the mispredictions per period for each branch and width, the total MPKI for each width, and which width wins. A quick estimate charges 2<sup>n−1</sup> mispredictions per change of direction. Where does that estimate fail, and how long must each run be for it to hold? Say when each counter fully saturates and why that matters to the count.</p>`,
+`<p>An n-bit counter is fully saturated after 2<sup>n</sup> − 1 outcomes in a row the same way from the opposite end: 3 for 2 bits, 7 for 3 bits. The 2<sup>n−1</sup>-per-change estimate assumes every change starts from saturation.</p>
+<ol>
+<li><strong>X, 2-bit.</strong> At the switch to not taken, it predicts taken at 11 and 10 (2 misses), predicts not taken from 01, and saturates at 00 after the 3rd not-taken outcome. The switch back costs 2 more. Per 192-execution period: 2 mispredictions + 2 mispredictions = 4 mispredictions. Runs of 96 are far longer than 3, so the estimate holds.</li>
+<li><strong>X, 3-bit.</strong> Each switch costs 4 misses (from 7 it predicts taken at 7, 6, 5, and 4), and runs of 96 are longer than 7, so each switch starts saturated. Per period: 4 mispredictions + 4 mispredictions = 8 mispredictions.</li>
+<li><strong>Y, 2-bit.</strong> From 11, the 3 not-taken outcomes are predicted at 11 (miss), 10 (miss), and 01 (correct), ending at 00. The next taken outcomes are predicted at 00 (miss), 01 (miss), and 10 (correct), and it is back at 11 after 3 of the 21. Per 24-execution period: 4 mispredictions.</li>
+<li><strong>Y, 3-bit.</strong> From 7, the 3 not-taken outcomes are predicted at 7, 6, and 5, all taken, so all 3 miss and the counter ends at 4, still predicting taken. The next taken outcome is correct, and it climbs back to 7 after 3 of the 21. Per period: 3 mispredictions. The run of 3 is shorter than 2<sup>3−1</sup> = 4, so the prediction never flips, and the estimate (2 changes × 4 mispredictions = 8 mispredictions) is far too high.</li>
+<li><strong>Z, 2-bit.</strong> 5 outcomes is more than the 3 needed to saturate, so it behaves like X: 2 mispredictions per switch, <strong>4 mispredictions per 10-execution period</strong>.</li>
+<li><strong>Z, 3-bit.</strong> The taken run starts at 010 (2): predicted not taken at 2 and 3 (2 misses), then taken at 4, 5, and 6 (correct), ending at 7. The not-taken run is predicted taken at 7, 6, 5, and 4 (4 misses), then correctly at 3, ending at 2, not 0. 5 outcomes are fewer than the 7 needed to saturate, so the next switch starts from 2 and costs only 2. Per period: 2 mispredictions + 4 mispredictions = 6 mispredictions, not the estimate's 8.</li>
+</ol>
+<p>Totals. X has 384,000 executions / 192 executions/period = 2,000 periods, Y has 480,000 executions / 24 executions/period = 20,000 periods, and Z has 100,000 executions / 10 executions/period = 10,000 periods.</p>
+<ul>
+<li><strong>2-bit:</strong> 2,000 periods × 4 mispredictions/period + 20,000 periods × 4 mispredictions/period + 10,000 periods × 4 mispredictions/period = 128,000 mispredictions. MPKI = 128,000 mispredictions / 10,000,000 instructions × 1,000 instructions = <strong>12.8 MPKI</strong>.</li>
+<li><strong>3-bit:</strong> 2,000 periods × 8 mispredictions/period + 20,000 periods × 3 mispredictions/period + 10,000 periods × 6 mispredictions/period = 136,000 mispredictions. MPKI = 136,000 mispredictions / 10,000,000 instructions × 1,000 instructions = <strong>13.6 MPKI</strong>.</li>
+</ul>
+<p><strong>2-bit wins</strong>, by 0.8 MPKI. The 3-bit counter saves 20,000 mispredictions on Y's short anomaly runs but loses 8,000 on X's phase changes and 20,000 on Z's. The rules behind the counts:</p>
+<ul>
+<li>A run shorter than 2<sup>n−1</sup> never flips the prediction and costs one miss per outcome (Y, 3-bit).</li>
+<li>A run of at least 2<sup>n−1</sup> but shorter than 2<sup>n</sup> − 1 flips it without saturating, so the next change costs fewer than 2<sup>n−1</sup> (Z, 3-bit).</li>
+<li>The 2<sup>n−1</sup>-per-change estimate holds only when every run is at least 2<sup>n</sup> − 1 long (X for both widths, and Z for 2 bits).</li>
+</ul>
+<p>So a wider counter pays off only when the workload's anomalies come in runs between 2 and 2<sup>n−1</sup> − 1 long and real phase changes are rare. Real code usually has more phase changes than that, which is why 2 bits is the default.</p>`, "hard") +
+Q(`<p>A Zen 4 core has a 320-entry ROB and dispatches up to 6 µops/cycle. It runs a tight loop of 6 µops per iteration, and one of the 6 is a conditional branch B that is taken for many iterations and then not taken for the rest of the loop. B's 2-bit counter is read at fetch and updated at retire, and it sits at 11 when B's first not-taken instance (call it k) is fetched. Assume the ROB is full of this loop, and that each mispredicted instance of B retires after the next instance has been refetched and has read the counter, but before the instance after that is fetched. About how many instances of B can be in flight at once? How many mispredictions does the switch cost, compared with updating the counter immediately? What problem does this read/update gap cause in general, and what are the options?</p>`,
+`<p><strong>In flight.</strong> 320 entries / 6 µops/iteration ≈ 53 iterations, so up to about 53 instances of B. Each one reads a counter that includes none of the outcomes of the older instances still in flight.</p>
+<p><strong>The switch, updating immediately.</strong> k reads 11, predicts taken, and misses, leaving 10. k + 1 reads 10 and misses, leaving 01. k + 2 reads 01 and predicts not taken correctly. That is 2 mispredictions.</p>
+<p><strong>The switch, updating at retire.</strong></p>
+<ol>
+<li>k reads 11 and misses. Everything younger is squashed and fetch is redirected.</li>
+<li>k + 1 is refetched before k retires, so it reads 11 again and misses.</li>
+<li>k + 2 is fetched after k has retired but before k + 1 has, so it reads 10, predicts taken, and misses a third time.</li>
+<li>k + 3 is fetched after k + 1 has retired, reads 01, and is correct.</li>
+</ol>
+<p>That is 3 mispredictions, one extra full redirect for each phase change: the predictor repeats a misprediction it has already seen resolve.</p>
+<p><strong>The general problem.</strong> On the correct path, every older in-flight outcome matched its prediction, or the younger instances would have been squashed. So between mispredicts, a stale counter is only missing strengthening, which is harmless for a strongly biased branch. The damage is around mispredicts: the correction from a resolved but unretired instance doesn't reach the counter, so the predictor reacts late to phase changes and short anomaly runs. A trace-driven model that updates instantly hides this and overstates accuracy on tight loops.</p>
+<p><strong>Options.</strong></p>
+<ul>
+<li><strong>Accept it.</strong> Many cores do, because 2-bit hysteresis tolerates late updates and the cost is only at direction changes.</li>
+<li><strong>Update at execute (resolve).</strong> This shrinks the gap to fetch-to-execute, but wrong-path branches then write the counter, and the writes arrive out of order.</li>
+<li><strong>Update speculatively at fetch with the predicted outcome,</strong> and repair each mispredict from a per-branch snapshot. That removes the staleness but needs a repair path.</li>
+<li><strong>Predict the pattern instead of tracking it.</strong> Global or local history (or a loop predictor, if the switch iteration repeats from visit to visit) can predict the switch before the counter learns it.</li>
+<li><strong>In a model,</strong> simulate the real update timing, not an instant update.</li>
+</ul>`, "medium") +
+Q(`<p>Compare updating a branch's counter when the branch executes (resolves) with updating it speculatively at fetch using the predicted outcome. For each, what goes wrong that can't happen when the counter is updated at retire? Assume a core like Zen 4 that resolves branches out of order and keeps fetching down the predicted path while older branches are unresolved.</p>`,
+`<p>Assume retire-time updates are the baseline: they see only correct-path branches, in program order, with real outcomes, so nothing ever has to be undone. Their only cost is staleness.</p>
+<p><strong>Update at execute.</strong></p>
+<ul>
+<li><strong>Wrong-path pollution.</strong> An older branch can mispredict and resolve late, for example because it depends on a cache miss. Meanwhile, younger wrong-path branches execute and write counters with outcomes from a path the program never takes. The flush squashes the instructions but doesn't undo those writes, so the pollution stays.</li>
+<li><strong>Out-of-order updates.</strong> A younger instance can resolve before an older one. Saturating steps commute except at the ends: from 11, T then N leaves 10, but N then T leaves 11. For a counter that is a small error. For a history register, order is everything, so history is never updated at execute.</li>
+<li><strong>What it buys:</strong> the gap shrinks from fetch-to-retire to fetch-to-execute, so a resolved mispredict corrects the counter before the refetched instances read it.</li>
+</ul>
+<p><strong>Update speculatively at fetch.</strong></p>
+<ul>
+<li><strong>Self-reinforcement.</strong> Writing the predicted outcome can only move the counter further in the direction it already predicts. Without corrections from real outcomes it never flips, so every mispredict must be repaired.</li>
+<li><strong>Worse pollution.</strong> Every wrong-path branch writes at fetch, not just those that happen to execute before the flush, and they can write other branches' counters too.</li>
+<li><strong>Repair cost.</strong> Each in-flight branch has to keep a snapshot of the counter it read, and the redirect path must restore it. Replaying the opposite update for each squashed instance doesn't work, because a write that stuck at saturation changed nothing.</li>
+<li><strong>What it buys:</strong> on the correct path, the predicted outcome equals the real one for every instance that didn't mispredict. So after a correct repair the counter equals what an instant in-order update would hold, and the staleness is gone.</li>
+</ul>
+<p>The trade: retire is always correct but stale, execute is fresher but polluted and unordered, and fetch is fresh but needs repair to be correct at all. Because a 2-bit counter tolerates staleness, most designs keep counters at resolve or retire and save the snapshot-and-restore machinery for the global history.</p>`, "hard") +
+Q(`<p>A predictor uses 3-bit counters like the Alpha 21264's local ones (taken at 4 or more) and updates them speculatively at fetch with the predicted outcome. Branch B's counter is at 110 when instance 0 of B is fetched. Instances 0 to 4 are fetched back to back, all predicted taken, and each writes the counter at fetch. Instance 2 then resolves first, not taken, while instances 0 and 1 are still unresolved. (1) What value must the counter hold after the repair, and why does replaying the opposite update for instances 4, 3, and 2 give the wrong value? (2) What must each in-flight branch store? (3) List the repair steps. (4) Later, instance 0 also resolves as mispredicted (not taken). What does the counter hold after that repair?</p>`,
+`<p><strong>The fetch-time writes.</strong> Instance 0 reads 110 (6), predicts taken, and writes 111 (7). Instances 1, 2, 3, and 4 each read 111 and write 111, because the counter is saturated. The counter holds 111.</p>
+<ol>
+<li><strong>Correct value.</strong> Instance 2 should see the counter after the older instances 0 and 1, whose predicted outcomes are still assumed correct. That is exactly what it read: its snapshot, 111. Applying its real outcome, not taken, gives <strong>110 (6), still predicting taken</strong>. Replaying inverse updates instead: 111 − 1 (undo 4) = 110, − 1 (undo 3) = 101, − 1 (undo 2's taken) = 100, then not taken gives 011 (3), which predicts not taken. That is 3 too low, because the writes by instances 2, 3, and 4 stuck at saturation and never moved the counter, and undoing them takes away steps that never happened. To replay correctly you would need to know which writes saturated, which is what the snapshot already records.</li>
+<li><strong>Per in-flight branch.</strong> The counter value it read at fetch (3 bits here), the table index it read (already needed for any later update), and its predicted direction (to detect the mispredict). It also keeps the history checkpoint, which is repaired the same way.</li>
+<li><strong>Repair steps.</strong>
+<ul>
+<li>Squash instances 3 and 4 and everything younger than instance 2.</li>
+<li>Restore the counter at instance 2's index to its snapshot, 111. That one write discards every younger squashed write to it.</li>
+<li>Apply instance 2's real outcome to the restored value: 111 → 110.</li>
+<li>Restore the global history to instance 2's checkpoint and shift in not taken.</li>
+<li>Redirect fetch to instance 2's fall-through path.</li>
+</ul>
+Squashed branches that wrote other counters need their own snapshots restored too, youngest first, so the oldest snapshot for each entry is the one left.</li>
+<li><strong>Instance 0 mispredicts.</strong> Squash instance 1 and everything younger, including instance 2 and the path refetched after it. Restore instance 0's snapshot, 110 (6), and apply not taken: <strong>101 (5), still predicting taken</strong>. This discards instance 2's repair, which is right, because instance 2 was on the wrong path. Snapshot repair gives the correct value whatever order the branches resolve in.</li>
+</ol>
+<p>This machinery is the reason many cores don't update counters speculatively at all: they update at resolve or retire and accept the staleness, and use snapshot-and-restore only for the history.</p>`, "hard") +
 `<h3 id="sec-spec">Speculation and Recovery</h3>` +
 Q(`<p>What state must be restored after a branch mispredict? Separate architectural from microarchitectural state, and say which microarchitectural state is usually <em>not</em> restored.</p>`,
 `<p><strong>Architectural:</strong> nothing needs restoring, because nothing past the branch has committed. That’s the point of in-order retirement.</p>
