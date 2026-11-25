@@ -249,8 +249,8 @@ Little-endian puts the “little end” at the lowest address, so the bytes look
   practice: {
     guided: [
       {
-        q: `<p>Name the addressing mode and compute the address for each RISC-V instruction:</p><ul><li>(a) <code>lw x5, -12(x8)</code> with x8 = 0x2000</li><li>(b) A <code>beq</code> at address 0x400 with an offset of +0x20, when it's taken</li><li>(c) <code>addi x5, x6, 10</code></li></ul>`,
-        a: `<ol type="a"><li>Base + offset: effective address = 0x2000 − 12 = <strong>0x1FF4</strong>; the load reads memory there.</li><li>PC-relative: RISC-V adds the offset to the branch's own address, so the target is 0x400 + 0x20 = <strong>0x420</strong>.</li><li>Immediate (for the constant 10) and register (for x6): no memory address at all.</li></ol>`
+        q: `<p>Name the addressing mode and compute the address for each RISC-V instruction:</p><ul><li>(a) <code>lw x5, -12(x8)</code></li><li>(b) A taken <code>beq</code></li><li>(c) <code>addi x5, x6, 10</code></li></ul><p>Given:</p><ul><li>x8 = 0x2000</li><li>The <code>beq</code> sits at address 0x400, and its offset is +0x20 bytes</li><li>The <code>beq</code> is taken</li></ul>`,
+        a: `<ol class="steps"><li>(a) Base + offset. The load adds its sign-extended 12-bit offset to the base register x8, and reads memory at the sum.<div class="math chain"><span>\\(\\displaystyle EA = \\texttt{0x2000} + (-12\\ \\text{bytes}) \\)</span><span>\\(\\displaystyle = \\texttt{0x2000} - \\texttt{0xC} \\)</span><span>\\(\\displaystyle = \\mathbf{0x1FF4} \\)</span></div></li><li>(b) PC-relative. RISC-V adds the offset to the branch's own address, not to the address of the next instruction as x86 does.<div class="math chain"><span>\\(\\displaystyle \\text{target} = \\texttt{0x400} + \\texttt{0x20} \\)</span><span>\\(\\displaystyle = \\mathbf{0x420} \\)</span></div></li><li>(c) Immediate and register. The constant 10 comes from the instruction itself, and x6 from the register file. Nothing is read from memory, so there is no address at all.</li></ol>`
       }
     ],
     interview: [
