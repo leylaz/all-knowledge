@@ -966,13 +966,13 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
   practice: {
     guided: [
       {
-        q: `<p>Which of these do real work in WB: <code>add $t0, $s1, $s2</code>, <code>lw $t1, 0($a0)</code>, <code>sw $t2, 4($a0)</code>, <code>beq $t3, $t4, L</code>?</p>`,
-        a: `<ul><li><code>add</code>: <strong>yes</strong>, writes the ALU result to <code>$t0</code>.</li><li><code>lw</code>: <strong>yes</strong>, writes the loaded value to <code>$t1</code>.</li><li><code>sw</code>: no, it writes memory (in MEM), not a register.</li><li><code>beq</code>: no, it only changes the PC.</li></ul>`
+        q: `<p>Which of these do real work in WB: <code>add $t0, $s1, $s2</code>, <code>lw $t1, 0($a0)</code>, <code>sw $t2, 4($a0)</code>, <code>beq $t3, $t4, L</code>?</p><div class="given"><p>Given:</p><ul><li>Pipeline: the classic MIPS 5-stage pipeline (IF, ID, EX, MEM, WB) from Hennessy &amp; Patterson</li><li>The branch's outcome and target are settled before WB</li></ul></div>`,
+        a: `<p>Only the instructions that write a register do real work in WB.</p><ul><li><code>add</code>: <strong>yes</strong>, writes the ALU result to <code>$t0</code>.</li><li><code>lw</code>: <strong>yes</strong>, writes the loaded value to <code>$t1</code>.</li><li><code>sw</code>: no, it writes memory (in MEM), not a register.</li><li><code>beq</code>: no, it only changes the PC.</li></ul>`
       }
     ],
     interview: [
       {
-        q: `<p>Why does the classic pipeline write the register file in the first half of the cycle and read it in the second half?</p>`,
+        q: `<p>Why does the classic pipeline write the register file in the first half of the cycle and read it in the second half?</p><div class="given"><p>Given:</p><ul><li>Pipeline: the classic 5-stage pipeline (IF, ID, EX, MEM, WB), with registers read in ID and written in WB</li><li>Register file: 2 read ports and 1 write port, fast enough that a write and a read fit in one cycle</li><li>Forwarding paths run from the EX/MEM and MEM/WB pipeline registers into EX</li></ul></div>`,
         a: `<p>An instruction in WB and an instruction three behind it in ID are in the pipeline at the same time. Writing first lets the ID instruction read the value WB is writing in that same cycle. Without it, that instruction would need one more stall cycle, or another forwarding path. It removes a structural and data hazard for the price of splitting the cycle into two phases, which the fast register file access makes possible.</p>`
       }
     ]
