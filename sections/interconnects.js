@@ -378,7 +378,7 @@ READY  __________________|‾‾‾‾‾|____
 
 <h3 id="sec-latency">A Latency Model</h3>
 <p>Following Hennessy &amp; Patterson's Appendix F, a packet's latency splits into parts a model can charge separately:</p>
-<div class="math">\[ T = T_{\text{inject}} + H \times t_r + \frac{L}{b} + T_{\text{contention}} \]</div>
+<div class="math">\\[ T = T_{\\text{inject}} + H \\times t_r + \\frac{L}{b} + T_{\\text{contention}} \\]</div>
 <ul>
 <li><strong>T<sub>inject</sub>:</strong> getting from the cache controller into the network interface, and out at the other end.</li>
 <li><strong>H × t<sub>r</sub>:</strong> hops times the per-hop router and link delay at low load.</li>

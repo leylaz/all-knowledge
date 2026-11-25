@@ -703,7 +703,7 @@ loads   ld  ld  ld  ld  ld  ld  ...            already done, waiting</code></pre
 <p><strong>Question.</strong> A join kernel on AMD Zen 3 at 4.5 GHz does one independent DRAM miss per iteration (about 75 ns, so ≈ 340 cycles). Per iteration: 12 macro-ops, 2 loads (one misses), 1 store, 9 macro-ops that write an integer register, and 5 macro-ops that depend on the missing load. Zen 3: 256-entry ROB, 72-entry load queue, 64-entry store queue, 192 integer physical registers, about 96 integer scheduler entries (four 24-entry ALU queues), 24 L1 miss buffers, 6-wide dispatch. Which structure binds, and is enlarging it worth it?</p>
 <ol>
 <li><strong>Residency.</strong> A miss is always at the ROB head, so every retire-ordered entry stays about 340 cycles. Scheduler entries leave when they issue, so only the 5 dependents of the miss stay that long.</li>
-<li><strong>Bounds \(\dfrac{E \times R}{C}\):</strong>
+<li><strong>Bounds \\(\\dfrac{E \\times R}{C}\\):</strong>
 <div class="tbl"><table>
 <tr><th>Structure</th><th>Formula</th><th>Cycles/iteration</th></tr>
 <tr><td><strong>Integer scheduler</strong></td><td>\\(\\dfrac{5\\text{ macro-ops} \\times 340\\text{ cycles}}{96\\text{ entries}}\\)</td><td><strong>17.7</strong></td></tr>

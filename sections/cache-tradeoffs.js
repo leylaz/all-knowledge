@@ -464,7 +464,7 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 </ul>
 <h3 id="sec-miss-curve">The Miss Curve</h3>
 <p>The √2 rule is one case of a power law. Hartstein et al. ("Cache Miss Behavior: Is It √2?", 2006) fit it across many workloads and found the exponent varies around 0.5 rather than sitting at it. The same law is used for any capacity-limited structure, including TLBs and BTBs.</p>
-<div class="math">\[ M(C) = M_{0} \left(\frac{C}{C_{0}}\right)^{-\alpha} \]</div>
+<div class="math">\\[ M(C) = M_{0} \\left(\\frac{C}{C_{0}}\\right)^{-\\alpha} \\]</div>
 <ul>
 <li><strong>M(C):</strong> the miss rate at capacity C, usually in misses per 1000 instructions.</li>
 <li><strong>C<sub>0</sub>:</strong> a capacity you have measured, usually today's design.</li>
@@ -476,15 +476,15 @@ struct { _Alignas(64) long n; } hits_padded[NTHREADS];   /* one line each */</co
 <tr><td>0.3</td><td>0.81, about 19% fewer</td><td>A flatter curve, such as large server code whose branches and instructions spread over a long tail of rarely used code. Extra capacity catches only a small slice of it.</td></tr>
 <tr><td>Near 0</td><td>About 1, no change</td><td>Streaming, or a working set far larger than any size being considered</td></tr></table></div>
 <p><strong>Misses removed.</strong> Growing from C<sub>0</sub> to C<sub>1</sub> removes the gap between two points on the curve.</p>
-<div class="math">\[ \Delta M = M(C_{0}) - M(C_{1}) = M_{0} \left[1 - \left(\frac{C_{1}}{C_{0}}\right)^{-\alpha}\right] \]</div>
+<div class="math">\\[ \\Delta M = M(C_{0}) - M(C_{1}) = M_{0} \\left[1 - \\left(\\frac{C_{1}}{C_{0}}\\right)^{-\\alpha}\\right] \\]</div>
 <p>The bracket, s, is the share of today's misses that the growth removes. It depends only on the size ratio and α, not on how many misses there are. Multiplying by M<sub>0</sub> turns that share into misses removed, so the same growth saves more on a workload that misses more.</p>
 <p><strong>Example.</strong> Grow a 1.25 MB L2 (Golden Cove) to 2 MB (Raptor Cove) on a workload with M<sub>0</sub> = 5 L2 misses per 1000 instructions.</p>
-<div class="math">\[ s_{0.5} = 1 - \left(\frac{2\ \text{MB}}{1.25\ \text{MB}}\right)^{-0.5} \approx 0.209 \qquad \Delta M \approx 5 \times 0.209 \approx 1.05\ \text{misses per 1000 instructions} \]</div>
-<div class="math">\[ s_{0.3} = 1 - \left(\frac{2\ \text{MB}}{1.25\ \text{MB}}\right)^{-0.3} \approx 0.132 \qquad \Delta M \approx 5 \times 0.132 \approx 0.66\ \text{misses per 1000 instructions} \]</div>
+<div class="math">\\[ s_{0.5} = 1 - \\left(\\frac{2\\ \\text{MB}}{1.25\\ \\text{MB}}\\right)^{-0.5} \\approx 0.209 \\qquad \\Delta M \\approx 5 \\times 0.209 \\approx 1.05\\ \\text{misses per 1000 instructions} \\]</div>
+<div class="math">\\[ s_{0.3} = 1 - \\left(\\frac{2\\ \\text{MB}}{1.25\\ \\text{MB}}\\right)^{-0.3} \\approx 0.132 \\qquad \\Delta M \\approx 5 \\times 0.132 \\approx 0.66\\ \\text{misses per 1000 instructions} \\]</div>
 <p><strong>Break-even.</strong> If the growth costs something else, such as a cycle of hit latency or bits taken from another structure, set ΔM × (cycles per removed miss) equal to that cost and solve for M<sub>0</sub>. Workloads that miss more than the break-even M<sub>0</sub><sup>*</sup> gain from the growth. The <a href="#/fe-targets/practice">BTB partial-tag problem</a> works through this.</p>
-<div class="math">\[ M_{0}^{*} = \frac{\text{cost in cycles per 1000 instructions}}{\text{cycles per removed miss} \times s} \]</div>
+<div class="math">\\[ M_{0}^{*} = \\frac{\\text{cost in cycles per 1000 instructions}}{\\text{cycles per removed miss} \\times s} \\]</div>
 <p><strong>Fitting α.</strong> Measure the miss rate at two sizes and solve for the exponent. If the 1.25 MB L2 above measures 5 and the 2 MB one measures 4.2 misses per 1000 instructions, α ≈ 0.37.</p>
-<div class="math">\[ \alpha = -\frac{\ln\left(M_{1} / M_{0}\right)}{\ln\left(C_{1} / C_{0}\right)} = -\frac{\ln\left(4.2 / 5\right)}{\ln\left(2\ \text{MB} / 1.25\ \text{MB}\right)} \approx 0.37 \]</div>
+<div class="math">\\[ \\alpha = -\\frac{\\ln\\left(M_{1} / M_{0}\\right)}{\\ln\\left(C_{1} / C_{0}\\right)} = -\\frac{\\ln\\left(4.2 / 5\\right)}{\\ln\\left(2\\ \\text{MB} / 1.25\\ \\text{MB}\\right)} \\approx 0.37 \\]</div>
 <p><strong>Where it breaks.</strong></p>
 <ul>
 <li><strong>Cliffs:</strong> the law is a smooth average. When a hot working set sits just above C<sub>0</sub>, a small increase removes far more misses than the law predicts, and past the cliff the next increase removes almost none.</li>
