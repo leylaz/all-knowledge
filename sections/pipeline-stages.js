@@ -10,13 +10,13 @@ section({
   practice: {
     guided: [
       {
-        q: `<p>Trace <code>lw r1, 8(r2)</code> through the classic 5-stage pipeline. What does each stage do for this instruction?</p>`,
-        a: `<ol><li><strong>IF:</strong> fetch the instruction at PC; PC becomes PC + 4.</li><li><strong>ID:</strong> decode it, read <code>r2</code> from the register file, and sign-extend the offset 8.</li><li><strong>EX:</strong> the ALU adds <code>r2</code> + 8 to form the effective address.</li><li><strong>MEM:</strong> read data memory at that address.</li><li><strong>WB:</strong> write the loaded value into <code>r1</code>.</li></ol>`
+        q: `<p>Trace <code>lw r1, 8(r2)</code> through the classic 5-stage pipeline. What does each stage do for this instruction?</p><div class="given"><p>Given:</p><ul><li>Stages: IF, ID, EX, MEM, WB</li><li>Instructions: fixed 4 bytes long</li><li><code>r2</code> holds the base address, and 8 is a signed byte offset</li></ul></div>`,
+        a: `<ol class="steps"><li><strong>IF.</strong> Fetch the instruction at the PC from instruction memory. The PC adder makes the next PC, PC + 4, because every instruction is 4 bytes.</li><li><strong>ID.</strong> Decode the instruction, read <code>r2</code> from the register file, and sign-extend the offset 8 to the full register width.</li><li><strong>EX.</strong> The ALU adds <code>r2</code> and 8 to form the effective address.</li><li><strong>MEM.</strong> Read data memory at that address.</li><li><strong>WB.</strong> Write the loaded value into <code>r1</code>.</li></ol>`
       }
     ],
     interview: [
       {
-        q: `<p>An <code>add</code> has nothing to do in MEM, yet it still spends a cycle there. Why not let it skip straight to WB?</p>`,
+        q: `<p>An <code>add</code> has nothing to do in MEM, yet it still spends a cycle there. Why not let it skip straight to WB?</p><div class="given"><p>Given:</p><ul><li>Classic 5-stage in-order pipeline (IF, ID, EX, MEM, WB) that starts one instruction per cycle</li><li>Register file: one write port, used in WB</li><li>Loads produce their result in MEM and write it in WB</li></ul></div>`,
         a: `<p>If an add skipped MEM, it could reach WB in the same cycle as the load ahead of it, and both would need the single register-file write port: a structural hazard. Instructions could also write back out of order, creating WAW problems. Making every instruction take the same path keeps exactly one writeback per cycle and keeps writes in program order, at the cost of a slightly longer latency for some instructions.</p>`
       }
     ]
