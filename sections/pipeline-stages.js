@@ -936,13 +936,13 @@ IF/ID.NPC, PC  ← if ((EX/MEM.opcode == branch) and EX/MEM.cond)
   practice: {
     guided: [
       {
-        q: `<p>Trace <code>sw $t3, 12($a0)</code> through MEM. Where does each piece of data come from?</p>`,
-        a: `<ol><li>The effective address, <code>$a0</code> + 12, was computed by the ALU in EX.</li><li>The data to store is <code>$t3</code>, read from the register file back in ID (the second source register) and carried down the pipeline.</li><li>In MEM, data memory writes <code>$t3</code> at that address.</li><li>Nothing happens in WB: a store writes no register.</li></ol>`
+        q: `<p>Trace <code>sw $t3, 12($a0)</code> through MEM. Where does each piece of data come from?</p><div class="given"><p>Given:</p><ul><li>Pipeline: the classic MIPS 5-stage pipeline (IF, ID, EX, MEM, WB) from Hennessy &amp; Patterson</li><li>The instructions that wrote <code>$t3</code> and <code>$a0</code> finished long before, so no forwarding is needed</li></ul></div>`,
+        a: `<ol class="steps"><li><strong>Address.</strong> The ALU added the offset 12 to the base register <code>$a0</code> in EX, and the sum reaches MEM in the EX/MEM pipeline register.</li><li><strong>Store data.</strong> The data to store is <code>$t3</code>, the second source register. It was read from the register file back in ID and carried down through the ID/EX and EX/MEM pipeline registers.</li><li><strong>Memory write.</strong> In MEM, data memory writes <code>$t3</code> at that address.</li><li><strong>Write-back.</strong> Nothing happens in WB, because a store writes no register.</li></ol>`
       }
     ],
     interview: [
       {
-        q: `<p>In the classic 5-stage pipeline with a blocking cache, a load misses in MEM. What happens to the pipeline, and how does an out-of-order core differ?</p>`,
+        q: `<p>In the classic 5-stage pipeline with a blocking cache, a load misses in MEM. What happens to the pipeline, and how does an out-of-order core differ?</p><div class="given"><p>Given:</p><ul><li>In-order core: the classic 5-stage pipeline, whose blocking data cache serves one miss at a time</li><li>Out-of-order core: a reorder buffer and non-blocking caches that track several outstanding misses</li><li>The instructions after the load include some that don't depend on it</li></ul></div>`,
         a: `<p>The whole pipeline freezes: the load can't leave MEM, so the instructions in EX, ID, and IF can't advance either, and the machine stalls for the full miss latency. An out-of-order core keeps executing independent instructions while the miss is outstanding, and with non-blocking caches it can even overlap several misses, so much of the latency is hidden until the reorder buffer fills.</p>`
       }
     ]
