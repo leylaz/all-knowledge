@@ -398,17 +398,25 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 <li><strong>First-level hit, no bubble.</strong> The BTB answers in the cycle it is probed, so the predictor follows the taken branch on the very next cycle. The only loss is fetch bandwidth. The slots after the branch in its fetch block are thrown away, because those instructions aren't on the path.</li>
 <li><strong>Second-level hit, a small bubble.</strong> A larger BTB can't answer in one cycle. By the time a two-cycle second level supplies the target, the predictor has already moved on to the next sequential block, which is discarded, for a one- or two-cycle bubble per taken branch. That is why cores keep a small, fast first level for the hottest branches. In a decoupled front end, the fetch target queue hides these bubbles as long as the predictor stays ahead of fetch (see <a href="#/fe-decoupled">Decoupled Fetch and the Fetch Target Queue</a>).</li>
 </ul>
-<p>A two-level BTB, sized like AMD's Zen 4. Both levels are probed with the same fetch address in the same cycle, so the second level costs no extra cycle on a first-level hit. The first level answers in time for the next cycle's prediction. The second level answers a cycle later, after the predictor has already guessed the sequential block, so its target overrides that guess and the guessed block is thrown away. The second level is pipelined, so it starts a new probe every cycle and each block's answer arrives one cycle after its first-level answer. Entries move between the levels like cache lines: a second-level hit is copied into the first level, and in an exclusive design the first level's victim moves down to make room. The 2-cycle second-level read is an illustration, not a Zen 4 figure.</p>
-<div class="tbl"><svg viewBox="0 0 680 386" role="img" aria-label="A two-level BTB. The fetch address probes the L1 BTB (1.5K entries, 1-cycle read) and the L2 BTB (7K entries, 2-cycle read) in parallel. The L1 target, the sequential address (plus 32 bytes), and the L2's late target go into a next-address select, whose output is written to the fetch target queue and loops back as the next fetch address. An L2 hit is copied into the L1, and the L1's victim moves to the L2. Below, a timeline of the predictor's output for a taken branch at the end of block A. With the branch in the L1: cycle 0 predicts A, and the L1 hit gives T as the next block, so cycle 1 predicts T, cycle 2 T+1, and cycle 3 T+2, with no bubble. With the branch only in the L2: cycle 0 predicts A, and the L1 misses, so the predictor guesses A+1. Cycle 1 predicts A+1 while the L2 returns T, and A+1 is discarded. Cycle 2 predicts T and cycle 3 T+1, one bubble later." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<p>A two-level BTB, sized like AMD's Zen 4. Both levels are probed with the same fetch address in the same cycle, so the second level costs no extra cycle on a first-level hit. The first level answers in time for the next cycle's prediction. The second level answers a cycle later, after the predictor has already guessed the sequential block, so its target overrides that guess and the guessed block is thrown away. The second level is pipelined, so it starts a new probe every cycle and each block's answer arrives one cycle after its first-level answer. The late target goes into the same next-address select as the first-level target, where it wins over the sequential guess, so it becomes the next fetch address. It isn't broadcast to the rest of the front end. The only other thing it touches is the fetch target queue, where it squashes the guessed block, the youngest entry, written a cycle earlier. If the queue was empty and fetch had already started on that block, that fetch is squashed too. Entries move between the levels like cache lines: a second-level hit is copied into the first level, and in an exclusive design the first level's victim moves down to make room. The 2-cycle second-level read is an illustration, not a Zen 4 figure.</p>
+<div class="tbl"><svg viewBox="0 0 680 386" role="img" aria-label="A two-level BTB. The fetch address probes the L1 BTB (1.5K entries, 1-cycle read) and the L2 BTB (7K entries, 2-cycle read) in parallel. The L2 is drawn as two pipeline stages. In cycle 0 block A is in stage 0, and in cycle 1 A is in stage 1 while A+1 enters stage 0. The L1 target and the sequential address (plus 32 bytes) reach the next-address select at the end of cycle 0. The L2's late target reaches it at the end of cycle 1 and overrides the sequential guess. The select's output is written to the fetch target queue and loops back as the next fetch address. The late target also sends a squash to the fetch target queue to drop the guessed block A+1. An L2 hit is copied into the L1, and the L1's victim moves to the L2. Below, a timeline of the predictor's output for a taken branch at the end of block A. With the branch in the L1: cycle 0 predicts A, and the L1 hit gives T as the next block, so cycle 1 predicts T, cycle 2 T+1, and cycle 3 T+2, with no bubble. With the branch only in the L2: cycle 0 predicts A, and the L1 misses, so the predictor guesses A+1. Cycle 1 predicts A+1 while the L2 returns T, and A+1 is discarded. Cycle 2 predicts T and cycle 3 T+1, one bubble later." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
 <defs><marker id="arrB3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker><marker id="arrB3p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--pad)"/></marker><marker id="arrB3r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--redirect)"/></marker></defs>
 <rect x="10" y="110" width="90" height="40" rx="3" style="fill:var(--surface);stroke:var(--pad);stroke-width:1.5"/>
 <g style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5">
-<rect x="170" y="40" width="180" height="60" rx="3"/><rect x="170" y="170" width="180" height="60" rx="3"/>
+<rect x="170" y="40" width="180" height="60" rx="3"/><rect x="170" y="160" width="180" height="88" rx="3"/>
+</g>
+<g style="fill:var(--surface);stroke:var(--pad);stroke-width:1.25">
+<rect x="178" y="198" width="74" height="42" rx="2"/><rect x="268" y="198" width="74" height="42" rx="2"/>
+</g>
+<g style="fill:var(--ink);font-size:10.5px;font-weight:600" text-anchor="middle"><text x="215" y="211">Stage 0</text><text x="305" y="211">Stage 1</text></g>
+<g style="fill:var(--muted);font-size:9.5px;font-family:var(--mono)" text-anchor="middle">
+<text x="215" y="223">cyc 0: A</text><text x="215" y="235">cyc 1: A+1</text>
+<text x="305" y="223">cyc 1: A</text><text x="305" y="235">cyc 2: A+1</text>
 </g>
 <rect x="560" y="115" width="110" height="50" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/>
 <path d="M440,40 L470,60 L470,220 L440,240 Z" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
 <g style="fill:var(--ink);font-size:12px;font-weight:600" text-anchor="middle">
-<text x="260" y="60">L1 BTB</text><text x="260" y="190">L2 BTB</text>
+<text x="260" y="60">L1 BTB</text><text x="260" y="177">L2 BTB</text>
 </g>
 <g style="fill:var(--ink);font-size:11px" text-anchor="middle">
 <text x="55" y="127">Fetch</text><text x="55" y="140">address</text>
@@ -416,29 +424,33 @@ Widths in this section (decode output, the macro-op queue, rename) are in macro-
 </g>
 <g style="fill:var(--muted);font-size:11px" text-anchor="middle">
 <text x="260" y="75">1.5K entries</text><text x="260" y="89">1-cycle read, 0 bubbles</text>
-<text x="260" y="205">7K entries</text><text x="260" y="219">2-cycle read, 1 bubble</text>
+<text x="260" y="191">7K entries, pipelined, 1 bubble</text>
 </g>
-<text x="455" y="256" style="fill:var(--muted);font-size:10.5px" text-anchor="middle">next-address select</text>
+<text x="455" y="35" style="fill:var(--muted);font-size:10.5px" text-anchor="middle">next-address select</text>
 <g style="fill:none;stroke:var(--pad);stroke-width:1.5">
-<path d="M100,130 H135 V70 H166" marker-end="url(#arrB3p)"/><path d="M135,130 V200 H166" marker-end="url(#arrB3p)"/>
+<path d="M100,130 H135 V70 H166" marker-end="url(#arrB3p)"/><path d="M135,130 V219 H174" marker-end="url(#arrB3p)"/>
+<path d="M252,219 H264" marker-end="url(#arrB3p)"/>
 <path d="M350,70 H436" marker-end="url(#arrB3p)"/>
 <path d="M405,140 H436" marker-end="url(#arrB3p)"/>
 <path d="M470,140 H556" marker-end="url(#arrB3p)"/>
 <path d="M510,140 V22 H55 V106" marker-end="url(#arrB3p)"/>
 </g>
-<path d="M350,200 H436" style="fill:none;stroke:var(--redirect);stroke-width:1.75" marker-end="url(#arrB3r)"/>
+<path d="M342,219 H436" style="fill:none;stroke:var(--redirect);stroke-width:1.75" marker-end="url(#arrB3r)"/>
+<path d="M395,219 V254 H615 V169" style="fill:none;stroke:var(--redirect);stroke-width:1.5;stroke-dasharray:4 3" marker-end="url(#arrB3r)"/>
 <g style="fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3">
-<path d="M230,170 V104" marker-end="url(#arrB3)"/><path d="M300,100 V166" marker-end="url(#arrB3)"/>
+<path d="M230,160 V104" marker-end="url(#arrB3)"/><path d="M300,100 V156" marker-end="url(#arrB3)"/>
 </g>
 <g style="fill:var(--muted);font-size:10.5px">
 <text x="224" y="132" text-anchor="end">L2 hit is</text><text x="224" y="145" text-anchor="end">copied up</text>
 <text x="306" y="132">L1 victim</text><text x="306" y="145">moves down</text>
 <text x="421" y="132" text-anchor="middle">+32 B</text>
-<text x="393" y="64" text-anchor="middle">target</text>
+<text x="393" y="64" text-anchor="middle">target</text><text x="393" y="84" text-anchor="middle">end of cycle 0</text>
+<text x="421" y="155" text-anchor="middle">cycle 0</text>
 <text x="282" y="16" text-anchor="middle">next fetch address, every cycle</text>
 <text x="10" y="168">same address,</text><text x="10" y="181">both levels</text>
 </g>
-<text x="393" y="194" style="fill:var(--redirect);font-size:10.5px" text-anchor="middle">late target</text>
+<g style="fill:var(--redirect);font-size:10.5px" text-anchor="middle"><text x="389" y="198">late target,</text><text x="389" y="211">end of cycle 1</text>
+<text x="540" y="247">squash A+1 in the queue</text></g>
 <text x="10" y="276" style="fill:var(--muted);font-size:12px;font-weight:600">Block predicted each cycle, for a taken branch at the end of block A</text>
 <g style="fill:var(--muted);font-size:11px" text-anchor="middle">
 <text x="230" y="298">cycle 0</text><text x="350" y="298">cycle 1</text><text x="470" y="298">cycle 2</text><text x="590" y="298">cycle 3</text>
