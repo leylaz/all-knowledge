@@ -26,7 +26,7 @@ section({
     guided: [
       {
         q: `<p>Sort each into ISA or microarchitecture:</p><ul><li>(a) RISC-V has 32 integer registers, with x0 always zero</li><li>(b) Zen 4's ROB has 320 entries</li><li>(c) Whether a misaligned load is allowed or faults</li><li>(d) Golden Cove's L1 data cache hits in 5 cycles</li><li>(e) x86 keeps stores in program order as seen by other cores</li></ul>`,
-        a: `<ol><li>(a) <strong>ISA</strong>: software names those registers directly.</li><li>(b) <strong>Microarchitecture</strong>: invisible to software except through speed.</li><li>(c) <strong>ISA</strong>: it changes what a program does.</li><li>(d) <strong>Microarchitecture</strong>: a latency, which the ISA never specifies.</li><li>(e) <strong>ISA</strong>: the memory model (x86's TSO) is part of the contract, because correct multithreaded programs depend on it.</li></ol>`
+        a: `<ol type="a"><li>It's <strong>ISA</strong>, because software names those registers directly.</li><li>It's <strong>microarchitecture</strong>, because it's invisible to software except through speed.</li><li>It's <strong>ISA</strong>, because it changes what a program does.</li><li>It's <strong>microarchitecture</strong>, because it's a latency, which the ISA never specifies.</li><li>It's <strong>ISA</strong>, because the memory model (x86's TSO) is part of the contract and correct multithreaded programs depend on it.</li></ol>`
       }
     ],
     interview: [
