@@ -356,7 +356,7 @@ section({
 <text x="20" y="384" style="fill:var(--muted);font-size:11px">on bus 1 in the same cycle, not drawn.) Cycle 1: entry 1 requests, wins select, and broadcasts its own tag, p40.</text>
 </svg></div>
 <h3 id="sec-match">The Match Circuit</h3>
-<p>Each comparator is a CAM match line:</p>
+<p>Each comparator is a CAM match line (see <a href="#/cam/cell">The NOR Cell</a>):</p>
 <ol><li>At the start of the cycle the match line is precharged high.</li><li>Each tag bit drives an XOR of the bus bit and the stored bit. The XOR output gates a pull-down transistor on the match line.</li><li>Any mismatched bit discharges the line. The line stays high only if every bit matches, and the bus valid bit gates the result.</li><li>The W match lines for a source are ORed together and with the current ready bit, and the result is written into the ready flip-flop.</li><li>The entry's request is <code>valid & src0_rdy & src1_rdy</code>.</li></ol>
 <div class="tbl"><svg viewBox="0 0 680 290" role="img" aria-label="Wakeup logic for one source of one issue queue entry, with two tag buses. Tag bus 0 carries p17 with valid set, and tag bus 1 carries p33 with valid set. The entry's stored source tag is p17. Comparator 0 compares bus 0 with the stored tag and outputs 1, a match. Comparator 1 compares bus 1 with the stored tag and outputs 0. Both outputs and the current ready bit go into an OR gate, whose output is written into the src0 ready flip-flop. The flip-flop feeds back into the OR gate and forward into an AND gate with the entry's valid bit and src1 ready bit, which produces the entry's request to select. Notes below say each comparator is a precharged match line discharged by any mismatched bit, and that the queue has entries times 2 sources times W buses comparators." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
 <defs><marker id="arrWK" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
@@ -528,8 +528,8 @@ section({
 <p>Doubling the PRF adds one bit per comparator, a modest increase. Doubling the queue or the issue width doubles the comparator count and lengthens or loads every bus. The cost of more registers falls elsewhere: on the PRF's own ports and bitlines (<a href="#/prf-sizing">Sizing the Physical Register File</a>), on the ready table, and on every structure that stores a tag (RAT, ROB, payload RAM).</p>
 <h3 id="sec-select">Select and the Critical Loop</h3>
 <ul>
-<li>Every entry whose request is high competes. A priority encoder or tree arbiter grants up to one request per functional unit (or per port) each cycle.</li>
-<li>Priority is usually oldest first. A compacting queue keeps entries in age order so position gives age. A non-compacting queue keeps an N × N age matrix.</li>
+<li>Every entry whose request is high competes. A priority encoder or tree arbiter grants up to one request per functional unit (or per port) each cycle (see <a href="#/select-logic/priority-encoders">Priority Encoders</a> and <a href="#/select-logic/pick-n">Picking More Than One</a>).</li>
+<li>Priority is usually oldest first. A compacting queue keeps entries in age order so position gives age. A non-compacting queue keeps an N × N age matrix (see <a href="#/select-logic/age">Tracking Age</a>).</li>
 <li>The granted entry reads its payload (op, destination) and drives its <code>dst_tag</code> onto a tag bus, which closes the loop.</li>
 </ul>
 <p>The loop select → tag bus → match → ready bit → request → select must fit in one cycle for dependent single-cycle instructions to issue back to back. Its delay grows with N and W, which is why large windows are split into several smaller queues, each with its own select logic.</p>
