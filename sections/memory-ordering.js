@@ -14,6 +14,7 @@ section({
 <h3 id="sec-pages">Pages in This Region</h3>
 <ul>
 <li><a href="#/lsq">Load and Store Queues</a>: how stores wait to commit, how loads search older stores, how violations are caught, and store coalescing.</li>
+<li><a href="#/sq-filters">Store Queue Membership Filters</a>: counting Bloom filters that let most loads skip the SQ search, their corner cases, timing, size, cost, and the workloads they suit.</li>
 <li><a href="#/mdp">Why Predict Memory Dependences</a>: register vs memory dependences, the two bad default choices, and the two goals of a predictor.</li>
 <li><a href="#/mdp-metrics">Metrics, Bounds, and Window Size</a>: how predictors are scored, what no speculation, naive speculation, and perfect prediction are worth, and why all of it grows with the window.</li>
 <li><a href="#/mdp-early">Early Predictors</a>: the Alpha 21264's wait bits and the earlier schemes store sets built on.</li>
@@ -602,7 +603,7 @@ section({
 </ul>
 <p><strong>Making big queues fast.</strong> Research and products attack the search from several sides:</p>
 <ul>
-<li><strong>Filter before searching.</strong> A small table of counters indexed by an address hash, a counting Bloom filter, says whether any in-flight store could touch this address, and most loads skip the full search. Sethumadhavan and colleagues showed such filters remove most LQ and SQ searches (MICRO 2003).</li>
+<li><strong>Filter before searching.</strong> A small table of counters indexed by an address hash, a counting Bloom filter, says whether any in-flight store could touch this address, and most loads skip the full search. Sethumadhavan and colleagues showed such filters remove most LQ and SQ searches (MICRO 2003). See <a href="#/sq-filters">Store Queue Membership Filters</a>.</li>
 <li><strong>Two-level store queue.</strong> A small, fast first-level SQ holds the youngest stores, which are the ones loads usually forward from. Older stores move to a larger, slower second level behind a filter. Akkary, Rajwar, and Srinivasan proposed it for windows of thousands of instructions (MICRO 2003).</li>
 <li><strong>Predict instead of search.</strong> The memory dependence predictor already knows which store a load usually depends on. Store queue index prediction reads just that one entry, like a RAM (Sha, Martin, and Roth, MICRO 2005). NoSQ drops the forwarding search altogether and checks loads by re-executing them before commit (Sha, Martin, and Roth, MICRO 2006).</li>
 <li><strong>Drop the LQ's CAM.</strong> Value-based replay re-executes loads in order before they retire and compares the values, instead of having stores search the LQ (Cain and Lipasti, ISCA 2004). The re-execution costs L1 bandwidth, so it is filtered down to loads that could have been wrong.</li>
@@ -640,6 +641,191 @@ section({
       {
         q: `<p>On a core that splits each store into a store-address µop and a store-data µop, the memory dependence predictor says load L depends on store S. Should L wait for S's address µop, its data µop, or both? Say what goes wrong with each choice.</p><p class="given">Assume the SQ blocks a load whose youngest match has no data yet and wakes it when the data is written, as on this page.</p>`,
         a: `<p>L must wait for S's address µop, because that is what makes its search exact. Waiting for the data as well is optional: it saves a wasted search when the data is late, but it over-waits on false dependences. Since the SQ already handles a missing data half without prediction, waiting on the address alone is usually the better choice.</p><ul><li><strong>Address only.</strong> Once S's address is in, L's search either rules S out or finds a match. With S's data there, L forwards. Without it, L blocks on S's SQ index and wakes on the data write. The cost is one wasted issue and search when the data comes late, but the result is always correct and L never waits longer than it has to.</li><li><strong>Data only.</strong> This can wait for nothing. In code like <code>a[idx[i]] = x</code>, S's data is often ready long before its address. L issues, finds S with data but no address, and is back where it started: it must speculate past S or wait again. If it speculates and S overlaps, the violation the predictor was trained to prevent happens anyway.</li><li><strong>Both.</strong> This is always safe and saves the wasted search when the data is late. But L can't overlap its own address generation and TLB lookup with S's data, and it over-waits whenever the address alone would have cleared L. Store-set predictors make false dependences, from aliasing in the tables and from stores that overlap only sometimes. When S's address turns out not to overlap, L has also waited for a data value it never needed. If that data comes from a cache miss or a divide, the wait is long.</li></ul><p>Waiting on the address and letting the SQ handle late data gets the safety of waiting for both, without the over-wait. Intel's split STA and STD design does it that way: its disambiguation predictor decides whether a load may pass stores with unknown addresses, and a load that matches a store without data is blocked until the data arrives.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "sq-filters",
+  region: "mdep",
+  title: "Store Queue Membership Filters",
+  sections: [
+    { id: "why", label: "Why Filter the Search" },
+    { id: "how", label: "How a Counting Bloom Filter Works" },
+    { id: "corners", label: "Corner Cases" },
+    { id: "timing", label: "Timing" },
+    { id: "size", label: "Size and Accuracy" },
+    { id: "cost", label: "Power and Area Cost" },
+    { id: "workloads", label: "Which Workloads Benefit" },
+    { id: "related", label: "Related Uses and Other Notes" }
+  ],
+  body: `
+<p>A membership filter is a small table that answers one question before a load searches the store queue: could any store in the SQ touch this address? When the answer is no, the load skips the search. This page expands the "filter before searching" idea from <a href="#/lsq/search-hardware">Search Hardware and Load-to-Use Latency</a> and uses the same Golden Cove-sized core: 114 SQ entries, 3 load ports, and 2 stores per cycle written to L1. The main source is Sethumadhavan, Desikan, Burger, Moore, and Keckler (MICRO 2003), who used Bloom filters to avoid up to 98% of associative LSQ searches. The counting Bloom filter itself comes from Fan, Cao, Almeida, and Broder's summary cache work (IEEE/ACM Transactions on Networking, 2000).</p>
+<h3 id="sec-why">Why Filter the Search</h3>
+<p>The <a href="#/lsq/search-hardware">search hardware</a> section showed that every load drives every SQ entry's comparator. Three load ports searching 114 entries make 342 address compares in a cycle, and most of those searches find nothing, because most loads don't read an address that an in-flight store is writing. The CAM still spends the energy, and its broadcast wires, encoder, and data bitlines still set how big the SQ can get before it no longer fits in the L1's cycles.</p>
+<p>A filter turns the common case into a RAM read. It can be wrong in only one direction:</p>
+<ul>
+<li><strong>False positive:</strong> the filter says a store might match, but none does. The load does the full search it would have done without a filter, so the only loss is the energy and latency the filter failed to save.</li>
+<li><strong>False negative:</strong> the filter says no store matches, but one does. The load skips the search, reads stale data from L1, and nothing downstream may catch it. A correct filter never does this.</li>
+</ul>
+<p>Every design rule on this page follows from that asymmetry: when in doubt, a counter must err high.</p>
+<h3 id="sec-how">How a Counting Bloom Filter Works</h3>
+<p>The filter is an array of M small counters. A hash of the store's address picks one counter, and the counter holds how many SQ stores with known addresses currently hash there.</p>
+<ul>
+<li><strong>Insert.</strong> When a store-address µop executes and writes its SQ entry, it increments the counter its address hashes to.</li>
+<li><strong>Remove.</strong> When the store writes L1 and frees its SQ entry, it decrements the same counter. A store that has retired but hasn't drained still forwards to younger loads, so it stays counted until it leaves the SQ.</li>
+<li><strong>Look up.</strong> A load hashes its address the same way and reads the counter. Zero means no store with a known address can match, so the load skips the CAM. Anything else means it searches.</li>
+</ul>
+<p><strong>Why counters and not bits.</strong> A plain Bloom filter sets a bit on insert, but it can't clear that bit on remove, because another store may have hashed to the same bit. Without a way to remove, the bits only fill up, and within a few thousand stores every bit is set. A counter can go back down to exactly zero when the last store that hashed there drains.</p>
+<p><strong>One hash, not k.</strong> A textbook Bloom filter uses k hash functions per element to cut false positives. Here each hash is another counter read on every load and another counter update on every store, so the port count multiplies by k. LSQ filters use a single hash, usually just address bits.</p>
+<p><strong>Granularity.</strong> The hash ignores the low address bits, so the counter covers an aligned granule: 8 bytes for word granularity, 64 bytes for line granularity. Coarser granules let a counter cover stores that don't overlap the load at all, which shows up as false positives. Finer granules cost more counters for the same accuracy.</p>
+<div class="tbl"><svg viewBox="0 0 680 330" role="img" aria-label="A store queue membership filter beside the SQ search. A load's address from the load AGU indexes a counter array by bits 11 to 3. If the counter is 0, the load skips the SQ search and uses the L1 value. If it is 1 or more, the load does the full SQ search with its CAM, encoder, and forwarding. On the store side, a store-address micro-op adds 1 to its counter when its address resolves, a store that drains to L1 subtracts 1, and squashed stores subtract 1 each, or the array is flash cleared when the SQ empties. A counter never reads 0 while a matching store with a known address is in the SQ, so skipping is safe. A nonzero counter from another store with the same index is a false positive, which costs only the search the load would have done anyway." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<defs><marker id="arrMF" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<text x="20" y="20" style="fill:var(--muted);font-size:12px;font-weight:600">The filter answers "could any known store match?" before the load searches</text>
+<rect x="20" y="50" width="90" height="36" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5"/><text x="65" y="72" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-weight:600">load AGU</text>
+<rect x="170" y="40" width="150" height="120" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.5"/>
+<text x="245" y="60" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-weight:600">counter array</text>
+<text x="245" y="75" text-anchor="middle" style="fill:var(--muted);font-size:10px">512 counters × 7 bits</text>
+<g style="font-size:10px">
+<rect x="181" y="92" width="16" height="20" style="fill:var(--surface);stroke:var(--muted)"/><text x="189" y="106" text-anchor="middle" style="fill:var(--ink)">0</text>
+<rect x="197" y="92" width="16" height="20" style="fill:var(--surface);stroke:var(--muted)"/><text x="205" y="106" text-anchor="middle" style="fill:var(--ink)">2</text>
+<rect x="213" y="92" width="16" height="20" style="fill:var(--surface);stroke:var(--muted)"/><text x="221" y="106" text-anchor="middle" style="fill:var(--ink)">0</text>
+<rect x="229" y="92" width="16" height="20" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/><text x="237" y="106" text-anchor="middle" style="fill:var(--ink);font-weight:600">0</text>
+<rect x="245" y="92" width="16" height="20" style="fill:var(--surface);stroke:var(--muted)"/><text x="253" y="106" text-anchor="middle" style="fill:var(--ink)">1</text>
+<rect x="261" y="92" width="16" height="20" style="fill:var(--surface);stroke:var(--muted)"/><text x="269" y="106" text-anchor="middle" style="fill:var(--ink)">0</text>
+<rect x="277" y="92" width="16" height="20" style="fill:var(--surface);stroke:var(--muted)"/><text x="285" y="106" text-anchor="middle" style="fill:var(--ink)">3</text>
+<rect x="293" y="92" width="16" height="20" style="fill:var(--surface);stroke:var(--muted)"/><text x="301" y="106" text-anchor="middle" style="fill:var(--ink)">0</text>
+</g>
+<text x="245" y="132" text-anchor="middle" style="fill:var(--muted);font-size:10px">count of known-address stores</text>
+<text x="245" y="145" text-anchor="middle" style="fill:var(--muted);font-size:10px">per index</text>
+<rect x="380" y="50" width="110" height="36" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.5"/><text x="435" y="72" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-weight:600">counter = 0?</text>
+<rect x="540" y="40" width="130" height="44" rx="3" style="fill:var(--trace-soft);stroke:var(--trace);stroke-width:1.5"/><text x="605" y="58" text-anchor="middle" style="fill:var(--ink);font-size:10.5px;font-weight:600">skip the SQ search</text><text x="605" y="74" text-anchor="middle" style="fill:var(--ink);font-size:10.5px">L1 value only</text>
+<rect x="540" y="110" width="130" height="44" rx="3" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/><text x="605" y="128" text-anchor="middle" style="fill:var(--ink);font-size:10.5px;font-weight:600">full SQ search</text><text x="605" y="144" text-anchor="middle" style="fill:var(--ink);font-size:10.5px">CAM, encoder, forward</text>
+<rect x="20" y="186" width="120" height="36" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5"/><text x="80" y="208" text-anchor="middle" style="fill:var(--ink);font-size:10.5px">store-address µop</text>
+<rect x="20" y="236" width="120" height="36" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5"/><text x="80" y="258" text-anchor="middle" style="fill:var(--ink);font-size:10.5px">store drains to L1</text>
+<rect x="380" y="200" width="150" height="36" rx="3" style="fill:var(--surface);stroke:var(--muted);stroke-width:1.5"/><text x="455" y="222" text-anchor="middle" style="fill:var(--ink);font-size:10.5px">younger stores squashed</text>
+<g style="stroke:var(--muted);stroke-width:1.2;fill:none">
+<path d="M110,68 H168" marker-end="url(#arrMF)"/>
+<path d="M320,68 H378" marker-end="url(#arrMF)"/>
+<path d="M490,62 H538" marker-end="url(#arrMF)"/>
+<path d="M435,86 V132 H538" marker-end="url(#arrMF)"/>
+<path d="M140,204 H205 V162" marker-end="url(#arrMF)"/>
+<path d="M140,254 H260 V162" marker-end="url(#arrMF)"/>
+<path d="M380,218 H300 V162" marker-end="url(#arrMF)"/>
+</g>
+<text x="114" y="60" style="fill:var(--muted);font-size:10px">bits 11–3</text>
+<text x="508" y="56" style="fill:var(--trace);font-size:10px;font-weight:600">0</text>
+<text x="442" y="124" style="fill:var(--pad);font-size:10px;font-weight:600">≥ 1</text>
+<text x="150" y="198" style="fill:var(--ink);font-size:10px;font-weight:600">+1</text>
+<text x="150" y="248" style="fill:var(--ink);font-size:10px;font-weight:600">−1</text>
+<text x="330" y="212" style="fill:var(--ink);font-size:10px;font-weight:600">−1 each</text>
+<text x="380" y="254" style="fill:var(--muted);font-size:10px">or flash clear when the SQ empties</text>
+<text x="20" y="298" style="fill:var(--muted);font-size:11px">A counter never reads 0 while a matching store with a known address is in the SQ, so skipping is safe.</text>
+<text x="20" y="314" style="fill:var(--muted);font-size:11px">A nonzero count from a store with the same index is a false positive: the load just searches as usual.</text>
+</svg></div>
+<h3 id="sec-corners">Corner Cases</h3>
+<p>Each of these is a way to get a false negative, or to lose the filter's benefit, and each has a standard answer.</p>
+<ul>
+<li><strong>The filter has no age.</strong> A counter also counts stores younger than the load, which can't forward to it. Those count as false positives. That is safe, and it is the price of keeping the filter a plain RAM instead of a CAM.</li>
+<li><strong>Stores with unknown addresses.</strong> A store whose address µop hasn't executed isn't in the filter, so a zero counter says nothing about it. That case belongs to the <a href="#/mdp">memory dependence predictor</a>, exactly as it would without a filter. When that store's address resolves, its LQ probe catches any younger load that already read the wrong value.</li>
+<li><strong>Same-cycle insert and lookup.</strong> If a store's address resolves in the cycle a younger load reads the counter, the load may see the old zero. This is the same as the store resolving just after the load, so the store's LQ probe catches it and the core flushes. It is a performance hit, not a correctness bug, but it is cheap to avoid by comparing the few counter indices being written that cycle with the ones being read.</li>
+<li><strong>Accesses that cross a granule.</strong> An unaligned load that spans two granules has to read both counters and search if either is nonzero. Stores that span two granules increment and later decrement both.</li>
+<li><strong>Squashed stores.</strong> A branch mispredict or memory-order flush removes younger stores from the SQ without draining them. If their counts stay, the filter errs high, which is safe but slowly fills it with stale counts. Three ways out:
+<ul>
+<li>Walk the squashed SQ entries and decrement each one's counter. This is exact, but it takes several cycles and the counter write ports.</li>
+<li>Leave the stale counts and flash-clear the whole array whenever the SQ becomes empty. This is cheap but relies on the SQ draining fully now and then.</li>
+<li>Keep a second copy of the array that only drained stores update, and copy it over on a flush. This is fast but doubles the storage.</li>
+</ul></li>
+<li><strong>Counter overflow.</strong> If every SQ store hashes to one counter, it has to count to N. A loop that stores to the same stack slot or the same accumulator on every iteration does exactly that. A counter that wraps back to zero is a false negative. The safe choices are ⌈log<sub>2</sub>(N+1)⌉ bits, 7 bits for 114 entries, or a narrower counter that sticks once it saturates and is reset only by a flash clear. Fan and colleagues found 4-bit counters almost never overflow, but they assumed elements hash at random, and SQ stores repeat the same address far more often than that.</li>
+<li><strong>The wrong decrement point.</strong> Decrementing at retire instead of drain is the classic filter bug. A retired store that is still in the SQ must forward, but its counter already reads zero, so a younger load reads stale L1 data. The store's LQ probe ran long ago, so nothing catches it.</li>
+</ul>
+<h3 id="sec-timing">Timing</h3>
+<p>The lookup is one read of a small RAM, so it fits in a cycle easily. What matters is when its index is ready. On a core with 4 KiB pages, bits 11–0 are the same in the virtual and physical address, so a filter indexed only by those bits can start as soon as the AGU produces the address, in parallel with the DTLB, the same trick a VIPT L1 uses. On this page's core, bits 11–3 give 512 counters at 8-byte granularity.</p>
+<p>Indexing by page offset has a known downside: two addresses exactly a multiple of 4 KiB apart always share a counter. Intel's optimization manual documents a related effect it calls <strong>4K aliasing</strong>: a load is delayed when an older store matches it in bits 11–0, even though the full addresses differ. That tells us Intel's first SQ check looks only at the untranslated bits, for the same timing reason.</p>
+<p>A designer can use the filter's answer in two ways:</p>
+<ul>
+<li><strong>Energy only.</strong> The filter runs a cycle ahead of the CAM, or alongside it, and gates the CAM's broadcast and match lines off when the counter is zero. Load latency doesn't change. Most of the search energy goes away.</li>
+<li><strong>Latency too.</strong> This is the "make forwarding slower" option from the <a href="#/lsq/search-hardware">search hardware</a> section, with a guard. Loads the filter clears go on the L1-latency path, and loads it doesn't clear take a slower search. The SQ can then grow past what fits in the L1's cycles without every load paying. The cost is a scheduler that must know which latency to expect before the filter answers, so it wakes dependents for the fast case and replays them when the filter says search.</li>
+</ul>
+<h3 id="sec-size">Size and Accuracy</h3>
+<p>For a load that no in-flight store touches, the filter is wrong when some other store happened to land on the load's counter. Assume S stores in the filter, each to a distinct granule, and a hash that spreads them uniformly over M counters. Each store misses the load's counter with probability 1 − 1/M, so the false-positive rate is</p>
+<div class="math chain"><span>\\(\\displaystyle P_{\\text{FP}} = 1 - \\left(1 - \\frac{1}{M}\\right)^{S} \\)</span><span>\\(\\displaystyle \\approx 1 - e^{-S/M} \\)</span></div>
+<p>It depends on the stores per counter, S/M. With a full 114-entry SQ:</p>
+<div class="tbl"><table>
+<tr><th>Counters M</th><th>Stores per counter S/M</th><th>False-positive rate</th><th>Storage at 7 bits/counter</th></tr>
+<tr><td>512</td><td>0.22</td><td>20.0%</td><td>3,584 bits</td></tr>
+<tr><td>1,024</td><td>0.11</td><td>10.5%</td><td>7,168 bits</td></tr>
+<tr><td>2,048</td><td>0.056</td><td>5.4%</td><td>14,336 bits</td></tr>
+<tr><td>4,096</td><td>0.028</td><td>2.7%</td><td>28,672 bits</td></tr>
+</table></div>
+<p>Each halving of the false-positive rate doubles the array, so sizes from a few hundred to a couple of thousand counters are the practical range. The table is a pessimistic bound in two ways and an optimistic one in a third:</p>
+<ul>
+<li>The SQ is rarely full of stores with known addresses.</li>
+<li>Real stores cluster, on the same stack slots and the same lines, so there are fewer distinct granules than stores.</li>
+<li>Real addresses aren't uniform. With page-offset indexing, strided and 4 KiB-aligned accesses all land on the same few counters, and the rate can be far worse than the table.</li>
+</ul>
+<p>The filter's size should grow in step with the SQ. Doubling the SQ at a fixed M doubles S/M and nearly doubles the false-positive rate.</p>
+<h3 id="sec-cost">Power and Area Cost</h3>
+<p><strong>Area.</strong> A 512-counter, 7-bit filter is 3,584 bits. The SQ's address CAM on this core is 114 entries × 43 address bits (9 offset bits and 34 page bits), 4,902 bits, and each of those bits has a comparator for each of 3 load ports. So the filter stores a similar number of bits, but in plain RAM cells with no per-port compare logic and no match lines. The real area cost is ports, not bits:</p>
+<ul>
+<li>3 reads per cycle, one per load port.</li>
+<li>Up to 2 increments per cycle from store-address µops.</li>
+<li>Up to 2 decrements per cycle from stores draining to L1.</li>
+</ul>
+<p>Each increment and decrement is a read-modify-write. A 7-port array is expensive, so designs bank the counters by index bits and accept rare conflicts, or keep one copy per load port so each copy needs only 1 read port beside the write ports.</p>
+<p><strong>Energy.</strong> A filtered load costs one counter read instead of a CAM search across every entry. A store costs two counter updates, one when its address resolves and one when it drains. With a search energy of E<sub>search</sub> per load, a lookup energy of E<sub>read</sub>, an update energy of E<sub>update</sub>, and a share f of loads filtered, the filter saves energy when</p>
+<div class="math chain"><span>\\(\\displaystyle f \\cdot L \\cdot E_{\\text{search}} > L \\cdot E_{\\text{read}} + 2 \\cdot S \\cdot E_{\\text{update}} \\)</span></div>
+<p>where L and S are loads and stores per instruction. Because a CAM search over 114 entries costs far more than a single counter access, f only needs to be a modest share for the filter to win. Sethumadhavan and colleagues reported avoiding up to 98% of LSQ searches. Loads that still search pay the filter's read on top of the search, so a program the filter can't help costs slightly more energy than with no filter at all.</p>
+<h3 id="sec-workloads">Which Workloads Benefit</h3>
+<p>The filter wins when loads mostly read addresses that no in-flight store is writing, and loses when stores and loads crowd the same granules.</p>
+<ul>
+<li><strong>Works well:</strong>
+<ul>
+<li>Read-heavy code with few stores in flight, such as pointer chasing, hash and table lookups, and search.</li>
+<li>Streaming kernels that read several arrays and write one, where the written array is a different stream from the ones being read.</li>
+<li>Code whose stores are spread across many lines, so each counter stays near zero.</li>
+</ul></li>
+<li><strong>Works badly:</strong>
+<ul>
+<li>Stack-heavy code: spills and reloads, pushes and pops around calls, and small functions that store arguments and read them back. Many loads really do forward, so the filter correctly says search, and the stores nearby push up false positives on top.</li>
+<li>Copy loops whose source and destination are a multiple of 4 KiB apart, with page-offset indexing. Every load shares a counter with a recent store even though nothing overlaps.</li>
+<li>Read-modify-write loops such as histograms and in-place updates, where many loads read a line a store just wrote.</li>
+</ul></li>
+<li><strong>Window size.</strong> A bigger window holds more stores with known addresses, which raises S/M. The cores that most need a filter, because their SQ is too big to search quickly, are also the ones where the filter fills up fastest. So the filter has to grow along with the SQ.</li>
+</ul>
+<h3 id="sec-related">Related Uses and Other Notes</h3>
+<ul>
+<li><strong>Filtering the LQ.</strong> The same structure, counting loads that have executed, lets a store skip its LQ probe when no executed younger load could overlap it. Snoop and invalidation probes of the LQ can be filtered the same way. Sethumadhavan and colleagues filtered both queues. Since the LQ probe isn't on any load's latency path, there the gain is energy alone.</li>
+<li><strong>Two-level store queues.</strong> In the hierarchical SQ of Akkary, Rajwar, and Srinivasan (MICRO 2003), a membership test of this kind decides whether a load also has to search the large, slow second level.</li>
+<li><strong>Re-execution filtering.</strong> Roth's store vulnerability window (ISCA 2005) uses a small address-indexed table of store sequence numbers, a close cousin of this filter, to decide which loads must re-execute before commit.</li>
+<li><strong>A filter is not a predictor.</strong> A store-load pair predictor, such as the one Park, Ooi, and Vijaykumar used to cut SQ searches (MICRO 2003), guesses from PC history and needs a recovery path when it guesses wrong. A filter is conservative by construction, so it needs none, but it can never skip a search that a matching store makes necessary.</li>
+<li><strong>Products.</strong> Vendors don't publish whether their cores use SQ filters or how big they are. Intel's documented 4K aliasing shows that its first SQ check uses only untranslated bits, but not what structure does it.</li>
+<li><strong>Modeling it.</strong> In a performance model, count for each load whether the filter cleared it, whether a store actually matched, and whether a false positive came from page-offset aliasing or from hashing. Report the share of searches avoided and the false-positive rate per benchmark, check that no false negatives ever happen (an assertion against the full search, which the model can afford), and feed the counts into the energy model as CAM searches avoided and counter reads and writes added.</li>
+</ul>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Size a store queue filter for a core whose SQ is the size of AMD Zen 4's. How many counters, and how many bits of storage, does it need to keep false positives at or below 5%?</p><p>Given:</p><ul><li>SQ: 64 entries</li><li>Worst case to design for: all 64 entries hold stores with known addresses, each to a distinct granule</li><li>One hash function that spreads granules uniformly over the counters</li><li>The number of counters M must be a power of two</li><li>Counters must never overflow, even if all 64 stores hash to one counter</li><li>Target: a false-positive rate of at most 5% for a load that no in-flight store touches</li></ul>`,
+        a: `<ol class="steps"><li><strong>The false-positive rate.</strong> Each of the 64 stores misses the load's counter with probability 1 − 1/M, so the load sees a zero only if all of them miss.<div class="math chain"><span>\\(\\displaystyle P_{\\text{FP}}(M) = 1 - \\left(1 - \\frac{1}{M}\\right)^{64\\ \\text{stores}} \\)</span></div></li><li><strong>Try 1,024 counters.</strong><div class="math chain"><span>\\(\\displaystyle P_{\\text{FP}}(1024) = 1 - \\left(\\frac{1023}{1024}\\right)^{64} \\)</span><span>\\(\\displaystyle \\approx 1 - 0.9394 \\)</span><span>\\(\\displaystyle \\approx 6.06\\% \\)</span></div>That is above the 5% target.</li><li><strong>Try 2,048 counters.</strong><div class="math chain"><span>\\(\\displaystyle P_{\\text{FP}}(2048) = 1 - \\left(\\frac{2047}{2048}\\right)^{64} \\)</span><span>\\(\\displaystyle \\approx 1 - 0.9692 \\)</span><span>\\(\\displaystyle \\approx 3.08\\% \\)</span></div>That meets the target, so the filter needs <strong>2,048 counters</strong>.</li><li><strong>Counter width.</strong> A counter must hold every value from 0 to 64 stores, which is 65 values.<div class="math chain"><span>\\(\\displaystyle w = \\lceil \\log_2 65 \\rceil\\ \\text{bits} \\)</span><span>\\(\\displaystyle = 7\\ \\text{bits} \\)</span></div></li><li><strong>Storage.</strong><div class="math chain"><span>\\(\\displaystyle B = 2048\\ \\text{counters} \\times \\frac{7\\ \\text{bits}}{1\\ \\text{counter}} \\)</span><span>\\(\\displaystyle = \\mathbf{14{,}336}\\ \\textbf{bits} \\)</span></div>That is 1,792 bytes. Going from about 6% to about 3% costs twice the storage, because the rate depends on stores per counter. Because real stores cluster on fewer granules than this worst case assumes, a 1,024-counter filter would likely meet the target in practice.</li></ol>`
+      },
+      {
+        q: `<p>A filter is added in energy-only mode. How much SQ search energy does it save per 1000 instructions, and what share of loads must it clear just to break even?</p><p>Given:</p><ul><li>Loads: 280 loads/1000 instructions</li><li>Stores: 110 stores/1000 instructions</li><li>Without the filter, every load does a full SQ search costing 4.0 pJ</li><li>With the filter, every load reads its counter for 0.3 pJ, and only loads with a nonzero counter also do the full search</li><li>Each store updates the filter twice, once when its address resolves and once when it drains, at 0.3 pJ per update</li><li>The filter clears 85% of loads on this workload</li><li>The energy figures come from a circuit model of the SQ and filter, and nothing else changes</li></ul>`,
+        a: `<ol class="steps"><li><strong>Baseline search energy.</strong> Every load searches.<div class="math chain"><span>\\(\\displaystyle E_0 = \\frac{280\\ \\text{loads}}{1000\\ \\text{instructions}} \\times \\frac{4.0\\ \\text{pJ}}{1\\ \\text{load}} \\)</span><span>\\(\\displaystyle = \\frac{1120\\ \\text{pJ}}{1000\\ \\text{instructions}} \\)</span></div></li><li><strong>Searches avoided.</strong> The 85% of loads the filter clears skip their search.<div class="math chain"><span>\\(\\displaystyle E_{\\text{saved}} = \\frac{280\\ \\text{loads}}{1000\\ \\text{instructions}} \\times 0.85 \\times \\frac{4.0\\ \\text{pJ}}{1\\ \\text{load}} \\)</span><span>\\(\\displaystyle = \\frac{952\\ \\text{pJ}}{1000\\ \\text{instructions}} \\)</span></div></li><li><strong>What the filter costs.</strong> Every load reads it, and every store updates it twice.<div class="math chain"><span>\\(\\displaystyle E_{\\text{read}} = \\frac{280\\ \\text{loads}}{1000\\ \\text{instructions}} \\times \\frac{0.3\\ \\text{pJ}}{1\\ \\text{load}} \\)</span><span>\\(\\displaystyle = \\frac{84\\ \\text{pJ}}{1000\\ \\text{instructions}} \\)</span></div><div class="math chain"><span>\\(\\displaystyle E_{\\text{update}} = \\frac{110\\ \\text{stores}}{1000\\ \\text{instructions}} \\times \\frac{2\\ \\text{updates}}{1\\ \\text{store}} \\times \\frac{0.3\\ \\text{pJ}}{1\\ \\text{update}} \\)</span><span>\\(\\displaystyle = \\frac{66\\ \\text{pJ}}{1000\\ \\text{instructions}} \\)</span></div><div class="math chain"><span>\\(\\displaystyle E_{\\text{filter}} = \\frac{84\\ \\text{pJ} + 66\\ \\text{pJ}}{1000\\ \\text{instructions}} \\)</span><span>\\(\\displaystyle = \\frac{150\\ \\text{pJ}}{1000\\ \\text{instructions}} \\)</span></div></li><li><strong>Net saving.</strong><div class="math chain"><span>\\(\\displaystyle \\Delta E = \\frac{952\\ \\text{pJ} - 150\\ \\text{pJ}}{1000\\ \\text{instructions}} \\)</span><span>\\(\\displaystyle = \\frac{\\mathbf{802}\\ \\textbf{pJ}}{\\textbf{1000 instructions}} \\)</span></div>As a share of the baseline:<div class="math chain"><span>\\(\\displaystyle \\frac{\\Delta E}{E_0} = \\frac{802\\ \\text{pJ}}{1120\\ \\text{pJ}} \\)</span><span>\\(\\displaystyle \\approx \\mathbf{71.6\\%} \\)</span></div></li><li><strong>Break-even.</strong> The filter pays for itself when the searches it avoids cost as much as it does. Its own cost doesn't depend on how many loads it clears.<div class="math chain"><span>\\(\\displaystyle f_{\\text{even}} = \\frac{150\\ \\text{pJ}}{1120\\ \\text{pJ}} \\)</span><span>\\(\\displaystyle = \\frac{15}{112} \\)</span><span>\\(\\displaystyle \\approx \\mathbf{13.4\\%} \\)</span></div>So the filter saves energy unless it clears fewer than about 1 load in 7. A stack-heavy or 4K-aliased workload can drop that low, and then the filter costs energy.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A colleague's filter decrements a store's counter when the store retires, to free counts sooner. It passes every test that has no back-to-back store and load to the same address. What breaks, and why doesn't the LQ probe catch it?</p>`,
+        a: `<p>A store that has retired but not yet written L1 is still in the SQ, and it is still the only correct source for a younger load to its bytes. With the retire-time decrement, that store's counter can read zero while it waits to drain.</p><ul><li>A younger load to the same address reads the counter, sees zero, skips the SQ search, and reads L1, which still holds the old value. The load returns stale data.</li><li>The LQ probe can't catch it. The store probed the LQ when its address resolved, long before this load executed, and no store probes the LQ again at retire or drain. As far as the hardware is concerned, the load did nothing wrong.</li><li>The window is short, from retire to drain, which is why tests miss it. Stores that drain slowly, behind an L1 miss or under heavy store traffic, widen the window, as does code that stores and reloads a value right away, such as a spill and reload across a call.</li></ul><p>The fix is to decrement when the SQ entry is freed, which is when the store writes L1. The counts must follow exactly the set of SQ entries that can forward.</p>`
+      },
+      {
+        q: `<p>Your filter has to recover from squashes. Compare walking the squashed SQ entries to decrement their counters with leaving stale counts and flash-clearing the array whenever the SQ empties. Which would you choose for a server core running database code, and which for a core running tight FP loops?</p>`,
+        a: `<p>Both are safe, because both only ever leave counts too high. They differ in how long the extra counts last and what they cost.</p><ul><li><strong>Walk and decrement.</strong> The counts stay exact, so false positives never build up. But the walk needs the counter write ports for several cycles after each flush, just as the refetched path starts issuing stores of its own, and the hardware has to read each squashed entry's address to find its counter.</li><li><strong>Flash clear when the SQ empties.</strong> This is nearly free, a reset on the whole array. But stale counts pile up across flushes until the SQ drains completely, and in the meantime more and more loads search for no reason.</li></ul><p>The choice depends on how often the SQ empties and how often flushes happen:</p><ul><li><strong>Database code</strong> mispredicts often and keeps the SQ busy, with many stores and frequent cache misses that hold the SQ full. Stale counts would build up for a long time between empty SQs, so walking pays for itself.</li><li><strong>Tight FP loops</strong> rarely mispredict, so there are few stale counts to begin with. Loop exits and long-latency stalls drain the SQ often enough for flash clears to keep the filter clean, so the cheaper option is enough.</li></ul><p>A hybrid also works: flash-clear on empty, and walk only when a counter of stale entries passes a threshold.</p>`
+      },
+      {
+        q: `<p>A core uses its SQ filter in latency mode. How much faster does it run on two workloads, and should the team hash virtual address bits above the page offset to fix the slow one?</p><p>Given:</p><ul><li>Without the filter, every load takes 5 cycles, because the SQ search doesn't fit in the 4-cycle L1 hit</li><li>With the filter, a load whose counter is 0 takes 4 cycles, and any other load takes 5 cycles</li><li>The filter is indexed by page-offset bits 11–3, so it starts with no wait for the DTLB</li><li>Loads: 350 loads/1000 instructions on both workloads</li><li>Baseline CPI without the filter: 0.8 cycles/instruction on both workloads</li><li>20% of a cycle saved on a load shows up as execution time saved, and the rest overlaps with other work</li><li>Workload A, integer pointer-heavy code: 25% of loads see a nonzero counter</li><li>Workload B, a copy loop whose source and destination are 64 KiB apart: 97% of loads see a nonzero counter, almost all of them false positives</li><li>These effects add, and nothing else changes</li></ul>`,
+        a: `<ol class="steps"><li><strong>Workload A's saving.</strong> The 75% of loads the filter clears each save 1 cycle, and a fifth of that shows up.<div class="math chain"><span>\\(\\displaystyle \\Delta C_A = \\frac{350\\ \\text{loads}}{1000\\ \\text{instructions}} \\times (1 - 0.25) \\times \\frac{1\\ \\text{cycle}}{1\\ \\text{load}} \\times 0.2 \\)</span><span>\\(\\displaystyle = \\frac{52.5\\ \\text{cycles}}{1000\\ \\text{instructions}} \\)</span></div></li><li><strong>Workload A's speedup.</strong> 1000 instructions take 800 cycles at a CPI of 0.8.<div class="math chain"><span>\\(\\displaystyle \\frac{\\Delta C_A}{C_0} = \\frac{52.5\\ \\text{cycles}}{1000\\ \\text{instructions} \\times 0.8\\ \\text{cycles/instruction}} \\)</span><span>\\(\\displaystyle = \\frac{52.5\\ \\text{cycles}}{800\\ \\text{cycles}} \\)</span><span>\\(\\displaystyle \\approx \\mathbf{6.6\\%}\\ \\textbf{fewer cycles} \\)</span></div></li><li><strong>Workload B.</strong> 64 KiB is a multiple of 4 KiB, so the source and destination have the same bits 11–0. Every load lands on the counter of the store the loop just made to the matching destination address.<div class="math chain"><span>\\(\\displaystyle \\Delta C_B = \\frac{350\\ \\text{loads}}{1000\\ \\text{instructions}} \\times (1 - 0.97) \\times \\frac{1\\ \\text{cycle}}{1\\ \\text{load}} \\times 0.2 \\)</span><span>\\(\\displaystyle = \\frac{2.1\\ \\text{cycles}}{1000\\ \\text{instructions}} \\)</span></div><div class="math chain"><span>\\(\\displaystyle \\frac{\\Delta C_B}{C_0} = \\frac{2.1\\ \\text{cycles}}{800\\ \\text{cycles}} \\)</span><span>\\(\\displaystyle \\approx \\mathbf{0.26\\%}\\ \\textbf{fewer cycles} \\)</span></div>The filter does almost nothing for B, and its false positives come entirely from the index, not from real overlap.</li><li><strong>Hashing virtual bits above 11.</strong> Adding virtual page bits to the hash would separate the source from the destination, and the virtual address is ready as soon as the AGU finishes, so timing doesn't change. But it breaks the rule that the filter can never say no when a store matches. Two different virtual addresses can map to the same physical address, a synonym, as in a shared-memory buffer mapped twice or a ring buffer mapped twice in a row. A store through one mapping and a load through the other would hash to different counters, and the load would skip a search that should have forwarded. The store's LQ probe doesn't help if the store's address resolved before the load executed.</li><li><strong>Recommendation.</strong> Don't hash virtual bits unless something else rules out synonyms, for example an OS guarantee, or a check that marks pages with more than one mapping and sends their loads to the full search. A safe fix is to hash physical page bits, which means waiting for the DTLB. That is too late to choose the 4-cycle path, so it helps energy-only mode but not latency mode. For latency mode, keep page-offset indexing and accept that 4K-aliased code such as workload B gets no benefit, as on cores that document a 4K aliasing penalty.</li></ol>`
       }
     ]
   }
