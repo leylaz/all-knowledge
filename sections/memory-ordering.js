@@ -47,6 +47,7 @@ section({
     { id: "missing-fields", label: "Missing Address or Data" },
     { id: "loads", label: "Loads" },
     { id: "catching-violations", label: "Catching Violations" },
+    { id: "physical-addresses", label: "Virtual and Physical Addresses" },
     { id: "priority-encoders", label: "Priority Encoders" },
     { id: "search-hardware", label: "Search Hardware and Load-to-Use Latency" },
     { id: "store-coalescing", label: "Store Coalescing" }
@@ -88,8 +89,8 @@ section({
 <p>When a load executes, it has to find out whether an older store that hasn't reached L1 yet writes any of its bytes. It searches the SQ as a <a href="#/cam">CAM</a>: every entry compares itself against the load in parallel, which costs one set of comparators per entry per load port. Each entry runs four checks:</p>
 <ol>
 <li><strong>Age: does this store count?</strong> At allocation, each load records the SQ tail at that moment, i.e., which store was youngest when the load entered. Only the entries from the SQ head up to that recorded position are older than the load. Everything younger is masked out, and so are empty entries. In hardware every entry compares in parallel and its result is ANDed with this age mask, so a younger store's match never counts.</li>
-<li><strong>Page offset: same chunk within the page?</strong> The search compares addresses down to an 8-byte chunk (some cores use 16 bytes), so bits 2–0 are left to the byte check. Many cores first compare only the page-offset bits, here bits 11–3, because those are ready before translation finishes.</li>
-<li><strong>Physical page: really the same address?</strong> Once the DTLB answers, the match is confirmed with bits 45–12. Matching on the low bits first is what causes Intel's <strong>4K aliasing</strong> stalls: two addresses a multiple of 4 KiB apart match on the low 12 bits and look like a dependence when they aren't, so the load is held and reissued, which costs a few cycles.</li>
+<li><strong>Page offset: same chunk within the page?</strong> The search compares addresses down to an 8-byte chunk (some cores use 16 bytes), so bits 2–0 are left to the byte check. Many cores first compare only the page-offset bits, here bits 11–3, because those are untranslated and ready before translation finishes. With 4 KB pages the offset is bits 11–0. With 16 KB pages, as on Apple silicon, it is bits 13–0, so the early partial compare covers 2 more bits and finds fewer false partial matches.</li>
+<li><strong>Physical page: really the same address?</strong> Once the DTLB answers, the match is confirmed with bits 45–12. This final check must use the physical address, not the virtual one (see <a href="#/lsq/physical-addresses">Virtual and Physical Addresses</a>). Matching on the low bits first is what causes Intel's <strong>4K aliasing</strong> stalls: two addresses a multiple of 4 KiB apart match on the low 12 bits and look like a dependence when they aren't, so the load is held and reissued, which costs a few cycles.</li>
 <li><strong>Bytes: which of the load's bytes does the store write?</strong> The load's byte mask is ANDed with the store's. If the AND equals the load's mask, the store covers every byte the load reads (full match). If it is nonzero but smaller, the store covers some of them (partial match). If it is zero, the two share a chunk but no bytes (no match).</li>
 </ol>
 <p>Several older stores can pass all four checks. Only the youngest of them matters, because its bytes are the last ones written before the load in program order. A priority encoder, starting at the load's recorded position and moving toward the head, picks it (see <a href="#/lsq/priority-encoders">Priority Encoders</a>). An older store whose address is still unknown can't be compared at all. Whether the load waits for it or goes ahead anyway is the memory dependence predictor's call (see <a href="#/mdp">Why Predict Memory Dependences</a>). A store that has its data but not its address counts the same (see <a href="#/lsq/missing-fields">Missing Address or Data</a>).</p>
@@ -693,6 +694,17 @@ section({
 </ul>
 <p>If the encoder for P finds no load without a value, every older load has its value and nothing is squashed. A matching load older than P is also safe, for the same reason. For example, with the LQ head at entry 40, entries 40 to 51 executed, and A at entry 52 still waiting on a miss, P = 52. A snoop that matches entries 45 and 57 squashes from entry 57 and leaves entry 45 alone.</p>
 <p>A simpler design skips the age search: it only sets snooped bits, and any snooped load that reaches retirement is treated as a violation. That needs only the address CAM, but it flushes loads whose older loads had all finished, so it flushes more often than it has to.</p>
+<h3 id="sec-physical-addresses">Virtual and Physical Addresses</h3>
+<p>The early compare can use the virtual address's page-offset bits because they are the same in the physical address. The final check has to compare the physical page. Comparing virtual addresses alone goes wrong in two ways:</p>
+<ul>
+<li><strong>Homonyms: same virtual address, different physical address.</strong> After a context switch, the new process can use a virtual address that matches a store from the old process that has committed but is still draining from the SQ. A virtual-only compare would forward the old process's data. Cores handle this by tagging entries with an address space ID (ASID) or by draining the SQ at the switch.</li>
+<li><strong>Synonyms: different virtual addresses, same physical address.</strong> These happen within one process. A mirrored ring buffer is a common case: the OS maps two consecutive virtual regions onto the same physical pages, so a write that runs past the end of the buffer lands at its start without a wrap check. A virtual-only compare misses the dependence in both directions:
+<ul>
+<li>If the load executes after the store, its SQ search doesn't find the store, so it doesn't forward and reads stale data from L1.</li>
+<li>If the store executes after the load, its LQ probe doesn't find the load, so the violation goes uncaught.</li>
+</ul></li>
+</ul>
+<p>The two kinds of error aren't equal. A false match, such as 4K aliasing, only costs performance: a stall or a needless flush. A missed true dependence returns a wrong value, which is a correctness bug. So the early partial compare can be approximate, but the final check must be exact and physical.</p>
 <h3 id="sec-priority-encoders">Priority Encoders</h3>
 <p>Both searches end the same way: a row of match bits, any number of them set, from which one entry has to be picked, the one nearest the searcher in age. A <strong>priority encoder</strong> does that. It takes N request bits in a fixed priority order and reports which set bit has the highest priority, plus a valid bit saying whether any bit was set. The same circuit picks the oldest ready instruction in an age-ordered scheduler (see <a href="#/wakeup/select">Select</a>) and counts leading zeros in an integer unit (see <a href="#/int-units/shift">Shifters and Bit Counting</a>). <a href="#/select-logic">Selection and Arbitration Logic</a> covers priority encoders in general, along with picking several entries per cycle, arbiters, and age tracking.</p>
 <p>With four inputs and input 0 first (x means either value):</p>
