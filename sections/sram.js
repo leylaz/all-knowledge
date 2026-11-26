@@ -5,9 +5,9 @@
 section({
   id: "sram",
   name: "SRAM",
-  cap: "How the 6T cell is read and written, where the bit leaves the array, how array size sets delay and energy, and why arrays are split into banks",
+  cap: "How the 6T cell is read and written, where the bit leaves the array, how array size sets delay and energy, why arrays are split into banks, and how a CAM searches every row at once",
   body: `
-<p>An SRAM cell holds its bit in a latch of two cross-coupled inverters, reached through two access transistors and a pair of bitlines. These pages go inside the SRAM array: how a read senses a bit without disturbing it, how a write overpowers the cell, where the bit leaves the array on its way to the datapath, why every one of those steps gets slower and costlier as the array grows, and how splitting the array into banks wins that back. For how the SRAM cell compares with the DRAM cell, see <a href="#/sram-dram">Two Ways to Store a Bit</a> in the <a href="#/r/dram">DRAM</a> region.</p>`,
+<p>An SRAM cell holds its bit in a latch of two cross-coupled inverters, reached through two access transistors and a pair of bitlines. These pages go inside the SRAM array: how a read senses a bit without disturbing it, how a write overpowers the cell, where the bit leaves the array on its way to the datapath, why every one of those steps gets slower and costlier as the array grows, and how splitting the array into banks wins that back. The last page turns the array around: a <a href="#/cam">content-addressable memory</a> is searched by value, with every row comparing itself against the key at once. For how the SRAM cell compares with the DRAM cell, see <a href="#/sram-dram">Two Ways to Store a Bit</a> in the <a href="#/r/dram">DRAM</a> region.</p>`,
   practice: {
     guided: [
       {
@@ -514,6 +514,158 @@ section({
       {
         q: `<p>Your performance model counts L1D bank conflicts. A load gets all its data from the store buffer (a full store-to-load forward). Should it count as a bank access? What about a load that hits in a fill buffer?</p>`,
         a: `<p>It depends on when the core knows the data source, not on where the data finally comes from.</p><ul><li><strong>Store forwarding:</strong> most cores look up the store buffer and the L1D in parallel, because waiting for the store buffer check before starting the cache read would add latency to every load. In that design the bank is activated anyway, so the load still occupies the bank and can conflict, even though its data comes from the store buffer. Only a design that checks the store buffer first, or predicts the forward early, saves the bank access.</li><li><strong>Fill buffer hit:</strong> the line isn't in the array yet, so the tag lookup misses. If the data read starts in parallel with the tag check, the bank is still activated. The fill buffer only saves waiting for the line to be written and read back.</li></ul><p>So the model should count bank activations from the lookup policy (parallel or serial), and count the data-source savings separately as latency and energy. Counting forwarded loads as conflict-free would make a store-heavy workload look better than the hardware can deliver.</p>`
+      }
+    ]
+  }
+},
+
+{
+  id: "cam",
+  region: "sram",
+  title: "Content-Addressable Memory",
+  sections: [
+    { id: "what", label: "What a CAM Does" },
+    { id: "cell", label: "The NOR Cell" },
+    { id: "nand", label: "NAND Match Lines" },
+    { id: "energy", label: "Search Delay and Energy" },
+    { id: "saving", label: "Cutting Search Energy" },
+    { id: "tcam", label: "Ternary CAM" },
+    { id: "uses", label: "Where CAMs Sit in a Core" },
+    { id: "alternatives", label: "When Not to Use a CAM" }
+  ],
+  body: `
+<p>An SRAM is read by address: the decoder picks one row and the array returns what it holds. A <strong>content-addressable memory</strong> (CAM) works the other way. It is given a value, the <em>key</em>, and reports which rows hold it. Every row compares itself with the key at once, so one search touches every row in the array. The out-of-order core is full of CAMs, from the store queue to the TLB, and this page covers the circuit they share. The standard reference is Pagiamtzis and Sheikholeslami's survey of CAM circuits (IEEE Journal of Solid-State Circuits, 2006).</p>
+<h3 id="sec-what">What a CAM Does</h3>
+<p>A search has three steps:</p>
+<ol>
+<li><strong>Broadcast.</strong> The key is driven down the array on <em>searchlines</em>, one pair per key bit, and every pair crosses every row.</li>
+<li><strong>Compare.</strong> Each row has a <em>match line</em> running along it. Every cell compares its stored bit with its searchline pair, and the match line stays high only if all of them agree.</li>
+<li><strong>Resolve.</strong> The match lines form a <em>match vector</em>, one bit per row. What happens next depends on the structure. A TLB expects at most one match. A store queue expects several and picks one with a priority encoder (see <a href="#/select-logic/priority-encoders">Priority Encoders</a>).</li>
+</ol>
+<p>A 4-row CAM with 4-bit entries, searched for the key 1011 (bit 3 is the leftmost):</p>
+<div class="tbl"><table>
+<tr><th>Row</th><th>Stored</th><th>Mismatched Bits</th><th>Match Line</th></tr>
+<tr><td>0</td><td>1001</td><td>bit 1</td><td>low</td></tr>
+<tr><td>1</td><td>1011</td><td>none</td><td>high</td></tr>
+<tr><td>2</td><td>0011</td><td>bit 3</td><td>low</td></tr>
+<tr><td>3</td><td>1110</td><td>bits 2 and 0</td><td>low</td></tr>
+</table></div>
+<p>The match vector is 0010, so only row 1 matches. A CAM usually sits next to an ordinary RAM holding each row's payload, such as the physical page number in a TLB or the store data in a store queue. When one row matches, the match vector is already one-hot, so it drives the RAM's wordlines directly. The CAM takes the place of the RAM's address decoder.</p>
+<h3 id="sec-cell">The NOR Cell</h3>
+<p>The common CAM cell is a 6T SRAM cell plus four compare transistors, 10 in all. The compare transistors form two pull-down stacks of two NMOS each, between the match line and ground:</p>
+<ul>
+<li><strong>Stack A</strong> has its gates on SL and D̄. It conducts when the key bit is 1 and the stored bit is 0.</li>
+<li><strong>Stack B</strong> has its gates on SL̄ and D. It conducts when the key bit is 0 and the stored bit is 1.</li>
+</ul>
+<p>So a cell pulls the match line down exactly when its bit mismatches. Every cell in a row hangs its stacks on the same match line in parallel, which makes the line a wired NOR of the per-bit mismatches.</p>
+<div class="tbl"><svg viewBox="0 0 680 330" role="img" aria-label="A 10-transistor NOR CAM cell. The match line runs across the top of the figure and is shared by every cell in the row. On the left is the 6T SRAM cell that holds D and its complement D bar. Two pull-down stacks hang from the match line to ground. Stack A is two NMOS transistors in series with gates on SL and D bar, so it conducts when the key bit is 1 and the stored bit is 0. Stack B has gates on SL bar and D, so it conducts when the key bit is 0 and the stored bit is 1. A mismatched bit turns on one stack and pulls the match line low, and a matched bit turns on neither. During precharge both searchlines sit at 0, so no stack conducts while the match line charges. The cell has 6 storage transistors and 4 compare transistors." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="0" y="16" style="fill:var(--ink);font-size:13px;font-weight:600">A 10T NOR CAM cell: two pull-down stacks hang on the row's match line</text>
+<text x="30" y="48" style="fill:var(--trace);font-size:11px;font-weight:600">match line (ML), precharged to VDD, shared by every cell in the row</text>
+<path d="M30,60H650" style="fill:none;stroke:var(--trace);stroke-width:2.5"/>
+<rect x="40" y="105" width="170" height="80" rx="4" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.2"/>
+<text x="125" y="135" text-anchor="middle" style="fill:var(--ink);font-size:12px;font-weight:600">6T SRAM cell</text>
+<text x="125" y="155" text-anchor="middle" style="fill:var(--ink);font-size:11px">holds D and D̄</text>
+<text x="125" y="173" text-anchor="middle" style="fill:var(--muted);font-size:10px">read and written as usual</text>
+<path d="M320,60V95M320,125V145M320,175V205" style="fill:none;stroke:var(--ink);stroke-width:1.4"/>
+<rect x="290" y="95" width="60" height="30" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.2"/>
+<text x="320" y="115" text-anchor="middle" style="fill:var(--ink);font-size:12px">SL</text>
+<rect x="290" y="145" width="60" height="30" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.2"/>
+<text x="320" y="165" text-anchor="middle" style="fill:var(--ink);font-size:12px">D̄</text>
+<path d="M302,205H338M308,211H332M314,217H326" style="fill:none;stroke:var(--ink);stroke-width:1.4"/>
+<text x="320" y="238" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-weight:600">stack A</text>
+<text x="320" y="254" text-anchor="middle" style="fill:var(--muted);font-size:10px">key 1, stored 0</text>
+<path d="M460,60V95M460,125V145M460,175V205" style="fill:none;stroke:var(--ink);stroke-width:1.4"/>
+<rect x="430" y="95" width="60" height="30" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.2"/>
+<text x="460" y="115" text-anchor="middle" style="fill:var(--ink);font-size:12px">SL̄</text>
+<rect x="430" y="145" width="60" height="30" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.2"/>
+<text x="460" y="165" text-anchor="middle" style="fill:var(--ink);font-size:12px">D</text>
+<path d="M442,205H478M448,211H472M454,217H466" style="fill:none;stroke:var(--ink);stroke-width:1.4"/>
+<text x="460" y="238" text-anchor="middle" style="fill:var(--ink);font-size:11px;font-weight:600">stack B</text>
+<text x="460" y="254" text-anchor="middle" style="fill:var(--muted);font-size:10px">key 0, stored 1</text>
+<text x="545" y="120" style="fill:var(--ink);font-size:11px">6 storage</text>
+<text x="545" y="138" style="fill:var(--ink);font-size:11px">+ 4 compare</text>
+<text x="545" y="156" style="fill:var(--ink);font-size:11px;font-weight:600">= 10 transistors</text>
+<text x="30" y="284" style="fill:var(--muted);font-size:11px">Each box is an NMOS transistor, labeled with its gate signal. A stack conducts only when both gates are high.</text>
+<text x="30" y="302" style="fill:var(--muted);font-size:11px">A mismatched bit turns on one stack and pulls ML low. A matched bit turns on neither.</text>
+<text x="30" y="320" style="fill:var(--muted);font-size:11px">Precharge holds SL and SL̄ at 0, so no stack conducts while ML charges.</text>
+</svg></div>
+<p>A search runs in two phases:</p>
+<ol>
+<li><strong>Precharge.</strong> The match lines charge to VDD while every searchline sits at 0 V. With SL and SL̄ both low, neither stack can conduct, so the precharge never fights a pull-down.</li>
+<li><strong>Evaluate.</strong> The key goes out, and for each bit one line of its pair rises. Every row with a mismatch discharges, and a sense amplifier at the end of each match line reads it as high or low.</li>
+</ol>
+<p>The slowest case is a row with exactly one mismatched bit, because only one stack pulls the whole line down. More mismatches discharge it faster. The sense timing is set for that one-bit case. The scheduler's wakeup comparators are built this way (see <a href="#/wakeup/match">The Match Circuit</a>): the XOR of a bus bit with a stored bit that gates a pull-down is exactly the pair of stacks above.</p>
+<h3 id="sec-nand">NAND Match Lines</h3>
+<p>The other arrangement puts one transistor per cell in series along the match line, turned on when that cell's bit matches (a 9T cell). The chain conducts only if every bit matches, so only a matching row discharges.</p>
+<ul>
+<li><strong>Energy is low.</strong> Rows that mismatch, almost all of them, don't move their match lines, apart from the charge shared into the chain up to the first mismatch.</li>
+<li><strong>Delay is high.</strong> The discharge runs through every series transistor, and the Elmore delay of a chain of series resistances with a capacitance at each node grows with the square of its length. Chains are kept to about 8 to 16 bits.</li>
+</ul>
+<p>Core structures need the search to finish in a fraction of a cycle, so they use NOR match lines, sometimes with a short NAND or NOR segment in front to cut energy (see <a href="#/cam/saving">Cutting Search Energy</a>).</p>
+<h3 id="sec-energy">Search Delay and Energy</h3>
+<p><strong>Delay.</strong> A search adds up three parts:</p>
+<ul>
+<li><strong>Searchline drive.</strong> Each searchline crosses every row, so it is a long RC wire, like an SRAM wordline turned on its side (see <a href="#/sram-array-size/wordlines">Wordline Delay</a>). Its delay grows with the square of the row count unless it is split by repeaters.</li>
+<li><strong>Match line evaluate.</strong> The match line crosses the key's bits, so its length is set by the key width, not by the row count.</li>
+<li><strong>Sense and resolve.</strong> The sense amps, then a priority encoder or a hit OR across all rows, which adds about log<sub>2</sub> N gate levels for N rows, then the payload read.</li>
+</ul>
+<p><strong>Energy.</strong> Two terms dominate:</p>
+<ul>
+<li><strong>Searchlines.</strong> Each search raises one line of every pair to VDD and drops it back, so each of the b key bits costs C<sub>SL</sub> · VDD², and C<sub>SL</sub> grows with the rows.</li>
+<li><strong>Match lines.</strong> Every row that mismatches discharges its match line, which is precharged back for C<sub>ML</sub> · VDD², and C<sub>ML</sub> grows with the key width. In a TLB or a store queue nearly every row mismatches on every search.</li>
+</ul>
+<div class="math">\\[ E_{\\text{search}} \\approx b \\, C_{\\text{SL}} \\, V_{DD}^2 + (N - m) \\, C_{\\text{ML}} \\, V_{DD}^2 \\]</div>
+<p>where m is the number of matching rows. Both terms grow with N × b, the number of cells, as an SRAM read's bitline energy does. The difference is the swing: an SRAM read moves its bitlines only by ΔV, about 100 mV, while a CAM swings its searchlines and match lines all the way. Take 64 rows with a 32-bit key, VDD = 0.75 V, 0.25 fF per row on each searchline, 0.5 fF per bit on each match line, and one matching row:</p>
+<ul>
+<li><strong>Searchlines:</strong> C<sub>SL</sub> = 64 rows × 0.25 fF/row = 16 fF. 32 lines × 16 fF × (0.75 V)² = 288 fJ.</li>
+<li><strong>Match lines:</strong> C<sub>ML</sub> = 32 bits × 0.5 fF/bit = 16 fF. 63 lines × 16 fF × (0.75 V)² = 567 fJ.</li>
+<li><strong>Total:</strong> 288 fJ + 567 fJ = 855 fJ, two thirds of it in the match lines.</li>
+</ul>
+<p>Reading one row of the same 64 × 32 array as an SRAM would swing 32 bitlines of 16 fF by 100 mV: 32 bitlines × 16 fF × 0.75 V × 100 mV = 38.4 fJ. The search costs about 22× as much, and every load pays it in every CAM it searches.</p>
+<h3 id="sec-saving">Cutting Search Energy</h3>
+<ul>
+<li><strong>Selective precharge.</strong> Compare the first k bits first, in a small separate segment, and precharge the rest of the match line only in rows that pass. If those bits are spread evenly over the rows, 1 − 2<sup>−k</sup> of the rows stop early: with k = 3, 7 rows in 8 skip the main segment. The scheme is from Zukowski and Wang (1997). It adds a serial step to the search.</li>
+<li><strong>Segmented match lines.</strong> Split the match line into segments evaluated one after another, each enabled by the previous segment's match, so each later segment has fewer rows active. Delay grows with the number of segments.</li>
+<li><strong>Low-swing sensing.</strong> Limit how far a match line swings, or race a small current into every line and sense which ones charge (current-race sensing), so a mismatch costs less than C<sub>ML</sub> · VDD².</li>
+<li><strong>Split searchlines.</strong> Selective precharge and segmentation cut only match line energy, since the searchlines still cross every row. Hierarchical searchlines drive local searchlines only into the segments still active.</li>
+<li><strong>Not searching.</strong> A filter in front of the CAM can tell that no row can match and skip the search, as the counting Bloom filter does for the store queue (see <a href="#/sq-filters">Store Queue Membership Filters</a>). An empty structure needn't broadcast at all.</li>
+<li><strong>Banking by a key bit.</strong> If one key bit says which half of the rows can hold the entry, search only that half. That halves the energy, but it turns one fully associative array into two sets, each fully associative over half the rows, so entries can now conflict.</li>
+</ul>
+<h3 id="sec-tcam">Ternary CAM</h3>
+<p>A <strong>ternary CAM</strong> (TCAM) stores 0, 1, or X (don't care) for each bit, using two SRAM cells per bit, about 16 transistors. An X bit never pulls its match line down. Several rows can then match the same key, so a TCAM is followed by a priority encoder, with the most specific row placed first. Network routers use large TCAMs for longest-prefix match.</p>
+<p>Inside a core, the same idea appears in a narrow form: a fixed group of bits that each row can mask. A fully associative TLB that holds several page sizes in the same entries, as Zen 4's L1 DTLB does, keeps a page-size field in each entry. For a 2 MB page, the 9 virtual page number bits below the 2 MB boundary drop out of that row's compare, and for a 1 GB page 18 bits do. Only those bit positions need the masking transistor, so it costs far less than a full TCAM (see <a href="#/tlb/huge-pages">Huge Pages</a>).</p>
+<h3 id="sec-uses">Where CAMs Sit in a Core</h3>
+<div class="tbl"><table>
+<tr><th>Structure</th><th>Rows</th><th>Key</th><th>What the Match Does</th></tr>
+<tr><td><a href="#/lsq/loads">Store queue</a></td><td>114 on Golden Cove</td><td>The load's address and bytes, gated by age</td><td>The youngest older matching store forwards its data</td></tr>
+<tr><td><a href="#/lsq/catching-violations">Load queue</a></td><td>192 on Golden Cove</td><td>A store's address, or a snooped line address</td><td>The oldest younger load that already executed is squashed</td></tr>
+<tr><td><a href="#/wakeup/match">Scheduler wakeup</a></td><td>One comparator per source per tag bus in every entry</td><td>A physical register tag</td><td>Any number of entries set a ready bit</td></tr>
+<tr><td><a href="#/rat-design/rat-hardware">CAM-style RAT</a></td><td>One per physical register, as in the Alpha 21264</td><td>An architectural register name, with a valid bit</td><td>The single valid match names the physical register</td></tr>
+<tr><td><a href="#/tlb/hierarchy">L1 TLB</a></td><td>72 on Zen 4's L1 DTLB</td><td>Virtual page number and address-space ID, with page-size masks</td><td>The single hit reads the physical page number</td></tr>
+<tr><td><a href="#/page-walk/pwc">Page-walk caches</a></td><td>A few to a few dozen per level</td><td>The upper virtual address bits for that level</td><td>The deepest hit skips that many levels of the walk</td></tr>
+<tr><td><a href="#/dcache/non-blocking">Miss buffers</a></td><td>16 fill buffers on Golden Cove's L1D</td><td>The line address of a new miss</td><td>A second miss to the same line merges into the existing buffer</td></tr>
+<tr><td><a href="#/cache-assoc/fa">Victim cache</a></td><td>4 in Jouppi's original design</td><td>A line address</td><td>A hit swaps the line back into the cache</td></tr>
+</table></div>
+<p>Each of these holds from a handful to a couple of hundred rows. Past that, the searchline delay and the energy of every search grow too large, and designs switch to an indexed array.</p>
+<h3 id="sec-alternatives">When Not to Use a CAM</h3>
+<p>A CAM buys full associativity by touching every row on every search. When a structure grows, or is searched very often, designs trade some of that associativity for an index:</p>
+<ul>
+<li><strong>Set-associative arrays.</strong> Use some key bits as an index, read one set from an SRAM, and compare only its few ways. Second-level TLBs and caches do this. Zen 4 backs its 72-entry fully associative L1 DTLB with a 3,072-entry set-associative L2 DTLB.</li>
+<li><strong>Indexed tables in place of searches.</strong> The SRAM-style RAT indexes by architectural register instead of searching the physical registers (see <a href="#/rat-design/rat-hardware">Two Ways to Build the RAT</a>), and a matrix scheduler replaces tag compares with one wire per producer (see <a href="#/wakeup/matrix">Matrix Schedulers</a>).</li>
+<li><strong>Filters and prediction.</strong> Skip the search when it can't hit (see <a href="#/sq-filters">Store Queue Membership Filters</a>), or predict the forwarding store and verify it later. NoSQ (Sha, Martin, and Roth, MICRO 2006) removes the store queue search entirely this way.</li>
+<li><strong>Flops for tiny CAMs.</strong> A CAM of a handful of entries can be built from flops and XOR gates and synthesized like any other logic, since a custom match line array isn't worth its design effort at that size.</li>
+</ul>`,
+  practice: {
+    guided: [
+      {
+        q: `<p>Zen 4's L1 DTLB is a 72-entry fully associative CAM. What energy does one search take, what power do the searches draw at the full load rate, and which term dominates?</p><p>Given:</p><ul><li>Rows: 72, all valid</li><li>Key: 48 bits<ul><li>a 36-bit virtual page number (48-bit virtual addresses, 4 KB pages)</li><li>a 12-bit PCID</li></ul></li><li>NOR match lines, one searchline pair per key bit</li><li>Searchline capacitance: 0.3 fF per row the line crosses</li><li>Match line capacitance: 0.6 fF per key bit the line crosses</li><li>Supply: VDD = 0.8 V</li><li>Searchlines sit at 0 V between searches. On each search exactly one line of each pair rises to VDD and falls back, drawing C · VDD² from the supply</li><li>Each mismatched match line falls to 0 V and is precharged back to VDD, drawing C · VDD². The matching line stays high and draws nothing</li><li>Every search hits, so exactly one row matches</li><li>Only 4 KB pages are mapped, so no row masks any bits</li><li>Search rate: 3 searches/cycle (Zen 4's peak of three loads per cycle), every cycle, at 5.7 GHz</li><li>Treat each of the 3 search ports as an independent copy of the array with these capacitances</li><li>Ignore the sense amps, the payload RAM, and any capacitance beyond the per-row and per-bit figures</li></ul>`,
+        a: `<ol class="steps"><li><strong>Searchline energy.</strong> Each of the 48 key bits raises one line of its pair, and each line crosses all 72 rows, so its capacitance is the per-row figure times the row count.<div class="math chain"><span>\\(\\displaystyle E_{\\text{SL}} = 48\\ \\text{lines} \\times \\left(72\\ \\text{rows} \\times \\frac{0.3\\ \\text{fF}}{1\\ \\text{row}}\\right) \\times (0.8\\ \\text{V})^2 \\)</span><span>\\(\\displaystyle = 48\\ \\text{lines} \\times 21.6\\ \\text{fF} \\times 0.64\\ \\text{V}^2 \\)</span><span>\\(\\displaystyle = 663.552\\ \\text{fJ} \\)</span></div></li><li><strong>Match line energy.</strong> Every row but the one that hits mismatches, so 71 match lines discharge and are precharged back. Each line crosses all 48 key bits.<div class="math chain"><span>\\(\\displaystyle E_{\\text{ML}} = (72\\ \\text{lines} - 1\\ \\text{line}) \\times \\left(48\\ \\text{bits} \\times \\frac{0.6\\ \\text{fF}}{1\\ \\text{bit}}\\right) \\times (0.8\\ \\text{V})^2 \\)</span><span>\\(\\displaystyle = 71\\ \\text{lines} \\times 28.8\\ \\text{fF} \\times 0.64\\ \\text{V}^2 \\)</span><span>\\(\\displaystyle = 1308.672\\ \\text{fJ} \\)</span></div></li><li><strong>Energy per search.</strong> The two terms add.<div class="math chain"><span>\\(\\displaystyle E_{\\text{search}} = 663.552\\ \\text{fJ} + 1308.672\\ \\text{fJ} \\)</span><span>\\(\\displaystyle = 1972.224\\ \\text{fJ} \\)</span><span>\\(\\displaystyle \\approx \\mathbf{1.97}\\ \\textbf{pJ} \\)</span></div></li><li><strong>Power.</strong> Power is energy per search times searches per second, which is searches per cycle times cycles per second.<div class="math chain"><span>\\(\\displaystyle P = \\frac{1972.224\\ \\text{fJ}}{1\\ \\text{search}} \\times \\frac{3\\ \\text{searches}}{1\\ \\text{cycle}} \\times \\frac{5.7 \\times 10^{9}\\ \\text{cycles}}{1\\ \\text{s}} \\)</span><span>\\(\\displaystyle = 33{,}725.0304\\ \\mu\\text{W} \\)</span><span>\\(\\displaystyle \\approx \\mathbf{33.7}\\ \\textbf{mW} \\)</span></div></li><li><strong>Which term dominates.</strong> Divide the match line energy by the total.<div class="math chain"><span>\\(\\displaystyle \\text{share}_{\\text{ML}} = \\frac{1308.672\\ \\text{fJ}}{1972.224\\ \\text{fJ}} \\)</span><span>\\(\\displaystyle \\approx \\mathbf{66.4\\%} \\)</span></div></li><li><strong>What it shows.</strong> The match lines take two thirds of the energy because a hit leaves 71 of the 72 rows mismatching, and each mismatch swings a whole match line. That is why energy-saving schemes such as selective precharge target the match lines first. It is also why the fully associative level stays small, with a set-associative L2 TLB, which reads one set per lookup, holding the rest of the translations.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: `<p>A team wants to double Zen 4's L1 DTLB from 72 to 144 fully associative entries without changing the cycle time. What happens to search energy and search delay, and how else could the core get the extra reach?</p><p>Given:</p><ul><li>The key width stays the same (virtual page number plus PCID)</li><li>NOR match lines, with searchline and match line capacitance proportional to the number of cells each line crosses</li><li>Today's search fits in its cycle with little slack, and the load-to-use latency of an L1 hit must not grow</li><li>The searchline's own wire RC, not its driver, dominates its delay today</li><li>Behind the L1 DTLB sits a 3,072-entry set-associative L2 DTLB, so an L1 DTLB miss that hits there costs a few cycles, not a page walk</li></ul>`,
+        a: `<p>Doubling the rows doubles the energy of every search and lengthens the one part of the delay that grows with the rows, the searchline.</p><ul><li><strong>Energy:</strong> each searchline crosses twice as many rows, so its capacitance doubles, and twice as many match lines discharge on every search. Both terms double, so each search costs about 2×. Every load and store searches the TLB, so this is paid at the full memory-access rate.</li><li><strong>Delay:</strong> the match lines keep their length, since the key width is unchanged, so evaluate time stays about the same. The searchline is twice as long, and with its wire RC dominating, its delay grows about 4×. Repeaters bring that back toward 2× at some area and energy. The hit OR across all match lines gains one level (⌈log<sub>2</sub> 144⌉ = 8 levels against ⌈log<sub>2</sub> 72⌉ = 7), and the match vector drives twice as many payload rows. With little slack today, the search no longer fits, and pipelining it would add a cycle to every load.</li></ul><p>Other ways to get the reach:</p><ul><li><strong>Lean on the L2 DTLB.</strong> The extra 72 entries only catch misses that would cost a few cycles in the L2 DTLB anyway. Measure first how many cycles the L1 DTLB misses actually cost on the target workloads.</li><li><strong>Bank by a virtual page number bit.</strong> Two 72-entry halves with only one searched per access keep today's energy and delay. Entries can now conflict, since the structure becomes two sets, so its miss rate lands between today's and a true 144-entry fully associative TLB.</li><li><strong>Larger pages.</strong> If the misses come from a few large regions, 2 MB pages give each entry 512× the reach with no hardware change, though they depend on the OS.</li><li><strong>Selective precharge.</strong> It recovers much of the match line energy but does nothing for delay.</li></ul><p>Assuming the misses a 144-entry L1 would remove mostly hit in the L2 DTLB, as they do on most workloads, I'd keep 72 entries and spend the effort on the L2 DTLB's latency. If the data showed a large share of cycles in L1 DTLB misses that hit in L2, banking is the option that keeps the cycle time and the load-to-use latency.</p>`
       }
     ]
   }
