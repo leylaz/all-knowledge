@@ -205,6 +205,164 @@ section({
 <text x="586" y="154" style="fill:var(--muted);font-size:11px;font-weight:600">none: no match</text>
 <g style="fill:var(--muted);font-size:11px"><text x="20" y="190">full: the AND equals the load's mask. partial: the AND is nonzero but smaller. none: the AND is zero.</text><text x="20" y="206">Forwarding shifts the store's data right by 4 bytes (0x51C − 0x518) so its bytes 4–7 land in the load's bytes 0–3.</text></g>
 </svg></div>
+<p>The same search as gates. The top half is the logic every SQ entry carries, and the bottom half runs once per load port across all entries. The four checks keep their numbers from the list above:</p>
+<div class="tbl"><svg viewBox="0 0 680 712" role="img" aria-label="Gate-level logic of the SQ search. Per SQ entry i, one copy for every entry and every load port: valid i AND older i, from the age mask, gives check 1. Load offset bits 11 to 3 and the entry offset go through a 9-bit XNOR and an AND of all bits, the offset match, check 2. The page bits 45 to 12 go through a 34-bit XNOR and an AND of all bits, the page match, check 3. The load and store byte masks are ANDed bit by bit, check 4. An OR of the 8 result bits says any byte is shared. The 8 result bits are also XNORed with the load mask and ANDed together, giving cover i, set when the store writes every byte the load reads. Match i is the AND of address valid, valid and older, offset match, page match, and any byte shared. Unknown i is valid and older AND NOT address valid. Across all N entries, 114 on Golden Cove, once per load port: the match vector goes into a priority encoder where the youngest older store wins. Its one-hot grant is ANDed with each entry data and ORed over all entries to select 64 bits of store data, which are shifted right by 8 times the difference in byte offsets. A 2 to 1 mux picks the shifted store data or the L1 data. The encoder valid output is the hit signal. Hit AND winner cover AND winner data valid is a full hit and drives the mux select to forward. Hit AND cover AND NOT data valid waits for the store data. Hit AND NOT cover is a partial hit, a store-forwarding stall. In a real CAM the XNOR and AND are one precharged match line per entry." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="20" y="20" style="fill:var(--muted);font-size:12px;font-weight:600">The SQ search as gates: each entry’s match logic, then the pick across entries</text>
+<text x="20" y="42" style="fill:var(--trace);font-size:12px;font-weight:600">Per SQ entry i: one copy for every entry and every load port</text>
+<text x="148" y="64" text-anchor="end" style="fill:var(--ink);font-size:10.5px">addr valid i</text>
+<path d="M152,60 H533" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<circle cx="536" cy="60" r="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<circle cx="420" cy="60" r="2.6" style="fill:var(--muted)"/>
+<path d="M420,60 V96 H435 A5,5 0 0 1 445,96 H473" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="148" y="108" text-anchor="end" style="fill:var(--ink);font-size:10.5px">valid i</text>
+<text x="148" y="124" text-anchor="end" style="fill:var(--ink);font-size:10.5px">older i (age mask)</text>
+<path d="M152,104 H190" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M152,120 H190" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M190,94 H202 A18,18 0 0 1 202,130 H190 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M220,112 H473" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="228" y="107" style="fill:var(--muted);font-size:9.5px">① valid and older</text>
+<circle cx="440" cy="112" r="2.6" style="fill:var(--muted)"/>
+<path d="M440,112 V76 H540" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M540,52 H552 A18,16 0 0 1 552,84 H540 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M570,68 H588" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="592" y="66" style="fill:var(--ink);font-size:10.5px;font-weight:600">unknown i</text>
+<text x="592" y="79" style="fill:var(--muted);font-size:9.5px">older, no address</text>
+<text x="148" y="150" text-anchor="end" style="fill:var(--ink);font-size:10.5px">load offset[11:3]</text>
+<text x="148" y="166" text-anchor="end" style="fill:var(--ink);font-size:10.5px">SQ i offset[11:3]</text>
+<path d="M152,146 H196" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M152,162 H196" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M190,134 Q199,154 190,174" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M195,134 Q215,134 227,154 Q215,174 195,174 Q204,154 195,134 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<circle cx="230" cy="154" r="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M233,154 H262" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M244,159 L252,149" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="250" y="147" text-anchor="middle" style="fill:var(--muted);font-size:9px">9</text>
+<path d="M262,142 H274 A18,12 0 0 1 274,166 H262 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="274" y="139" text-anchor="middle" style="fill:var(--muted);font-size:9px">AND all</text>
+<text x="300" y="149" style="fill:var(--muted);font-size:9.5px">② offset match</text>
+<path d="M292,154 H473" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="148" y="200" text-anchor="end" style="fill:var(--ink);font-size:10.5px">load page[45:12]</text>
+<text x="148" y="216" text-anchor="end" style="fill:var(--ink);font-size:10.5px">SQ i page[45:12]</text>
+<path d="M152,196 H196" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M152,212 H196" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M190,184 Q199,204 190,224" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M195,184 Q215,184 227,204 Q215,224 195,224 Q204,204 195,184 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<circle cx="230" cy="204" r="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M233,204 H262" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M244,209 L252,199" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="250" y="197" text-anchor="middle" style="fill:var(--muted);font-size:9px">34</text>
+<path d="M262,192 H274 A18,12 0 0 1 274,216 H262 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="274" y="189" text-anchor="middle" style="fill:var(--muted);font-size:9px">AND all</text>
+<text x="300" y="199" style="fill:var(--muted);font-size:9.5px">③ page match</text>
+<path d="M292,204 H473" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="148" y="250" text-anchor="end" style="fill:var(--ink);font-size:10.5px">load mask[7:0]</text>
+<text x="148" y="266" text-anchor="end" style="fill:var(--ink);font-size:10.5px">SQ i mask[7:0]</text>
+<path d="M152,246 H190" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M152,262 H190" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M190,236 H202 A18,18 0 0 1 202,272 H190 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M220,254 H266" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M228,259 L236,249" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="234" y="247" text-anchor="middle" style="fill:var(--muted);font-size:9px">8</text>
+<circle cx="244" cy="254" r="2.6" style="fill:var(--muted)"/>
+<path d="M262,242 Q282,242 294,254 Q282,266 262,266 Q271,254 262,242 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="278" y="239" text-anchor="middle" style="fill:var(--muted);font-size:9px">OR all</text>
+<text x="302" y="249" style="fill:var(--muted);font-size:9.5px">④ any byte shared</text>
+<path d="M294,254 H473" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M244,254 V294 H306" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="148" y="314" text-anchor="end" style="fill:var(--ink);font-size:10.5px">load mask[7:0]</text>
+<path d="M152,310 H306" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M300,282 Q309,302 300,322" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M305,282 Q325,282 337,302 Q325,322 305,322 Q314,302 305,282 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<circle cx="340" cy="302" r="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M343,302 H370" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M352,307 L360,297" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="358" y="295" text-anchor="middle" style="fill:var(--muted);font-size:9px">8</text>
+<path d="M370,290 H382 A18,12 0 0 1 382,314 H370 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="382" y="287" text-anchor="middle" style="fill:var(--muted);font-size:9px">AND all</text>
+<path d="M400,302 H588" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="592" y="300" style="fill:var(--ink);font-size:10.5px;font-weight:600">cover i</text>
+<text x="592" y="313" style="fill:var(--muted);font-size:9.5px">every load byte</text>
+<path d="M470,86 H480 A24,89 0 0 1 480,264 H470 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M504,175 H588" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="592" y="173" style="fill:var(--ink);font-size:10.5px;font-weight:600">match i</text>
+<text x="592" y="186" style="fill:var(--muted);font-size:9.5px">all four pass</text>
+<path d="M20,346 H676" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<text x="20" y="368" style="fill:var(--pad);font-size:12px;font-weight:600">Across all N entries (N = 114 on Golden Cove), once per load port</text>
+<text x="20" y="412" style="fill:var(--ink);font-size:10.5px">match[N−1:0]</text>
+<path d="M90,408 H110" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M96,413 L104,403" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="102" y="401" text-anchor="middle" style="fill:var(--muted);font-size:9px">N</text>
+<rect x="110" y="384" width="120" height="56" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="170" y="402" text-anchor="middle" style="fill:var(--ink);font-size:10.5px;font-weight:600">priority encoder</text>
+<text x="170" y="416" text-anchor="middle" style="fill:var(--muted);font-size:9.5px">youngest older wins</text>
+<text x="170" y="430" text-anchor="middle" style="fill:var(--muted);font-size:9.5px">circular, see below</text>
+<path d="M230,398 H303" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M240,403 L248,393" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="246" y="391" text-anchor="middle" style="fill:var(--muted);font-size:9px">N</text>
+<text x="274" y="392" text-anchor="middle" style="fill:var(--muted);font-size:9.5px">grant</text>
+<path d="M282,452 V418 H303" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="282" y="464" text-anchor="middle" style="fill:var(--ink);font-size:10.5px">data i</text>
+<path d="M300,388 H312 A18,20 0 0 1 312,428 H300 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="315" y="384" text-anchor="middle" style="fill:var(--muted);font-size:9px">×N</text>
+<path d="M330,408 H354" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M333,413 L341,403" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="339" y="401" text-anchor="middle" style="fill:var(--muted);font-size:9px">64</text>
+<path d="M350,392 Q370,392 382,408 Q370,424 350,424 Q359,408 350,392 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="366" y="438" text-anchor="middle" style="fill:var(--muted);font-size:9px">OR over N</text>
+<path d="M382,408 H404" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<rect x="404" y="388" width="92" height="40" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="450" y="405" text-anchor="middle" style="fill:var(--ink);font-size:10.5px;font-weight:600">shift right</text>
+<text x="450" y="419" text-anchor="middle" style="fill:var(--muted);font-size:9.5px">8 × (ld − st) off[2:0]</text>
+<path d="M496,408 H530" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M490,444 H530" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="486" y="448" text-anchor="end" style="fill:var(--ink);font-size:10.5px">L1 data[63:0]</text>
+<path d="M530,390 L554,400 L554,450 L530,460 Z" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<text x="534" y="447.5" style="fill:var(--muted);font-size:9px">0</text>
+<text x="534" y="411.5" style="fill:var(--muted);font-size:9px">1</text>
+<path d="M554,425 H588" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="592" y="423" style="fill:var(--ink);font-size:10.5px;font-weight:600">load value</text>
+<path d="M170,440 V492 H262" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="176" y="466" style="fill:var(--muted);font-size:9.5px">valid out = hit</text>
+<text x="148" y="512" text-anchor="end" style="fill:var(--ink);font-size:10.5px">cover (winner)</text>
+<path d="M152,508 H276" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="148" y="528" text-anchor="end" style="fill:var(--ink);font-size:10.5px">data valid (winner)</text>
+<path d="M152,524 H290" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M262,492 V600" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M276,508 V600" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M290,524 V600" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<circle cx="262" cy="500" r="2.6" style="fill:var(--muted)"/>
+<path d="M262,500 H340" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<circle cx="276" cy="510" r="2.6" style="fill:var(--muted)"/>
+<path d="M276,510 H340" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<circle cx="290" cy="524" r="2.6" style="fill:var(--muted)"/>
+<path d="M290,524 H340" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M340,492 H352 A18,20 0 0 1 352,532 H340 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M370,512 H542 V453" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="400" y="507" style="fill:var(--accent-green);font-size:10.5px;font-weight:600">full hit: forward</text>
+<circle cx="262" cy="546" r="2.6" style="fill:var(--muted)"/>
+<path d="M262,546 H340" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<circle cx="276" cy="556" r="2.6" style="fill:var(--muted)"/>
+<path d="M276,556 H340" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<circle cx="290" cy="566" r="2.6" style="fill:var(--muted)"/>
+<path d="M290,566 H334" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<circle cx="337" cy="566" r="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M340,538 H352 A18,19 0 0 1 352,576 H340 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M370,557 H396" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="400" y="561" style="fill:var(--ink);font-size:10.5px">full hit, data not ready: wait for the store data</text>
+<circle cx="262" cy="590" r="2.6" style="fill:var(--muted)"/>
+<path d="M262,590 H340" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<circle cx="276" cy="600" r="2.6" style="fill:var(--muted)"/>
+<path d="M276,600 H334" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<circle cx="337" cy="600" r="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M340,584 H352 A18,12 0 0 1 352,608 H340 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M370,596 H396" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="400" y="600" style="fill:var(--accent-red);font-size:10.5px;font-weight:600">partial hit: store-forwarding stall</text>
+<text x="20" y="636" style="fill:var(--muted);font-size:11px">① to ④ are the four checks. XNOR then AND-all is an equality compare. In a real CAM it is one match line</text>
+<text x="20" y="652" style="fill:var(--muted);font-size:11px">per entry, precharged high and pulled low by any bit cell that mismatches. The offset match settles before</text>
+<text x="20" y="668" style="fill:var(--muted);font-size:11px">the page match, so a design can start on it early, which is where 4K aliasing comes from. The same AND-OR</text>
+<text x="20" y="684" style="fill:var(--muted);font-size:11px">that picks the winner’s data i picks its cover bit and data valid bit. The unknown i bits are ORed across</text>
+<text x="20" y="700" style="fill:var(--muted);font-size:11px">entries into one bit saying the load went past a store whose address isn’t known yet.</text>
+</svg></div>
 <h3 id="sec-missing-fields">Missing Address or Data</h3>
 <p>The store-address and store-data µops wait on different registers, so an SQ entry can sit with only one half filled in for many cycles. The two halves play different roles in a load's search. The address decides <em>whether</em> the store matters to the load, and the data is only what the load takes once it does. So which half is missing decides what the load can do:</p>
 <div class="tbl"><svg viewBox="0 0 680 296" role="img" aria-label="The four states of an older store entry the load's search reaches, by whether its address valid and data valid bits are set. Address valid and data valid: the checks run and the data is there, so a full hit forwards at about L1 latency and a partial hit is a store-forwarding stall. Address valid, data not valid: the match is known but the value is not, so the load blocks on that SQ index and the store-data write wakes it to reissue. Address not valid, data valid: the data can't be matched to anything, so the entry counts as unknown and the memory dependence predictor decides, and waiting means waiting for the address. Neither valid: also unknown, the predictor decides, and if the load waits and the address then matches it may still block on the data. Only the address decides whether a store matters to the load." style="width:100%;min-width:560px;max-width:680px;display:block;font-family:var(--sans)">
@@ -392,6 +550,131 @@ section({
 <li><strong>Match, but safe.</strong> Overlapping loads that haven't executed, or that forwarded from a store younger than the probing one, need nothing.</li>
 <li><strong>Violation.</strong> The oldest violating load and everything younger than it are squashed, and fetch restarts at that load. The cost is about a branch mispredict's. The core also trains the memory dependence predictor so that next time this load waits for this store (see <a href="#/mdp-store-sets">Store Sets</a>).</li>
 </ul>
+<p>The same probe as gates. The top half is the logic every LQ entry carries, and the bottom half runs once per probe across all entries. The six checks keep their numbers from the list above:</p>
+<div class="tbl"><svg viewBox="0 0 680 688" role="img" aria-label="Gate-level logic of the LQ probe. Per LQ entry j, one copy for every entry and every store-address port: valid j AND younger j, from the age mask, AND executed j gives checks 1 and 2. Store offset bits 11 to 3 and the entry offset go through a 9-bit XNOR and an AND of all bits, the offset match, check 3. The page bits 45 to 12 go through a 34-bit XNOR and an AND of all bits, the page match, check 4. The byte masks are ANDed bit by bit and the 8 results ORed, any byte shared, check 5. Check 6, stale value: the load forwarded-from SQ index and the store SQ index go into a comparator with less-than and greater-than outputs. The XOR of their wrap bits selects, through a 2 to 1 mux, less-than when the wraps are equal and greater-than when they differ, giving forwarding store older than the probing store. That is ORed with NOT forwarded. Violate j is the AND of all six. Across all N entries, 192 on Golden Cove, once per probe: the violate vector goes into a priority encoder where the oldest younger load, the first past the store mark, wins. Its one-hot grant is ANDed with each entry ROB index and ORed over all entries to give the 9-bit ROB index of the oldest violating load, the flush point. The encoder valid output signals a violation, which flushes and trains the memory dependence predictor." style="width:100%;min-width:600px;max-width:680px;display:block;font-family:var(--sans)">
+<text x="20" y="20" style="fill:var(--muted);font-size:12px;font-weight:600">The LQ probe as gates: each entry’s violation logic, then the pick across entries</text>
+<text x="20" y="42" style="fill:var(--trace);font-size:12px;font-weight:600">Per LQ entry j: one copy for every entry and every store-address port</text>
+<text x="148" y="70" text-anchor="end" style="fill:var(--ink);font-size:10.5px">valid j</text>
+<text x="148" y="86" text-anchor="end" style="fill:var(--ink);font-size:10.5px">younger j (age mask)</text>
+<text x="148" y="102" text-anchor="end" style="fill:var(--ink);font-size:10.5px">executed j</text>
+<path d="M152,66 H190" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M152,82 H190" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M152,98 H190" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M190,56 H200 A24,26 0 0 1 200,108 H190 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M224,82 H473" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="232" y="77" style="fill:var(--muted);font-size:9.5px">① ② valid, younger, executed</text>
+<text x="148" y="132" text-anchor="end" style="fill:var(--ink);font-size:10.5px">store offset[11:3]</text>
+<text x="148" y="148" text-anchor="end" style="fill:var(--ink);font-size:10.5px">LQ j offset[11:3]</text>
+<path d="M152,128 H196" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M152,144 H196" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M190,116 Q199,136 190,156" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M195,116 Q215,116 227,136 Q215,156 195,156 Q204,136 195,116 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<circle cx="230" cy="136" r="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M233,136 H262" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M244,141 L252,131" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="250" y="129" text-anchor="middle" style="fill:var(--muted);font-size:9px">9</text>
+<path d="M262,124 H274 A18,12 0 0 1 274,148 H262 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="274" y="121" text-anchor="middle" style="fill:var(--muted);font-size:9px">AND all</text>
+<text x="300" y="131" style="fill:var(--muted);font-size:9.5px">③ offset match</text>
+<path d="M292,136 H473" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="148" y="182" text-anchor="end" style="fill:var(--ink);font-size:10.5px">store page[45:12]</text>
+<text x="148" y="198" text-anchor="end" style="fill:var(--ink);font-size:10.5px">LQ j page[45:12]</text>
+<path d="M152,178 H196" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M152,194 H196" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M190,166 Q199,186 190,206" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M195,166 Q215,166 227,186 Q215,206 195,206 Q204,186 195,166 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<circle cx="230" cy="186" r="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M233,186 H262" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M244,191 L252,181" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="250" y="179" text-anchor="middle" style="fill:var(--muted);font-size:9px">34</text>
+<path d="M262,174 H274 A18,12 0 0 1 274,198 H262 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="274" y="171" text-anchor="middle" style="fill:var(--muted);font-size:9px">AND all</text>
+<text x="300" y="181" style="fill:var(--muted);font-size:9.5px">④ page match</text>
+<path d="M292,186 H473" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="148" y="232" text-anchor="end" style="fill:var(--ink);font-size:10.5px">store mask[7:0]</text>
+<text x="148" y="248" text-anchor="end" style="fill:var(--ink);font-size:10.5px">LQ j mask[7:0]</text>
+<path d="M152,228 H190" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M152,244 H190" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M190,218 H202 A18,18 0 0 1 202,254 H190 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M220,236 H266" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M236,241 L244,231" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="242" y="229" text-anchor="middle" style="fill:var(--muted);font-size:9px">8</text>
+<path d="M262,224 Q282,224 294,236 Q282,248 262,248 Q271,236 262,224 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="278" y="221" text-anchor="middle" style="fill:var(--muted);font-size:9px">OR all</text>
+<text x="302" y="231" style="fill:var(--muted);font-size:9.5px">⑤ any byte shared</text>
+<path d="M294,236 H473" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="148" y="288" text-anchor="end" style="fill:var(--ink);font-size:10.5px">LQ j forwarded</text>
+<path d="M152,284 H330 V314 H352" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<circle cx="355" cy="314" r="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M358,314 H363" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="148" y="326" text-anchor="end" style="fill:var(--ink);font-size:10.5px">a: LQ j fwd SQ index[6:0]</text>
+<path d="M152,322 H190" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="148" y="342" text-anchor="end" style="fill:var(--ink);font-size:10.5px">b: store SQ index[6:0]</text>
+<path d="M152,338 H190" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<rect x="190" y="308" width="60" height="44" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="220" y="327" text-anchor="middle" style="fill:var(--ink);font-size:10.5px;font-weight:600">compare</text>
+<text x="220" y="341" text-anchor="middle" style="fill:var(--muted);font-size:9.5px">a vs b</text>
+<text x="254" y="322" style="fill:var(--muted);font-size:9px">a&lt;b</text>
+<text x="254" y="338" style="fill:var(--muted);font-size:9px">a&gt;b</text>
+<path d="M250,326 H290" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M250,342 H290" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="148" y="380" text-anchor="end" style="fill:var(--ink);font-size:10.5px">LQ j fwd SQ wrap</text>
+<path d="M152,376 H196" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="148" y="396" text-anchor="end" style="fill:var(--ink);font-size:10.5px">store SQ wrap</text>
+<path d="M152,392 H196" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M190,364 Q199,384 190,404" style="fill:none;stroke:var(--ink);stroke-width:1.3"/>
+<path d="M195,364 Q215,364 227,384 Q215,404 195,404 Q204,384 195,364 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M227,384 H302 V355" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="232" y="379" style="fill:var(--muted);font-size:9.5px">wraps differ</text>
+<path d="M290,310 L314,320 L314,350 L290,360 Z" style="fill:var(--pad-soft);stroke:var(--pad);stroke-width:1.5"/>
+<text x="294" y="329.5" style="fill:var(--muted);font-size:9px">0</text>
+<text x="294" y="345.5" style="fill:var(--muted);font-size:9px">1</text>
+<path d="M314,335 H362" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="318" y="357" style="fill:var(--muted);font-size:9px">fwd store older</text>
+<path d="M358,304 Q378,304 390,324 Q378,344 358,344 Q367,324 358,304 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M390,324 H473" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="398" y="319" style="fill:var(--muted);font-size:9.5px">⑥ stale value</text>
+<path d="M470,60 H480 A24,138 0 0 1 480,336 H470 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<path d="M504,198 H588" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="592" y="196" style="fill:var(--ink);font-size:10.5px;font-weight:600">violate j</text>
+<text x="592" y="209" style="fill:var(--muted);font-size:9.5px">all six pass</text>
+<path d="M20,424 H676" style="fill:none;stroke:var(--rule);stroke-width:1"/>
+<text x="20" y="446" style="fill:var(--pad);font-size:12px;font-weight:600">Across all N entries (N = 192 on Golden Cove), once per probe</text>
+<text x="20" y="490" style="fill:var(--ink);font-size:10.5px">violate[N−1:0]</text>
+<path d="M94,486 H110" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M98,491 L106,481" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="104" y="479" text-anchor="middle" style="fill:var(--muted);font-size:9px">N</text>
+<rect x="110" y="462" width="120" height="56" rx="3" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="170" y="480" text-anchor="middle" style="fill:var(--ink);font-size:10.5px;font-weight:600">priority encoder</text>
+<text x="170" y="494" text-anchor="middle" style="fill:var(--muted);font-size:9.5px">oldest younger wins</text>
+<text x="170" y="508" text-anchor="middle" style="fill:var(--muted);font-size:9.5px">first past the mark</text>
+<path d="M230,476 H303" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M240,481 L248,471" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="246" y="469" text-anchor="middle" style="fill:var(--muted);font-size:9px">N</text>
+<text x="274" y="470" text-anchor="middle" style="fill:var(--muted);font-size:9.5px">grant</text>
+<path d="M282,530 V496 H303" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="282" y="542" text-anchor="middle" style="fill:var(--ink);font-size:10.5px">ROB index j</text>
+<path d="M300,466 H312 A18,20 0 0 1 312,506 H300 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="315" y="462" text-anchor="middle" style="fill:var(--muted);font-size:9px">×N</text>
+<path d="M330,486 H354" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<path d="M333,491 L341,481" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="339" y="479" text-anchor="middle" style="fill:var(--muted);font-size:9px">9</text>
+<path d="M350,470 Q370,470 382,486 Q370,502 350,502 Q359,486 350,470 Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.3"/>
+<text x="366" y="516" text-anchor="middle" style="fill:var(--muted);font-size:9px">OR over N</text>
+<path d="M382,486 H588" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="592" y="484" style="fill:var(--ink);font-size:10.5px;font-weight:600">flush point</text>
+<text x="592" y="497" style="fill:var(--muted);font-size:9.5px">ROB index</text>
+<text x="400" y="481" style="fill:var(--muted);font-size:9.5px">the oldest violating load</text>
+<path d="M170,518 V570 H588" style="fill:none;stroke:var(--muted);stroke-width:1.2"/>
+<text x="176" y="546" style="fill:var(--muted);font-size:9.5px">valid out</text>
+<text x="592" y="568" style="fill:var(--accent-red);font-size:10.5px;font-weight:600">violation</text>
+<text x="592" y="581" style="fill:var(--muted);font-size:9.5px">flush, train MDP</text>
+<text x="20" y="612" style="fill:var(--muted);font-size:11px">① to ⑥ are the six checks. Every check runs in the same cycle, because the store has its physical address</text>
+<text x="20" y="628" style="fill:var(--muted);font-size:11px">and no load is waiting on the probe. Check ⑥ compares indices that carry a wrap bit: with equal wraps the</text>
+<text x="20" y="644" style="fill:var(--muted);font-size:11px">smaller index is older, with different wraps the larger one is, so the XOR of the wraps picks a&lt;b or a&gt;b.</text>
+<text x="20" y="660" style="fill:var(--muted);font-size:11px">A load that read L1 (forwarded = 0) is stale outright. The 9-bit ROB index reaches the flush logic, which</text>
+<text x="20" y="676" style="fill:var(--muted);font-size:11px">squashes that load and everything younger and refetches from it.</text>
+</svg></div>
 <h3 id="sec-catching-violations">Catching Violations</h3>
 <p>A violation is recovered like a mispredicted branch whose redirect points at the load itself: the core flushes the load and everything younger and refetches from the load (see <a href="#/flush-recovery">Pipeline Flush and Recovery</a>). Re-executing only the load and its dependents would be cheaper, but the core would have to track which instructions consumed the stale value, so most cores flush.</p>
 <p>Invalidations from other cores also search the LQ, to keep loads in the order the memory model requires. The snoop compares the line address against executed loads that haven't retired and sets their snooped bit. Under TSO, a younger load that read the line before an older load completes may hold a value that is stale relative to the older one, so the core squashes it (see <a href="#/consistency/impl">Speculating Past the Model</a>).</p>
