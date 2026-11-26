@@ -853,6 +853,11 @@ section({
 <li>Memory dependences need extra help. When a store re-executes, the LSQ rechecks it against younger loads and re-issues any that read from it. A load whose address operand was regenerated also re-executes.</li>
 </ol>
 <p>Nothing is refetched, and younger instructions that never used the load's value keep their results.</p>
+<p><strong>Why the tracking is hard.</strong> Register tags alone don't reach every dependent:</p>
+<ul>
+<li><strong>Dependences through memory:</strong> a dependent store may already have forwarded the stale value to a younger load. No register tag links that load to the bad value, so tracking has to follow memory as well, which is what the LSQ recheck in step 4 is for.</li>
+<li><strong>Dependent branches:</strong> a branch that resolved using the stale value may already have redirected fetch. Re-executing it can't undo that, so a wrong outcome needs a flush anyway.</li>
+</ul>
 <p><strong>An instruction can run more than twice.</strong> No instruction knows how many of its operands will be regenerated, so it simply re-executes each time a new one arrives. If both operands of an add come from the bad load through chains of different lengths, the add runs once with the first corrected operand and again with the second. The paper says an instruction "may possibly re-execute multiple times, once for every re-generated operand that arrives."</p>
 <p><strong>When it's safe to let go.</strong> An instruction can't free its reservation station entry when it issues, because a corrected operand might still arrive. The paper's rule is retirement: "At retirement, any re-executed instruction will be the oldest instruction in the machine, thus it cannot receive any more re-generated values, and the instruction may be safely retired."</p>
 
