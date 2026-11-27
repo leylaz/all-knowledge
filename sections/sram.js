@@ -637,8 +637,8 @@ section({
 <h3 id="sec-uses">Where CAMs Sit in a Core</h3>
 <div class="tbl"><table>
 <tr><th>Structure</th><th>Rows</th><th>Key</th><th>What the Match Does</th></tr>
-<tr><td><a href="#/lsq/loads">Store queue</a></td><td>114 on Golden Cove</td><td>The load's address and bytes, gated by age</td><td>The youngest older matching store forwards its data</td></tr>
-<tr><td><a href="#/lsq/catching-violations">Load queue</a></td><td>192 on Golden Cove</td><td>A store's address, or a snooped line address</td><td>The oldest younger load that already executed is squashed</td></tr>
+<tr><td><a href="#/lsq/stores">Store queue</a></td><td>114 on Golden Cove</td><td>The load's address and bytes, gated by age</td><td>The youngest older matching store forwards its data</td></tr>
+<tr><td><a href="#/lsq-lq/loads">Load queue</a></td><td>192 on Golden Cove</td><td>A store's address, or a snooped line address</td><td>The oldest younger load that already executed is squashed</td></tr>
 <tr><td><a href="#/wakeup/match">Scheduler wakeup</a></td><td>One comparator per source per tag bus in every entry</td><td>A physical register tag</td><td>Any number of entries set a ready bit</td></tr>
 <tr><td><a href="#/rat-design/rat-hardware">CAM-style RAT</a></td><td>One per physical register, as in the Alpha 21264</td><td>An architectural register name, with a valid bit</td><td>The single valid match names the physical register</td></tr>
 <tr><td><a href="#/tlb/hierarchy">L1 TLB</a></td><td>72 on Zen 4's L1 DTLB</td><td>Virtual page number and address-space ID, with page-size masks</td><td>The single hit reads the physical page number</td></tr>

@@ -833,7 +833,7 @@ section({
 </ul>
 <p>Two edge cases still need care:</p>
 <ul>
-<li><strong>Partial forwarding:</strong> if a load took some bytes from a store and the rest from the cache, the cache bytes can be stale, so the load counts as cache-sourced. Many designs avoid the case entirely: a load that a store only partly covers waits until the store drains (see <a href="#/lsq/loads">Load and Store Queues</a>).</li>
+<li><strong>Partial forwarding:</strong> if a load took some bytes from a store and the rest from the cache, the cache bytes can be stale, so the load counts as cache-sourced. Many designs avoid the case entirely: a load that a store only partly covers waits until the store drains (see <a href="#/lsq/stores">The Store Queue</a>).</li>
 <li><strong>Forwarding from a store that hasn't retired:</strong> if that store is squashed, the load is younger and goes with it. That is part of the ordinary flush (see <a href="#/flush-recovery/lsq">Pipeline Flush and Recovery</a>), not a snoop issue.</li>
 </ul>
 
@@ -910,7 +910,7 @@ section({
 <p>Whatever structure the design counts as the point where a store performs has to be inside the coherence domain:</p>
 <ul>
 <li><strong>The L1 data cache</strong> is the usual point. It holds M before the write and answers snoops.</li>
-<li><strong>A write-combining or merge buffer</strong> that counts as visible (see <a href="#/lsq/store-coalescing">Store Coalescing</a>) has to hold M permission for its lines and answer snoops like a cache.</li>
+<li><strong>A write-combining or merge buffer</strong> that counts as visible (see <a href="#/store-coalescing/visible">Store Coalescing</a>) has to hold M permission for its lines and answer snoops like a cache.</li>
 <li><strong>A buffer that holds data with no permission and ignores snoops</strong> is a coherence bug if its contents count as performed. Two cores could each hold a "performed" write to X with no order between them.</li>
 </ul>
 <p>Fences and locked instructions interact with this point directly:</p>

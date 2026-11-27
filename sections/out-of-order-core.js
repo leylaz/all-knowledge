@@ -11,7 +11,7 @@ section({
     { id: "questions-that-matter", label: "The Questions That Matter" }
   ],
   body: `
-<p>An out-of-order core fetches and decodes in order, executes in dataflow order, and commits in order. The middle of the pipeline is where the performance lives. This region covers the window itself: the reorder buffer, retirement, and recovery. Renaming has its own region, <a href="#/r/ren">Register Renaming</a>, as do scheduling and execution, <a href="#/r/sched">Scheduling and Execution</a>, and the load and store queues are in <a href="#/r/mdep">Memory Ordering</a>.</p>
+<p>An out-of-order core fetches and decodes in order, executes in dataflow order, and commits in order. The middle of the pipeline is where the performance lives. This region covers the window itself: the reorder buffer, retirement, and recovery. Renaming has its own region, <a href="#/r/ren">Register Renaming</a>, as do scheduling and execution, <a href="#/r/sched">Scheduling and Execution</a>, and the load and store queues are in <a href="#/r/mord">Memory Ordering</a>.</p>
 <h3 id="sec-pipeline-pass">The Pipeline in One Pass</h3>
 <ol>
 <li><strong>Fetch and decode:</strong> branch prediction steers fetch; instructions are decoded (and on some ISAs cracked into micro-ops).</li>
@@ -264,7 +264,7 @@ section({
 </ul>
 
 <h3 id="sec-lsq">Load and Store Queues</h3>
-<p>The load and store queues are allocated in program order at dispatch, so, like the ROB, they recover by moving tail pointers. Each checkpoint (or the branch's own ROB entry) records the LQ and SQ tails at the time the branch was renamed (see <a href="#/lsq">Load and Store Queues</a>). Then:</p>
+<p>The load and store queues are allocated in program order at dispatch, so, like the ROB, they recover by moving tail pointers. Each checkpoint (or the branch's own ROB entry) records the LQ and SQ tails at the time the branch was renamed (see <a href="#/lsq">The Store Queue</a>). Then:</p>
 <ul>
 <li><strong>Squashed loads</strong> are dropped. If one has a cache miss outstanding, the MSHR usually still completes the fill and installs the line, but nothing is woken up. The load acted as a prefetch.</li>
 <li><strong>Squashed stores</strong> never wrote the cache, so they just disappear.</li>

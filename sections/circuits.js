@@ -297,7 +297,7 @@ section({
 <p>Given N request bits in a fixed order, a <strong>priority encoder</strong> reports the first one that is set, as a one-hot grant, a binary index, or both, plus a valid bit saying whether any request was set. Grant i is request i ANDed with the NOT of every request before it:</p>
 <div class="math">\\[ g_i = r_i \\land \\lnot (r_0 \\lor r_1 \\lor \\dots \\lor r_{i-1}) \\]</div>
 <p>The OR of everything before i is a <strong>prefix OR</strong>. As a chain it ripples through one gate per input. As a parallel prefix tree, the same structure as a carry-lookahead adder (see <a href="#/int-units/adders">Adders: Ripple Carry to Parallel Prefix</a>), it takes ⌈log<sub>2</sub> N⌉ levels, each ORing a signal with the one 2<sup>k</sup> places before it. For 64 inputs, the last grant waits on 62 ORs in series in a chain, against 6 levels in a tree. The binary index costs one more OR tree per output bit: bit k of the index is the OR of the grants whose position has bit k set.</p>
-<p><a href="#/lsq/priority-encoders">Priority Encoders</a> on the Load and Store Queues page draws the 8-input prefix tree, and shows how a circular queue, whose priority order starts at a moving mark, uses two encoders and a 2:1 mux instead of rotating its requests.</p>
+<p><a href="#/lsq-search/priority-encoders">Priority Encoders</a> on the LSQ Search Hardware page draws the 8-input prefix tree, and shows how a circular queue, whose priority order starts at a moving mark, uses two encoders and a 2:1 mux instead of rotating its requests.</p>
 <p>The same block appears in many places:</p>
 <ul>
 <li><strong>Select in a compacting scheduler</strong>, where the lowest position is the oldest (see <a href="#/wakeup/select">Select and the Critical Loop</a>).</li>

@@ -2334,7 +2334,7 @@ M(`<p>A low-power core’s 8-way instruction cache uses way selection. Per way, 
   id: "intv-lsq",
   title: "Loads, Stores and Memory Ordering",
   body: `
-<p>Background: <a href="#/lsq">Load and Store Queues</a>, <a href="#/mdp">Memory Dependence Prediction</a>, <a href="#/dcache">Data Cache</a>.</p>
+<p>Background: <a href="#/r/mord">Memory Ordering</a>, <a href="#/mdp">Memory Dependence Prediction</a>, <a href="#/dcache">Data Cache</a>.</p>
 <h3 id="sec-basics">Why Loads and Stores Are Special</h3>` +
 Q(`<p>Register dependences are known at rename. Why aren’t memory dependences, and what two separate correctness problems does that create for an out-of-order core?</p>`,
 `<p>A register dependence is visible in the instruction encoding: the names match. A memory dependence depends on <em>addresses</em>, which are computed at execution time, possibly from loads that haven’t returned. So at rename the core can’t know whether a load reads what an older store writes.</p>
