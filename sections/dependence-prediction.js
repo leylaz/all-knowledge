@@ -688,6 +688,112 @@ y = x;               /* load L */</code></pre>
 <li><strong>The end.</strong> The coupling lasts until the next cyclic clear, about every million cycles, after which the sets relearn.</li>
 </ol>
 <p>Merging has no cost while the merged sets are in flight at different times, and it becomes a slowdown when one rare alias joins two hot sets and the chain makes one set's stalls stall the other.</p>
+<p><strong>A set joined through SSIT aliasing.</strong> The SSIT has no tags, so an instruction whose PC indexes an entry that another instruction trained uses that entry's SSID as its own. It joins the set without ever violating. Keep S1 and L1 from the loop above, drop S2 and L2, and have the loop call a logging function:</p>
+<pre><code>void record(int v) {
+    log_buf[slot[v &amp; 0xffff]] = v;   /* SR: slot is 256 KiB, so slot[...] often misses L1D */
+}
+
+for (long i = 0; i &lt; n; i++) {
+    a[tbl[key[i]]] = v[i];             /* S1 */
+    record(v[i]);
+    x += a[p[i]];                      /* L1 */
+}</code></pre>
+<p>SR writes only <code>log_buf</code>, so it never writes a byte that L1 reads. Compiled for AArch64, with 4-byte instructions, and with <code>record</code> linked 16 KiB after the loop:</p>
+<pre><code>loop:                                   // x19 = i, x20 = a, x21 = tbl, x22 = key, x23 = v, x24 = p, x25 = n, w26 = x
+0x401a20  ldr  w8, [x22, x19, lsl #2]   // key[i]
+0x401a24  ldr  w8, [x21, w8, sxtw #2]   // tbl[key[i]], often misses L1D
+0x401a28  ldr  w0, [x23, x19, lsl #2]   // v[i]
+0x401a2c  str  w0, [x20, w8, sxtw #2]   // S1: a[tbl[key[i]]] = v[i]
+0x401a30  bl   record                   // record(v[i])
+0x401a34  ldr  w8, [x24, x19, lsl #2]   // p[i]
+0x401a38  ldr  w8, [x20, w8, sxtw #2]   // L1: a[p[i]]
+0x401a3c  add  w26, w26, w8             // x += a[p[i]]
+0x401a40  add  x19, x19, #1
+0x401a44  cmp  x19, x25
+0x401a48  b.lt 0x401a20
+
+record:                                 // w0 = v
+0x405a20  adrp x9, slot
+0x405a24  add  x9, x9, :lo12:slot
+0x405a28  adrp x11, log_buf
+0x405a2c  add  x11, x11, :lo12:log_buf
+0x405a30  and  w10, w0, #0xffff         // v &amp; 0xffff
+0x405a34  ldr  w10, [x9, w10, uxtw #2]  // slot[v &amp; 0xffff], often misses L1D
+0x405a38  str  w0, [x11, w10, sxtw #2]  // SR: log_buf[slot[v &amp; 0xffff]] = v
+0x405a3c  ret</code></pre>
+<p>Take a 4K-entry SSIT, the size the <a href="#/mdp-ssit/table-sizes">table size</a> results find costs nothing. With 4-byte instructions, PC bits 1 and 0 are always 0, so the index is PC bits 13 to 2:</p>
+<ul>
+<li>S1 at 0x401a2c indexes entry 0x68b</li>
+<li>L1 at 0x401a38 indexes entry 0x68e</li>
+<li>SR at 0x405a38 also indexes entry 0x68e, since its PC differs from L1's only in bit 14, which the index drops</li>
+</ul>
+<div class="tbl"><svg viewBox="0 0 680 350" role="img" aria-label="SSIT aliasing between L1 and SR. The loop body holds S1 at PC 0x401a2c, a store to a of tbl of key of i, and L1 at PC 0x401a38, a load of a of p of i. The record function, 16 KiB later, holds SR at PC 0x405a38, a store to log_buf. The 4K-entry SSIT is indexed by PC bits 13 to 2 with no tag. S1 indexes entry 0x68b, which holds SSID 1. L1 and SR both index entry 0x68e, which holds SSID 1, so SR is in set 1 without ever violating. Both entries lead to LFST entry 1. Below, in fetch order each iteration, S1 of iteration i misses on tbl, SR of iteration i waits for S1 and misses on slot, L1 of iteration i waits for SR, and S1 of iteration i plus 1 waits for SR of iteration i.">
+<defs><marker id="arrMD4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<text x="10" y="18" style="fill:var(--muted);font-size:12px;font-weight:600">4K-entry SSIT, indexed by PC bits 13 to 2, no tag</text>
+<g style="stroke-width:1.5">
+<rect x="10" y="30" width="300" height="96" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="10" y="146" width="300" height="56" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="400" y="40" width="140" height="144" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+<rect x="400" y="64" width="140" height="24" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="400" y="136" width="140" height="24" style="fill:var(--pad-soft);stroke:var(--pad)"/>
+<rect x="580" y="88" width="90" height="48" rx="3" style="fill:var(--surface);stroke:var(--muted)"/>
+</g>
+<g style="fill:none;stroke:var(--rule);stroke-width:1">
+<path d="M400,64 H540"/><path d="M400,88 H540"/><path d="M400,112 H540"/><path d="M400,136 H540"/><path d="M400,160 H540"/>
+</g>
+<g style="fill:var(--ink);font-size:12px;font-weight:600">
+<text x="18" y="48">Loop body</text>
+<text x="18" y="164">record(), 16 KiB later</text>
+</g>
+<g style="fill:var(--ink);font-family:var(--mono);font-size:11px">
+<text x="18" y="70">0x401a2c  str  S1  a[tbl[key[i]]]</text>
+<text x="18" y="88" style="fill:var(--muted)">0x401a30  bl   record</text>
+<text x="18" y="108">0x401a38  ldr  L1  a[p[i]]</text>
+<text x="18" y="188">0x405a38  str  SR  log_buf[...]</text>
+<text x="408" y="56" style="fill:var(--muted)">0x68a</text><text x="408" y="80">0x68b</text><text x="408" y="104" style="fill:var(--muted)">0x68c</text>
+<text x="408" y="128" style="fill:var(--muted)">0x68d</text><text x="408" y="152">0x68e</text><text x="408" y="176" style="fill:var(--muted)">0x68f</text>
+</g>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle">
+<text x="470" y="32" style="font-weight:600">SSIT</text>
+<text x="500" y="56" style="fill:var(--muted)">invalid</text><text x="500" y="80">SSID 1</text><text x="500" y="104" style="fill:var(--muted)">invalid</text>
+<text x="500" y="128" style="fill:var(--muted)">invalid</text><text x="500" y="152" style="font-weight:600">SSID 1</text><text x="500" y="176" style="fill:var(--muted)">invalid</text>
+<text x="625" y="108" style="font-weight:600">LFST[1]</text><text x="625" y="124">last store</text>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M300,66 H350 V76 H398" marker-end="url(#arrMD4)"/>
+<path d="M300,104 H360 V144 H398" marker-end="url(#arrMD4)"/>
+<path d="M300,184 H370 V152 H398" marker-end="url(#arrMD4)"/>
+<path d="M540,76 H560 V104 H578" marker-end="url(#arrMD4)"/>
+<path d="M540,148 H560 V120 H578" marker-end="url(#arrMD4)"/>
+</g>
+<text x="400" y="200" style="fill:var(--muted);font-size:11px">L1 and SR share entry 0x68e</text>
+<text x="10" y="236" style="fill:var(--muted);font-size:12px;font-weight:600">Each iteration, in fetch order (arrows point from a store to what waits for it)</text>
+<g style="stroke-width:1.5">
+<rect x="10" y="248" width="130" height="44" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="190" y="248" width="130" height="44" rx="3" style="fill:var(--pad-soft);stroke:var(--pad)"/>
+<rect x="370" y="248" width="130" height="44" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+<rect x="540" y="248" width="130" height="44" rx="3" style="fill:var(--trace-soft);stroke:var(--trace)"/>
+</g>
+<g style="fill:var(--ink);font-size:12px" text-anchor="middle">
+<text x="75" y="266" style="font-weight:600">S1 (i)</text><text x="75" y="283">tbl[...] miss</text>
+<text x="255" y="266" style="font-weight:600">SR (i)</text><text x="255" y="283">slot[...] miss</text>
+<text x="435" y="266" style="font-weight:600">L1 (i)</text><text x="435" y="283">waits for SR (i)</text>
+<text x="605" y="266" style="font-weight:600">S1 (i + 1)</text><text x="605" y="283">waits for SR (i)</text>
+</g>
+<g style="fill:none;stroke:var(--muted);stroke-width:1.5">
+<path d="M140,270 H188" marker-end="url(#arrMD4)"/>
+<path d="M320,270 H368" marker-end="url(#arrMD4)"/>
+<path d="M255,292 V318 H605 V294" marker-end="url(#arrMD4)"/>
+</g>
+<text x="340" y="336" style="fill:var(--muted);font-size:11px" text-anchor="middle">SR is the last fetched store of set 1 when L1 and the next S1 read LFST[1]</text>
+</svg></div>
+<ol>
+<li><strong>Training.</strong> L1 violates with S1. Neither has a set, so rule 1 allocates set 1 and writes SSID 1 into SSIT entries 0x68b and 0x68e.</li>
+<li><strong>The alias.</strong> SR is fetched and reads entry 0x68e. The entry is valid and holds SSID 1, and with no tag nothing can tell that L1 trained it, so SR is now a store of set 1. It reads LFST[1], finds S1, and chains behind it. Then it writes its own inum into LFST[1], so it's the last fetched store of set 1.</li>
+<li><strong>The coupling.</strong> L1 reads LFST[1] and gets SR, not S1. It still waits for S1 through the chain, so its true dependence holds, but it also waits for SR, and SR waits for its <code>slot[...]</code> miss. On an iteration where <code>tbl[key[i]]</code> hits and <code>slot[...]</code> misses, L1 used to issue right after S1 and now waits about a full miss, and the add chain on <code>x</code> waits with it. The next iteration's S1 chains behind this iteration's SR, so S1 and SR issue in program order across the whole loop.</li>
+<li><strong>No way out.</strong> SR never writes a byte L1 reads, so the false dependence never causes a violation, and nothing ever retrains entry 0x68e. A cyclic clear invalidates it, but the next violation between L1 and S1 writes SSID 1 back, and SR rejoins on its next fetch. The coupling lasts as long as the code layout. A larger SSIT, or an index that hashes in higher PC bits, moves collisions to other PC pairs, but some pairs still collide.</li>
+</ol>
+<p>Aliasing also changes what merging moves. Say SR had trained its own set 5 with a load L5 that reads <code>log_buf</code>. Entry 0x68e holds one SSID, so whichever pair trained last owns it. If it holds 5, L1 reads set 5, stops waiting for S1, and violates with it again. Both have sets, so by rule 4 set 1 wins and L1 moves to set 1 by a write to entry 0x68e. That one write moves SR too. L5 is still in set 5 and no longer waits for SR, so it violates with SR, and rule 4 pulls L5 into set 1. Two pairs that share no data now form one set, {S1, L1, SR, L5}, and it rebuilds the same way after every clear.</p>
 <p><strong>The same cascade with the paper's set shapes.</strong> The paper's example has three stores in set 1 and two in set 2. Written as stores on different paths, it looks like this:</p>
 <pre><code>for (int i = 0; i &lt; n; i++) {
     /* region 1: set 1 = {store x, store y, store z}, load 1 */
@@ -708,7 +814,7 @@ y = x;               /* load L */</code></pre>
 <li><strong>The stores get merged.</strong> Compilers often sink stores to the same address from every arm of an if/else into one store after the branch, so x, y, and z become one store PC, and so do j and k.</li>
 <li><strong>The loads can't pass their stores.</strong> Each store and its load take their address from the same <code>idx1[i]</code> or <code>idx2[i]</code>, and the store data is a constant. The store is ready no later than the load, and as the older instruction it issues first, so there's no violation to learn from.</li>
 </ul>
-<p>The shape is still realistic for code where the stores sit on different paths and reach the location through slower addresses than the load does. The first version keeps one store per set so the mechanism is easier to follow.</p>
+<p>The shape is still realistic for code where the stores sit on different paths and reach the location through slower addresses than the load does. The loop with S1 and S2 keeps one store per set so the mechanism is easier to follow.</p>
 <p>Without merging (each store simply takes the SSID of the latest load it violated with), IPC drops by an average of 12%. Examples from the paper's Figure 6.2, read from the chart:</p>
 <ul>
 <li>perl (primes): about 3.5 IPC without merging vs. 5.1 with it</li>
