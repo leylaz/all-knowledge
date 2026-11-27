@@ -33,7 +33,7 @@ section({
     interview: [
       {
         q: `<p>Explain memory dependence prediction to someone who knows branch prediction well. What carries over, and what is different?</p>`,
-        a: `<p>What carries over:</p><ul><li>Both are tables indexed by PC that learn from history, and both bet that past behavior of a static instruction predicts its next instance.</li><li>Both recover from a bad bet by flushing the wrong-path or stale work and refetching.</li><li>Both suffer from aliasing in untagged tables and from capacity misses as code footprints grow.</li></ul><p>What is different:</p><ul><li><strong>The two errors cost very different amounts.</strong> A false dependence delays the load until the store issues, which is bounded by how late the store's operands arrive. That's a few cycles normally, but tens to hundreds if the store's address or data depends on an L2 or DRAM miss, and it matters only if the load is on the critical path. A violation costs a flush. A branch predictor's two errors cost the same.</li><li><strong>It predicts a relation, not a bit.</strong> A good predictor names <em>which</em> store to wait for. A single "wait" bit makes the load wait for every older store.</li><li><strong>Training is one-sided.</strong> Violations are found by the load queue search, which is already required for correctness, so learning from it adds no new structure (it still costs CAM energy and ports). But nothing reports a needless wait unless extra comparators check the addresses. So tables only ever learn to wait, and need periodic clearing to forget.</li><li><strong>The penalty grows with the window,</strong> since a bigger window holds more older stores with unknown addresses and more younger work to squash.</li></ul>`
+        a: `<p>What carries over:</p><ul><li>Both are tables indexed by PC that learn from history, and both bet that past behavior of a static instruction predicts its next instance.</li><li>Both recover from a bad bet by flushing the wrong-path or stale work and refetching.</li><li>Both suffer from aliasing in untagged tables and from capacity misses as code footprints grow.</li></ul><p>What is different:</p><ul><li><strong>The two errors cost very different amounts.</strong> A false dependence delays the load until the store issues. That delay can be tens to hundreds of cycles if the store's address or data waits on an L2 or DRAM miss, and it only costs run time when the load is on the critical path. A violation costs a flush. A branch predictor's two errors cost the same.</li><li><strong>It predicts a relation, not a bit.</strong> A good predictor names <em>which</em> store to wait for. A single "wait" bit makes the load wait for every older store.</li><li><strong>Training is one-sided.</strong> Violations are detected by the load queue search the core already needs for correctness. But nothing reports a needless wait unless extra comparators check the addresses. So tables only ever learn to wait, and need periodic clearing to forget.</li><li><strong>The penalty grows with the window,</strong> since a bigger window holds more older stores with unknown addresses and more younger work to squash.</li></ul>`
       }
     ]
   }
@@ -1441,7 +1441,7 @@ y = p-&gt;count;   // load at PC 0x4a1c</code></pre>
 <p>A predictor that can name only one store per load fails toward violations, not false dependences. A named store that isn't in flight imposes no wait, so the load runs early and misses the store that did run. Take three paths that write the same location, then a load of it: <code>if (a) x = 1; else if (b) x = 2; else x = 3; ... y = x;</code> Each violation overwrites the single slot with the store that just caught the load. If the paths are random and equally likely, the load traps whenever this instance's path differs from the one it last trained on, about 2 in 3 instances. A strict rotation through the three paths traps every time.</p>
 <p>To test whether both kinds of flexibility matter, the paper ran three idealized configurations:</p>
 <ol>
-<li><strong>Each store in only one set, each set unbounded:</strong> a store that causes a violation moves to the set of the load it conflicted with last. Two loads can't share a store. Every move of a store between sets is paid for with a flush. Two loads that read one store, run alternately, each trap on their turn, so the store never settles. <a href="#/mdp-ssit/assignment">Store Sets in Hardware</a> calls this oscillation and fixes it with merging.</li>
+<li><strong>Each store in only one set, each set unbounded:</strong> a store that causes a violation moves to the set of the load it conflicted with last. Two loads can't share a store.</li>
 <li><strong>Each set holds one store, and a store can be in any number of sets:</strong> a new violation replaces the store in the load's set. A load can't depend on two stores.</li>
 <li><strong>"Infinite":</strong> no limits on set size or on how many sets a store is in.</li>
 </ol>
@@ -1454,27 +1454,35 @@ y = p-&gt;count;   // load at PC 0x4a1c</code></pre>
 <tr><td>vortex</td><td>≈ 1.24×</td><td>≈ 1.00×</td></tr>
 <tr><td>xlisp</td><td>≈ 1.24×</td><td>≈ 1.02×</td></tr>
 </table></div>
-<p>Either limit costs a lot of performance on some programs, and preventing loads from sharing a store hurts more. In a side experiment, the second configuration was allowed 2, 4, or 8 stores per load. Eight stores per load (an 8-way associative set) lost nothing, and 4 was nearly as good, with only perl (primes) losing much. Section 6 of the paper keeps both kinds of flexibility while using direct-mapped tables.</p>
+<p>Either limit costs a lot of performance on some programs, and preventing loads from sharing a store hurts more. One writer with several readers is the common case, and each time the store moves between two loads' sets, the move is paid for with a flush. With two readers alternating, each load traps on its turn and the store never settles. <a href="#/mdp-ssit/assignment">Store Sets in Hardware</a> calls this oscillation and fixes it with merging. In a side experiment, the second configuration was allowed 2, 4, or 8 stores per load. Eight stores per load (an 8-way associative set) lost nothing, and 4 was nearly as good, with only perl (primes) losing much. Section 6 of the paper keeps both kinds of flexibility while using direct-mapped tables.</p>
 
 <h3 id="sec-ideal">How Well Ideal Store Sets Do</h3>
 <p>Using the infinite configuration, the paper classifies each dynamic load (its Figure 5.2). Violations almost vanish in every program. The cost shows up as false dependences in a few programs: applu and xlisp have the most (roughly 25 to 30 per 1,000 instructions), and vortex, gcc, go, and swim have a few.</p>
 <p>The cause is that a store set only grows. Once a store PC is in a load's set, every later instance of the load waits for every in-flight instance of that store for the rest of the run. If the pair touches the same address only occasionally, the core pays many false dependences to avoid a few violations. Typical sources are indexed accesses such as <code>a[i]</code> against <code>a[j]</code>, histogram bins (<code>h[k]++</code> collides only when nearby keys land in one bin), and pointers that sometimes alias. That suggests tracking a <strong>working</strong> store set: the stores the load has depended on <em>recently</em>.</p>
+<p>A set that never forgets can turn one alias into a cache miss on every iteration:</p>
+<pre><code>for (int i = 0; i &lt; n; i++) {
+    arr[idx2[i]] = var0;   /* store 2: the load truly reads this every iteration */
+    arr[idx[i]]  = var1;   /* store 1: address idx[i] often misses in L1D */
+    var2 = arr[idx2[i]];   /* load 1 */
+}
+/* idx[i] == idx2[i] on exactly one iteration. */</code></pre>
+<p>On the one iteration where <code>idx[i]</code> equals <code>idx2[i]</code>, load 1 runs ahead of store 1 and violates, so store 1's PC joins load 1's set and stays there. On every later iteration, load 1 waits for store 1, and store 1 can't issue until <code>idx[i]</code> arrives, often from L2 or memory. The load pays a cache miss's worth of delay on each iteration for a dependence that happened once. A working store set (2-bit counters, below) or periodic clearing (on <a href="#/mdp-ssit/feedback">Store Sets in Hardware</a>) is meant to forget this pattern.</p>
 <p>The paper uses a fix borrowed from branch prediction: a 2-bit saturating counter on each store in a set.</p>
 <ul>
 <li>On a violation, the counter is set to its maximum, 3.</li>
 <li>After a load has been forced to wait for a store in its set, the two addresses are compared. If they really overlapped, the counter goes up by 1. If they didn't, it goes down by 1.</li>
 <li>The load waits for the store only while the counter's high bit is set.</li>
 </ul>
-<p>The decrement needs a training signal a plain store set doesn't have. A plain store set learns only from the positive signal, the violation the store's load queue search finds. The counter also needs to know, after a load waited on a store, whether their addresses really overlapped. A cheap source is the load's own store queue search after it issues. The load holds the inum of the store it waited on, so the search can report whether it hit that store's entry. In hardware the counter lives in the store's SSIT entry (see <a href="#/mdp-ssit/feedback">Clearing Stale Entries</a>), so the update must carry the store's SSIT index or PC. The inum names the store only while it is in flight.</p>
-<p>One corner case: between the store issuing and the waiting load searching the store queue, the store can retire and drain to the cache, for example when the load is also waiting on a slow address register. The search misses, and the counter decrements even though the addresses really overlapped. Repeated decrements let the load run early. The load queue then catches the violation and resets the counter to 3, so the cost is roughly one extra flush every few instances, never a wrong result. Two fixes:</p>
+<p>The decrement needs a signal plain store sets never get: whether a wait was needed. A plain store set learns only from the positive signal, the violation the store's load queue search finds. A cheap source for the negative signal is the load's own store queue search after it issues. The load holds the inum of the store it waited on, so "overlap" means the search matched that entry. In hardware the counter lives in the store's SSIT entry (see <a href="#/mdp-ssit/feedback">Clearing Stale Entries</a>), so the update must carry the store's SSIT index or PC. The inum names the store only while it is in flight.</p>
+<p>One corner case: between the store issuing and the waiting load searching the store queue, the store can retire and drain to the cache, for example when the load is also waiting on a slow address register. The search then misses, the overlap bit reads 0, and the counter decrements on a true dependence. There's no correctness problem. The load reads the committed value from the cache, and if the counter later drops below the high bit, the load runs early, the load queue catches the violation, and the counter resets to 3. The cost is extra violations in steady state. Two fixes:</p>
 <ul>
 <li><strong>Skip the update</strong> when the waited-on store has already left the queue. "Unknown" is not "no".</li>
 <li><strong>Latch the store's address</strong> when it broadcasts its inum, and compare the load's address against that.</li>
 </ul>
-<p>A reused store queue entry has its own trap. If the waited-on store's entry now holds a store younger than the load, the age compare masks it out only if it compares inums with their wrap bit. A bare index can't tell the new store from the old one.</p>
+<p>A reused store queue entry doesn't cause a false match. If the waited-on store's entry now holds a store younger than the load, the age compare (inum with its wrap bit) masks it out. A bare index without the wrap bit couldn't tell the new store from the old one.</p>
 <p>This lowers false dependences, at the risk of letting violations come back for patterns that a 2-bit counter can't follow. In practice, violations stayed rare (Figure 5.3), and applu was the only program left with many false dependences.</p>
 <p>Results (Figure 5.4): infinite store sets come close to perfect on every program. The worst is applu, at 10 to 14% below perfect, which is the program with the most false dependences. The counters help xlisp and applu slightly, but not by enough to clearly justify them. In a few programs, "perfect" was slightly <em>slower</em> than store sets. That's a modeling artifact: the perfect configuration also stops wrong-path execution after a branch mispredict, and wrong-path loads have both a prefetching benefit and a cache-thrashing cost, worth about ±2%. The conclusion: if hardware can approximate infinite store sets, it gets nearly perfect performance.</p>
-<p>The modeling takeaway: an oracle configuration should change only the thing it is an oracle for. If it also removes wrong-path execution, it loses wrong-path prefetching and pollution with it, so the "upper bound" can land below a real design. This matters when building limit studies in a performance model.</p>
+<p>The modeling lesson: an oracle configuration should change only the thing it is an oracle for, and this one also stopped wrong-path execution, which removed both the prefetching benefit and the cache pollution of wrong-path loads, so the "upper bound" could land below a real design.</p>
 <p class="refs">References: Chrysos and Emer, "Memory Dependence Prediction using Store Sets," ISCA 1998</p>`,
   practice: {
     guided: [
@@ -1512,6 +1520,7 @@ y = p-&gt;count;   // load at PC 0x4a1c</code></pre>
 <li><strong>A store is in at most one store set at a time</strong> (like configuration 1 on <a href="#/mdp-store-sets/store-sets">Store Sets</a>). Merging (next section) lets two loads that depend on the same store share one set.</li>
 <li><strong>Stores in one set execute in program order.</strong> A load in a set with several stores would need to wait for all of them, but hardware doesn't know which will finish last, and a load with several dependence tags makes the scheduler more complex. Instead, each store depends on the previous fetched store in its set, and each load depends on the last fetched store in its set. The stores form an in-order chain, and the load waits on the end of the chain, so it waits for all of them with one dependence.</li>
 </ul>
+<p>So the hardware gives up one load waiting on several store tags and one store in several sets, and its finite, direct-mapped, untagged tables alias. The chain recovers "wait for all in-flight stores in the set" with one tag. The stores issue in program order, so the last fetched store issues no earlier than any other store of the set, and a load waiting on it waits for all of them.</p>
 <p>The in-order chain has a second benefit. If two stores in a set both write address X and a load of X follows, the load really depends only on the second store. Because the two stores execute in order, the core doesn't need any write-after-write detection to work this out.</p>
 <p><strong>Does the chain delay loads?</strong> <a href="#/mdp/why">Goal 2</a> says a load should be delayed no longer than needed. Take a set {S1, S2}, in program order. The load really reads only S1's address. S1 is ready early, and S2's data comes from a load that missed in L2.</p>
 <ol>
@@ -1724,6 +1733,14 @@ y = p-&gt;count;   // load at PC 0x4a1c</code></pre>
 </svg></div>
 <ul>
 <li><strong>LFST invalidation:</strong> "After a store instruction issues, it accesses the LFST and invalidates the entry if it still refers to itself." A load fetched after this sees no valid store and doesn't wait. If a newer store of set X had already overwritten the entry, the entry stays, so later loads wait for that newer store.</li>
+<li><strong>If the store always invalidated:</strong> with S1 then S2 of one set in flight, the LFST holds S2's inum. S1 issues first and clears the entry. A later load of the set finds no store and runs ahead of S2. A later store of the set also misses its link to S2. Both turn a learned dependence back into a violation.</li>
+<li><strong>If the store never invalidated:</strong> a load renamed after S2 has issued reads S2's inum, but S2's wakeup broadcast has already gone out, so the load hangs. When S2 retires and its ROB index is reused, the new instruction is always younger than the load, because the tail reaches S2's freed slot only after passing the load. Three cases follow:
+<ul>
+<li>If the new instruction depends on the load, the core deadlocks.</li>
+<li>If it's a store that doesn't depend on the load, it wakes the load at an unrelated time.</li>
+<li>If it isn't a store, it never drives the memory tag bus, and only a hang watchdog or a flush frees the load.</li>
+</ul>
+This is the same rule as in Recovery above: a tag must mean "not issued yet" at the moment it is read, the same reason physical registers have ready bits.</li>
 </ul>
 <p><strong>Split stores.</strong> Many cores, Intel's since the P6, split a store into a store-address µop (STA) and a store-data µop (STD) that issue independently. The paper's footnote says it doesn't model this. A load that predicted a dependence almost always reads the bytes the store writes, so it needs both halves: the address to match the store in the store queue, and the data to forward. Waiting on both separately would take two mem fields and two comparators per entry, the extra scheduler cost the one-dependence rule avoids. Two designs keep one tag per load:</p>
 <ul>
@@ -1747,14 +1764,37 @@ y = p-&gt;count;   // load at PC 0x4a1c</code></pre>
 <li>If the store has a store set and the load doesn't, the load joins the store's set.</li>
 <li>If both have store sets, declare one set the "winner." Whichever of the two instructions belongs to the loser's set is moved into the winner's set.</li>
 </ol>
-<p>Rule 4 needs an arbitration that always picks the same winner between the same two sets. The paper picks the set with the smaller SSID. With this rule, oscillation becomes <strong>merging</strong>. Walking through the example again with set 1 as the winner:</p>
+<p>Rule 4 needs an arbitration that always picks the same winner between the same two sets. The paper picks the set with the smaller SSID. The winner must be fixed. If the load's set always won, the store would always be the one that moves, which is the same as no merging, and the two loads would keep taking store J from each other. With a fixed winner, membership only ever moves toward the smaller SSID. With this rule, oscillation becomes <strong>merging</strong>. Walking through the example again with set 1 as the winner:</p>
 <ol>
 <li>Load PC 1 violates with store J (in set 2). Rule 4: set 1 wins, so store J moves to set 1.</li>
 <li>Load PC 2 violates with store J (now in set 1). Rule 4 again: set 1 wins again, so this time load PC 2 moves to set 1.</li>
 <li>Load PC 2 later violates with store K, which is still alone in set 2 (no load points to it). Set 1 wins, so K moves to set 1.</li>
 <li>Now both loads and all of their stores are in set 1, and no more violations happen.</li>
 </ol>
-<p>The sets converge after a fixed number of traps. Merging can add false dependences, since load PC 1 now also waits for stores J and K. The paper found no measurable cost from this. Without merging (each store simply takes the SSID of the latest load it violated with), IPC drops by an average of 12%. Examples from the paper's Figure 6.2, read from the chart:</p>
+<p>Each violation between two sets either moves one instruction toward the winner or changes nothing, so the sets converge after a bounded number of traps. Merging can add false dependences, since load PC 1 now also waits for stores J and K. The paper found no measurable cost from this. Merged loads and stores usually sit in different code regions, so they're rarely in flight together. Even when they are, the extra wait matters only if the store issues later than the load's own operands would have let it.</p>
+<p>Merging can still hurt. In this loop, one rare alias joins two hot sets:</p>
+<pre><code>for (int i = 0; i &lt; n; i++) {
+    /* region 1: set 1 = {store x, store y, store z}, load 1 */
+    if (cond1)      arr[idx1[i]] = 1;   /* store x */
+    else if (cond2) arr[idx1[i]] = 2;   /* store y */
+    else            arr[idx1[i]] = 3;   /* store z */
+    var1 = arr[idx1[i]];                /* load 1 */
+
+    /* region 2: set 2 = {store j, store k}, load 2 */
+    if (cond1)      arr[idx2[i]] = 1;   /* store j */
+    else if (cond2) arr[idx2[i]] = 2;   /* store k */
+    var2 = arr[idx2[i]];                /* load 2 */
+}
+/* idx1[i] == idx2[i] on exactly one iteration, with cond1 and cond2 false.
+   After that, idx1[i] often misses in L1D. */</code></pre>
+<ol>
+<li>On the aliasing iteration, store z is the last writer of the address load 2 reads, and load 2 violates with it. Both have sets, so by rule 4 set 1 wins and load 2 moves to set 1. Stores j and k stay in set 2.</li>
+<li>Load 2 now reads LFST[1], not LFST[2], so it stops waiting for j and k. Those are true dependences, so it violates with j and then k on the next iterations where they run and it gets ahead of them, and rule 4 pulls each one into set 1. The merge costs a short cascade of traps, not one.</li>
+<li>Once settled, the in-order chain links the two regions. Store j waits for whichever of x, y, or z was fetched before it in that iteration. That store can't issue until <code>idx1[i]</code> arrives, and load 2 waits for j. One rare alias across the regions makes region 2's hot load inherit region 1's cache misses.</li>
+<li>The coupling lasts until the next cyclic clear, about every million cycles, after which the sets relearn.</li>
+</ol>
+<p>Merging has no cost while the merged sets are in flight at different times, and it becomes a slowdown when one rare alias joins two hot sets and the chain makes one set's stalls stall the other.</p>
+<p>Without merging (each store simply takes the SSID of the latest load it violated with), IPC drops by an average of 12%. Examples from the paper's Figure 6.2, read from the chart:</p>
 <ul>
 <li>perl (primes): about 3.5 IPC without merging vs. 5.1 with it</li>
 <li>wave5: about 2.6 IPC vs. 3.7</li>
@@ -1818,7 +1858,7 @@ y = p-&gt;count;   // load at PC 0x4a1c</code></pre>
     interview: [
       {
         q: `<p>When a store issues, the LFST entry for its set is invalidated only if it still holds that store's inum. What goes wrong if the store always invalidates its LFST entry, and what goes wrong if stores never invalidate it?</p>`,
-        a: `<p><strong>Always invalidate:</strong> a later store of the same set may have been fetched in the meantime and written its own inum into the entry. The older store's issue then erases the newer store from the LFST. A load fetched after that finds no in-flight store for its set and runs freely, so if it depends on the newer store it violates. The bug only shows up when two stores of one set are in flight together, which is exactly the merged-set case store sets are built for.</p><p><strong>Never invalidate:</strong> the entry keeps pointing at a store that has already issued or retired. A later load either waits for nothing, or, once that inum is reused by an unrelated instruction, takes a dependence on the wrong instruction. Either way loads wait when they shouldn't, which shows up as false dependences and lost IPC. The check also matters on a flush: squashed stores must be removed from the LFST so a refetched load doesn't wait on an instruction that no longer exists.</p>`
+        a: `<p><strong>Always invalidate:</strong> a later store of the same set may have been fetched in the meantime and written its own inum into the entry. The older store's issue then erases the newer store from the LFST. A load fetched after that finds no in-flight store for its set and runs freely, so if it depends on the newer store it violates. The bug only shows up when two stores of one set are in flight together, which is exactly the merged-set case store sets are built for.</p><p><strong>Never invalidate:</strong> the entry keeps pointing at a store that has already issued. A load renamed after that reads the store's inum, but the store's wakeup broadcast has already gone out, so the load hangs. Once the inum is reused, the new instruction is younger than the load. If it depends on the load, the core deadlocks. If it's an unrelated store, it wakes the load at an unrelated time. If it isn't a store, nothing ever wakes the load except a hang watchdog or a flush. A tag must mean "not issued yet" at the moment it is read, the same reason physical registers have ready bits. The check also matters on a flush: squashed stores must be removed from the LFST so a refetched load doesn't wait on an instruction that no longer exists.</p>`
       },
       {
         q: `<p>Size a store set predictor for a core with a 256-entry ROB, where an inum is the 8-bit ROB index. The SSIT has 2,048 entries and the LFST has 64 entries. Each entry in both tables has a valid bit. How many bytes do the SSIT and LFST need? Compare that with a 2,048-entry, 1-bit wait table, and explain what happens if you cut the SSIT to 256 entries to save area.</p>`,
