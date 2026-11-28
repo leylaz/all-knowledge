@@ -91,8 +91,8 @@ section({
 <div class="math chain"><span>\(\displaystyle P(A \mid B) = \frac{P(A \cap B)}{P(B)}, \quad P(B) > 0 \)</span></div>
 <p>Multiplying through gives the <strong>multiplication rule</strong>, which is how joint chances are usually built: first the chance of \(B\), then the chance of \(A\) once \(B\) is known.</p>
 <div class="math chain"><span>\(\displaystyle P(A \cap B) = P(A \mid B)\,P(B) \)</span><span>\(\displaystyle = P(B \mid A)\,P(A) \)</span></div>
-<p>Applied repeatedly, it becomes the <strong>chain rule</strong>: the chance that a sequence of events all happen is the first one's chance times each later one's chance given all the earlier ones.</p>
-<div class="math chain"><span>\(\displaystyle P(A_1 \cap A_2 \cap \cdots \cap A_n) = P(A_1)\,P(A_2 \mid A_1) \cdots P(A_n \mid A_1 \cap \cdots \cap A_{n-1}) \)</span></div>
+<p>Applied repeatedly, it becomes the <strong>chain rule</strong>: the chance that a sequence of events all happen is the first one's chance times each later one's chance given all the earlier ones. For three events it reads as follows, and longer lists add one factor per event.</p>
+<div class="math chain"><span>\(\displaystyle P(A_1 \cap A_2 \cap A_3) \)</span><span>\(\displaystyle = P(A_1)\,P(A_2 \mid A_1)\,P(A_3 \mid A_1 \cap A_2) \)</span></div>
 <p><strong>Three loads, 16 banks.</strong> Suppose 3 loads issue together to an L1D with 16 banks, each bank uniform and independent. "No conflict" means load 1 avoids load 0's bank and load 2 avoids both earlier banks. Given that the earlier loads used distinct banks, load 1 has 15 safe banks out of 16 and load 2 has 14.</p>
 <div class="math chain"><span>\(\displaystyle P(\text{no conflict}) = \frac{16}{16} \times \frac{15}{16} \times \frac{14}{16} \)</span><span>\(\displaystyle = \frac{105}{128} \)</span><span>\(\displaystyle \approx 0.820 \)</span></div>
 <p>So about 18% of such cycles see a conflict. The union bound over the 3 pairs of loads gives \(3 \times 1/16 = 18.75\%\), a little high because it counts a cycle where all three loads share a bank three times. The product form is the birthday problem, and the probability region's last page works out how it scales with the bank count.</p>
@@ -198,12 +198,13 @@ section({
 <tr><td>L3</td><td>50 cycles</td><td>0.012</td><td>0.6 cycles</td></tr>
 <tr><td>DRAM</td><td>300 cycles</td><td>0.003</td><td>0.9 cycles</td></tr>
 </table>
-<div class="math chain"><span>\(\displaystyle E[X] = 4 \times 0.95 + 14 \times 0.035 + 50 \times 0.012 + 300 \times 0.003\ \text{cycles} \)</span><span>\(\displaystyle = 5.79\ \text{cycles} \)</span></div>
+<p>Adding the last column gives the mean.</p>
+<div class="math chain"><span>\(\displaystyle E[X] = 3.8 + 0.49 + 0.6 + 0.9\ \text{cycles} \)</span><span>\(\displaystyle = 5.79\ \text{cycles} \)</span></div>
 <p>This is the average memory access time, and the table shows the expectation is the law of total probability applied to averages. The 0.3% of loads served by DRAM add 0.9 cycles, more than the 3.5% served by the L2.</p>
 
 <h3 id="sec-linear">Linearity of Expectation</h3>
-<p>For any two random variables on the same sample space, the expectation of the sum is the sum of the expectations. The proof only regroups a double sum over the joint distribution \(P(X = x, Y = y)\). Summing the joint chances over \(y\) leaves \(P(X = x)\), and summing over \(x\) leaves \(P(Y = y)\).</p>
-<div class="math chain"><span>\(\displaystyle E[X + Y] = \sum_{x, y} (x + y)\, P(X = x, Y = y) \)</span><span>\(\displaystyle = \sum_{x} x \sum_{y} P(X = x, Y = y) + \sum_{y} y \sum_{x} P(X = x, Y = y) \)</span><span>\(\displaystyle = \sum_{x} x\, P(X = x) + \sum_{y} y\, P(Y = y) \)</span><span>\(\displaystyle = E[X] + E[Y] \)</span></div>
+<p>For any two random variables on the same sample space, the expectation of the sum is the sum of the expectations. The proof only regroups a double sum over the joint distribution, written \(p(x, y) = P(X = x, Y = y)\). Summing the joint chances over \(y\) leaves \(P(X = x)\), and summing over \(x\) leaves \(P(Y = y)\).</p>
+<div class="math chain"><span>\(\displaystyle E[X + Y] = \sum_{x, y} (x + y)\, p(x, y) \)</span><span>\(\displaystyle = \sum_{x} x \sum_{y} p(x, y) + \sum_{y} y \sum_{x} p(x, y) \)</span><span>\(\displaystyle = \sum_{x} x\, P(X = x) + \sum_{y} y\, P(Y = y) \)</span><span>\(\displaystyle = E[X] + E[Y] \)</span></div>
 <p>Nothing in the proof asks whether \(X\) and \(Y\) are independent. The joint distribution can be anything, because it is summed away. With constants pulled out the same way, \(E[aX + b] = a\,E[X] + b\), and by induction the result covers any finite sum.</p>
 <div class="math chain"><span>\(\displaystyle E\Bigl[\sum_{i} a_i X_i\Bigr] = \sum_{i} a_i\, E[X_i] \)</span></div>
 <p><strong>CPI stacks are linearity.</strong> The cycles per instruction of a run are a base cost plus, for each kind of event, the events per instruction times the cycles each one exposes. Each term is the expectation of a different random count, and the counts are far from independent (a misprediction can trigger wrong-path misses), yet the expected total is still the sum of the terms. With a base CPI of 0.3, 0.008 mispredictions per instruction at 15 cycles each, and 0.002 LLC misses per instruction at 200 cycles each with half the latency hidden by overlap, the CPI is \(0.3 + 0.008 \times 15 + 0.002 \times 200 \times 0.5 = 0.62\). What linearity does not give is the right exposed cost per event. Overlap between events is where real CPI stacks need care.</p>
@@ -228,8 +229,8 @@ section({
 <p>Expanding the square and using linearity gives the shortcut used for almost every calculation: the mean of the square minus the square of the mean.</p>
 <div class="math chain"><span>\(\displaystyle \mathrm{Var}(X) = E[X^2] - 2\mu\,E[X] + \mu^2 \)</span><span>\(\displaystyle = E[X^2] - \mu^2 \)</span></div>
 <p>Shifting \(X\) by a constant does not change its spread, and scaling it scales the spread: \(\mathrm{Var}(aX + b) = a^2\,\mathrm{Var}(X)\). An indicator has \(E[I^2] = E[I] = p\), so its variance is \(p - p^2 = p(1-p)\), largest at \(p = 1/2\).</p>
-<p><strong>The load latency again.</strong> The mean of the square weights each squared latency by its chance.</p>
-<div class="math chain"><span>\(\displaystyle E[X^2] = 4^2 \times 0.95 + 14^2 \times 0.035 + 50^2 \times 0.012 + 300^2 \times 0.003\ \text{cycles}^2 \)</span><span>\(\displaystyle = 15.2 + 6.86 + 30 + 270\ \text{cycles}^2 \)</span><span>\(\displaystyle = 322.06\ \text{cycles}^2 \)</span></div>
+<p><strong>The load latency again.</strong> The mean of the square weights each squared latency by its chance: \(4^2 \times 0.95 = 15.2\), \(14^2 \times 0.035 = 6.86\), \(50^2 \times 0.012 = 30\), and \(300^2 \times 0.003 = 270\), all in cycles squared.</p>
+<div class="math chain"><span>\(\displaystyle E[X^2] = 15.2 + 6.86 + 30 + 270\ \text{cycles}^2 \)</span><span>\(\displaystyle = 322.06\ \text{cycles}^2 \)</span></div>
 <div class="math chain"><span>\(\displaystyle \mathrm{Var}(X) = 322.06\ \text{cycles}^2 - (5.79\ \text{cycles})^2 \)</span><span>\(\displaystyle = 288.5359\ \text{cycles}^2 \)</span><span>\(\displaystyle \Rightarrow\ \sigma \approx 16.99\ \text{cycles} \)</span></div>
 <p>The standard deviation is three times the mean, and 84% of \(E[X^2]\) comes from the 0.3% of loads that reach DRAM. Rare, long events dominate variance far more than they dominate the mean, because their size enters squared. This is why tail latency and run-to-run noise are driven by the memory system even when the average looks like an L1 hit.</p>
 
