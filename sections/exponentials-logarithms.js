@@ -259,7 +259,7 @@ section({
 <li>\((\log x)^2\) is not \(\log(x^2) = 2\log x\).</li>
 <li>Calling C's <code>log()</code> when \(\log_{10}\) or \(\log_2\) was meant. It returns \(\ln\).</li>
 <li>Forgetting the ceiling when \(N\) isn't a power of two. 10 ways need 4 bits, not 3.32.</li>
-<li>Taking logs of a sum of measurements to "average" them. Log averages (the geometric mean) apply to ratios such as speedups, not to raw times. The statistics region covers when each mean is right.</li>
+<li>Taking logs of a sum of measurements to "average" them. Log averages (the geometric mean) apply to ratios such as speedups, not to raw times. <a href="#/math-means">Means for Performance</a> covers when each mean is right.</li>
 </ul>
 `,
   practice: {
