@@ -23,11 +23,18 @@ section({
 <a href="#/math-cond/total"><span class="nm">Law of Total Probability</span><span class="f">\(P(A) = \displaystyle\sum_i P(A \mid B_i)\,P(B_i)\)</span></a>
 <a href="#/math-cond/bayes"><span class="nm">Bayes' Rule</span><span class="f">\(P(B \mid A) = \dfrac{P(A \mid B)\,P(B)}{P(A)}\)</span></a>
 <a href="#/math-cond/bayes"><span class="nm">Bayes in Odds Form</span><span class="f">\(\dfrac{P(B \mid A)}{P(\bar B \mid A)} = \dfrac{P(A \mid B)}{P(A \mid \bar B)} \cdot \dfrac{P(B)}{P(\bar B)}\)</span></a>
+<a href="#/math-rv/def"><span class="nm">Expectation</span><span class="f">\(E[X] = \displaystyle\sum_x x\,P(X = x)\)</span></a>
+<a href="#/math-rv/linear"><span class="nm">Linearity of Expectation</span><span class="f">\(E[X + Y] = E[X] + E[Y]\), always</span></a>
+<a href="#/math-rv/indicators"><span class="nm">Indicator Variable</span><span class="f">\(E[I_A] = P(A)\)</span></a>
+<a href="#/math-rv/variance"><span class="nm">Variance Shortcut</span><span class="f">\(\mathrm{Var}(X) = E[X^2] - E[X]^2\)</span></a>
+<a href="#/math-rv/cov"><span class="nm">Covariance</span><span class="f">\(\mathrm{Cov}(X, Y) = E[XY] - E[X]\,E[Y]\)</span></a>
+<a href="#/math-rv/sum"><span class="nm">Variance of a Sum</span><span class="f">\(\sigma^2_{X+Y} = \sigma^2_X + \sigma^2_Y + 2\,\mathrm{Cov}(X, Y)\)</span></a>
 </div>
 
 <h3 id="sec-pages-fit-together">How the Pages Fit Together</h3>
 <ul>
 <li><a href="#/math-cond">Events and Conditional Probability</a>: sample spaces and the three axioms, conditioning as shrinking the sample space, independence and how it differs from disjointness, the law of total probability, and Bayes' rule with branch confidence estimation and memory dependence prediction as the running examples.</li>
+<li><a href="#/math-rv">Random Variables, Expectation, and Variance</a>: expectation as a weighted average, linearity of expectation with no independence needed, counting with indicator variables, variance and why rare long events dominate it, covariance, and the variance of a sum, from the \(\sqrt{n}\) law to how correlation inflates it.</li>
 </ul>
 `,
   practice: {
@@ -152,6 +159,123 @@ section({
       {
         q: String.raw`<p>A counter-based monitor checks every time window for signs of a cache side-channel attack. When it raises an alarm, how likely is an attack to be running, how many false alarms per hour does it produce, and what changes if a second detector must agree?</p><p>Given:</p><ul><li>Window length: 10 ms, checked back to back, so 360,000 windows/hour</li><li>An attack is running in 1 window in 10,000</li><li>Detector A alarms in 99% of attack windows and in 0.5% of clean windows</li><li>Detector B, built on different counters, has the same two rates</li><li>Given whether a window holds an attack, A's and B's alarms are independent</li><li>The combined rule alarms only when both A and B alarm in the same window</li></ul>`,
         a: String.raw`<ol class="steps"><li><strong>Chance of an alarm.</strong> The law of total probability over attack and clean windows.<div class="math chain"><span>\(\displaystyle P(\text{A}) = 0.99 \times 10^{-4} + 0.005 \times (1 - 10^{-4}) \)</span><span>\(\displaystyle = 5.0985 \times 10^{-3} \)</span></div></li><li><strong>Posterior for one detector.</strong> Bayes' rule: the attack windows that alarm over all windows that alarm.<div class="math chain"><span>\(\displaystyle P(\text{attack} \mid \text{A}) = \frac{0.99 \times 10^{-4}}{5.0985 \times 10^{-3}} \)</span><span>\(\displaystyle \approx \mathbf{0.0194} \)</span></div>Fewer than 2 alarms in 100 are real, although detector A sounds excellent on paper.</li><li><strong>False alarms per hour.</strong> Clean windows times the false-alarm rate.<div class="math chain"><span>\(\displaystyle \frac{360{,}000\ \text{windows}}{1\ \text{hour}} \times (1 - 10^{-4}) \times 0.005 \)</span><span>\(\displaystyle \approx \mathbf{\frac{1800\ \textbf{false alarms}}{1\ \textbf{hour}}} \)</span></div>That is one every 2 seconds, against \(360{,}000 \times 0.99 \times 10^{-4} \approx 35.6\) attack windows flagged per hour.</li><li><strong>Two detectors in odds form.</strong> Because the alarms are independent given the window's state, the likelihood ratios multiply. Each detector's ratio is \(0.99 / 0.005 = 198\).<div class="math chain"><span>\(\displaystyle \frac{P(\text{attack} \mid \text{A}, \text{B})}{P(\text{clean} \mid \text{A}, \text{B})} = \left(\frac{0.99}{0.005}\right)^{2} \times \frac{10^{-4}}{1 - 10^{-4}} \)</span><span>\(\displaystyle = 39{,}204 \times 1.0001 \times 10^{-4} \)</span><span>\(\displaystyle \approx 3.921 \)</span></div></li><li><strong>Back to a probability.</strong><div class="math chain"><span>\(\displaystyle P(\text{attack} \mid \text{A}, \text{B}) = \frac{3.921}{1 + 3.921} \)</span><span>\(\displaystyle \approx \mathbf{0.797} \)</span></div></li><li><strong>Cost of requiring both.</strong> False alarms fall by another factor of 200, and detection falls only from 99% to \(0.99^2 \approx 98\%\) of attack windows.<div class="math chain"><span>\(\displaystyle \frac{360{,}000\ \text{windows}}{1\ \text{hour}} \times (1 - 10^{-4}) \times 0.005^{2} \)</span><span>\(\displaystyle \approx \mathbf{\frac{9\ \textbf{false alarms}}{1\ \textbf{hour}}} \)</span></div></li><li><strong>The assumption that carries it.</strong> Everything in steps 3 to 5 depends on conditional independence. If both detectors watch counters that react to the same benign event (a co-running streaming job thrashing the LLC), their false alarms coincide, the product rule fails, and the combined rate could stay near 1800 per hour. The real check is to measure \(P(\text{B} \mid \text{A}, \text{clean})\) directly. An attack also spans many consecutive windows, so a rule such as "alarm in 3 of 5 windows" buys a similar gain from time instead of from a second detector, with the same caveat that false alarms from one benign phase are correlated in time.</li></ol>`
+      }
+    ]
+  }
+},
+{
+  id: "math-rv",
+  region: "mprob",
+  title: "Random Variables, Expectation, and Variance",
+  sections: [
+    { id: "def", label: "Random Variables and Expectation" },
+    { id: "linear", label: "Linearity of Expectation" },
+    { id: "indicators", label: "Counting With Indicator Variables" },
+    { id: "variance", label: "Variance and Standard Deviation" },
+    { id: "cov", label: "Covariance and Correlation" },
+    { id: "sum", label: "The Variance of a Sum" },
+    { id: "uses", label: "Where It Shows Up" },
+    { id: "traps", label: "Common Traps" }
+  ],
+  body: String.raw`
+<p>Most quantities in a performance model are numbers that come out of a random process: the latency of a load, the number of mispredictions in an interval, the cycles an interval takes. A random variable is such a number, and two summaries of it carry most of the weight. The <strong>expectation</strong> is its long-run average, and it adds across a sum with no conditions at all, which turns hard counting problems into sums of simple probabilities. The <strong>variance</strong> measures how far it wanders from that average, and it adds across a sum only when the parts are uncorrelated. Correlated parts, such as mispredictions that cluster, make totals noisier than independent arithmetic predicts.</p>
+
+<h3 id="sec-def">Random Variables and Expectation</h3>
+<p>A <strong>random variable</strong> \(X\) is a rule that assigns a number to every outcome. Its <strong>distribution</strong> lists the values it can take and their chances, \(P(X = x)\), which is called the probability mass function when the values are discrete. The <strong>expectation</strong> (mean) is the average of the values weighted by their chances.</p>
+<div class="math chain"><span>\(\displaystyle E[X] = \sum_x x\, P(X = x) \)</span></div>
+<p>It is the number the running average of many independent copies settles on. For a function of \(X\), weight the function's values by the same chances, \(E[g(X)] = \sum_x g(x)\,P(X = x)\), with no need to find the distribution of \(g(X)\) first.</p>
+<p><strong>Load latency as a random variable.</strong> Let \(X\) be the latency of a load picked at random from a program's loads.</p>
+<table>
+<tr><th>Served by</th><th>Latency</th><th>Chance</th><th>Latency times chance</th></tr>
+<tr><td>L1D</td><td>4 cycles</td><td>0.95</td><td>3.8 cycles</td></tr>
+<tr><td>L2</td><td>14 cycles</td><td>0.035</td><td>0.49 cycles</td></tr>
+<tr><td>L3</td><td>50 cycles</td><td>0.012</td><td>0.6 cycles</td></tr>
+<tr><td>DRAM</td><td>300 cycles</td><td>0.003</td><td>0.9 cycles</td></tr>
+</table>
+<div class="math chain"><span>\(\displaystyle E[X] = 4 \times 0.95 + 14 \times 0.035 + 50 \times 0.012 + 300 \times 0.003\ \text{cycles} \)</span><span>\(\displaystyle = 5.79\ \text{cycles} \)</span></div>
+<p>This is the average memory access time, and the table shows the expectation is the law of total probability applied to averages. The 0.3% of loads served by DRAM add 0.9 cycles, more than the 3.5% served by the L2.</p>
+
+<h3 id="sec-linear">Linearity of Expectation</h3>
+<p>For any two random variables on the same sample space, the expectation of the sum is the sum of the expectations. The proof only regroups a double sum over the joint distribution \(P(X = x, Y = y)\). Summing the joint chances over \(y\) leaves \(P(X = x)\), and summing over \(x\) leaves \(P(Y = y)\).</p>
+<div class="math chain"><span>\(\displaystyle E[X + Y] = \sum_{x, y} (x + y)\, P(X = x, Y = y) \)</span><span>\(\displaystyle = \sum_{x} x \sum_{y} P(X = x, Y = y) + \sum_{y} y \sum_{x} P(X = x, Y = y) \)</span><span>\(\displaystyle = \sum_{x} x\, P(X = x) + \sum_{y} y\, P(Y = y) \)</span><span>\(\displaystyle = E[X] + E[Y] \)</span></div>
+<p>Nothing in the proof asks whether \(X\) and \(Y\) are independent. The joint distribution can be anything, because it is summed away. With constants pulled out the same way, \(E[aX + b] = a\,E[X] + b\), and by induction the result covers any finite sum.</p>
+<div class="math chain"><span>\(\displaystyle E\Bigl[\sum_{i} a_i X_i\Bigr] = \sum_{i} a_i\, E[X_i] \)</span></div>
+<p><strong>CPI stacks are linearity.</strong> The cycles per instruction of a run are a base cost plus, for each kind of event, the events per instruction times the cycles each one exposes. Each term is the expectation of a different random count, and the counts are far from independent (a misprediction can trigger wrong-path misses), yet the expected total is still the sum of the terms. With a base CPI of 0.3, 0.008 mispredictions per instruction at 15 cycles each, and 0.002 LLC misses per instruction at 200 cycles each with half the latency hidden by overlap, the CPI is \(0.3 + 0.008 \times 15 + 0.002 \times 200 \times 0.5 = 0.62\). What linearity does not give is the right exposed cost per event. Overlap between events is where real CPI stacks need care.</p>
+<p><strong>Products are not linear.</strong> \(E[XY] = E[X]\,E[Y]\) needs the variables to be uncorrelated (independence is enough). And \(E[g(X)] \ne g(E[X])\) for a curved \(g\). For the load latency above, \(E[1/X] \approx 0.240\) per cycle while \(1/E[X] \approx 0.173\) per cycle. Averaging rates and averaging times give different answers, which is the root of the arithmetic versus harmonic mean question in measurement.</p>
+
+<h3 id="sec-indicators">Counting With Indicator Variables</h3>
+<p>The <strong>indicator</strong> of an event \(A\) is the random variable \(I_A\) that is 1 when \(A\) happens and 0 otherwise. Its expectation is the event's probability.</p>
+<div class="math chain"><span>\(\displaystyle E[I_A] = 1 \cdot P(A) + 0 \cdot P(\bar A) \)</span><span>\(\displaystyle = P(A) \)</span></div>
+<p>Any count is a sum of indicators, one per thing that might be counted, so its expectation is a sum of probabilities.</p>
+<div class="math chain"><span>\(\displaystyle E[\text{count}] = \sum_{i} P(A_i) \)</span></div>
+<p>This is the most useful trick in the region. It never needs the distribution of the count, and the events can depend on each other in any way.</p>
+<ul>
+<li><strong>Expected misses.</strong> If access \(i\) misses with probability \(m_i\), the expected miss count is \(\sum m_i\), whether misses cluster or not. An analytical cache model only has to estimate each access's miss chance (from reuse distance, for example) and add.</li>
+<li><strong>Conflicting pairs.</strong> For 3 loads to 16 uniform banks, give each of the 3 pairs an indicator for "same bank", each with chance \(1/16\). The expected number of conflicting pairs is \(3/16 = 0.1875\), exactly, even though the pairs share loads. The chance of at least one conflict is \(1 - 105/128 \approx 0.180\), a little lower, because a count's chance of being at least 1 can never exceed its mean when the count takes whole values (Markov's inequality, \(P(N \ge 1) \le E[N]\)).</li>
+<li><strong>Distinct banks touched.</strong> Bank \(b\) is untouched by all 3 loads with probability \((15/16)^3\). Summing the "touched" indicators over the 16 banks gives \(16\,(1 - (15/16)^3) \approx 2.816\) distinct banks on average.</li>
+<li><strong>Records.</strong> Item \(k\) of a random sequence (counting from 1) is a new maximum with chance \(1/k\), so the expected number of records is the harmonic number \(H_n\) (<a href="#/math-harm/collector">Waiting for the Last New Item</a> uses the same move for the coupon collector).</li>
+</ul>
+
+<h3 id="sec-variance">Variance and Standard Deviation</h3>
+<p>The <strong>variance</strong> is the expected squared distance from the mean, written with \(\mu = E[X]\). Its square root, the <strong>standard deviation</strong> \(\sigma\), is in the same units as \(X\).</p>
+<div class="math chain"><span>\(\displaystyle \mathrm{Var}(X) = E\bigl[(X - \mu)^2\bigr] \)</span></div>
+<p>Expanding the square and using linearity gives the shortcut used for almost every calculation: the mean of the square minus the square of the mean.</p>
+<div class="math chain"><span>\(\displaystyle \mathrm{Var}(X) = E[X^2] - 2\mu\,E[X] + \mu^2 \)</span><span>\(\displaystyle = E[X^2] - \mu^2 \)</span></div>
+<p>Shifting \(X\) by a constant does not change its spread, and scaling it scales the spread: \(\mathrm{Var}(aX + b) = a^2\,\mathrm{Var}(X)\). An indicator has \(E[I^2] = E[I] = p\), so its variance is \(p - p^2 = p(1-p)\), largest at \(p = 1/2\).</p>
+<p><strong>The load latency again.</strong> The mean of the square weights each squared latency by its chance.</p>
+<div class="math chain"><span>\(\displaystyle E[X^2] = 4^2 \times 0.95 + 14^2 \times 0.035 + 50^2 \times 0.012 + 300^2 \times 0.003\ \text{cycles}^2 \)</span><span>\(\displaystyle = 15.2 + 6.86 + 30 + 270\ \text{cycles}^2 \)</span><span>\(\displaystyle = 322.06\ \text{cycles}^2 \)</span></div>
+<div class="math chain"><span>\(\displaystyle \mathrm{Var}(X) = 322.06\ \text{cycles}^2 - (5.79\ \text{cycles})^2 \)</span><span>\(\displaystyle = 288.5359\ \text{cycles}^2 \)</span><span>\(\displaystyle \Rightarrow\ \sigma \approx 16.99\ \text{cycles} \)</span></div>
+<p>The standard deviation is three times the mean, and 84% of \(E[X^2]\) comes from the 0.3% of loads that reach DRAM. Rare, long events dominate variance far more than they dominate the mean, because their size enters squared. This is why tail latency and run-to-run noise are driven by the memory system even when the average looks like an L1 hit.</p>
+
+<h3 id="sec-cov">Covariance and Correlation</h3>
+<p>The <strong>covariance</strong> measures whether two variables tend to sit above their means together. Expanding it the same way as the variance gives the shortcut.</p>
+<div class="math chain"><span>\(\displaystyle \mathrm{Cov}(X, Y) = E\bigl[(X - \mu_X)(Y - \mu_Y)\bigr] \)</span><span>\(\displaystyle = E[XY] - \mu_X\,\mu_Y \)</span></div>
+<p>The variance is the covariance of a variable with itself. If \(X\) and \(Y\) are independent, the joint chances factor, so \(E[XY] = E[X]\,E[Y]\) and the covariance is 0. The converse fails: take \(X\) equal to \(-1\), 0, or 1 with chance \(1/3\) each and \(Y = X^2\). Then \(E[XY] = E[X^3] = 0\) and \(E[X] = 0\), so the covariance is 0, yet \(Y\) is a function of \(X\). Covariance detects only linear association.</p>
+<p>Dividing by both standard deviations gives the <strong>correlation coefficient</strong>, which has no units and always lies between \(-1\) and 1 (by the Cauchy-Schwarz inequality), reaching the ends only when one variable is an exact linear function of the other.</p>
+<div class="math chain"><span>\(\displaystyle \rho_{XY} = \frac{\mathrm{Cov}(X, Y)}{\sigma_X\,\sigma_Y} \)</span></div>
+<p>For two indicators, the covariance has a direct reading: \(\mathrm{Cov}(I_A, I_B) = P(A \cap B) - P(A)\,P(B)\), which is positive exactly when \(A\) makes \(B\) more likely.</p>
+
+<h3 id="sec-sum">The Variance of a Sum</h3>
+<p>Expand the square of the centered sum. The squared terms give the variances, and the cross terms give every covariance twice.</p>
+<div class="math chain"><span>\(\displaystyle \mathrm{Var}\Bigl(\sum_{i} X_i\Bigr) = E\Bigl[\Bigl(\sum_{i} (X_i - \mu_i)\Bigr)^2\Bigr] \)</span><span>\(\displaystyle = \sum_{i} \mathrm{Var}(X_i) + 2\sum_{i < j} \mathrm{Cov}(X_i, X_j) \)</span></div>
+<p>If the variables are uncorrelated (in particular, if they are independent), the covariances vanish and the variances simply add. That has a consequence worth memorizing. For \(n\) independent copies of a variable with mean \(\mu\) and standard deviation \(\sigma\), the sum has mean \(n\mu\) but standard deviation only \(\sigma\sqrt{n}\), so the relative spread shrinks like \(1/\sqrt{n}\).</p>
+<div class="math chain"><span>\(\displaystyle \frac{\sigma_{\text{sum}}}{\mu_{\text{sum}}} = \frac{\sigma\sqrt{n}}{n\mu} \)</span><span>\(\displaystyle = \frac{\sigma}{\mu\sqrt{n}} \)</span></div>
+<p>Over 1,000,000 branches that each mispredict independently with chance 0.02, the count has mean 20,000 and standard deviation \(\sqrt{10^6 \times 0.02 \times 0.98} = 140\), a relative spread of 0.7%. This \(\sqrt{n}\) law is what makes sampled simulation work: averaging many short samples converges on the true mean.</p>
+<p><strong>Correlation undoes it.</strong> If \(n\) variables each have variance \(\sigma^2\) and every pair has correlation \(\rho\), there are \(n(n-1)/2\) pairs, and the sum's variance becomes the following.</p>
+<div class="math chain"><span>\(\displaystyle \mathrm{Var}\Bigl(\sum_{i=1}^{n} X_i\Bigr) = n\sigma^2 + n(n-1)\,\rho\,\sigma^2 \)</span><span>\(\displaystyle = n\sigma^2\,\bigl(1 + (n-1)\rho\bigr) \)</span></div>
+<p>With \(n = 10^4\) and a correlation of only \(\rho = 0.01\), the factor \(1 + (n-1)\rho\) is about 101, so the standard deviation is about 10 times what independence predicts. Programs have phases, so per-interval measurements are positively correlated, and a naive \(\sigma/\sqrt{n}\) error bar is far too optimistic unless the samples are spread out enough to decorrelate them. Negative correlation works the other way, which is why balancing loads across banks or interleaving antithetic samples reduces variance.</p>
+
+<h3 id="sec-uses">Where It Shows Up</h3>
+<ul>
+<li><strong>Average memory access time and CPI stacks.</strong> Both are expectations built by linearity from per-event rates and per-event costs.</li>
+<li><strong>Analytical cache and predictor models.</strong> Expected misses, conflicts, or aliasing events are sums of per-access or per-pair probabilities, with indicators doing the counting.</li>
+<li><strong>Tail latency.</strong> Variance and the squared contributions of rare events explain why a small DRAM share sets the spread of load latency and of request latency in a server.</li>
+<li><strong>Sampled simulation.</strong> SMARTS-style sampling relies on the \(1/\sqrt{n}\) shrinking of the relative error, and on the samples being far enough apart to be nearly uncorrelated.</li>
+<li><strong>Run-to-run noise.</strong> A benchmark's time is a sum of phase times. Shared state (frequency, temperature, a noisy neighbor) correlates the phases and inflates the variance of the total.</li>
+<li><strong>Bursty events.</strong> Correlated mispredictions or misses keep the same mean count but widen its spread, which matters for queue sizing and for how many samples a measurement needs.</li>
+</ul>
+
+<h3 id="sec-traps">Common Traps</h3>
+<ul>
+<li><strong>Linearity needs no independence, variance does.</strong> \(E[X + Y] = E[X] + E[Y]\) always. \(\mathrm{Var}(X + Y) = \mathrm{Var}(X) + \mathrm{Var}(Y)\) only when the covariance is 0.</li>
+<li><strong>Differences add variance.</strong> \(\mathrm{Var}(X - Y) = \mathrm{Var}(X) + \mathrm{Var}(Y) - 2\,\mathrm{Cov}(X, Y)\). For independent runs the variances add, so the difference of two noisy measurements is noisier than either one. Pairing runs on the same inputs makes the covariance positive and shrinks the noise of the difference.</li>
+<li><strong>The mean of a function is not the function of the mean.</strong> \(E[1/X] \ne 1/E[X]\), so averaging IPCs and inverting is not averaging CPIs.</li>
+<li><strong>Zero covariance is not independence.</strong> \(Y = X^2\) with \(X\) symmetric about 0 has zero covariance with \(X\).</li>
+<li><strong>Standard deviation does not add.</strong> For independent parts, add the variances and then take the square root. Adding standard deviations overstates the spread.</li>
+<li><strong>Units of variance.</strong> Variance is in squared units (cycles squared). Compare standard deviations with means, never variances.</li>
+</ul>
+`,
+  practice: {
+    guided: [
+      {
+        q: String.raw`<p>A hash join probes a hash table at random. How many distinct 4 KiB pages of the table should the probes be expected to touch, and how many probes land on a page that an earlier probe already touched?</p><p>Given:</p><ul><li>Hash table: 2 MiB, laid out as 512 pages of 4 KiB</li><li>Probes: 1000, each to a page chosen uniformly at random and independently</li><li>\(\ln(511/512) \approx -0.0019550\)</li></ul>`,
+        a: String.raw`<ol class="steps"><li><strong>Set up indicators.</strong> For each page \(j\) (\(j = 0\) to 511), let \(I_j\) be 1 when at least one probe touches page \(j\). The number of distinct pages is \(\sum I_j\), so its expectation is 512 times the chance that a given page is touched.</li><li><strong>Chance that a page is never touched.</strong> Each probe misses page \(j\) with chance \(511/512\), and the 1000 probes are independent.<div class="math chain"><span>\(\displaystyle P(\text{page untouched}) = \left(\frac{511}{512}\right)^{1000} \)</span><span>\(\displaystyle = e^{1000 \times \ln(511/512)} \)</span><span>\(\displaystyle \approx e^{-1.9550} \)</span><span>\(\displaystyle \approx 0.14156 \)</span></div></li><li><strong>Expected distinct pages.</strong> By linearity, add the 512 equal chances of being touched.<div class="math chain"><span>\(\displaystyle E[\text{distinct}] = 512\ \text{pages} \times P(\text{touched}) \)</span><span>\(\displaystyle = 512\ \text{pages} \times \bigl(1 - (511/512)^{1000}\bigr) \)</span><span>\(\displaystyle \approx 512\ \text{pages} \times 0.85844 \)</span><span>\(\displaystyle \approx \mathbf{439.5}\ \textbf{pages} \)</span></div></li><li><strong>Probes that land on an already touched page.</strong> Every probe either touches a page for the first time or repeats one, so the repeats are the probes minus the distinct pages.<div class="math chain"><span>\(\displaystyle E[\text{repeats}] = 1000\ \text{probes} - 439.5\ \text{probes} \)</span><span>\(\displaystyle \approx \mathbf{560.5}\ \textbf{probes} \)</span></div></li><li><strong>What it means.</strong> The 1000 probes need about 440 page translations. They fit in a 2048-entry L2 TLB but not in a 64-entry L1 DTLB, so most probes miss the L1 DTLB and pay an L2 TLB lookup. Mapping the table with one 2 MiB page instead needs a single translation. The indicator argument never needed the distribution of the distinct-page count, and \(e^{-1000/512} \approx 0.1418\) would have given almost the same untouched share.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: String.raw`<p>Mispredictions in a trace come in correlated pairs. Over a window of branches, what are the mean and standard deviation of the misprediction count, and how do they compare with the independent model?</p><p>Given:</p><ul><li>Window: 10,000 consecutive dynamic branches, numbered 0 to 9999</li><li>Each branch mispredicts with probability 0.03</li><li>Two adjacent branches (\(i\) and \(i + 1\)) both mispredict with probability 0.006 (a joint probability, not a conditional one)</li><li>The window does not wrap around, so it holds 9999 adjacent pairs</li><li>Mispredictions of branches 2 or more apart are independent</li><li>Independent model for comparison: every pair of branches independent, same 0.03 rate</li></ul>`,
+        a: String.raw`<ol class="steps"><li><strong>Mean.</strong> Let \(X_i\) be the indicator that branch \(i\) mispredicts. By linearity the mean count is the sum of 10,000 equal chances, and correlation plays no part.<div class="math chain"><span>\(\displaystyle E\Bigl[\sum_{i=0}^{9999} X_i\Bigr] = 10{,}000\ \text{branches} \times 0.03 \)</span><span>\(\displaystyle = \mathbf{300}\ \textbf{mispredictions} \)</span></div></li><li><strong>Variance of one indicator.</strong><div class="math chain"><span>\(\displaystyle \mathrm{Var}(X_i) = 0.03 \times (1 - 0.03) \)</span><span>\(\displaystyle = 0.0291 \)</span></div></li><li><strong>Covariance of neighbors.</strong> For indicators, the covariance is the joint chance minus the product of the single chances. Pairs 2 or more apart have covariance 0.<div class="math chain"><span>\(\displaystyle \mathrm{Cov}(X_i, X_{i+1}) = 0.006 - 0.03^2 \)</span><span>\(\displaystyle = 0.0051 \)</span></div>The correlation coefficient is \(0.0051 / 0.0291 \approx 0.175\). Put another way, a misprediction raises the chance that the next branch also mispredicts from 0.03 to \(0.006 / 0.03 = 0.2\).</li><li><strong>Variance of the count.</strong> There are 9999 adjacent pairs, and each covariance appears twice in the variance of a sum.<div class="math chain"><span>\(\displaystyle \mathrm{Var} = 10{,}000 \times 0.0291 + 2 \times 9999 \times 0.0051 \)</span><span>\(\displaystyle = 291 + 101.9898 \)</span><span>\(\displaystyle = 392.9898\ \text{mispredictions}^2 \)</span></div><div class="math chain"><span>\(\displaystyle \sigma = \sqrt{392.9898}\ \text{mispredictions} \)</span><span>\(\displaystyle \approx \mathbf{19.8}\ \textbf{mispredictions} \)</span></div></li><li><strong>Compare with independence.</strong> Without the covariance terms, the variance is 291 and the standard deviation \(\sqrt{291} \approx 17.1\) mispredictions. The mean is the same 300, but the correlated count's standard deviation is about 16% larger (\(\sqrt{392.9898 / 291} \approx 1.162\)).</li><li><strong>Why it matters.</strong> Error bars built on the independent model are too narrow, and the gap grows with longer-range correlation. If every pair of branches up to 19 apart had the same 0.0051 covariance, there would be 189,810 correlated pairs instead of 9999, the variance would be \(291 + 2 \times 189{,}810 \times 0.0051 \approx 2227\), and the standard deviation about 47.2 mispredictions, 2.8 times the independent value. Clustering also matters beyond the count. Two mispredictions close together often overlap in the pipeline, so the cycles lost are fewer than twice one misprediction's penalty, which a model that multiplies the mean count by a fixed penalty misses.</li></ol>`
       }
     ]
   }
