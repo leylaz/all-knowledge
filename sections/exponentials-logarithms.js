@@ -17,23 +17,28 @@ section({
 <h3 id="sec-cheat">Cheat Sheet</h3>
 <p>The rules worth knowing cold. Each card links to where it is derived.</p>
 <div class="cheat">
-<a href="#/math-exp/rules"><span class="nm">Product and Power of Powers</span>\(a^m a^n = a^{m+n}, \quad (a^m)^n = a^{mn}\)</a>
-<a href="#/math-exp/rules"><span class="nm">Zero, Negative, Fractional Exponents</span>\(a^0 = 1, \quad a^{-n} = \dfrac{1}{a^n}, \quad a^{1/n} = \sqrt[n]{a}\)</a>
-<a href="#/math-exp/compounding"><span class="nm">The Number e</span>\(e = \displaystyle\lim_{n\to\infty}\left(1+\frac{1}{n}\right)^{n} \approx 2.71828\)</a>
-<a href="#/math-exp/rate"><span class="nm">Growth Proportional to Amount</span>\(\dfrac{dy}{dt} = ky \;\Rightarrow\; y = y_0\, e^{kt}\)</a>
-<a href="#/math-exp/series"><span class="nm">Series for e to the x</span>\(e^x = \displaystyle\sum_{n=0}^{\infty} \frac{x^n}{n!}\)</a>
-<a href="#/math-log/def"><span class="nm">Definition of a Logarithm</span>\(\log_b x = y \iff b^y = x\)</a>
-<a href="#/math-log/rules"><span class="nm">Product and Power Rules</span>\(\log(xy) = \log x + \log y, \quad \log x^k = k\log x\)</a>
-<a href="#/math-log/rules"><span class="nm">Change of Base</span>\(\log_b x = \dfrac{\ln x}{\ln b}, \quad b^x = e^{x\ln b}\)</a>
-<a href="#/math-log/ln"><span class="nm">Slope of ln</span>\(\dfrac{d}{dx}\ln x = \dfrac{1}{x}, \quad \ln x = \displaystyle\int_1^x \frac{dt}{t}\)</a>
-<a href="#/math-log/bits"><span class="nm">Bits to Name N Things</span>\(k = \lceil \log_2 N \rceil\)</a>
-<a href="#/math-log/scales"><span class="nm">Power-Law Exponent From Two Points</span>\(k = \dfrac{\ln(y_2/y_1)}{\ln(x_2/x_1)}\)</a>
+<a href="#/math-exp/rules"><span class="nm">Product and Power of Powers</span><span class="f">\(a^m a^n = a^{m+n}\)</span><span class="f">\((a^m)^n = a^{mn}\)</span></a>
+<a href="#/math-exp/rules"><span class="nm">Zero, Negative, Fractional Exponents</span><span class="f">\(a^0 = 1\)</span><span class="f">\(a^{-n} = \dfrac{1}{a^n}\)</span><span class="f">\(a^{1/n} = \sqrt[n]{a}\)</span></a>
+<a href="#/math-exp/compounding"><span class="nm">The Number e</span><span class="f">\(e = \displaystyle\lim_{n\to\infty}\left(1+\frac{1}{n}\right)^{n} \approx 2.71828\)</span></a>
+<a href="#/math-exp/rate"><span class="nm">Growth Proportional to Amount</span><span class="f">\(\dfrac{dy}{dt} = ky \;\Rightarrow\; y = y_0\, e^{kt}\)</span></a>
+<a href="#/math-exp/series"><span class="nm">Series for e to the x</span><span class="f">\(e^x = \displaystyle\sum_{n=0}^{\infty} \frac{x^n}{n!}\)</span></a>
+<a href="#/math-log/def"><span class="nm">Definition of a Logarithm</span><span class="f">\(\log_b x = y \iff b^y = x\)</span></a>
+<a href="#/math-log/rules"><span class="nm">Product and Power Rules</span><span class="f">\(\log(xy) = \log x + \log y\)</span><span class="f">\(\log x^k = k\log x\)</span></a>
+<a href="#/math-log/rules"><span class="nm">Change of Base</span><span class="f">\(\log_b x = \dfrac{\ln x}{\ln b}\)</span><span class="f">\(b^x = e^{x\ln b}\)</span></a>
+<a href="#/math-log/ln"><span class="nm">Slope of ln</span><span class="f">\(\dfrac{d}{dx}\ln x = \dfrac{1}{x}\)</span><span class="f">\(\ln x = \displaystyle\int_1^x \frac{dt}{t}\)</span></a>
+<a href="#/math-log/bits"><span class="nm">Bits to Name N Things</span><span class="f">\(k = \lceil \log_2 N \rceil\)</span></a>
+<a href="#/math-log/scales"><span class="nm">Power-Law Exponent From Two Points</span><span class="f">\(k = \dfrac{\ln(y_2/y_1)}{\ln(x_2/x_1)}\)</span></a>
+<a href="#/math-approx/linear"><span class="nm">First-Order Approximations</span><span class="f">\(e^x \approx 1 + x\)</span><span class="f">\(\ln(1+x) \approx x\)</span></a>
+<a href="#/math-approx/small-p"><span class="nm">Small Chances Over Many Tries</span><span class="f">\((1-p)^n \approx e^{-np}\)</span></a>
+<a href="#/math-approx/doubling"><span class="nm">Doubling Time</span><span class="f">\(t_2 = \dfrac{\ln 2}{\ln(1+r)} \approx \dfrac{0.693}{r}\)</span></a>
+<a href="#/math-approx/stirling"><span class="nm">Stirling's Approximation</span><span class="f">\(\ln n! \approx n\ln n - n + \tfrac12 \ln(2\pi n)\)</span></a>
 </div>
 
 <h3 id="sec-pages-fit-together">How the Pages Fit Together</h3>
 <ul>
 <li><a href="#/math-exp">Exponents and Euler's Number</a>: what an exponent means, why the rules for zero, negative, and fractional exponents are forced, where \(e\) comes from, and why it is the natural base.</li>
 <li><a href="#/math-log">Logarithms and Their Rules</a>: the log as the inverse of the exponential, every log rule derived from an exponent rule, change of base, the natural log as the area under \(1/x\), counting bits and tree levels, and reading power laws on log-log axes.</li>
+<li><a href="#/math-approx">Approximations and Growth Rates</a>: the first-order approximations with their errors, small chances over many tries, doubling times and the rule of 72, compounding percentages, how growth rates rank, and Stirling's approximation.</li>
 </ul>
 `,
   practice: {
@@ -268,6 +273,103 @@ section({
       {
         q: String.raw`<p>A workload's L2 miss rate was measured at two cache sizes. Fit a power law, predict the miss rate at a size you didn't measure, and say how much capacity it would take to halve the misses again.</p><p>Given:</p><ul><li>At 512 KiB: 12.0 misses/kilo-instruction</li><li>At 2 MiB (2048 KiB): 6.3 misses/kilo-instruction</li><li>Assume the miss rate follows \(m = a\, C^{k}\) for capacity \(C\) across the range of interest, with the same line size and associativity at every size</li><li>Size to predict: 3 MiB (3072 KiB)</li><li>"Halve again" means going from 6.3 misses/kilo-instruction at 2 MiB to 3.15 misses/kilo-instruction</li></ul>`,
         a: String.raw`<ol class="steps"><li><strong>Why a straight line on log-log axes.</strong> Taking logs of \(m = a C^{k}\) gives \(\ln m = \ln a + k \ln C\). That is a line in \(\ln C\) with slope \(k\), so two points determine it, and \(a\) cancels when comparing them.</li><li><strong>Fit the exponent.</strong> Divide the two measurements so that \(a\) cancels, then take logs to bring \(k\) down.<div class="math chain"><span>\(\displaystyle k = \frac{\ln\left(\dfrac{6.3\ \text{misses}/1000\ \text{instr}}{12.0\ \text{misses}/1000\ \text{instr}}\right)}{\ln\left(\dfrac{2048\ \text{KiB}}{512\ \text{KiB}}\right)} \)</span><span>\(\displaystyle = \frac{\ln 0.525}{\ln 4} \)</span><span>\(\displaystyle \approx -0.4648 \)</span></div>That is close to the square-root rule's \(-0.5\), a bit flatter. Under the square-root rule, 4× capacity would have given 12.0 / 2 = 6.0 misses/kilo-instruction instead of 6.3.</li><li><strong>Predict at 3 MiB.</strong> Scale from the nearer measurement by the capacity ratio raised to \(k\). First the scaling factor, then the miss rate.<div class="math chain"><span>\(\displaystyle f = \left(\frac{3072\ \text{KiB}}{2048\ \text{KiB}}\right)^{-0.4648} \)</span><span>\(\displaystyle \approx 0.8282 \)</span></div><div class="math chain"><span>\(\displaystyle m_{3\,\text{MiB}} = \frac{6.3\ \text{misses}}{1000\ \text{instructions}} \times f \)</span><span>\(\displaystyle \approx \mathbf{5.22}\ \textbf{misses/kilo-instruction} \)</span></div></li><li><strong>Capacity to halve the misses.</strong> Halving means the capacity ratio \(r\) must satisfy \(r^{k} = 1/2\). Take logs and solve for \(\log_2 r\), the number of doublings.<div class="math chain"><span>\(\displaystyle k \log_2 r = \log_2 \frac{1}{2} = -1 \)</span><span>\(\displaystyle \Rightarrow\ \log_2 r = \frac{-1}{-0.4648} \)</span><span>\(\displaystyle \approx 2.151\ \text{doublings} \)</span></div><div class="math chain"><span>\(\displaystyle C = 2048\ \text{KiB} \times 2^{2.151} \)</span><span>\(\displaystyle \approx 2048\ \text{KiB} \times 4.443 \)</span><span>\(\displaystyle \approx \mathbf{9099}\ \textbf{KiB} \approx \mathbf{8.9}\ \textbf{MiB} \)</span></div>About 4.4× the capacity for half the misses. That is the core economics of cache sizing: each halving of misses costs a constant factor in area, so returns diminish fast.</li><li><strong>What could break the fit.</strong> A power law fitted from two points assumes the curve stays straight. Real miss curves have knees where a working set starts to fit. If the workload's hot set is, say, 6 MiB, the miss rate drops sharply near that size and the prediction for 8.9 MiB is pessimistic. Below 2 MiB nothing changes. In the other direction, compulsory misses put a floor under the curve that a power law ignores, which makes a far extrapolation optimistic. So the extrapolation is a first estimate to be checked against a third measured size.</li></ol>`
+      }
+    ]
+  }
+},
+
+{
+  id: "math-approx",
+  region: "mexp",
+  title: "Approximations and Growth Rates",
+  sections: [
+    { id: "linear", label: "First-Order Approximations" },
+    { id: "small-p", label: "Small Chances Over Many Tries" },
+    { id: "doubling", label: "Doubling Times and the Rule of 72" },
+    { id: "compound", label: "Compounding Percentages" },
+    { id: "growth", label: "Comparing Growth Rates" },
+    { id: "stirling", label: "Stirling's Approximation" },
+    { id: "traps", label: "Common Traps" }
+  ],
+  body: String.raw`
+<p>Most back-of-the-envelope estimates in architecture rest on a handful of approximations: \(e^x \approx 1 + x\), \(\ln(1+x) \approx x\), \((1-p)^n \approx e^{-np}\), and their relatives. Each comes from the first terms of a series, and each has a known error, so it is possible to say not just "about" but "about, and off by roughly this much." This page derives them, shows when they break, and then compares how fast common functions grow.</p>
+
+<h3 id="sec-linear">First-Order Approximations</h3>
+<p>Near a point, a smooth curve looks like its tangent line. Keeping only the first one or two terms of a series is exactly that, and the first dropped term tells how big the error is.</p>
+<p><strong>Exponential.</strong> From <a href="#/math-exp/series">The Series for e to the x</a>, keep the first two terms. The error is about the next term, \(x^2/2\).</p>
+<div class="math chain"><span>\(\displaystyle e^x = 1 + x + \frac{x^2}{2} + \cdots \)</span><span>\(\displaystyle \approx 1 + x \)</span></div>
+<p><strong>Natural log.</strong> \(\ln(1+x)\) is the area under \(1/(1+t)\) from 0 to \(x\). For \(|t| < 1\), \(1/(1+t)\) is a geometric series, so integrate it term by term.</p>
+<div class="math chain"><span>\(\displaystyle \ln(1+x) = \int_0^x \left(1 - t + t^2 - \cdots\right) dt \)</span><span>\(\displaystyle = x - \frac{x^2}{2} + \frac{x^3}{3} - \cdots \)</span><span>\(\displaystyle \approx x \)</span></div>
+<p><strong>Powers near 1.</strong> Write the power in base \(e\), approximate the log, then the exponential. This is the binomial approximation, and it needs \(nx\) small, not just \(x\).</p>
+<div class="math chain"><span>\(\displaystyle (1+x)^n = e^{n\ln(1+x)} \)</span><span>\(\displaystyle \approx e^{nx} \)</span><span>\(\displaystyle \approx 1 + nx \)</span></div>
+<p>How good is "small"? The relative error of \(1 + x\) for \(e^x\) is about \(x^2/2\), so it stays under 1% for \(|x|\) up to about 0.14.</p>
+<div class="tbl"><table>
+<tr><th>\(x\)</th><th>\(e^x\)</th><th>\(1 + x\)</th><th>\(1 + x + x^2/2\)</th><th>\(\ln(1+x)\)</th></tr>
+<tr><td>0.01</td><td>1.010050</td><td>1.01</td><td>1.010050</td><td>0.009950</td></tr>
+<tr><td>0.1</td><td>1.105171</td><td>1.1</td><td>1.105</td><td>0.095310</td></tr>
+<tr><td>0.5</td><td>1.648721</td><td>1.5</td><td>1.625</td><td>0.405465</td></tr>
+</table></div>
+
+<h3 id="sec-small-p">Small Chances Over Many Tries</h3>
+<p>Many architecture questions take the form "each of \(n\) independent tries fails with a small probability \(p\). What is the chance that none fail?" Examples: bit flips across a cache, a rare event across sampled intervals, a hash collision across insertions. The exact answer is \((1-p)^n\). Rewrite it in base \(e\) and use \(\ln(1-p) \approx -p\).</p>
+<div class="math chain"><span>\(\displaystyle (1-p)^n = e^{n \ln(1-p)} \)</span><span>\(\displaystyle \approx e^{-np} \)</span></div>
+<p>The approximation needs only \(p\) small, not \(np\) small. The log's next term is \(-p^2/2\), so the exponent is off by about \(np^2/2\). With \(n\) large and \(p\) small that is usually tiny, even when \(np\) is 5 or 50. So the chance of at least one failure is \(1 - e^{-np}\), and only when \(np \ll 1\) does it shrink further to \(np\).</p>
+<div class="math chain"><span>\(\displaystyle P(\text{at least one}) = 1 - (1-p)^n \)</span><span>\(\displaystyle \approx 1 - e^{-np} \)</span><span>\(\displaystyle \approx np \quad (np \ll 1) \)</span></div>
+<p>For \(p = 10^{-3}\) and \(n = 100\), the exact chance of at least one is 0.09521, \(1 - e^{-np}\) gives 0.09516, and \(np\) gives 0.1. The last step, \(np\), is also an upper bound (the union bound). It overcounts the cases with two or more failures, and it becomes nonsense once \(np\) nears 1.</p>
+<p>The same exponent solves the reverse question: how many tries \(n\) make the chance of seeing at least one event reach a target \(q\)? Set \((1-p)^n = 1 - q\) and use the power rule.</p>
+<div class="math chain"><span>\(\displaystyle n = \frac{\ln(1-q)}{\ln(1-p)} \)</span><span>\(\displaystyle \approx \frac{1}{p}\ln\frac{1}{1-q} \)</span></div>
+
+<h3 id="sec-doubling">Doubling Times and the Rule of 72</h3>
+<p>A quantity that grows by a share \(r\) per period has grown by \((1+r)^t\) after \(t\) periods. It doubles when that factor reaches 2. Take logs and solve for \(t\).</p>
+<div class="math chain"><span>\(\displaystyle (1+r)^{t} = 2 \)</span><span>\(\displaystyle \Rightarrow\ t_{2} = \frac{\ln 2}{\ln(1+r)} \)</span><span>\(\displaystyle \approx \frac{0.693}{r} \)</span></div>
+<p>The last step uses \(\ln(1+r) \approx r\), which slightly overstates the denominator, so \(0.693/r\) comes out a little short. Keeping the next term, \(\ln(1+r) \approx r(1 - r/2)\), shows that the correction factor is about \(1 + r/2\). At \(r = 8\%\) that makes the numerator about \(0.693 \times 1.04 \approx 0.72\). That is the rule of 72: the doubling time in periods is about 72 divided by the percent growth per period, and it is most accurate near 8% (exactly 9.006 periods against the rule's 9). Below about 4% the rule of 69 or 70 is closer, and at large \(r\) both fall apart, because the series for \(\ln(1+r)\) converges slowly.</p>
+<p>Other factors work the same way. The time to grow 10× is \(\ln 10 / \ln(1+r) \approx 2.303/r\). Run in reverse, a fixed doubling time fixes the yearly rate. Transistor counts doubling every 2 years means \(2^{1/2} - 1 \approx 41.4\%\) per year, and 10× takes about 6.6 years.</p>
+
+<h3 id="sec-compound">Compounding Percentages</h3>
+<p>Successive relative changes multiply, they don't add.</p>
+<div class="math chain"><span>\(\displaystyle (1+a)(1+b) = 1 + a + b + ab \)</span></div>
+<p>Adding the percentages drops the cross term \(ab\), which is fine for a few small changes and wrong for many or large ones. Ten 5% improvements give \(1.05^{10} \approx 1.629\times\), not 1.5×. Gains and losses are asymmetric: +20% then −20% gives \(1.2 \times 0.8 = 0.96\), a net loss. To combine relative changes exactly, add their logs: \(\ln\) of the total factor is the sum of the \(\ln\)s of the parts. That is why averages of ratios (speedups, IPC ratios across a benchmark suite) are taken in log space as a geometric mean. The statistics region covers this in full.</p>
+
+<h3 id="sec-growth">Comparing Growth Rates</h3>
+<p>For large \(n\), common functions rank as follows. Each one eventually dwarfs everything to its left, whatever the constant factors.</p>
+<div class="math chain"><span>\(\displaystyle \log n \ll n^{\varepsilon} \ll n \ll n\log n \ll n^{2} \ll 2^{n} \ll n! \)</span></div>
+<p>Logs make the comparisons easy, because comparing \(f\) and \(g\) is the same as comparing \(\ln f\) and \(\ln g\). For example, \(n^{k}\) has log \(k \ln n\), and \(e^{n}\) has log \(n\). Since \(\ln n\) grows slower than any fixed multiple of \(n\), every exponential eventually beats every polynomial. Similarly, \(\ln n\) against \(n^{\varepsilon}\) becomes \(\ln \ln n\) against \(\varepsilon \ln n\), so any small power beats a log.</p>
+<p>In hardware this ranking is the scaling argument behind many structures:</p>
+<ul>
+<li><strong>\(O(\log n)\) delay:</strong> select trees, prefix adders, and tree-PLRU updates. These are why wide structures stay feasible.</li>
+<li><strong>\(O(n)\):</strong> comparators in a fully associative lookup, one per entry.</li>
+<li><strong>\(O(n^2)\):</strong> matrix LRU state (\(n(n-1)/2\) bits), all-to-all bypass networks, and dependency matrices. These are why such designs stop at modest \(n\).</li>
+<li><strong>\(O(n \cdot m)\):</strong> wakeup in an \(n\)-entry scheduler with \(m\) result tags broadcast per cycle. This is why issue width and scheduler size can't both grow freely.</li>
+</ul>
+
+<h3 id="sec-stirling">Stirling's Approximation</h3>
+<p>\(n!\) shows up whenever orderings are counted (recency orders, permutations of instructions, sorting). Its log is a sum, and a sum of a slowly varying function is close to its integral.</p>
+<div class="math chain"><span>\(\displaystyle \ln n! = \sum_{k=1}^{n} \ln k \)</span><span>\(\displaystyle \approx \int_{1}^{n} \ln x\, dx \)</span><span>\(\displaystyle = n\ln n - n + 1 \)</span></div>
+<p>The integral uses \(\int \ln x\,dx = x\ln x - x\), which can be checked by differentiating. A finer analysis of the gap between the sum and the integral gives Stirling's approximation, whose error shrinks like \(1/(12n)\).</p>
+<div class="math chain"><span>\(\displaystyle \ln n! \approx n\ln n - n + \tfrac{1}{2}\ln(2\pi n) \)</span><span>\(\displaystyle \Leftrightarrow\ n! \approx \sqrt{2\pi n}\left(\frac{n}{e}\right)^{n} \)</span></div>
+<p>For \(n = 10\), the exact value of \(\ln 10!\) is 15.1044. Stirling gives 15.0961, and the crude integral gives 14.0259. Converted to bits, \(\log_2 n! \approx n\log_2 n - n\log_2 e\), or about \(n\log_2 n - 1.443\,n\). That is the information-theoretic lower bound for comparison sorting, and the minimum state needed to store a full order of \(n\) items.</p>
+
+<h3 id="sec-traps">Common Traps</h3>
+<ul>
+<li>Using \(np\) as a probability when \(np\) is not small. Use \(1 - e^{-np}\) instead. \(np\) is always an upper bound, and it can exceed 1.</li>
+<li>Using \(1 + nx\) for \((1+x)^n\) when \(x\) is small but \(nx\) is not. Use \(e^{nx}\), or the exact power.</li>
+<li>Adding percentage changes over many steps. Multiply the factors, or add their logs.</li>
+<li>Applying the rule of 72 to large growth rates. At 50% per period it is off by about 15%.</li>
+<li>Confusing percent with percentage points. A miss rate going from 2% to 3% is a rise of 1 percentage point, but 50%.</li>
+<li>Comparing growth rates by plugging in small \(n\). \(n^3\) beats \(2^n\) until \(n = 10\), then loses forever.</li>
+</ul>
+`,
+  practice: {
+    guided: [
+      {
+        q: String.raw`<p>Hennessy and Patterson report how fast single-processor performance grew in two eras. How long did performance take to double in each era, and how well does the rule of 72 do?</p><p>Given:</p><ul><li>1986 to 2003: performance grew 52% per year</li><li>2015 to 2018: performance grew 3.5% per year</li><li>Treat each era's growth as compounding once per year at a constant rate</li><li>Rule of 72: doubling time in years ≈ 72 / (percent growth per year)</li></ul>`,
+        a: String.raw`<ol class="steps"><li><strong>Exact doubling time.</strong> After \(t\) years the factor is \((1+r)^t\). Set it to 2 and take logs, so the power rule brings \(t\) down.<div class="math chain"><span>\(\displaystyle (1+r)^{t_2} = 2 \)</span><span>\(\displaystyle \Rightarrow\ t_2 = \frac{\ln 2}{\ln(1+r)} \)</span></div></li><li><strong>The 52% era, exact.</strong> Substitute the rate.<div class="math chain"><span>\(\displaystyle t_2 = \frac{\ln 2}{\ln 1.52} \)</span><span>\(\displaystyle = \frac{0.6931}{0.4187}\ \text{years} \)</span><span>\(\displaystyle \approx \mathbf{1.66}\ \textbf{years} \)</span></div></li><li><strong>The 52% era, rule of 72.</strong> Divide 72 by the percent rate.<div class="math chain"><span>\(\displaystyle t_2 \approx \frac{72\ \text{\%·years}}{52\ \text{\%}} \)</span><span>\(\displaystyle \approx \mathbf{1.38}\ \textbf{years} \)</span></div>The rule is about 16% short. It replaces \(\ln(1.52) \approx 0.419\) with something close to 0.52, and \(\ln(1+r) \approx r\) is poor when \(r\) is as large as 0.52.</li><li><strong>The 3.5% era, exact.</strong> Same formula.<div class="math chain"><span>\(\displaystyle t_2 = \frac{\ln 2}{\ln 1.035} \)</span><span>\(\displaystyle = \frac{0.6931}{0.03440}\ \text{years} \)</span><span>\(\displaystyle \approx \mathbf{20.1}\ \textbf{years} \)</span></div></li><li><strong>The 3.5% era, rule of 72.</strong><div class="math chain"><span>\(\displaystyle t_2 \approx \frac{72\ \text{\%·years}}{3.5\ \text{\%}} \)</span><span>\(\displaystyle \approx \mathbf{20.6}\ \textbf{years} \)</span></div>Now the rule is about 2% long. At small rates \(\ln(1+r) \approx r\) is very good, and the 72 in the numerator is slightly too big (the rule of 69, \(69.3/3.5 \approx 19.8\) years, is about as close from the other side). The rule of 72 is tuned for rates near 8%.</li><li><strong>What the contrast means.</strong> Performance that doubled every year and a half for 17 years now takes about two decades to double. That is the end of Dennard scaling and the limits of ILP, as Hennessy and Patterson describe, and why gains now come from parallelism and domain-specific hardware rather than from single cores.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: String.raw`<p>A sampled simulation measures short, randomly placed intervals instead of the whole run. What is the chance it never samples a rare program phase, and how many samples would make that chance 1%?</p><p>Given:</p><ul><li>Number of sampled intervals: 10,000 samples</li><li>The rare phase covers 0.02% of the run's instructions</li><li>Each sample lands on an instruction chosen uniformly at random from the run, independently of the others (unlike systematic sampling, which spaces samples evenly)</li><li>A sample "sees" the phase if it lands inside it, and ignore samples that straddle the phase's edge</li><li>Target: at most a 1% chance of never seeing the phase</li></ul>`,
+        a: String.raw`<ol class="steps"><li><strong>Chance of missing it entirely.</strong> Each sample misses the phase with probability \(1 - p\), where \(p = 0.0002\). The samples are independent, so these multiply.<div class="math chain"><span>\(\displaystyle P_{\text{miss}} = (1 - 0.0002)^{10{,}000} \)</span></div></li><li><strong>Approximate it.</strong> Rewrite in base \(e\). \(p\) is small, so \(\ln(1-p) \approx -p\), even though \(np\) is not small.<div class="math chain"><span>\(\displaystyle P_{\text{miss}} = e^{10{,}000\, \ln(1 - 0.0002)} \)</span><span>\(\displaystyle \approx e^{-10{,}000 \times 0.0002} \)</span><span>\(\displaystyle = e^{-2} \)</span><span>\(\displaystyle \approx \mathbf{0.135} \)</span></div>So about a 13.5% chance that the phase is missed entirely, even with 10,000 samples. The exact power is 0.135308 and \(e^{-2}\) is 0.135335.</li><li><strong>Why the approximation is this good.</strong> The dropped term of \(\ln(1-p)\) is \(-p^2/2\), so the exponent is off by \(np^2/2\).<div class="math chain"><span>\(\displaystyle \Delta = \frac{10{,}000 \times 0.0002^2}{2} \)</span><span>\(\displaystyle = 0.0002 \)</span></div>An exponent off by 0.0002 changes the result by about 0.02%. The linear shortcut \(1 - np\) would give \(1 - 2 = -1\), which is impossible. That shortcut needs \(np \ll 1\), and here \(np = 2\).</li><li><strong>Samples for a 1% miss chance.</strong> Set \((1-p)^n = 0.01\) and take logs. The power rule brings \(n\) down.<div class="math chain"><span>\(\displaystyle n = \frac{\ln 0.01}{\ln(1 - 0.0002)} \)</span><span>\(\displaystyle \approx 23{,}023.5 \)</span><span>\(\displaystyle \Rightarrow\ n = \mathbf{23{,}024}\ \textbf{samples} \)</span></div>Round up, since a fraction of a sample can't be taken. The approximation \(\ln(100)/p \approx 23{,}026\) samples lands within 2 samples.</li><li><strong>What it means for a sampling methodology.</strong> Random sampling covers common behavior well, but a phase at 0.02% of instructions needs more than twice as many samples to be seen reliably. Either it doesn't matter (0.02% of instructions rarely moves total CPI much unless each one is extremely slow), or it does, and then systematic sampling (evenly spaced, which can't miss a contiguous phase longer than the spacing) or phase-based selection like SimPoint, which picks a representative interval from each phase, is the better tool.</li></ol>`
       }
     ]
   }
