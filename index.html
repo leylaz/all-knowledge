@@ -103,6 +103,8 @@ header.top .wrap { display: flex; align-items: center; gap: 12px; padding-top: 1
     "iqmem iqmem iqmem iqperf iqperf iqperf"
     "iqc iqc iqc iqos iqos iqos"
     "resume resume resume resume resume resume"; }
+.floor[data-tab="math"] { grid-template-areas:
+    "mexp mexp mexp mexp mexp mexp"; }
 .block.mini { padding: 8px 14px; }
 .block.mini h2 { margin: 0; font-size: .98rem; }
 .home-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--rule); margin: 0 0 24px; font-family: var(--sans); }
@@ -673,6 +675,14 @@ a.lyr-name::after { content: ""; position: absolute; inset: 0; border-radius: 4p
 .body .math { margin: 4px 0 18px; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
 .body .math mjx-container[display="true"] { margin: 0 !important; }
 .body mjx-container { color: var(--ink); }
+/* Derivation chains in page bodies wrap only between iterations, like the practice chains */
+.body .math.chain { display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; column-gap: .45em; row-gap: .9em; margin: 8px 0 18px; }
+.body .math.chain > span { white-space: nowrap; }
+/* Cheat sheet on a region overview: one card per key rule, linked to its derivation */
+.cheat { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin: 0 0 22px; }
+.body .cheat a { display: block; border: 1px solid var(--rule); border-radius: 3px; padding: 10px 12px; text-decoration: none; color: var(--ink); background: var(--surface); overflow-x: auto; }
+.body .cheat a:hover { border-color: var(--trace); }
+.cheat .nm { display: block; font-family: var(--sans); font-size: .8rem; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
 .prob .math { margin: 6px 0 12px; overflow-x: auto; overflow-y: hidden; }
 /* Step-by-step matrices: caption beside a small matrix, stacked on phones */
 .mx-steps { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 18px; align-items: center; margin: 0 0 16px; font-family: var(--sans); font-size: .9rem; line-height: 1.45; }
@@ -717,7 +727,7 @@ window.MathJax = {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-<script src="js/site.js?v=d036a77b"></script>
+<script src="js/site.js?v=22d73be7"></script>
 <script src="sections/instruction-sets.js?v=765e7a68"></script>
 <script src="sections/pipeline-stages.js?v=3a941d57"></script>
 <script src="sections/front-end.js?v=ce8dbee3"></script>
@@ -768,6 +778,7 @@ window.MathJax = {
 <script src="coding/interview.js?v=82f86d89"></script>
 <script src="sections/interview-prep.js?v=37c2dbbb"></script>
 <script src="sections/resume-prep.js?v=b88195fe"></script>
+<script src="sections/exponentials-logarithms.js?v=0b59fce7"></script>
 <script src="js/diagrams.js?v=fdc3e20d"></script>
 <script src="js/glossary.js?v=83caede3"></script>
 <script src="js/calc.js?v=6d8c6024"></script>

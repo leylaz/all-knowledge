@@ -23,5 +23,6 @@ const TABS = [
   { id: "sw", name: "Systems Software", regions: ["comp"] },
   { id: "chip", name: "Chip Design and Verification", regions: ["fab", "circ", "eda", "verif"] },
   { id: "ai", name: "AI", regions: ["gen", "llm", "aisys"] },
-  { id: "intv", name: "Interview Prep", regions: ["todo", "cal", "cppd", "intv", "iqmem", "iqperf", "iqc", "iqos", "resume"] }
+  { id: "intv", name: "Interview Prep", regions: ["todo", "cal", "cppd", "intv", "iqmem", "iqperf", "iqc", "iqos", "resume"] },
+  { id: "math", name: "Math Foundations", regions: ["mexp"] }
 ];
