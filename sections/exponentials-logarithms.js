@@ -22,11 +22,18 @@ section({
 <a href="#/math-exp/compounding"><span class="nm">The Number e</span>\(e = \displaystyle\lim_{n\to\infty}\left(1+\frac{1}{n}\right)^{n} \approx 2.71828\)</a>
 <a href="#/math-exp/rate"><span class="nm">Growth Proportional to Amount</span>\(\dfrac{dy}{dt} = ky \;\Rightarrow\; y = y_0\, e^{kt}\)</a>
 <a href="#/math-exp/series"><span class="nm">Series for e to the x</span>\(e^x = \displaystyle\sum_{n=0}^{\infty} \frac{x^n}{n!}\)</a>
+<a href="#/math-log/def"><span class="nm">Definition of a Logarithm</span>\(\log_b x = y \iff b^y = x\)</a>
+<a href="#/math-log/rules"><span class="nm">Product and Power Rules</span>\(\log(xy) = \log x + \log y, \quad \log x^k = k\log x\)</a>
+<a href="#/math-log/rules"><span class="nm">Change of Base</span>\(\log_b x = \dfrac{\ln x}{\ln b}, \quad b^x = e^{x\ln b}\)</a>
+<a href="#/math-log/ln"><span class="nm">Slope of ln</span>\(\dfrac{d}{dx}\ln x = \dfrac{1}{x}, \quad \ln x = \displaystyle\int_1^x \frac{dt}{t}\)</a>
+<a href="#/math-log/bits"><span class="nm">Bits to Name N Things</span>\(k = \lceil \log_2 N \rceil\)</a>
+<a href="#/math-log/scales"><span class="nm">Power-Law Exponent From Two Points</span>\(k = \dfrac{\ln(y_2/y_1)}{\ln(x_2/x_1)}\)</a>
 </div>
 
 <h3 id="sec-pages-fit-together">How the Pages Fit Together</h3>
 <ul>
 <li><a href="#/math-exp">Exponents and Euler's Number</a>: what an exponent means, why the rules for zero, negative, and fractional exponents are forced, where \(e\) comes from, and why it is the natural base.</li>
+<li><a href="#/math-log">Logarithms and Their Rules</a>: the log as the inverse of the exponential, every log rule derived from an exponent rule, change of base, the natural log as the area under \(1/x\), counting bits and tree levels, and reading power laws on log-log axes.</li>
 </ul>
 `,
   practice: {
@@ -139,6 +146,128 @@ section({
       {
         q: String.raw`<p>A server's DRAM chips fail at a constant rate. Derive the probability that the server goes its whole service life with no DRAM chip failure, and explain why adding the chips' FIT rates is exact rather than an approximation.</p><p>Given:</p><ul><li>DIMMs per server: 32 DIMMs</li><li>DRAM chips per DIMM: 18 chips</li><li>Failure rate per chip: 50 FIT, where 1 FIT is 1 failure per \(10^9\) device-hours</li><li>Each chip's failure rate is constant over time (no wear-out or infant mortality)</li><li>Chips fail independently of each other</li><li>Service life: 5 years, with 1 year = 8760 hours</li></ul>`,
         a: String.raw`<ol class="steps"><li><strong>Survival of one chip.</strong> A constant failure rate \(\lambda\) means that a chip alive at time \(t\) fails in the next short interval \(dt\) with probability \(\lambda\, dt\). So the survival probability \(R(t)\) loses a share \(\lambda\, dt\) of itself in each interval. That is growth proportional to amount with rate \(-\lambda\), and \(R(0) = 1\).<div class="math chain"><span>\(\displaystyle \frac{dR}{dt} = -\lambda R \)</span><span>\(\displaystyle \Rightarrow\ R(t) = e^{-\lambda t} \)</span></div></li><li><strong>Why the rates add.</strong> The server survives only if every chip survives. The chips are independent, so the survival probabilities multiply. Multiplying exponentials adds their exponents, so the server behaves exactly like one part whose rate is the sum. No approximation is involved.<div class="math chain"><span>\(\displaystyle R_{\text{server}}(t) = \prod_{i} e^{-\lambda_i t} \)</span><span>\(\displaystyle = e^{-\left(\sum_i \lambda_i\right) t} \)</span></div></li><li><strong>Total rate.</strong> Count the chips, then multiply by the per-chip rate.<div class="math chain"><span>\(\displaystyle N = 32\ \text{DIMMs} \times \frac{18\ \text{chips}}{1\ \text{DIMM}} \)</span><span>\(\displaystyle = 576\ \text{chips} \)</span></div><div class="math chain"><span>\(\displaystyle \Lambda = 576\ \text{chips} \times \frac{50\ \text{failures}}{10^9\ \text{chip-hours}} \)</span><span>\(\displaystyle = \frac{28{,}800\ \text{failures}}{10^9\ \text{hours}} \)</span></div></li><li><strong>Exponent over the service life.</strong> The exponent is the rate times the time. It is also the expected number of failures if failed chips were replaced as they fail.<div class="math chain"><span>\(\displaystyle t = 5\ \text{years} \times \frac{8760\ \text{hours}}{1\ \text{year}} \)</span><span>\(\displaystyle = 43{,}800\ \text{hours} \)</span></div><div class="math chain"><span>\(\displaystyle \Lambda t = \frac{28{,}800\ \text{failures}}{10^9\ \text{hours}} \times 43{,}800\ \text{hours} \)</span><span>\(\displaystyle = 1.26144\ \text{failures} \)</span></div></li><li><strong>Survival probability.</strong> Raise \(e\) to the negative exponent.<div class="math chain"><span>\(\displaystyle R_{\text{server}} = e^{-1.26144} \)</span><span>\(\displaystyle \approx \mathbf{0.283} \)</span></div>So only about 28% of servers finish the 5 years with no DRAM chip failure. The linear shortcut "probability of failure is about rate times time" would give 1.26, which is impossible for a probability. That shortcut only works when \(\Lambda t \ll 1\), where \(e^{-\Lambda t} \approx 1 - \Lambda t\). Here the exponent is above 1, so the full exponential is needed. That is also why servers rely on ECC (Chipkill or SDDC) to survive a chip failure rather than hoping none occurs.</li></ol>`
+      }
+    ]
+  }
+},
+
+{
+  id: "math-log",
+  region: "mexp",
+  title: "Logarithms and Their Rules",
+  sections: [
+    { id: "def", label: "What a Logarithm Is" },
+    { id: "notation", label: "ln, log, and log2" },
+    { id: "rules", label: "Rules Derived From Exponents" },
+    { id: "ln", label: "The Natural Log and the Area Under 1/x" },
+    { id: "bits", label: "Counting Bits and Levels" },
+    { id: "scales", label: "Log Scales and Power Laws" },
+    { id: "traps", label: "Common Traps" }
+  ],
+  body: String.raw`
+<p>A logarithm undoes an exponential. Where \(b^y\) asks "what do I get after \(y\) factors of \(b\)?", \(\log_b x\) asks "how many factors of \(b\) does it take to make \(x\)?" Every log rule is an exponent rule from <a href="#/math-exp/rules">What an Exponent Means</a> read backwards, so none of them needs memorizing once that link is clear.</p>
+
+<h3 id="sec-def">What a Logarithm Is</h3>
+<p>For a base \(b > 0\) with \(b \ne 1\) and a positive \(x\), \(\log_b x\) is the exponent that turns \(b\) into \(x\).</p>
+<div class="math chain"><span>\(\displaystyle \log_b x = y \)</span><span>\(\displaystyle \iff b^y = x \)</span></div>
+<p>Three readings of the same number are useful:</p>
+<ul>
+<li><strong>Count of multiplications.</strong> \(\log_2 1024 = 10\) because ten doublings take 1 to 1024.</li>
+<li><strong>Count of divisions.</strong> Read the other way, \(\log_2 N\) is how many times \(N\) can be halved before reaching 1. That is the depth of a binary search, a balanced binary tree, or a tree of 2-input gates.</li>
+<li><strong>Number of digits.</strong> \(\log_{10} x\) is roughly the number of decimal digits of \(x\) (exactly \(\lfloor \log_{10} x \rfloor + 1\) for \(x \ge 1\)), and \(\log_2 x\) is roughly the number of bits.</li>
+</ul>
+<p>Because \(b^y\) is always positive, the log of zero or a negative number is undefined. As \(x \to 0^{+}\), \(\log_b x \to -\infty\) for \(b > 1\). Logs of numbers between 0 and 1 are negative: \(\log_2 0.25 = -2\), because two halvings take 1 to 0.25.</p>
+<p>Two identities say that the exponential and the log undo each other.</p>
+<div class="math chain"><span>\(\displaystyle b^{\log_b x} = x, \quad \log_b\left(b^{y}\right) = y \)</span></div>
+
+<h3 id="sec-notation">ln, log, and log2</h3>
+<ul>
+<li>\(\ln x = \log_e x\), the <strong>natural log</strong>. It is the inverse of \(e^x\), the one used in calculus and probability.</li>
+<li>\(\log x\) depends on the field. Engineers and calculators mean \(\log_{10}\). Mathematicians, and most programming languages, mean \(\ln\). In C, <code>log()</code> is the natural log, with <code>log2()</code> and <code>log10()</code> for the others. In complexity analysis, \(O(\log n)\) leaves the base out because changing the base only multiplies by a constant (see the change-of-base rule below).</li>
+<li>\(\log_2 x\), sometimes written \(\lg x\), counts bits and levels.</li>
+</ul>
+<p>A few values carry most mental math:</p>
+<div class="tbl"><table>
+<tr><th>Value</th><th>Approximately</th><th>Use</th></tr>
+<tr><td>\(\ln 2\)</td><td>0.6931</td><td>Doubling and halving times, half-life</td></tr>
+<tr><td>\(\ln 10\)</td><td>2.3026</td><td>Converting \(\ln\) to \(\log_{10}\)</td></tr>
+<tr><td>\(\log_{10} 2\)</td><td>0.30103</td><td>\(2^{10} \approx 10^{3}\), since \(10 \times 0.30103 \approx 3\)</td></tr>
+<tr><td>\(\log_2 10\)</td><td>3.3219</td><td>Bits per decimal digit</td></tr>
+<tr><td>\(\log_2 e = 1/\ln 2\)</td><td>1.4427</td><td>Converting \(\ln\) to bits</td></tr>
+</table></div>
+
+<h3 id="sec-rules">Rules Derived From Exponents</h3>
+<p>Each rule comes from writing the inputs as powers of the base, applying an exponent rule, and reading the exponent back off. Let \(u = \log_b x\) and \(v = \log_b y\), so \(x = b^u\) and \(y = b^v\).</p>
+<p><strong>Product rule.</strong> Multiplying powers adds exponents, so the log of a product is the sum of the logs. This is why logs turn multiplication into addition, which is how slide rules and log tables worked, and why a chain of speedup factors averages naturally in log space.</p>
+<div class="math chain"><span>\(\displaystyle \log_b(xy) = \log_b\left(b^u b^v\right) \)</span><span>\(\displaystyle = \log_b\left(b^{u+v}\right) \)</span><span>\(\displaystyle = \log_b x + \log_b y \)</span></div>
+<p><strong>Quotient rule.</strong> Dividing powers subtracts exponents.</p>
+<div class="math chain"><span>\(\displaystyle \log_b\frac{x}{y} = \log_b\left(b^{u-v}\right) \)</span><span>\(\displaystyle = \log_b x - \log_b y \)</span></div>
+<p><strong>Power rule.</strong> A power of a power multiplies exponents, so an exponent inside a log comes out as a factor. This is the rule that solves equations with the unknown in an exponent.</p>
+<div class="math chain"><span>\(\displaystyle \log_b\left(x^k\right) = \log_b\left(b^{uk}\right) \)</span><span>\(\displaystyle = k \log_b x \)</span></div>
+<p><strong>Special values.</strong> \(\log_b 1 = 0\) because \(b^0 = 1\), and \(\log_b b = 1\). With the quotient rule, \(\log_b(1/x) = -\log_b x\).</p>
+<p><strong>Change of base.</strong> Start from \(x = b^{\log_b x}\) and take the log in another base \(a\) of both sides. The power rule brings the exponent down.</p>
+<div class="math chain"><span>\(\displaystyle \log_a x = \log_a\left(b^{\log_b x}\right) \)</span><span>\(\displaystyle = \log_b x \cdot \log_a b \)</span><span>\(\displaystyle \Rightarrow\ \log_b x = \frac{\log_a x}{\log_a b} \)</span></div>
+<p>So logs in different bases differ only by a constant factor. For example, \(\log_2 x = \ln x / \ln 2 \approx 1.4427 \ln x\). A calculator with only \(\ln\) can compute any base, and \(O(\log_2 n)\) and \(O(\ln n)\) are the same complexity class.</p>
+<p><strong>Any exponential in base e.</strong> Apply \(b = e^{\ln b}\) and the power-of-a-power rule.</p>
+<div class="math chain"><span>\(\displaystyle b^x = \left(e^{\ln b}\right)^x \)</span><span>\(\displaystyle = e^{x \ln b} \)</span></div>
+
+<h3 id="sec-ln">The Natural Log and the Area Under 1/x</h3>
+<p><strong>Slope of ln.</strong> Let \(y = \ln x\), so \(x = e^y\). Differentiate both sides with respect to \(x\). The left side gives 1, and the right side gives \(e^y\, dy/dx\) by the chain rule, since \(e^y\) is its own derivative.</p>
+<div class="math chain"><span>\(\displaystyle 1 = e^{y}\frac{dy}{dx} \)</span><span>\(\displaystyle \Rightarrow\ \frac{d}{dx}\ln x = \frac{1}{e^{y}} = \frac{1}{x} \)</span></div>
+<p>Read backwards, \(\ln x\) is the area under the curve \(1/t\) from \(t = 1\) to \(t = x\).</p>
+<div class="math chain"><span>\(\displaystyle \ln x = \int_{1}^{x} \frac{dt}{t} \)</span></div>
+<p>This picture explains several facts. The area grows without bound, but slowly, because \(1/t\) keeps shrinking: going from 1 to 10 adds 2.30, and so does going from 10 to 100. Every factor of 10 adds the same area, which is the product rule seen geometrically. It is also why the harmonic sum \(1 + \tfrac12 + \tfrac13 + \cdots + \tfrac1n\), a staircase under the same curve, grows like \(\ln n\). The sums and series region derives that.</p>
+<p><strong>Closing the loop on e.</strong> <a href="#/math-exp/rate">The Function That Is Its Own Rate</a> found that \(\frac{d}{dx} a^x = c_a a^x\). Writing \(a^x = e^{x\ln a}\) and differentiating gives \(c_a = \ln a\). So \(c_2 = \ln 2 \approx 0.693\), and the base with \(c = 1\) is the one whose natural log is 1, which is \(e\).</p>
+<div class="math chain"><span>\(\displaystyle \frac{d}{dx} a^x = \frac{d}{dx} e^{x \ln a} \)</span><span>\(\displaystyle = \ln a \cdot e^{x\ln a} \)</span><span>\(\displaystyle = \ln a \cdot a^x \)</span></div>
+
+<h3 id="sec-bits">Counting Bits and Levels</h3>
+<p>\(k\) bits name \(2^k\) values, so naming \(N\) things takes the smallest \(k\) with \(2^k \ge N\).</p>
+<div class="math chain"><span>\(\displaystyle k = \left\lceil \log_2 N \right\rceil \)</span></div>
+<p>When \(N\) is a power of two, the ceiling does nothing: 512 sets need exactly 9 index bits. When it isn't, the ceiling matters, and some codes go unused: 12 ways need 4 bits to name a way, and 4 of the 16 codes are never used.</p>
+<p><strong>Splitting an address.</strong> A cache with line size \(L\) bytes and \(S\) sets splits a physical address of \(A\) bits into three fields:</p>
+<ul>
+<li>Offset: \(\log_2 L\) bits (6 bits for 64 B lines)</li>
+<li>Index: \(\log_2 S\) bits, where \(S = \text{capacity} / (L \times \text{ways})\)</li>
+<li>Tag: \(A - \log_2 L - \log_2 S\) bits</li>
+</ul>
+<p>Doubling capacity at fixed ways and line size doubles \(S\), so it moves one bit from tag to index. That is the product rule: \(\log_2(2S) = 1 + \log_2 S\).</p>
+<p><strong>Depth of trees.</strong> A tree with fan-in \(f\) needs \(\lceil \log_f N \rceil\) levels to combine \(N\) inputs. Examples:</p>
+<ul>
+<li>Tree-PLRU over 8 ways is 3 levels deep, and an update touches 3 bits.</li>
+<li>A 64-bit carry-lookahead or parallel-prefix adder has \(\log_2 64 = 6\) prefix levels. That is why adders scale as \(O(\log n)\) rather than \(O(n)\) like a ripple-carry adder.</li>
+<li>Selecting the oldest ready instruction among 64 with 4-input pick cells takes \(\log_4 64 = 3\) levels.</li>
+</ul>
+<p>Changing fan-in only changes the constant, by change of base: \(\log_4 N = \log_2 N / 2\).</p>
+
+<h3 id="sec-scales">Log Scales and Power Laws</h3>
+<p>A <strong>power law</strong> is \(y = a\, x^{k}\). Take logs of both sides, using the product and power rules.</p>
+<div class="math chain"><span>\(\displaystyle \log y = \log\left(a\, x^{k}\right) \)</span><span>\(\displaystyle = \log a + k \log x \)</span></div>
+<p>So on log-log axes a power law is a straight line, and its slope is the exponent \(k\). Two measured points determine the line. The ratio of the \(y\) values is the ratio of the \(x\) values raised to the power \(k\), so the exponent is the ratio of the logs. Any base works, since the base cancels in the ratio.</p>
+<div class="math chain"><span>\(\displaystyle \frac{y_2}{y_1} = \left(\frac{x_2}{x_1}\right)^{k} \)</span><span>\(\displaystyle \Rightarrow\ k = \frac{\ln\left(y_2/y_1\right)}{\ln\left(x_2/x_1\right)} \)</span></div>
+<p>The classic architecture example is the empirical <strong>square-root rule</strong> for caches: miss rate scales roughly as capacity to the power \(-0.5\), so doubling a cache cuts misses by a factor of about \(\sqrt 2\). The exponent varies by workload, and fitting it from two cache sizes is a routine first step before extrapolating. The roofline plot is drawn on log-log axes for the same reason: performance against arithmetic intensity is a line of slope 1 (the bandwidth roof) until it hits a flat line (the compute roof).</p>
+<p>An exponential \(y = a\, e^{kx}\) is a straight line on <strong>semi-log</strong> axes (only \(y\) on a log scale), because \(\ln y = \ln a + kx\). That is how to tell the two apart in data: plot both ways and see which one comes out straight.</p>
+
+<h3 id="sec-traps">Common Traps</h3>
+<ul>
+<li>\(\log(x + y) \ne \log x + \log y\). The product rule is for products.</li>
+<li>\(\log(xy) \ne \log x \cdot \log y\), and \(\log x / \log y\) is not \(\log(x/y)\). The ratio \(\log x / \log y\) is \(\log_y x\), a change of base.</li>
+<li>\((\log x)^2\) is not \(\log(x^2) = 2\log x\).</li>
+<li>Calling C's <code>log()</code> when \(\log_{10}\) or \(\log_2\) was meant. It returns \(\ln\).</li>
+<li>Forgetting the ceiling when \(N\) isn't a power of two. 10 ways need 4 bits, not 3.32.</li>
+<li>Taking logs of a sum of measurements to "average" them. Log averages (the geometric mean) apply to ratios such as speedups, not to raw times. The statistics region covers when each mean is right.</li>
+</ul>
+`,
+  practice: {
+    guided: [
+      {
+        q: String.raw`<p>An L2 cache with a non-power-of-two number of ways splits its physical address into offset, index, and tag. How many bits does each field take, how many bits name a way, and how much storage do the tags take in total?</p><p>Given:</p><ul><li>Capacity: 1.25 MiB, where 1 MiB = \(2^{20}\) bytes</li><li>Associativity: 10 ways</li><li>Line size: 64 B</li><li>Physical address width: 46 bits</li><li>Each line stores one full tag (ignore valid, state, and ECC bits)</li></ul>`,
+        a: String.raw`<ol class="steps"><li><strong>Number of sets.</strong> Capacity is sets times ways times line size, so divide the capacity by the bytes in one set.<div class="math chain"><span>\(\displaystyle S = \frac{1.25 \times 2^{20}\ \text{B}}{10\ \text{ways/set} \times 64\ \text{B/way}} \)</span><span>\(\displaystyle = 2048\ \text{sets} \)</span></div>The 1.25 and the 10 cancel into a power of two, so the set count is a power of two even though neither the capacity nor the way count is.</li><li><strong>Offset bits.</strong> The offset names a byte within the line, so it takes \(\log_2\) of the line size.<div class="math chain"><span>\(\displaystyle b_{\text{off}} = \log_2 64 \)</span><span>\(\displaystyle = \mathbf{6}\ \textbf{bits} \)</span></div></li><li><strong>Index bits.</strong> The index names a set.<div class="math chain"><span>\(\displaystyle b_{\text{idx}} = \log_2 2048 \)</span><span>\(\displaystyle = \mathbf{11}\ \textbf{bits} \)</span></div></li><li><strong>Tag bits.</strong> The tag is whatever is left of the address.<div class="math chain"><span>\(\displaystyle b_{\text{tag}} = 46\ \text{bits} - 6\ \text{bits} - 11\ \text{bits} \)</span><span>\(\displaystyle = \mathbf{29}\ \textbf{bits} \)</span></div></li><li><strong>Bits to name a way.</strong> 10 is not a power of two, so round up. Six of the 16 codes go unused.<div class="math chain"><span>\(\displaystyle b_{\text{way}} = \left\lceil \log_2 10 \right\rceil \)</span><span>\(\displaystyle = \lceil 3.32 \rceil \)</span><span>\(\displaystyle = \mathbf{4}\ \textbf{bits} \)</span></div></li><li><strong>Total tag storage.</strong> Every line in every set holds one tag.<div class="math chain"><span>\(\displaystyle T = 2048\ \text{sets} \times \frac{10\ \text{lines}}{1\ \text{set}} \times \frac{29\ \text{bits}}{1\ \text{line}} \)</span><span>\(\displaystyle = 593{,}920\ \text{bits} \)</span><span>\(\displaystyle = \mathbf{72.5}\ \textbf{KiB} \)</span></div>That is about 5.7% of the 1.25 MiB of data, before any state or ECC bits.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: String.raw`<p>A workload's L2 miss rate was measured at two cache sizes. Fit a power law, predict the miss rate at a size you didn't measure, and say how much capacity it would take to halve the misses again.</p><p>Given:</p><ul><li>At 512 KiB: 12.0 misses/kilo-instruction</li><li>At 2 MiB (2048 KiB): 6.3 misses/kilo-instruction</li><li>Assume the miss rate follows \(m = a\, C^{k}\) for capacity \(C\) across the range of interest, with the same line size and associativity at every size</li><li>Size to predict: 3 MiB (3072 KiB)</li><li>"Halve again" means going from 6.3 misses/kilo-instruction at 2 MiB to 3.15 misses/kilo-instruction</li></ul>`,
+        a: String.raw`<ol class="steps"><li><strong>Why a straight line on log-log axes.</strong> Taking logs of \(m = a C^{k}\) gives \(\ln m = \ln a + k \ln C\). That is a line in \(\ln C\) with slope \(k\), so two points determine it, and \(a\) cancels when comparing them.</li><li><strong>Fit the exponent.</strong> Divide the two measurements so that \(a\) cancels, then take logs to bring \(k\) down.<div class="math chain"><span>\(\displaystyle k = \frac{\ln\left(\dfrac{6.3\ \text{misses}/1000\ \text{instr}}{12.0\ \text{misses}/1000\ \text{instr}}\right)}{\ln\left(\dfrac{2048\ \text{KiB}}{512\ \text{KiB}}\right)} \)</span><span>\(\displaystyle = \frac{\ln 0.525}{\ln 4} \)</span><span>\(\displaystyle \approx -0.4648 \)</span></div>That is close to the square-root rule's \(-0.5\), a bit flatter. Under the square-root rule, 4× capacity would have given 12.0 / 2 = 6.0 misses/kilo-instruction instead of 6.3.</li><li><strong>Predict at 3 MiB.</strong> Scale from the nearer measurement by the capacity ratio raised to \(k\). First the scaling factor, then the miss rate.<div class="math chain"><span>\(\displaystyle f = \left(\frac{3072\ \text{KiB}}{2048\ \text{KiB}}\right)^{-0.4648} \)</span><span>\(\displaystyle \approx 0.8282 \)</span></div><div class="math chain"><span>\(\displaystyle m_{3\,\text{MiB}} = \frac{6.3\ \text{misses}}{1000\ \text{instructions}} \times f \)</span><span>\(\displaystyle \approx \mathbf{5.22}\ \textbf{misses/kilo-instruction} \)</span></div></li><li><strong>Capacity to halve the misses.</strong> Halving means the capacity ratio \(r\) must satisfy \(r^{k} = 1/2\). Take logs and solve for \(\log_2 r\), the number of doublings.<div class="math chain"><span>\(\displaystyle k \log_2 r = \log_2 \frac{1}{2} = -1 \)</span><span>\(\displaystyle \Rightarrow\ \log_2 r = \frac{-1}{-0.4648} \)</span><span>\(\displaystyle \approx 2.151\ \text{doublings} \)</span></div><div class="math chain"><span>\(\displaystyle C = 2048\ \text{KiB} \times 2^{2.151} \)</span><span>\(\displaystyle \approx 2048\ \text{KiB} \times 4.443 \)</span><span>\(\displaystyle \approx \mathbf{9099}\ \textbf{KiB} \approx \mathbf{8.9}\ \textbf{MiB} \)</span></div>About 4.4× the capacity for half the misses. That is the core economics of cache sizing: each halving of misses costs a constant factor in area, so returns diminish fast.</li><li><strong>What could break the fit.</strong> A power law fitted from two points assumes the curve stays straight. Real miss curves have knees where a working set starts to fit. If the workload's hot set is, say, 6 MiB, the miss rate drops sharply near that size and the prediction for 8.9 MiB is pessimistic. Below 2 MiB nothing changes. In the other direction, compulsory misses put a floor under the curve that a power law ignores, which makes a far extrapolation optimistic. So the extrapolation is a first estimate to be checked against a third measured size.</li></ol>`
       }
     ]
   }
