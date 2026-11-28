@@ -25,12 +25,16 @@ section({
 <a href="#/math-geom/infinite"><span class="nm">Infinite Geometric Series</span><span class="f">\(\displaystyle\sum_{k=0}^{\infty} a r^k = \frac{a}{1 - r},\ |r| < 1\)</span></a>
 <a href="#/math-geom/kxk"><span class="nm">Sum of k Times x to the k</span><span class="f">\(\displaystyle\sum_{k=0}^{\infty} k\,x^k = \frac{x}{(1 - x)^2}\)</span></a>
 <a href="#/math-geom/expect"><span class="nm">Expected Tries Until Success</span><span class="f">\(E[\text{tries}] = \dfrac{1}{p}\)</span></a>
+<a href="#/math-harm/area"><span class="nm">Harmonic Number Bounds</span><span class="f">\(\ln(n+1) \le H_n \le 1 + \ln n\)</span></a>
+<a href="#/math-harm/gamma"><span class="nm">Harmonic Number Estimate</span><span class="f">\(H_n \approx \ln n + \gamma + \dfrac{1}{2n},\ \gamma \approx 0.5772\)</span></a>
+<a href="#/math-harm/collector"><span class="nm">Coupon Collector</span><span class="f">\(E[\text{draws to see all } n] = n\,H_n \approx n \ln n\)</span></a>
 </div>
 
 <h3 id="sec-pages-fit-together">How the Pages Fit Together</h3>
 <ul>
 <li><a href="#/math-arith">Arithmetic Series</a>: Gauss's pairing argument, the average term, counting pairs, sums of higher powers, and the quadratic costs they explain (age matrices, rename dependency checks, same-bank queues, triangular loops).</li>
 <li><a href="#/math-geom">Geometric Series</a>: the finite and infinite sums by shift and subtract, why one term sets the scale, the sum of \(k\,x^k\), expected tries until success, and the retries, backoff, moving averages, and lookahead limits built on them.</li>
+<li><a href="#/math-harm">Harmonic Numbers</a>: why \(1 + \tfrac12 + \tfrac13 + \cdots\) diverges, bounds from the area under \(1/x\), the constant \(\gamma\) and the \(1/(2n)\) correction, the coupon collector's \(n\,H_n\), and Zipf hit rates that gain a constant per doubling.</li>
 </ul>
 `,
   practice: {
@@ -237,6 +241,104 @@ section({
       {
         q: String.raw`<p>Threads contending for a lock use capped exponential backoff between attempts. What is the expected total backoff time before a thread gets the lock, and what would happen without the cap?</p><p>Given:</p><ul><li>Each attempt (an atomic exchange on the lock's cache line) succeeds with probability 0.4, independently of other attempts</li><li>Failures are numbered \(j = 0, 1, 2, \ldots\) in order, and after failure \(j\) the thread waits \(64 \times 2^{j}\) cycles before its next attempt</li><li>The wait is capped at 4096 cycles, which is first reached after failure 6</li><li>Count only the backoff waits, not the time spent in the attempts themselves</li></ul>`,
         a: String.raw`<ol class="steps"><li><strong>When does each wait happen?</strong> The wait after failure \(j\) happens only if the first \(j + 1\) attempts all fail, which has probability \(0.6^{j+1}\) with failure probability \(1 - 0.4 = 0.6\). By linearity, the expected total wait is the sum of each wait times the chance it happens.<div class="math chain"><span>\(\displaystyle E[\text{wait}] = \sum_{j=0}^{\infty} 0.6^{j+1} \times w_j \)</span></div></li><li><strong>The doubling part, failures 0 to 6.</strong> Here \(w_j = 64 \times 2^j\) cycles. The factors combine into a geometric series with ratio \(2 \times 0.6 = 1.2\) and 7 terms.<div class="math chain"><span>\(\displaystyle W_{\text{double}} = \sum_{j=0}^{6} 0.6^{j+1} \times 64 \times 2^{j}\ \text{cycles} \)</span><span>\(\displaystyle = 64\ \text{cycles} \times 0.6 \times \sum_{j=0}^{6} 1.2^{j} \)</span><span>\(\displaystyle = 38.4\ \text{cycles} \times \frac{1.2^{7} - 1}{1.2 - 1} \)</span><span>\(\displaystyle \approx 38.4\ \text{cycles} \times 12.916 \)</span><span>\(\displaystyle \approx 496.0\ \text{cycles} \)</span></div></li><li><strong>The capped part, failures 7 and up.</strong> Here every wait is 4096 cycles, and the probabilities form an infinite geometric series with ratio 0.6 that starts at \(0.6^{8}\).<div class="math chain"><span>\(\displaystyle W_{\text{cap}} = \sum_{j=7}^{\infty} 0.6^{j+1} \times 4096\ \text{cycles} \)</span><span>\(\displaystyle = 4096\ \text{cycles} \times \frac{0.6^{8}}{1 - 0.6} \)</span><span>\(\displaystyle \approx 172.0\ \text{cycles} \)</span></div></li><li><strong>Total.</strong><div class="math chain"><span>\(\displaystyle E[\text{wait}] = W_{\text{double}} + W_{\text{cap}} \)</span><span>\(\displaystyle \approx 496.0\ \text{cycles} + 172.0\ \text{cycles} \)</span><span>\(\displaystyle \approx \mathbf{668}\ \textbf{cycles} \)</span></div>The expected number of attempts is \(1/0.4 = 2.5\), so a thread also sends about 2.5 requests for ownership of the lock line per acquisition.</li><li><strong>Without the cap.</strong> Every term would be \(38.4\ \text{cycles} \times 1.2^{j}\), a geometric series with ratio 1.2. The terms grow, so the sum diverges and the <strong>expected wait is infinite</strong>, even though the expected number of attempts is still only 2.5. Long failure streaks are rare, but each extra failure doubles the wait while making the streak only 0.6 times as likely, so the rare streaks dominate. Doubling backoff has a finite mean only when the failure probability is below 1/2 (ratio \(2 \times (1-p) < 1\)). Under heavy contention failures are common, so the cap is what keeps the mean finite and bounds the worst-case delay. The cost is that a capped thread may notice a released lock up to 4096 cycles late.</li></ol>`
+      }
+    ]
+  }
+},
+{
+  id: "math-harm",
+  region: "mser",
+  title: "Harmonic Numbers",
+  sections: [
+    { id: "def", label: "What the Harmonic Numbers Are" },
+    { id: "diverge", label: "Why the Sum Never Stops Growing" },
+    { id: "area", label: "Bounds From the Area Under 1/x" },
+    { id: "gamma", label: "The Euler-Mascheroni Constant" },
+    { id: "collector", label: "Waiting for the Last New Item" },
+    { id: "zipf", label: "Zipf Popularity and Hit Rates" },
+    { id: "uses", label: "Where It Shows Up" },
+    { id: "traps", label: "Common Traps" }
+  ],
+  body: String.raw`
+<p>The harmonic series adds \(1, \tfrac12, \tfrac13, \tfrac14, \ldots\). Its terms shrink toward 0, yet the sum grows without bound, only very slowly: it tracks the natural logarithm, \(H_n \approx \ln n + 0.5772\). That slow, logarithmic growth is exactly the shape of several architecture questions. How long until every set of a cache has been touched? How much hit rate does a bigger cache buy when popularity follows a power law? How often does a running maximum change? Each answer is a harmonic number.</p>
+
+<h3 id="sec-def">What the Harmonic Numbers Are</h3>
+<p>The \(n\)-th harmonic number is the sum of the first \(n\) reciprocals. The index starts at 1 here, since \(1/0\) has no value.</p>
+<div class="math chain"><span>\(\displaystyle H_n = \sum_{k=1}^{n} \frac{1}{k} \)</span><span>\(\displaystyle = 1 + \frac{1}{2} + \frac{1}{3} + \cdots + \frac{1}{n} \)</span></div>
+<p>The first few are \(H_1 = 1\), \(H_2 = 1.5\), \(H_4 \approx 2.083\), and \(H_{10} \approx 2.929\). After that they climb very slowly: \(H_{1000} \approx 7.49\) and \(H_{1{,}000{,}000} \approx 14.39\). Multiplying \(n\) by 1000 adds only about 6.9, which is \(\ln 1000\). The rest of the page explains why.</p>
+
+<h3 id="sec-diverge">Why the Sum Never Stops Growing</h3>
+<p>Shrinking terms do not guarantee a finite sum. Group the terms in blocks that end at powers of two (Oresme's argument, from the 1300s). The block from \(1/(2^j + 1)\) to \(1/2^{j+1}\) has \(2^j\) terms, and each is at least the last one, \(1/2^{j+1}\). So each block adds at least \(1/2\).</p>
+<div class="math chain"><span>\(\displaystyle H_{2^m} = 1 + \frac12 + \left(\frac13 + \frac14\right) + \left(\frac15 + \cdots + \frac18\right) + \cdots \)</span><span>\(\displaystyle \ge 1 + \frac12 + \frac12 + \frac12 + \cdots \)</span><span>\(\displaystyle = 1 + \frac{m}{2} \)</span></div>
+<p>Since \(m\) can be as large as you like, so can \(H_n\). The argument also shows the growth rate: doubling \(n\) adds roughly a constant, and "a constant per doubling" is what a logarithm does. Compare a geometric series, whose terms shrink by a fixed ratio and whose sum stays finite. The harmonic terms shrink, but too slowly.</p>
+
+<h3 id="sec-area">Bounds From the Area Under 1/x</h3>
+<p>From <a href="#/math-log/ln">The Natural Log and the Area Under 1/x</a>, \(\ln n = \int_1^n dx/x\). Draw the curve \(1/x\) and a rectangle of height \(1/k\) and width 1 for each term. Placing the rectangles in two ways traps the sum between two areas.</p>
+<p><strong>Lower bound.</strong> Put rectangle \(k\) over the interval \([k, k+1]\). There the curve is below \(1/k\), so each rectangle covers the area under the curve on its interval, and the rectangles for \(k = 1\) to \(n\) cover the area from 1 to \(n+1\).</p>
+<div class="math chain"><span>\(\displaystyle \frac{1}{k} \ge \int_k^{k+1} \frac{dx}{x} \)</span><span>\(\displaystyle \Rightarrow\ H_n \ge \int_1^{n+1} \frac{dx}{x} = \ln(n+1) \)</span></div>
+<p><strong>Upper bound.</strong> Put rectangle \(k\) over \([k-1, k]\) instead. There the curve is above \(1/k\), so for \(k \ge 2\) each rectangle fits under the curve. Term \(k = 1\) is left over.</p>
+<div class="math chain"><span>\(\displaystyle \frac{1}{k} \le \int_{k-1}^{k} \frac{dx}{x} \)</span><span>\(\displaystyle \Rightarrow\ H_n \le 1 + \int_1^{n} \frac{dx}{x} = 1 + \ln n \)</span></div>
+<div class="math chain"><span>\(\displaystyle \ln(n+1) \le H_n \le 1 + \ln n \)</span></div>
+<p>The two bounds differ by less than 1 for every \(n\), so \(H_n\) grows exactly like \(\ln n\), and the base of the log has to be \(e\). This "compare a sum with an integral" move works for any sum of a decreasing function, and it is the most useful single trick for estimating sums.</p>
+
+<h3 id="sec-gamma">The Euler-Mascheroni Constant</h3>
+<p>The bounds leave a gap of up to 1. The gap closes because \(H_n - \ln n\) settles on a constant. Call the difference \(d_n\).</p>
+<p><strong>It decreases.</strong> Going from \(n\) to \(n + 1\) adds \(1/(n+1)\) to \(H_n\) but adds \(\int_n^{n+1} dx/x\) to \(\ln n\). On that interval \(1/x > 1/(n+1)\), so the log grows by more.</p>
+<div class="math chain"><span>\(\displaystyle d_n - d_{n+1} = \int_n^{n+1} \frac{dx}{x} - \frac{1}{n+1} \)</span><span>\(\displaystyle > 0 \)</span></div>
+<p><strong>It stays positive.</strong> From the lower bound, \(d_n \ge \ln(n+1) - \ln n > 0\). A decreasing sequence that stays above 0 must converge, and the limit is the <strong>Euler-Mascheroni constant</strong>.</p>
+<div class="math chain"><span>\(\displaystyle \gamma = \lim_{n\to\infty} \left(H_n - \ln n\right) \)</span><span>\(\displaystyle = 0.5772156649\ldots \)</span></div>
+<p><strong>What \(\gamma\) is, as a picture.</strong> In the lower-bound picture, each rectangle sticks out above the curve by a thin curved sliver. \(\gamma\) is the total area of all the slivers. Each sliver is nearly a right triangle of width 1 and height \(1/k - 1/(k+1)\), and those triangle areas telescope (see the Telescoping Sums page) to \(\tfrac12(1 - \tfrac{1}{n+1}) \to \tfrac12\). The curve bends, so the slivers are a little fatter than triangles, which is why \(\gamma\) is 0.577 rather than 0.5.</p>
+<p><strong>The \(1/(2n)\) correction.</strong> The same triangles estimate the slivers that are missing after the first \(n\) terms: they add to about \(\tfrac{1}{2(n+1)}\). So \(H_n \approx \ln(n+1) + \gamma - \tfrac{1}{2(n+1)}\). Using \(\ln(n+1) \approx \ln n + \tfrac1n\) from <a href="#/math-approx/linear">First-Order Approximations</a> turns that into the standard form, whose error shrinks like \(1/(12 n^2)\).</p>
+<div class="math chain"><span>\(\displaystyle H_n \approx \ln n + \gamma + \frac{1}{2n} \)</span></div>
+<div class="tbl"><table>
+<tr><th>\(n\)</th><th>\(H_n\)</th><th>\(\ln n + \gamma\)</th><th>\(\ln n + \gamma + \frac{1}{2n}\)</th></tr>
+<tr><td>2</td><td>1.500000</td><td>1.270363</td><td>1.520363</td></tr>
+<tr><td>10</td><td>2.928968</td><td>2.879801</td><td>2.929801</td></tr>
+<tr><td>100</td><td>5.187378</td><td>5.182386</td><td>5.187386</td></tr>
+<tr><td>1000</td><td>7.485471</td><td>7.484971</td><td>7.485471</td></tr>
+</table></div>
+<p>Without the correction, \(\ln n + \gamma\) is already within 0.1% at \(n = 100\). With it, the estimate is good to about six digits by \(n = 1000\).</p>
+
+<h3 id="sec-collector">Waiting for the Last New Item</h3>
+<p>Draw uniformly at random from \(n\) items, with replacement, until every item has appeared at least once. This is the <strong>coupon collector</strong> problem. Split the wait into stages: stage \(i\) starts when \(i\) distinct items have been seen and ends at the next new one. During stage \(i\), each draw is new with probability \((n-i)/n\), and by <a href="#/math-geom/expect">Expected Number of Tries</a> the stage lasts \(n/(n-i)\) draws on average. Add the stages (linearity of expectation) and reverse the order of the terms.</p>
+<div class="math chain"><span>\(\displaystyle E[\text{draws}] = \sum_{i=0}^{n-1} \frac{n}{n - i} \)</span><span>\(\displaystyle = n \left(\frac{1}{n} + \frac{1}{n-1} + \cdots + \frac{1}{1}\right) \)</span><span>\(\displaystyle = n\, H_n \approx n \ln n \)</span></div>
+<p>For 64 items that is \(64 \times H_{64} \approx 303.6\) draws, almost 5 per item. The cost is all at the end. The first half of the items arrive in about \(n \ln 2 \approx 0.69\,n\) draws, and the very last item alone takes \(n\) draws on average. The probability region adds the spread around this mean.</p>
+
+<h3 id="sec-zipf">Zipf Popularity and Hit Rates</h3>
+<p>Many reference streams have a few very popular items and a long tail. A common model is <strong>Zipf's law</strong> with exponent 1: the item of popularity rank \(r\) (rank 1 the most popular) is referenced with probability proportional to \(1/r\). With \(N\) items, the probabilities must add to 1, so the normalizing constant is \(H_N\).</p>
+<div class="math chain"><span>\(\displaystyle P(\text{rank } r) = \frac{1/r}{H_N} \)</span></div>
+<p>A cache that holds the \(k\) most popular items (the best any policy can do when references are independent) hits on ranks 1 to \(k\).</p>
+<div class="math chain"><span>\(\displaystyle \text{hit rate} = \frac{H_k}{H_N} \)</span><span>\(\displaystyle \approx \frac{\ln k + \gamma}{\ln N + \gamma} \)</span></div>
+<p>Two consequences follow. First, a small cache does well: holding 1000 of 100,000 objects (1%) gives \(H_{1000}/H_{100{,}000} \approx 7.485/12.090 \approx 62\%\). Second, growth is logarithmic: each doubling of \(k\) adds the same \(\ln 2 / H_N\) to the hit rate, about 5.7 points here, however big the cache already is. That is the familiar "miss rate falls by a constant step per doubling" curve, and it is why the last few points of hit rate are so expensive.</p>
+
+<h3 id="sec-uses">Where It Shows Up</h3>
+<ul>
+<li><strong>Warm-up and coverage.</strong> When accesses spread randomly over \(n\) sets, banks, or predictor entries, touching all of them takes about \(n \ln n\) accesses, not \(n\). Sampled simulation (SMARTS, SimPoint) has to budget warm-up for this tail, and a "touch every set" test pattern should walk the sets in order rather than pick them at random.</li>
+<li><strong>Cache and TLB sizing under skewed popularity.</strong> With Zipf-like reuse, hit rate grows by a constant per doubling of capacity, which shapes LLC, TLB, and key-value cache sizing curves.</li>
+<li><strong>Running maxima and minima.</strong> In a stream of \(n\) independent, identically distributed values with no ties, value \(k\) is a new maximum with probability \(1/k\), so the expected number of updates is \(H_n\). A max-latency register in a performance monitor, or "best result so far" in a random design-space search, changes only about \(\ln n\) times.</li>
+<li><strong>Sorting and search costs.</strong> Randomized quicksort makes \(2(n+1)H_n - 4n \approx 2n \ln n\) comparisons on average, because elements \(i\) and \(j\) are compared exactly when one of them is the first pivot chosen from the \(|i - j| + 1\) values between them, which happens with probability \(2/(|i - j| + 1)\).</li>
+</ul>
+
+<h3 id="sec-traps">Common Traps</h3>
+<ul>
+<li><strong>Which log.</strong> \(H_n \approx \ln n + \gamma\) uses the natural log. Using \(\log_2 n\) overestimates by a factor of 1.44.</li>
+<li><strong>Dropping \(\gamma\).</strong> \(\ln n\) alone is 0.58 low. That is 11% low at \(n = 100\), and the error matters most in ratios such as \(H_k / H_N\) for small \(k\).</li>
+<li><strong>Harmonic series and harmonic mean are different things.</strong> The harmonic mean of rates (the right way to average IPC or bandwidth over equal work) is \(n / \sum (1/x_i)\). It shares the reciprocals and nothing else.</li>
+<li><strong>Not every reciprocal sum diverges.</strong> \(\sum 1/k^2\) converges, to \(\pi^2/6 \approx 1.645\), and \(\sum 1/k^p\) converges for every \(p > 1\). Zipf with exponent above 1 therefore has a finite total even for infinitely many items, and its hit-rate curve saturates.</li>
+<li><strong>Coupon collector needs uniform, independent draws.</strong> Skewed access patterns touch the popular sets quickly and the rare ones very slowly, so the real warm-up can be far longer than \(n \ln n\).</li>
+</ul>
+`,
+  practice: {
+    guided: [
+      {
+        q: String.raw`<p>After a context switch, a new process's accesses spread over the sets of a private L2 cache. How many accesses until every set has received at least one, and how many until half of them have?</p><p>Given:</p><ul><li>L2: 1 MiB, 8-way set associative, 64 B lines</li><li>Each access lands on a set chosen uniformly at random, independently of every other access</li><li>\"Half of them\" means 1024 distinct sets have received at least one access</li><li>\(H_n \approx \ln n + \gamma + \tfrac{1}{2n}\), with \(\gamma \approx 0.5772\)</li><li>\(\ln 2 \approx 0.693147\)</li></ul>`,
+        a: String.raw`<ol class="steps"><li><strong>Count the sets.</strong> The capacity divided by the bytes per set (ways times line size) gives the set count.<div class="math chain"><span>\(\displaystyle n = \frac{1{,}048{,}576\ \text{B}}{8\ \text{ways} \times 64\ \text{B/way}} \)</span><span>\(\displaystyle = 2048\ \text{sets} \)</span></div></li><li><strong>Split into stages.</strong> Once \(i\) sets have been touched, each access hits a new set with probability \((2048 - i)/2048\). The stage waits for one success, so by the expected-tries result it takes \(2048/(2048 - i)\) accesses on average.<div class="math chain"><span>\(\displaystyle E[\text{stage } i] = \frac{2048\ \text{sets}}{(2048 - i)\ \text{sets}}\ \text{accesses} \)</span></div></li><li><strong>All sets.</strong> Add stages 0 to 2047. Reversed, the denominators run from 1 to 2048, which gives \(2048\, H_{2048}\). Note \(\ln 2048 = 11 \ln 2\).<div class="math chain"><span>\(\displaystyle H_{2048} \approx 11 \times 0.693147 + 0.5772 + \frac{1}{4096} \)</span><span>\(\displaystyle \approx 8.20206 \)</span></div><div class="math chain"><span>\(\displaystyle E[\text{all}] = 2048\ \text{accesses} \times H_{2048} \)</span><span>\(\displaystyle \approx \mathbf{16{,}798}\ \textbf{accesses} \)</span></div></li><li><strong>Half the sets.</strong> Stages 0 to 1023 have denominators from 2048 down to 1025, so their sum is \(2048\,(H_{2048} - H_{1024})\). In the difference, \(\gamma\) cancels and the logs leave \(\ln 2\).<div class="math chain"><span>\(\displaystyle H_{2048} - H_{1024} \approx 0.693147 + \frac{1}{4096} - \frac{1}{2048} \)</span><span>\(\displaystyle \approx 0.692903 \)</span></div><div class="math chain"><span>\(\displaystyle E[\text{half}] = 2048\ \text{accesses} \times \left(H_{2048} - H_{1024}\right) \)</span><span>\(\displaystyle \approx \mathbf{1419}\ \textbf{accesses} \)</span></div></li><li><strong>Read the result.</strong> Touching half the sets takes about 0.69 accesses per set, and the second half takes about \(16{,}798 - 1419 = 15{,}379\) accesses, more than 10 times as many. The last set alone takes 2048 accesses on average. A simulator that warms the L2 with a fixed budget of "one access per set" leaves most of the cache cold in this model.</li></ol>`
+      }
+    ],
+    interview: [
+      {
+        q: String.raw`<p>A process's page references follow a Zipf distribution, and its second-level TLB is modeled as always holding the most popular pages. What hit rate does the TLB reach, how many entries would 90% take, and how much does each doubling of entries add?</p><p>Given:</p><ul><li>Footprint: \(2^{20}\) pages of 4 KiB (4 GiB)</li><li>The page of popularity rank \(r\) (\(r = 1\) the most popular) is referenced with probability proportional to \(1/r\)</li><li>References are independent of one another</li><li>Second-level TLB: 3072 entries, always holding the 3072 most popular pages, with every miss in the first-level TLB looked up there</li><li>Count a hit as a reference whose page is in the second-level TLB, ignoring the first-level TLB</li><li>\(H_n \approx \ln n + \gamma + \tfrac{1}{2n}\), with \(\gamma \approx 0.5772\)</li><li>\(\ln 2 \approx 0.693147\) and \(\ln 3 \approx 1.098612\)</li></ul>`,
+        a: String.raw`<ol class="steps"><li><strong>Hit rate as a ratio of harmonic numbers.</strong> Each rank's probability is \((1/r)/H_N\), where \(H_N\) makes the probabilities sum to 1. The TLB covers ranks 1 to 3072.<div class="math chain"><span>\(\displaystyle \text{hit rate} = \sum_{r=1}^{3072} \frac{1/r}{H_{2^{20}}} \)</span><span>\(\displaystyle = \frac{H_{3072}}{H_{2^{20}}} \)</span></div></li><li><strong>Evaluate both.</strong> Write \(3072 = 3 \times 2^{10}\), so \(\ln 3072 = \ln 3 + 10 \ln 2\). The \(1/(2n)\) term is about 0.00016 for 3072 and negligible for \(2^{20}\).<div class="math chain"><span>\(\displaystyle \ln 3072 = \ln 3 + 10 \ln 2 \)</span><span>\(\displaystyle \approx 1.098612 + 10 \times 0.693147 \)</span><span>\(\displaystyle \approx 8.030082 \)</span></div><div class="math chain"><span>\(\displaystyle H_{3072} \approx 8.030082 + 0.5772 + \frac{1}{6144} \)</span><span>\(\displaystyle \approx 8.6074 \)</span></div><div class="math chain"><span>\(\displaystyle H_{2^{20}} \approx 20 \times 0.693147 + 0.5772 \)</span><span>\(\displaystyle \approx 14.44014 \)</span></div><div class="math chain"><span>\(\displaystyle \text{hit rate} \approx \frac{8.6074}{14.44014} \)</span><span>\(\displaystyle \approx \mathbf{59.6\%} \)</span></div></li><li><strong>Entries for 90%.</strong> Solve \(H_k = 0.9\, H_{2^{20}}\) for \(k\), dropping the \(1/(2k)\) term because \(k\) will be large.<div class="math chain"><span>\(\displaystyle \ln k + 0.5772 = 0.9 \times H_{2^{20}} \)</span><span>\(\displaystyle \approx 0.9 \times 14.44014 \)</span><span>\(\displaystyle \Rightarrow\ \ln k \approx 12.4189 \)</span><span>\(\displaystyle \Rightarrow\ k \approx e^{12.4189} \)</span><span>\(\displaystyle \approx \mathbf{247{,}000}\ \textbf{entries} \)</span></div>That is about 80 times the 3072 entries, for 30 more points of hit rate, and it would map about 24% of the footprint.</li><li><strong>Gain per doubling.</strong> Doubling \(k\) raises \(\ln k\) by \(\ln 2\) and leaves \(H_{2^{20}}\) unchanged, so every doubling adds the same amount.<div class="math chain"><span>\(\displaystyle \Delta\,\text{hit rate} = \frac{0.693147}{14.44014} \)</span><span>\(\displaystyle \approx \mathbf{4.8}\ \textbf{points per doubling} \)</span></div></li><li><strong>What it means for design.</strong> Going from 3072 to 6144 entries buys only about 4.8 points, at roughly twice the area and a slower lookup. Under this kind of skew the better lever is reach per entry: 2 MiB pages cover 512 times as much memory per entry, and when popular 4 KiB pages sit near one another, one entry captures many ranks at once. The model is optimistic in two ways. Real replacement (LRU) does worse than "always the most popular," and real references are not independent, though locality in time usually helps a TLB more than this model credits.</li></ol>`
       }
     ]
   }
